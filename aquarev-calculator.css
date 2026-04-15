@@ -242,19 +242,22 @@
 /* ── Print: hide app, show report ── */
 #ar2-report{display:none;}
 @media print{
-  html{overflow:hidden!important;}
-  body{background:#fff!important;margin:0!important;padding:0!important;overflow:hidden!important;}
-  #ar2{display:none!important;}
-  #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;}
-  /* Hide chrome extensions and fixed overlays */
-  *[id*="hubspot"],*[class*="hubspot"],*[id*="HubSpot"],*[class*="HubSpot"],
-  iframe:not(#ar2-report iframe),object,embed,
-  div[style*="position: fixed"],div[style*="position:fixed"],
-  [style*="z-index: 2147483647"],[style*="z-index:2147483647"]{display:none!important;}
+  html,body{margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important;height:auto!important;width:auto!important;}
+  /* Hide everything by default */
+  body>*{display:none!important;}
+  /* Show #ar2-report by moving it to be a direct child of body via JS,
+     OR reveal the ancestor chain if it's nested in Webflow wrappers */
+  #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;margin:0!important;position:static!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
+  /* Ensure Webflow wrapper ancestors of #ar2-report are visible */
   #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh;display:flex!important;flex-direction:column;}
   #ar2-report .rpt .rpt-body{flex:1;padding:16px 28px 12px!important;}
   #ar2-report .rpt-foot{margin-top:auto!important;}
   .no-print{display:none!important;}
+  /* Hide chrome extensions and overlays */
+  *[id*="hubspot"],*[class*="hubspot"],*[id*="HubSpot"],*[class*="HubSpot"],
+  iframe:not(#ar2-report iframe),object,embed,
+  div[style*="position: fixed"],div[style*="position:fixed"],
+  [style*="z-index: 2147483647"],[style*="z-index:2147483647"]{display:none!important;}
   #ar2-report .rpt,#ar2-report .rpt *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-head,#ar2-report .rpt-kpis,#ar2-report .rpt-foot,#ar2-report .rpt-sbox,#ar2-report .rpt-stat,#ar2-report .rpt-tbl thead tr{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-sec{page-break-inside:avoid;}
@@ -265,11 +268,12 @@
   #ar2-report .rpt-factsheet-page,#ar2-report .rpt-factsheet-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-fs-kpi,#ar2-report .rpt-cert,#ar2-report .rpt-fs-cell{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-back-cover{page-break-before:always;break-before:page;}
-  #ar2-report .rpt-cover-page{page-break-after:always;break-after:page;max-width:none!important;width:100%!important;margin:0!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-cover-page{page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  #ar2-report .rpt-fs-img-page{page-break-before:always;break-before:page;width:100%!important;height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden;}
-  #ar2-report .rpt-fs-img-page img{width:100%;height:auto;max-height:100vh;object-fit:contain;display:block;}
-  #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;}
+  #ar2-report .rpt-fs-img-page{page-break-before:always;break-before:page;page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;}
+  #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;break-after:avoid;}
   #ar2-report .rpt a[href]{color:inherit;}
   #ar2-report .rpt-cta-bar a{color:#48cae4!important;text-decoration:none!important;}
   #ar2-report .rpt-media-wrap a{display:block;}

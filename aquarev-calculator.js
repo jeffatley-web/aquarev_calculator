@@ -1439,9 +1439,20 @@ function generateReport(){
   var savedStep=S.step; // Remember current step
   render();
 
-  // Hide app, show report for printing
-  var appEl=document.getElementById('ar2');
-  if(appEl)appEl.style.display='none';
+  // Hide ALL body children, then show only the report
+  var hiddenEls=[];
+  var bodyKids=document.body.children;
+  for(var bi=0;bi<bodyKids.length;bi++){
+    if(bodyKids[bi].id!=='ar2-report'&&bodyKids[bi].id!=='ar2-orient'){
+      hiddenEls.push({el:bodyKids[bi],prev:bodyKids[bi].style.cssText});
+      bodyKids[bi].style.cssText+='display:none!important;';
+    }
+  }
+
+  // Move #ar2-report to body root so it's a direct child
+  var rElParent=rEl.parentNode;
+  var rElNext=rEl.nextSibling;
+  document.body.appendChild(rEl);
   rEl.style.cssText='display:block;';
 
   // Wait for fonts AND all images to load before printing
@@ -1468,7 +1479,13 @@ function generateReport(){
           if(restored)return;
           restored=true;
           rEl.style.cssText='display:none;';
-          if(appEl)appEl.style.display='';
+          // Move report back to original position
+          if(rElNext)rElParent.insertBefore(rEl,rElNext);
+          else rElParent.appendChild(rEl);
+          // Restore all hidden body children
+          for(var ri=0;ri<hiddenEls.length;ri++){
+            hiddenEls[ri].el.style.cssText=hiddenEls[ri].prev;
+          }
           EX.exporting=false;
           EX.saving=false;
           S.step=savedStep;
