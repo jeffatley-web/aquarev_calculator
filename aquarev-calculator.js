@@ -60,6 +60,7 @@ var EX={
   exporting:false,
   saving:false,           // true while save is in progress
   saveStatus:null,        // null | 'saved' | 'error'
+  previewing:false,       // true while in-browser preview is active
 };
 
 /* ── View state ('form' | 'bank') ── */
@@ -129,6 +130,7 @@ function bankSaveReport(){
       monthly:R.total_mo, annual:R.total_yr,
       devices:R.total_dev, poolGallons:S.pool_gallons,
       payback:R.payback, inv:R.inv,
+      savingsWeight:S.savings_weight,
     },
     state:{
       bodies:S.bodies,
@@ -283,6 +285,7 @@ function renderBank(){
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+fc(s.annual,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.inv?fc(s.inv,0):'\u2014')+'</div></div>'
+          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.savingsWeight!=null?Math.round(s.savingsWeight*100)+'%':'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.devices||'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.poolGallons?fn(s.poolGallons):'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
@@ -331,7 +334,7 @@ function renderBank(){
 
     var listId='ar-bank-list-'+Date.now();
     var thead='<div class="ar-bank-thead" id="ar-bank-thead">'
-      +'<div>Property</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Devices</div><div>Volume</div><div>Payback</div><div></div>'
+      +'<div>Property</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div><div></div>'
     +'</div>';
     wrap.innerHTML='<div class="ar-bank-hero">'
       +'<div class="ar-bank-title">Saved Assessments <span>\u00b7 '+idx.length+'</span></div>'
@@ -599,8 +602,8 @@ function calcROI(){
   var gal_lost_mo=pool_sa*5.57;
   // annual_water_loss uses the separate ANNUAL_WATER_LOSS_RATE constant (0.1862)
   var annual_water_loss=G*0.1862;
-  var gal_saved_mo=gal_lost_mo*wlr;
-  var gal_saved_5yr=gal_saved_mo*12*5; // monthly × 12 months × 5 years
+  var gal_saved_mo=gal_lost_mo*wlr*W;
+  var gal_saved_5yr=gal_saved_mo*12*5; // monthly × 12 months × 5 years (savings_weight applied via gal_saved_mo)
   var water_cost_mo=gal_lost_mo*wc;
   var water_sav_mo=water_cost_mo*wlr; // NO savings_weight here — applied to total below
 
@@ -1161,6 +1164,12 @@ function generateReport(){
   var R=calcROI();
   var today=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
   var prop=S.propertyName||'Property Assessment';
+  // PDF filename preset: AquaRev_{PropertyName}_{YYYY-MM-DD}
+  var fnDate=new Date().toISOString().slice(0,10);
+  var fnProp=(S.propertyName||'Assessment').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'Assessment';
+  var pdfTitle='AquaRev_'+fnProp+'_'+fnDate;
+  var origDocTitle=document.title;
+  document.title=pdfTitle;
   var showAdv = EX.bothScenarios || EX.scenario==='advantage';
   var showPur = EX.bothScenarios || EX.scenario==='purchase';
 
@@ -1478,6 +1487,7 @@ function generateReport(){
         function restoreApp(){
           if(restored)return;
           restored=true;
+          document.title=origDocTitle;
           rEl.style.cssText='display:none;';
           // Move report back to original position
           if(rElNext)rElParent.insertBefore(rEl,rElNext);
@@ -1488,17 +1498,46 @@ function generateReport(){
           }
           EX.exporting=false;
           EX.saving=false;
+          EX.previewing=false;
           S.step=savedStep;
           render();
           window.scrollTo(0,0);
         }
-        window.addEventListener('afterprint',function onAfter(){
-          window.removeEventListener('afterprint',onAfter);
-          setTimeout(restoreApp,100);
-        });
-        window.print();
-        // Fallback timeout
-        setTimeout(function(){if(!restored)restoreApp();},3000);
+        if(EX.previewing){
+          // Add preview toolbar instead of printing
+          var tb=document.createElement('div');
+          tb.id='ar2-preview-toolbar';
+          tb.style.cssText='position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
+          tb.innerHTML='<button id="ar2-preview-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">\u2190 Return to Calculator</button>'
+            +'<div style="color:#fff;font-size:13px;font-weight:600">PDF Preview</div>'
+            +'<button id="ar2-preview-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Download PDF</button>';
+          document.body.appendChild(tb);
+          rEl.style.paddingTop='56px';
+          document.getElementById('ar2-preview-back').onclick=function(){
+            document.body.removeChild(tb);
+            rEl.style.paddingTop='';
+            restoreApp();
+          };
+          document.getElementById('ar2-preview-dl').onclick=function(){
+            document.body.removeChild(tb);
+            rEl.style.paddingTop='';
+            // Re-attach afterprint handler and trigger print
+            window.addEventListener('afterprint',function onAfter(){
+              window.removeEventListener('afterprint',onAfter);
+              setTimeout(restoreApp,100);
+            });
+            window.print();
+            setTimeout(function(){if(!restored)restoreApp();},3000);
+          };
+        } else {
+          window.addEventListener('afterprint',function onAfter(){
+            window.removeEventListener('afterprint',onAfter);
+            setTimeout(restoreApp,100);
+          });
+          window.print();
+          // Fallback timeout
+          setTimeout(function(){if(!restored)restoreApp();},3000);
+        }
       },500);
     });
   });
@@ -1550,7 +1589,8 @@ function renderExportSection(){
       +'</div>'
       :'')
 
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">'
+      +'<button class="ar-gen-btn" data-action="preview-report"'+(EX.exporting?' disabled':'')+' style="background:linear-gradient(135deg,#7ed6e8,#48cae4)">Preview</button>'
       +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download PDF</button>'
       +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--go),#f7c948)"'+(EX.saving?' disabled':'')+'>Save to Archive</button>'
     +'</div>'
@@ -1644,6 +1684,8 @@ function handleClick(e){
   // Generate report
   var genBtn=e.target.closest('[data-action="gen-report"]');
   if(genBtn){ generateReport(); return; }
+  var prevBtn=e.target.closest('[data-action="preview-report"]');
+  if(prevBtn){ EX.previewing=true; generateReport(); return; }
   // Save to Archive
   var saveBtn=e.target.closest('[data-action="save-report"]');
   if(saveBtn){ bankSaveReport(); return; }

@@ -494,14 +494,14 @@
 #ar2 .ar-bank-chk{display:flex;align-items:center;justify-content:center;width:32px;}
 #ar2 .ar-bank-chk input{width:15px;height:15px;accent-color:var(--t);cursor:pointer;margin:0;}
 /* Table header */
-#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(6,1fr) 140px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
-#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(6,1fr) 140px;}
+#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 140px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 140px;}
 #ar2 .ar-bank-thead>div:not(:first-child){text-align:right;}
 /* Row list */
 #ar2 .ar-bank-list{display:flex;flex-direction:column;gap:0;}
 /* Each record row */
-#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(6,1fr) 140px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
-#ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(6,1fr) 140px;}
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 140px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 140px;}
 #ar2 .ar-bank-card.selected{background:rgba(0,180,216,.06);}
 #ar2 .ar-bank-card:hover{background:rgba(0,180,216,.04);}
 #ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}
