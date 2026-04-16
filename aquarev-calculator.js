@@ -52,6 +52,7 @@ var EX={
   inclWater:true,         // include water loss 5yr section
   inclCover:false,        // include cover page
   inclFactSheet:false,    // include fact sheet
+  inclPoolProfiles:false, // include pool profiles page
   images:[],              // [{id, data, comment}]
   ytEntries:[],           // [{id, url, videoId, comment}]
   showYtDrawer:false,
@@ -65,6 +66,51 @@ var EX={
 
 /* ── View state ('form' | 'bank') ── */
 var VIEW='form';
+
+/* ── Archive session-unlock flag (in-memory only, resets on reload) ── */
+var ARCHIVE_UNLOCKED=false;
+var ARCHIVE_PASSCODE='1116';
+
+/* ── Archive passcode modal ── */
+function showArchivePasswordModal(onUnlock){
+  var existing=document.getElementById('ar2-pw-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-pw-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.75);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:10px">ARCHIVE ACCESS</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:16px">Enter the passcode to view saved assessments.</div>'
+    +'<input id="ar2-pw-input" type="password" inputmode="numeric" autocomplete="off" style="width:100%;background:rgba(0,0,0,.3);border:1px solid rgba(0,180,216,.3);color:#fff;padding:10px 12px;border-radius:6px;font-size:14px;font-family:\'JetBrains Mono\',monospace;letter-spacing:3px;margin-bottom:10px;box-sizing:border-box;outline:none" placeholder="\u2022\u2022\u2022\u2022" />'
+    +'<div id="ar2-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:12px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-pw-cancel" style="background:rgba(255,255,255,.08);color:#cfe2eb;border:1px solid rgba(255,255,255,.15);padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Cancel</button>'
+      +'<button id="ar2-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Unlock</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  var input=document.getElementById('ar2-pw-input');
+  var err=document.getElementById('ar2-pw-err');
+  var close=function(){if(m.parentNode)m.parentNode.removeChild(m);};
+  var submit=function(){
+    if(input.value===ARCHIVE_PASSCODE){
+      close();
+      onUnlock();
+    } else {
+      err.textContent='Incorrect passcode';
+      input.value='';
+      input.focus();
+    }
+  };
+  document.getElementById('ar2-pw-unlock').onclick=submit;
+  document.getElementById('ar2-pw-cancel').onclick=close;
+  input.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){e.preventDefault();submit();}
+    else if(e.key==='Escape'){close();}
+  });
+  m.addEventListener('click',function(e){if(e.target===m)close();});
+  setTimeout(function(){input.focus();},50);
+}
 
 /* ── YouTube helpers ── */
 function ytVideoId(url){
@@ -117,6 +163,50 @@ function bankGetIndex(){
 
 function bankSaveReport(){
   if(EX.saving)return;
+  // Check for duplicate property name in archive before saving
+  var targetName=(S.propertyName||'Unnamed Property').trim().toLowerCase();
+  bankGetIndex().then(function(idx){
+    var dupes=idx.filter(function(e){
+      return (e.propertyName||'').trim().toLowerCase()===targetName;
+    });
+    if(dupes.length===0){
+      bankSaveReportImpl(null);
+    } else {
+      showSaveChoiceModal(S.propertyName||'Unnamed Property', dupes.length,
+        function(){ bankSaveReportImpl(dupes.map(function(d){return d.id;})); }, // Update existing
+        function(){ bankSaveReportImpl(null); }                                   // Save as new
+        // Cancel: no-op
+      );
+    }
+  }).catch(function(){ bankSaveReportImpl(null); });
+}
+
+/* ── Duplicate-save choice modal ── */
+function showSaveChoiceModal(propName, dupCount, onUpdate, onSaveNew){
+  var existing=document.getElementById('ar2-save-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-save-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.75);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:10px">DUPLICATE ASSESSMENT</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:22px">An assessment named <strong style="color:#fff">"'+esc(propName)+'"</strong> '+(dupCount>1?'('+dupCount+' copies) ':'')+'already exists in your archive.<br><br>Update the existing entry, save a new copy, or cancel?</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'
+      +'<button id="ar2-sv-update" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Update Existing</button>'
+      +'<button id="ar2-sv-new" style="background:linear-gradient(135deg,#f0a500,#f7c948);color:#071628;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Save as New</button>'
+      +'<button id="ar2-sv-cancel" style="background:rgba(255,255,255,.08);color:#cfe2eb;border:1px solid rgba(255,255,255,.15);padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Cancel</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  var close=function(){if(m.parentNode)m.parentNode.removeChild(m);};
+  document.getElementById('ar2-sv-update').onclick=function(){close();onUpdate();};
+  document.getElementById('ar2-sv-new').onclick=function(){close();onSaveNew();};
+  document.getElementById('ar2-sv-cancel').onclick=close;
+  m.addEventListener('click',function(e){if(e.target===m)close();});
+}
+
+function bankSaveReportImpl(replaceIds){
+  if(EX.saving)return;
   EX.saving=true; EX.saveStatus=null; renderDevices();
   // Safety timeout — reset saving state if Promise never resolves
   setTimeout(function(){if(EX.saving){EX.saving=false;EX.saveStatus='error';renderDevices();}},10000);
@@ -135,7 +225,8 @@ function bankSaveReport(){
     state:{
       bodies:S.bodies,
       manualVolume:S.manualVolume, manualTotalGallons:S.manualTotalGallons,
-      manualChlorineGallons:S.manualChlorineGallons, manualCo2:S.manualCo2,
+      manualChlorineGallons:S.manualChlorineGallons, manualCo2:S.manualCo2, manualPoolCount:S.manualPoolCount,
+      devicesByPool:S.devicesByPool,
       pool_gallons:S.pool_gallons, chlorine_pool_gallons:S.chlorine_pool_gallons,
       co2_pool_gallons:S.co2_pool_gallons,
       water_cost_per_gal:S.water_cost_per_gal, water_loss_reduction:S.water_loss_reduction,
@@ -154,15 +245,27 @@ function bankSaveReport(){
     },
     ex:{
       scenario:EX.scenario, bothScenarios:EX.bothScenarios,
-      layout:EX.layout, inclWater:EX.inclWater, inclFactSheet:EX.inclFactSheet,
+      layout:EX.layout, inclWater:EX.inclWater, inclFactSheet:EX.inclFactSheet, inclPoolProfiles:EX.inclPoolProfiles,
       comments:EX.comments, ytEntries:EX.ytEntries,
     },
   };
   var entry={id:id, propertyName:snapshot.propertyName, savedAt:snapshot.savedAt, summary:snapshot.summary};
 
   window.storage.set(BANK_PFX+id, JSON.stringify(snapshot))
+    .then(function(){
+      // If updating, delete the old snapshot blobs first
+      if(replaceIds&&replaceIds.length){
+        return Promise.all(replaceIds.map(function(rid){
+          return window.storage.delete(BANK_PFX+rid).catch(function(){});
+        }));
+      }
+    })
     .then(function(){ return bankGetIndex(); })
     .then(function(idx){
+      // Remove old index entries if updating
+      if(replaceIds&&replaceIds.length){
+        idx=idx.filter(function(e){return replaceIds.indexOf(e.id)===-1;});
+      }
       idx.unshift(entry);
       return window.storage.set(BANK_IDX, JSON.stringify(idx));
     })
@@ -197,6 +300,7 @@ function bankRecall(snapshot){
   EX.layout=snapshot.ex.layout;
   EX.inclWater=snapshot.ex.inclWater;
   EX.inclFactSheet=snapshot.ex.inclFactSheet;
+  EX.inclPoolProfiles=!!snapshot.ex.inclPoolProfiles;
   EX.comments=snapshot.ex.comments;
   EX.ytEntries=snapshot.ex.ytEntries||[];
   EX.images=[];
@@ -257,7 +361,7 @@ function renderBank(){
       +'<div class="ar-bank-empty">'
         +I.bank
         +'<div style="font-size:15px;color:#fff;margin-bottom:8px">No saved assessments yet</div>'
-        +'Complete an assessment and click <strong style="color:var(--t)">Save to Archive</strong> to store it here.'
+        +'Complete an assessment and click <strong style="color:var(--t)">Archive</strong> to store it here.'
       +'</div>';
       return;
     }
@@ -432,14 +536,15 @@ function renderBank(){
 function resetApp(){
   S.step=0; S.activeTab='advantage';
   S.propertyName='';
-  S.bodies=[{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false}];
+  S.bodies=[{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];
+  S.devicesByPool=false;
   S.pool_gallons=0; S.chlorine_pool_gallons=0; S.co2_pool_gallons=0;
-  S.manualVolume=false; S.manualTotalGallons=''; S.manualChlorineGallons=''; S.manualCo2=false;
+  S.manualVolume=false; S.manualTotalGallons=''; S.manualChlorineGallons=''; S.manualCo2=false; S.manualPoolCount=1;
   S.pipe_2in=0; S.pipe_3in=0; S.pipe_4in=0; S.pipe_6in=0; S.pipe_8in=0; S.pipe_10in=0;
   S.discount=0; S.savings_weight=1;
   EX.images=[]; EX.ytEntries=[]; EX.comments='';
   EX.scenario='advantage'; EX.bothScenarios=true; EX.layout='portrait';
-  EX.inclCover=false; EX.inclWater=true; EX.inclFactSheet=false;
+  EX.inclCover=false; EX.inclWater=true; EX.inclFactSheet=false; EX.inclPoolProfiles=false;
   EX.saving=false; EX.saveStatus=null; EX.exporting=false;
   initDefaultYt();
   if(VIEW==='bank') showView('form');
@@ -503,11 +608,12 @@ var S={
   step:0, activeTab:'purchase',
   propertyName:'',
   // Bodies of water — inputMode: 'dimensions' | 'gallons', co2Use per pool (default false)
-  bodies:[{id:1, label:'Pool 1', poolType:'chlorine', inputMode:'dimensions', length:'', width:'', depth:'', manualGallons:'', co2Use:false}],
+  bodies:[{id:1, label:'Pool 1', poolType:'chlorine', inputMode:'dimensions', length:'', width:'', depth:'', manualGallons:'', co2Use:false, image:null, pipe_2in:0, pipe_3in:0, pipe_4in:0, pipe_6in:0, pipe_8in:0, pipe_10in:0}],
   // Derived from bodies (auto-synced via syncGallons)
   pool_gallons:0, chlorine_pool_gallons:0, co2_pool_gallons:0,
   // Manual volume override (when dimensions unavailable for all pools)
-  manualVolume:false, manualTotalGallons:'', manualChlorineGallons:'', manualCo2:false,
+  manualVolume:false, manualTotalGallons:'', manualChlorineGallons:'', manualCo2:false, manualPoolCount:1,
+  devicesByPool:false,
   // Pipe devices
   pipe_2in:0, pipe_3in:0, pipe_4in:0, pipe_6in:0, pipe_8in:0, pipe_10in:0,
   // Pricing
@@ -527,6 +633,30 @@ var S={
 
 /* ── Formatters ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── Image resize helper — reads a File, resizes to maxW, returns JPEG data URL ── */
+function resizeAndEncodeImage(file, maxW, quality, cb){
+  if(!file||!file.type||file.type.indexOf('image/')!==0){cb(null);return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      var ratio=Math.min(maxW/img.naturalWidth, 1);
+      var w=Math.round(img.naturalWidth*ratio);
+      var h=Math.round(img.naturalHeight*ratio);
+      var canvas=document.createElement('canvas');
+      canvas.width=w; canvas.height=h;
+      var ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      try{ cb(canvas.toDataURL('image/jpeg', quality||0.82)); }
+      catch(err){ cb(null); }
+    };
+    img.onerror=function(){cb(null);};
+    img.src=e.target.result;
+  };
+  reader.onerror=function(){cb(null);};
+  reader.readAsDataURL(file);
+}
 function fc(n,d){
   d=d==null?0:d;
   if(isNaN(n)||n==null)return '$0';
@@ -561,6 +691,18 @@ function syncGallons(){
   S.pool_gallons=Math.round(total);
   S.chlorine_pool_gallons=Math.round(chl);
   S.co2_pool_gallons=Math.round(co2);
+}
+// Sum body-level pipe counts into the aggregate S.pipe_* fields.
+// Only called when S.devicesByPool is true.
+function syncDevicesFromBodies(){
+  var sizes=['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'];
+  for(var si=0;si<sizes.length;si++){
+    var k=sizes[si], sum=0;
+    for(var bi=0;bi<S.bodies.length;bi++){
+      sum+=Number(S.bodies[bi][k])||0;
+    }
+    S[k]=sum;
+  }
 }
 // Patch just the gallons displays in step 1 without full re-render
 function patchBodyGallons(bodyId){
@@ -744,6 +886,34 @@ function renderStep0(){
         +'<span style="font-size:12px;color:var(--mu)">CO\u2082 pH system</span>'
         +'<div class="ar-sw-track'+(b.co2Use?' on':'')+'" data-co2-bid="'+b.id+'"><div class="ar-sw-thumb"></div></div>'
       +'</div>'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;margin-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
+        +'<span style="font-size:12px;color:var(--mu);flex-shrink:0">Pool Image</span>'
+        +(b.image
+          ?'<div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">'
+            +'<img src="'+b.image+'" style="width:56px;height:38px;object-fit:cover;border-radius:4px;border:1px solid rgba(0,180,216,.3)" />'
+            +'<button class="ar-img-btn" data-body-image-replace="'+b.id+'" title="Replace image">Replace</button>'
+            +'<button class="ar-img-btn danger" data-body-image-remove="'+b.id+'" title="Remove image">\u2715</button>'
+          +'</div>'
+          :'<button class="ar-img-btn" data-body-image-upload="'+b.id+'">'+I.camera+' Upload</button>'
+        )
+        +'<input type="file" accept="image/*" id="ar2-body-img-'+b.id+'" data-body-image-input="'+b.id+'" style="display:none" />'
+      +'</div>'
+      +(S.devicesByPool
+        ?'<div style="padding-top:10px;margin-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
+          +'<div style="font-size:11px;color:var(--mu);margin-bottom:6px;letter-spacing:0.5px">Devices \u2014 this pool</div>'
+          +'<div class="ar-bpipe-grid">'
+            +['2in','3in','4in','6in','8in','10in'].map(function(sz){
+              var key='pipe_'+sz;
+              var sizeLabel=sz.replace('in','"');
+              return '<div class="ar-bpipe-cell">'
+                +'<label class="ar-bpipe-lbl">'+sizeLabel+'</label>'
+                +'<input class="ar-bpipe-inp" type="number" min="0" step="1" data-bpipe="'+key+'" data-bid="'+b.id+'" value="'+(b[key]||0)+'" onfocus="this.select()" />'
+              +'</div>';
+            }).join('')
+          +'</div>'
+        +'</div>'
+        :''
+      )
     +'</div>';
   }).join('');
 
@@ -758,6 +928,11 @@ function renderStep0(){
           +'<input class="ar-inp" type="number" data-f="manualTotalGallons" value="'+esc(S.manualTotalGallons)+'" placeholder="Total gallons" /></div>'
         +'<div><label class="ar-lbl">Chlorine Pool Volume (gal)</label>'
           +'<input class="ar-inp" type="number" data-f="manualChlorineGallons" value="'+esc(S.manualChlorineGallons)+'" placeholder="Blank = all chlorine" /></div>'
+      +'</div>'
+      +'<div style="margin-top:10px">'
+        +'<label class="ar-lbl">Number of Pools</label>'
+        +'<input class="ar-inp" type="number" min="1" max="20" step="1" data-f="manualPoolCount" value="'+(S.manualPoolCount||1)+'" placeholder="1" style="max-width:120px" />'
+        +'<div style="font-size:10px;color:var(--mu);margin-top:4px">Used as the summary body count and applied per-pool on the Pool Profiles page.</div>'
       +'</div>'
       +'<details class="ar-co2-details" style="margin-top:10px"'+(S.manualCo2?' open':'')+'>'
         +'<summary>CO\u2082 pH control system in use'+(S.manualCo2?' \u2014 enabled':'')+'</summary>'
@@ -774,9 +949,16 @@ function renderStep0(){
       +'<label class="ar-lbl">Property Name</label>'
       +'<input class="ar-inp" type="text" data-f="propertyName" value="'+esc(S.propertyName)+'" placeholder="Client Property Name" autocomplete="organization" />'
     +'</div>'
+    // Devices by Pool toggle
+    +'<div class="ar-manual-lede" data-sw-s="devicesByPool" style="margin-bottom:12px">'
+      +'<span>'+(S.devicesByPool?'\u2714 Devices entered per pool':'Devices by Pool')+'<span style="font-size:10px;color:var(--mu);display:block;margin-top:2px;font-weight:400">'+(S.devicesByPool?'Totals computed from per-pool counts':'Toggle on to enter device counts per pool')+'</span></span>'
+      +'<div class="ar-sw-track'+(S.devicesByPool?' on':'')+'" style="pointer-events:none"><div class="ar-sw-thumb"></div></div>'
+    +'</div>'
     // Bodies of water
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
-      +'<div style="font-size:12px;font-weight:600;color:var(--tx)">Bodies of Water</div>'
+      +'<div style="font-size:12px;font-weight:600;color:var(--tx)">Bodies of Water'
+        +(S.manualVolume?' <span style="font-weight:500;color:var(--mu)">\u2002\u00b7\u2002'+(S.manualPoolCount||1)+' '+((S.manualPoolCount||1)===1?'pool':'pools')+' (manual)</span>':'')
+      +'</div>'
       +(S.manualVolume?'':'<button class="ar-btn ghost" data-action="add-body" style="font-size:12px;padding:6px 13px">+ Add Pool</button>')
     +'</div>'
     +(S.manualVolume?'':bodiesHtml)
@@ -801,23 +983,24 @@ function renderDevices(){
     var advTotal=S.pipe_2in*99+S.pipe_3in*99+S.pipe_4in*139+S.pipe_6in*329+S.pipe_8in*649+S.pipe_10in*1601.19;
     var pipeRows=PIPES.map(function(p){
       var qty=S[p.k];
-      return '<div class="ar-pipe-row'+(qty>0?' selected':'')+'" id="pr-'+p.k+'">'
+      var lockCls=S.devicesByPool?' locked':'';
+      return '<div class="ar-pipe-row'+(qty>0?' selected':'')+(S.devicesByPool?' locked':'')+'" id="pr-'+p.k+'">'
         +'<div class="ar-pipe-sz">'+p.sz+'</div>'
         +'<div class="ar-pipe-info">'
           +'<div class="ar-pipe-price">'+fc(p.price)+'</div>'
           +'<div class="ar-pipe-rate">Adv. Plan: '+fc(p.rate)+'/mo</div>'
         +'</div>'
         +'<div class="ar-qty">'
-          +'<button class="ar-qty-btn" data-pk="'+p.k+'" data-d="-1">\u2212</button>'
+          +'<button class="ar-qty-btn'+lockCls+'" data-pk="'+p.k+'" data-d="-1">\u2212</button>'
           +'<div class="ar-qty-n" id="qn-'+p.k+'">'+qty+'</div>'
-          +'<button class="ar-qty-btn" data-pk="'+p.k+'" data-d="1">+</button>'
+          +'<button class="ar-qty-btn'+lockCls+'" data-pk="'+p.k+'" data-d="1">+</button>'
         +'</div>'
       +'</div>';
     }).join('');
 
     el.innerHTML='<div class="ar-card ar-fu" style="animation-delay:.07s">'
-      +'<div class="ar-card-title">Return Pipe \u2014 Device Selection</div>'
-      +'<div style="font-size:12px;color:#3a6a80;margin-bottom:12px">One device per body of water, matched to its return pipe size.</div>'
+      +'<div class="ar-card-title">Return Pipe \u2014 Device Selection'+(S.devicesByPool?' <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">\u00b7 per-pool totals (read-only)</span>':'')+'</div>'
+      +'<div style="font-size:12px;color:#3a6a80;margin-bottom:12px">'+(S.devicesByPool?'Device totals are summed from each pool\u2019s entries. Adjust on pool cards.':'One device per body of water, matched to its return pipe size.')+'</div>'
       +'<div class="ar-pipe-grid">'+pipeRows+'</div>'
       +(hasDevices
         ?'<div class="ar-dev-total">'
@@ -1102,7 +1285,7 @@ function renderResults(){
     +'<span class="ar-badge">Lifetime Warranty</span>'
   +'</div>';
 
-  var disc='<div class="ar-disc" style="color:#4a7a90">Estimates based on lab-verified reduction rates (IAPMO R&T). Actual savings vary by site.</div>';
+  var disc='<div class="ar-disc" style="color:#4a7a90">This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>';
 
   el.innerHTML=kpi
     +'<div class="ar-card" style="padding:14px 14px 16px">'+tabs+advPanel+purPanel+'</div>'
@@ -1259,12 +1442,11 @@ function generateReport(){
   // Combined media for landscape layout
   var mediaHtml=imgHtml+ytHtml;
 
-  // Comments
+  // Comments (single line)
   var commHtml='';
   if(EX.comments.trim()){
-    var fmt=esc(EX.comments).replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');
     commHtml='<div class="rpt-sec"><div class="rpt-stitle">Comments</div>'
-      +'<div class="rpt-comments"><p>'+fmt+'</p></div></div>';
+      +'<div class="rpt-comments"><p>'+esc(EX.comments)+'</p></div></div>';
   }
 
   // Fact sheet pages (full-page CDN images)
@@ -1281,6 +1463,104 @@ function generateReport(){
       +'</div>';
   }
 
+  // ── Pool Profiles page (optional, portrait only) ──
+  var poolProfilesHtml='';
+  if(EX.inclPoolProfiles && EX.layout==='portrait'){
+    var wlr=Number(S.water_loss_reduction)||0;
+    var W=Number(S.savings_weight)||1;
+    var todayStr=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+    var propName=S.propertyName||'Property Assessment';
+    var cards='';
+    var totG=0, totSA=0, totSav=0, pageCount=0;
+
+    if(S.manualVolume){
+      // ── Manual mode: synthesize N cards from manualPoolCount, split evenly ──
+      var nPools=Math.max(1, Math.min(20, parseInt(S.manualPoolCount,10)||1));
+      var totalGal=Math.round(parseFloat(S.manualTotalGallons)||0);
+      var perPoolG=totalGal/nPools;
+      var perPoolSA=perPoolG>0?perPoolG/29.92:0;
+      var perPoolLoss=perPoolSA*5.57;
+      var perPoolSav=perPoolLoss*wlr*W;
+      var cardArr=[];
+      for(var mi=0;mi<nPools;mi++){
+        cardArr.push(
+          '<div class="rpt-pp-card">'
+          +'<div class="rpt-pp-img rpt-pp-img-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 15l-5-5-8 8"/></svg><div class="rpt-pp-img-empty-lbl">No image</div></div>'
+          +'<div class="rpt-pp-info">'
+            +'<div class="rpt-pp-head">'
+              +'<div class="rpt-pp-name">Pool '+(mi+1)+'</div>'
+              +'<span class="rpt-pp-pill" style="background:#64748b;color:#fff;border-color:#64748b">Manual Est.</span>'
+            +'</div>'
+            +'<div class="rpt-pp-rows">'
+              +'<div class="rpt-pp-row"><span class="k">Dimensions</span><span class="v">Manual total</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(perPoolG))+' gal</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Surface Area</span><span class="v">'+fn(Math.round(perPoolSA))+' sq ft</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Loss / mo</span><span class="v">'+fn(Math.round(perPoolLoss))+' gal</span></div>'
+              +'<div class="rpt-pp-row strong"><span class="k">Saved / mo</span><span class="v pos">'+fn(Math.round(perPoolSav))+' gal</span></div>'
+            +'</div>'
+          +'</div>'
+        +'</div>');
+      }
+      cards=cardArr.join('');
+      totG=totalGal;
+      totSA=totalGal>0?totalGal/29.92:0;
+      totSav=totSA*5.57*wlr*W;
+      pageCount=nPools;
+    } else if(S.bodies.length>0){
+      // ── Normal mode: one card per body ──
+      cards=S.bodies.map(function(b,idx){
+        var G=bodyGallons(b);
+        var sa=G>0?G/29.92:0;
+        var lossMo=sa*5.57;
+        var savMo=lossMo*wlr*W;
+        var dimLabel=(b.inputMode!=='gallons'&&b.length&&b.width&&b.depth)
+          ? (b.length+'\u2032 \u00d7 '+b.width+'\u2032 \u00d7 '+b.depth+'\u2032')
+          : 'Manual entry';
+        var typeLabel=b.poolType==='saltwater'?'Saltwater':'Chlorine';
+        var typeColor=b.poolType==='saltwater'?'#0891b2':'#00b4d8';
+        var co2Pill=b.co2Use?'<span class="rpt-pp-pill" style="background:#ecfeff;color:#0891b2;border-color:#a5f3fc">CO\u2082</span>':'';
+        var imgSlot=b.image
+          ? '<div class="rpt-pp-img"><img src="'+b.image+'" alt="" /></div>'
+          : '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 15l-5-5-8 8"/></svg><div class="rpt-pp-img-empty-lbl">No image</div></div>';
+        totG+=G; totSA+=sa; totSav+=savMo;
+        return '<div class="rpt-pp-card">'
+          +imgSlot
+          +'<div class="rpt-pp-info">'
+            +'<div class="rpt-pp-head">'
+              +'<div class="rpt-pp-name">'+esc(b.label||('Pool '+(idx+1)))+'</div>'
+              +'<span class="rpt-pp-pill" style="background:'+typeColor+';color:#fff;border-color:'+typeColor+'">'+typeLabel+'</span>'
+              +co2Pill
+            +'</div>'
+            +'<div class="rpt-pp-rows">'
+              +'<div class="rpt-pp-row"><span class="k">Dimensions</span><span class="v">'+dimLabel+'</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(G))+' gal</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Surface Area</span><span class="v">'+fn(Math.round(sa))+' sq ft</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Loss / mo</span><span class="v">'+fn(Math.round(lossMo))+' gal</span></div>'
+              +'<div class="rpt-pp-row strong"><span class="k">Saved / mo</span><span class="v pos">'+fn(Math.round(savMo))+' gal</span></div>'
+            +'</div>'
+          +'</div>'
+        +'</div>';
+      }).join('');
+      pageCount=S.bodies.length;
+    }
+
+    if(pageCount>0){
+      poolProfilesHtml='<div class="rpt-pp-page">'
+        +'<div class="rpt-pp-header">'
+          +'<div class="rpt-pp-title">POOL PROFILES</div>'
+          +'<div class="rpt-pp-sub">'+esc(propName)+' \u00b7 '+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
+        +'</div>'
+        +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
+        +'<div class="rpt-pp-summary">'
+          +'<span>Total volume: <strong>'+fn(Math.round(totG))+' gal</strong></span>'
+          +'<span>Surface: <strong>'+fn(Math.round(totSA))+' sq ft</strong></span>'
+          +'<span>Combined savings / mo: <strong>'+fn(Math.round(totSav))+' gal</strong></span>'
+          +'<span>5-yr: <strong>'+fn(Math.round(totSav*60))+' gal</strong></span>'
+        +'</div>'
+      +'</div>';
+    }
+  }
+
   // ── Water conservation stats ──
   var waterHtml='';
   if(EX.inclWater){
@@ -1291,11 +1571,6 @@ function generateReport(){
       +'</div>'
     +'</div>';
   }
-
-  var notesHtml='<div>'
-    +'<div class="rpt-stitle">Notes</div>'
-    +'<div class="rpt-notes"><div class="rpt-notes-lbl">Site observations\u2002·\u2002follow-up items</div></div>'
-  +'</div>';
 
   // ── Cover page — overlay text on CDN image ──
   var coverHtml='';
@@ -1364,7 +1639,7 @@ function generateReport(){
         ?'<div class="rpt-sec rpt-cols">'
           +'<div>'
             +'<div class="rpt-stitle">Purchase Options</div>'
-            +advBox+purBox
+            +purBox+advBox
           +'</div>'
           +'<div>'
             +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
@@ -1385,7 +1660,7 @@ function generateReport(){
         :'<div class="rpt-sec rpt-cols">'
           +'<div>'
             +'<div class="rpt-stitle">Purchase Options</div>'
-            +advBox+purBox
+            +purBox+advBox
           +'</div>'
           +'<div>'
             +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
@@ -1401,9 +1676,6 @@ function generateReport(){
         +'</div>'
         +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols">'+imgHtml+ytHtml+'</div>':'')
         +commHtml
-        +'<div class="rpt-sec">'
-          +notesHtml
-        +'</div>'
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
       )
 
@@ -1425,6 +1697,7 @@ function generateReport(){
     +'</div>'
 
   +'</div>' // end .rpt
+  +poolProfilesHtml
   +fsHtml;
 
   // ── Back Cover (portrait only) ──
@@ -1572,6 +1845,19 @@ function renderExportSection(){
         +'<div class="ar-toggle-row"><label>Include AquaRev Fact Sheet'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
           +'<div class="ar-sw-track'+(EX.inclFactSheet&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclFactSheet"><div class="ar-sw-thumb"></div></div>'
         +'</div>'
+        +(function(){
+          var hasImg=S.bodies.some(function(b){return !!b.image;});
+          // Manual mode: always allowed (uses synthetic N cards without images).
+          // Non-manual mode: require at least one uploaded image.
+          var needImage=!S.manualVolume && !hasImg;
+          var disabled=EX.layout==='landscape'||needImage;
+          var hint='';
+          if(EX.layout==='landscape') hint=' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>';
+          else if(needImage) hint=' <span style="font-size:10px;color:var(--mu)">(Upload at least one pool image)</span>';
+          return '<div class="ar-toggle-row"'+(disabled?' style="opacity:.5;pointer-events:none"':'')+'><label>Include Pool Profiles'+hint+'</label>'
+            +'<div class="ar-sw-track'+(EX.inclPoolProfiles&&!disabled?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
+          +'</div>';
+        })()
       +'</div>'
     +'</div>'
 
@@ -1580,19 +1866,19 @@ function renderExportSection(){
       +'<div class="ar-sw-track'+(EX.inclWater?' on':'')+'" data-ex-sw="inclWater"><div class="ar-sw-thumb"></div></div>'
     +'</div>'
 
-    // Comments (portrait only)
+    // Comments (portrait only) — single line, max 120 chars (one PDF row width)
     +(EX.layout==='portrait'
       ?'<div class="ar-export-field">'
         +'<label class="ar-export-field-lbl">Comments (Optional)</label>'
-        +'<textarea class="ar-textarea" id="ar2-comments" style="min-height:160px" placeholder="Add comments for the report...">'+esc(EX.comments)+'</textarea>'
-        +'<p class="ar-export-note">Appears below images in the PDF</p>'
+        +'<input class="ar-input" id="ar2-comments" type="text" maxlength="120" placeholder="Add a single-line comment for the report..." value="'+esc(EX.comments)+'" />'
+        +'<p class="ar-export-note">One line, up to 120 characters. Appears below images in the PDF.</p>'
       +'</div>'
       :'')
 
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">'
       +'<button class="ar-gen-btn" data-action="preview-report"'+(EX.exporting?' disabled':'')+' style="background:linear-gradient(135deg,#7ed6e8,#48cae4)">Preview</button>'
-      +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download PDF</button>'
-      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--go),#f7c948)"'+(EX.saving?' disabled':'')+'>Save to Archive</button>'
+      +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download</button>'
+      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--go),#f7c948)"'+(EX.saving?' disabled':'')+'>Archive</button>'
     +'</div>'
     +'<div class="ar-save-toast'+(EX.saveStatus?(' show'+(EX.saveStatus==='error'?' err':'')):'')+'">'+I.check+' '+(EX.saveStatus==='error'?'Save failed \u2014 try again':'Saved to Archive')+'</div>'
   +'</div>';
@@ -1602,6 +1888,8 @@ function patchResults(){renderResults();}
 
 /* ── Pipe qty update ── */
 function updatePipe(pipeKey,delta){
+  // When devices-by-pool is active, middle column is read-only
+  if(S.devicesByPool) return;
   var cur=S[pipeKey]||0;
   S[pipeKey]=Math.max(0,cur+delta);
   // Update qty display
@@ -1640,6 +1928,24 @@ function handleClick(e){
     }
     return;
   }
+  // Per-body image upload / replace — trigger hidden file input
+  var imgUp=e.target.closest('[data-body-image-upload],[data-body-image-replace]');
+  if(imgUp){
+    var uid=String(imgUp.dataset.bodyImageUpload||imgUp.dataset.bodyImageReplace);
+    var fi=document.getElementById('ar2-body-img-'+uid);
+    if(fi){ fi.value=''; fi.click(); }
+    return;
+  }
+  // Per-body image remove
+  var imgRm=e.target.closest('[data-body-image-remove]');
+  if(imgRm){
+    var rbid=String(imgRm.dataset.bodyImageRemove);
+    for(var rbi=0;rbi<S.bodies.length;rbi++){
+      if(String(S.bodies[rbi].id)===rbid){ S.bodies[rbi].image=null; break; }
+    }
+    renderForm();
+    return;
+  }
   // Per-body input mode toggle (Dimensions / Gallons)
   var modeBtn=e.target.closest('[data-set-mode]');
   if(modeBtn){
@@ -1653,11 +1959,16 @@ function handleClick(e){
     }
     return;
   }
-  // Manual volume override toggle
+  // Manual volume override toggle + Devices by Pool toggle (both use data-sw-s)
   var swSBtn=e.target.closest('[data-sw-s]');
   if(swSBtn){
-    S[swSBtn.dataset.swS]=!S[swSBtn.dataset.swS];
+    var swKey=swSBtn.dataset.swS;
+    S[swKey]=!S[swKey];
     syncGallons();
+    // If Devices by Pool just toggled ON, replace aggregates with per-pool sums
+    if(swKey==='devicesByPool' && S.devicesByPool){
+      syncDevicesFromBodies();
+    }
     renderForm(); renderNav(); patchResults();
     return;
   }
@@ -1704,9 +2015,14 @@ function handleClick(e){
   // Quick-add 4" device from empty state
   var qaBtn=e.target.closest('[data-action="quick-add-4in"]');
   if(qaBtn){ S.pipe_4in=(S.pipe_4in||0)+1; render(); return; }
-  // Toggle view: form ↔ bank
+  // Toggle view: form ↔ bank (password-gated first time per session)
   var viewBank=e.target.closest('[data-action="view-bank"]');
-  if(viewBank){ showView(VIEW==='bank'?'form':'bank'); return; }
+  if(viewBank){
+    if(VIEW==='bank'){ showView('form'); }
+    else if(ARCHIVE_UNLOCKED){ showView('bank'); }
+    else { showArchivePasswordModal(function(){ ARCHIVE_UNLOCKED=true; showView('bank'); }); }
+    return;
+  }
   var viewForm=e.target.closest('[data-action="view-form"]');
   if(viewForm){ showView('form'); return; }
   // Archive card actions
@@ -1746,7 +2062,7 @@ function handleClick(e){
   var addBtn=e.target.closest('[data-action="add-body"]');
   if(addBtn){
     var newId=Date.now();
-    S.bodies.push({id:newId, label:'Pool '+( S.bodies.length+1), poolType:'chlorine', inputMode:'dimensions', length:'', width:'', depth:'', manualGallons:'', co2Use:false});
+    S.bodies.push({id:newId, label:'Pool '+( S.bodies.length+1), poolType:'chlorine', inputMode:'dimensions', length:'', width:'', depth:'', manualGallons:'', co2Use:false, image:null, pipe_2in:0, pipe_3in:0, pipe_4in:0, pipe_6in:0, pipe_8in:0, pipe_10in:0});
     renderForm(); renderNav();
     return;
   }
@@ -1806,6 +2122,22 @@ function handleClick(e){
 
 function handleInput(e){
   var el=e.target;
+  // Per-body device count (devices by pool)
+  if(el.dataset&&el.dataset.bpipe){
+    var bpKey=el.dataset.bpipe;
+    var bpBid=String(el.dataset.bid);
+    var n=parseInt(el.value,10);
+    if(isNaN(n)||n<0) n=0;
+    for(var bpi=0;bpi<S.bodies.length;bpi++){
+      if(String(S.bodies[bpi].id)===bpBid){ S.bodies[bpi][bpKey]=n; break; }
+    }
+    if(S.devicesByPool){
+      syncDevicesFromBodies();
+      renderDevices();   // refresh middle column (totals + advantage monthly)
+      patchResults();
+    }
+    return;
+  }
   // Export section radio/checkbox inputs
   if(el.dataset.exRadio){ EX[el.dataset.exRadio]=el.value; renderDevices(); return; }
   if(el.dataset.exChk){ EX[el.dataset.exChk]=el.checked; renderResults(); return; }
@@ -1857,6 +2189,15 @@ function handleInput(e){
     syncGallons();
     var totEl=document.getElementById('ar2-total-gal');
     if(totEl) totEl.textContent=fn(S.pool_gallons)+' gal';
+    patchResults();
+    return;
+  }
+  // Manual pool count — clamp 1-20, update review/summary without full rerender
+  if(el.dataset.f==='manualPoolCount'){
+    var n=parseInt(el.value,10);
+    if(isNaN(n)||n<1) n=1;
+    if(n>20) n=20;
+    S.manualPoolCount=n;
     patchResults();
     return;
   }
@@ -1918,6 +2259,20 @@ function handleChange(e){
     var b=null;
     for(var i=0;i<S.bodies.length;i++){if(String(S.bodies[i].id)===bid){b=S.bodies[i];break;}}
     if(b){ b.type=el.value; syncGallons(); patchResults(); }
+  }
+  // Per-body image file input
+  if(el.dataset&&el.dataset.bodyImageInput){
+    var tgtBid=String(el.dataset.bodyImageInput);
+    var tgtFile=el.files&&el.files[0];
+    if(!tgtFile) return;
+    resizeAndEncodeImage(tgtFile, 600, 0.82, function(dataUrl){
+      if(!dataUrl){ alert('Could not read image. Please try a different file.'); return; }
+      for(var bi=0;bi<S.bodies.length;bi++){
+        if(String(S.bodies[bi].id)===tgtBid){ S.bodies[bi].image=dataUrl; break; }
+      }
+      renderForm();
+    });
+    return;
   }
 }
 
