@@ -1573,12 +1573,7 @@ function generateReport(){
           +'<div class="rpt-pp-sub">'+esc(propName)+' \u00b7 '+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
         +'</div>'
         +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
-        // ── CTA bar (same as Assessment page) ──
-        +'<div class="rpt-cta-bar">'
-          +'<span class="cta-label">AquaRev Reference Information</span>'
-          +'<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
-        +'</div>'
-        // ── Footer band (same as Assessment page) ──
+        // ── Footer band (spans full page width via negative margins) ──
         +'<div class="rpt-foot">'
           +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
           +'<div class="rpt-foot-info">'
