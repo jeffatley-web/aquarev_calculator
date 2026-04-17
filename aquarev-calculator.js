@@ -1361,7 +1361,9 @@ function generateReport(){
   // Pool rows
   var poolRows=S.bodies.map(function(b,i){
     var g=bodyGallons(b);
-    var dims=(b.length&&b.width&&b.depth)?b.length+'\u202f×\u202f'+b.width+'\u202f×\u202f'+b.depth+'\u00a0ft':'';
+    // Only surface dimensions when the pool is in dimensions mode — not gallons mode or manual.
+    var hasDims=b.inputMode!=='gallons' && b.length && b.width && b.depth;
+    var dims=hasDims?b.length+'\u202f\u00d7\u202f'+b.width+'\u202f\u00d7\u202f'+b.depth+'\u00a0ft':'';
     var sub=dims?'<span style="font-size:10px;color:#999;margin-left:6px">'+dims+'</span>':'';
     return '<div class="rpt-row">'
       +'<span class="k">'+esc(b.label)+'\u2002<em style="color:#999;font-size:10px">'+b.poolType+'</em>'+sub+'</span>'
@@ -1539,6 +1541,11 @@ function generateReport(){
         var typeLabel=b.poolType==='saltwater'?'Saltwater':'Chlorine';
         var typeColor=b.poolType==='saltwater'?'#0891b2':'#00b4d8';
         var co2Pill=b.co2Use?'<span class="rpt-pp-pill" style="background:#ecfeff;color:#0891b2;border-color:#a5f3fc">CO\u2082</span>':'';
+        // Dimensions row — only when pool uses dimensions input mode
+        var hasDims=b.inputMode!=='gallons' && b.length && b.width && b.depth;
+        var dimRow=hasDims
+          ? '<div class="rpt-pp-row"><span class="k">Dimensions</span><span class="v">'+b.length+'\u2032 \u00d7 '+b.width+'\u2032 \u00d7 '+b.depth+'\u2032</span></div>'
+          : '';
         var imgSlot=b.image
           ? '<div class="rpt-pp-img"><img src="'+b.image+'" alt="" /></div>'
           : '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 15l-5-5-8 8"/></svg><div class="rpt-pp-img-empty-lbl">No image</div></div>';
@@ -1554,6 +1561,7 @@ function generateReport(){
               +co2Pill
             +'</div>'
             +'<div class="rpt-pp-rows">'
+              +dimRow
               +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(G))+' gal</span></div>'
               +'<div class="rpt-pp-row"><span class="k">Devices</span><span class="v">'+poolDevStr+'</span></div>'
               +'<div class="rpt-pp-row"><span class="k">Purchase Price</span><span class="v">'+(poolPurch>0?fc(poolPurch,0):'\u2014')+'</span></div>'
