@@ -634,6 +634,25 @@ var S={
 /* ── Formatters ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+/* ── CDN image proxy — routes big marketing images through wsrv.nl for width-capping
+   and quality-compression. Reduces PDF exports from ~15 MB toward 2–4 MB.
+   w=1100 targets ~US-letter print resolution; q=72 is visually lossless for JPG. ── */
+function cdnProxy(url, maxW){
+  if(!url) return url;
+  var stripped=url.replace(/^https?:\/\//,'');
+  var w=maxW||1100;
+  return 'https://wsrv.nl/?url='+encodeURIComponent(stripped)+'&w='+w+'&q=72&output=jpg';
+}
+/* Build an <img> tag with a safety net: if wsrv.nl is unreachable, swap back to the
+   original URL so the PDF still renders (slightly larger but never broken). */
+function cdnImg(originalUrl, attrs, maxW){
+  var escOrig=originalUrl.replace(/'/g,"&#39;");
+  var extra=attrs||'';
+  return '<img src="'+cdnProxy(originalUrl,maxW)+'" '
+    +extra
+    +' onerror="if(!this.dataset.fallback){this.dataset.fallback=1;this.src=\''+escOrig+'\';}" />';
+}
+
 /* ── Image resize helper — reads a File, resizes to maxW, returns JPEG data URL ── */
 function resizeAndEncodeImage(file, maxW, quality, cb){
   if(!file||!file.type||file.type.indexOf('image/')!==0){cb(null);return;}
@@ -1457,11 +1476,11 @@ function generateReport(){
     fsHtml=
       // Page 2: Fact Sheet — The AquaRev Water Treatment Advantage
       '<div class="rpt-fs-img-page">'
-        +'<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de66925a6052561678048b_AquaRev_Fact%20Sheet_v3_RDX_Page_2.jpg" />'
+        +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de66925a6052561678048b_AquaRev_Fact%20Sheet_v3_RDX_Page_2.jpg','',1100)
       +'</div>'
       // Page 3: Fact Sheet — Facts: Real World Results
       +'<div class="rpt-fs-img-page">'
-        +'<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6691362723606ee841a2_AquaRev_Fact%20Sheet_v3_RDX_Page_3.jpg" />'
+        +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6691362723606ee841a2_AquaRev_Fact%20Sheet_v3_RDX_Page_3.jpg','',1100)
       +'</div>';
   }
 
@@ -1470,6 +1489,11 @@ function generateReport(){
   if(EX.inclPoolProfiles && EX.layout==='portrait'){
     var todayStr=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
     var propName=S.propertyName||'Property Assessment';
+    // Row visibility depends on the chosen export scenario toggles
+    var ppShowAdv=EX.bothScenarios || EX.scenario==='advantage';
+    var ppShowPur=EX.bothScenarios || EX.scenario==='purchase';
+    // Emphasize Purchase Price only when Advantage is hidden (it's the final row)
+    var ppPurStrong=ppShowPur && !ppShowAdv;
     // Build a per-device "devices list" string like "1\u00d72\u2033, 2\u00d74\u2033"
     var buildDevList=function(dev){
       var parts=PIPES.filter(function(p){return (dev[p.k]||0)>0;}).map(function(p){
@@ -1511,8 +1535,8 @@ function generateReport(){
             +'<div class="rpt-pp-rows">'
               +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(perPoolG))+' gal</span></div>'
               +'<div class="rpt-pp-row"><span class="k">Devices</span><span class="v">'+perPoolDevStr+'</span></div>'
-              +'<div class="rpt-pp-row"><span class="k">Purchase Price</span><span class="v">'+(perPoolPurch>0?fc(perPoolPurch,0):'\u2014')+'</span></div>'
-              +'<div class="rpt-pp-row strong"><span class="k">60 Month Plan</span><span class="v pos">'+(perPoolMonthly>0?fc(perPoolMonthly,0)+' / mo':'\u2014')+'</span></div>'
+              +(ppShowPur?'<div class="rpt-pp-row'+(ppPurStrong?' strong':'')+'"><span class="k">Purchase Price</span><span class="v'+(ppPurStrong?' pos':'')+'">'+(perPoolPurch>0?fc(perPoolPurch,0):'\u2014')+'</span></div>':'')
+              +(ppShowAdv?'<div class="rpt-pp-row strong"><span class="k">60 Month Plan</span><span class="v pos">'+(perPoolMonthly>0?fc(perPoolMonthly,0)+' / mo':'\u2014')+'</span></div>':'')
             +'</div>'
           +'</div>'
         +'</div>');
@@ -1564,8 +1588,8 @@ function generateReport(){
               +dimRow
               +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(G))+' gal</span></div>'
               +'<div class="rpt-pp-row"><span class="k">Devices</span><span class="v">'+poolDevStr+'</span></div>'
-              +'<div class="rpt-pp-row"><span class="k">Purchase Price</span><span class="v">'+(poolPurch>0?fc(poolPurch,0):'\u2014')+'</span></div>'
-              +'<div class="rpt-pp-row strong"><span class="k">60 Month Plan</span><span class="v pos">'+(poolMonthly>0?fc(poolMonthly,0)+' / mo':'\u2014')+'</span></div>'
+              +(ppShowPur?'<div class="rpt-pp-row'+(ppPurStrong?' strong':'')+'"><span class="k">Purchase Price</span><span class="v'+(ppPurStrong?' pos':'')+'">'+(poolPurch>0?fc(poolPurch,0):'\u2014')+'</span></div>':'')
+              +(ppShowAdv?'<div class="rpt-pp-row strong"><span class="k">60 Month Plan</span><span class="v pos">'+(poolMonthly>0?fc(poolMonthly,0)+' / mo':'\u2014')+'</span></div>':'')
             +'</div>'
           +'</div>'
         +'</div>';
@@ -1608,7 +1632,7 @@ function generateReport(){
   var coverHtml='';
   if(EX.inclCover&&EX.layout==='portrait'){
     coverHtml='<div class="rpt-cover-page">'
-      +'<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg" class="rpt-cover-bg" />'
+      +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg','class="rpt-cover-bg"',1100)
       +'<div class="rpt-cover-overlay">'
         +'<div style="font-family:\'DM Sans\',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600">Property and Cost Savings Assessment</div>'
         +'<div style="margin-top:10px;font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:3px;color:#fff;line-height:1.1">'+esc(prop)+'</div>'
@@ -1735,7 +1759,7 @@ function generateReport(){
   // ── Back Cover (portrait only) ──
   if(EX.inclFactSheet && EX.layout==='portrait'){
     html+='<div class="rpt-fs-img-page">'
-      +'<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69dd4124dd8d52082f7f0510_Exec_Sum_CLUB%20MED_AquaRev_FIN_Page_6.png" />'
+      +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69dd4124dd8d52082f7f0510_Exec_Sum_CLUB%20MED_AquaRev_FIN_Page_6.png','',1100)
     +'</div>';
   }
 
@@ -2347,7 +2371,7 @@ function handleChange(e){
     var tgtBid=String(el.dataset.bodyImageInput);
     var tgtFile=el.files&&el.files[0];
     if(!tgtFile) return;
-    resizeAndEncodeImage(tgtFile, 600, 0.82, function(dataUrl){
+    resizeAndEncodeImage(tgtFile, 500, 0.72, function(dataUrl){
       if(!dataUrl){ alert('Could not read image. Please try a different file.'); return; }
       for(var bi=0;bi<S.bodies.length;bi++){
         if(String(S.bodies[bi].id)===tgtBid){ S.bodies[bi].image=dataUrl; break; }
