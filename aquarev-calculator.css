@@ -301,10 +301,12 @@
   #ar2-report .rpt-cover-page{page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  #ar2-report .rpt-pp-page{page-break-before:always;break-before:page;min-height:100vh;max-width:none!important;width:100%!important;margin:0!important;padding:18px 28px 14px!important;display:flex;flex-direction:column;}
+  #ar2-report .rpt-pp-page{page-break-before:always;break-before:page;page-break-after:always;break-after:page;min-height:100vh;max-width:none!important;width:100%!important;margin:0!important;padding:18px 28px 14px!important;display:flex;flex-direction:column;}
   #ar2-report .rpt-pp-page,#ar2-report .rpt-pp-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-pp-grid{flex:1;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
+  /* Hide preview-only page-break labels when actually printing */
+  #ar2-report .rpt-pp-page::before,#ar2-report .rpt-fs-img-page::before{display:none!important;content:''!important;}
   #ar2-report .rpt-fs-img-page{page-break-before:always;break-before:page;page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;break-after:avoid;}
@@ -490,6 +492,8 @@
 #ar2-report .rpt-fs-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:13px;line-height:1.5;max-width:860px;margin:0 auto;page-break-before:always;}
 #ar2-report .rpt-fs-img-page{max-width:860px;margin:0 auto;background:#fff;}
 #ar2-report .rpt-fs-img-page img{width:100%;height:auto;display:block;}
+/* Preview-only visual page-break indicator (hidden in print via @media print above) */
+#ar2-report .rpt-pp-page::before,#ar2-report .rpt-fs-img-page::before{content:'\2014\00a0\00a0PAGE BREAK\00a0\00a0\2014';display:block;text-align:center;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;font-size:10px;font-weight:600;letter-spacing:4px;color:#7db8cc;padding:18px 0 14px;margin:14px auto 0;border-top:2px dashed #c8e0ea;max-width:860px;background:transparent;}
 /* ── Pool Profiles Page ── */
 #ar2-report .rpt-pp-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:12px;line-height:1.4;max-width:860px;margin:0 auto;padding:22px 28px 18px;page-break-before:always;break-before:page;box-sizing:border-box;}
 #ar2-report .rpt-pp-page *{box-sizing:border-box;}

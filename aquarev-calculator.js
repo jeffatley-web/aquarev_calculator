@@ -1466,21 +1466,36 @@ function generateReport(){
   // ── Pool Profiles page (optional, portrait only) ──
   var poolProfilesHtml='';
   if(EX.inclPoolProfiles && EX.layout==='portrait'){
-    var wlr=Number(S.water_loss_reduction)||0;
-    var W=Number(S.savings_weight)||1;
     var todayStr=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
     var propName=S.propertyName||'Property Assessment';
+    // Build a per-device "devices list" string like "1\u00d72\u2033, 2\u00d74\u2033"
+    var buildDevList=function(dev){
+      var parts=PIPES.filter(function(p){return (dev[p.k]||0)>0;}).map(function(p){
+        var n=dev[p.k];
+        var nStr=(n===Math.floor(n))?n.toString():(Math.round(n*10)/10).toString();
+        return nStr+'\u00d7'+p.sz;
+      });
+      return parts.length?parts.join(', '):'\u2014';
+    };
+    var purchaseOf=function(dev){
+      return PIPES.reduce(function(sum,p){return sum+(dev[p.k]||0)*p.price;},0);
+    };
+    var monthlyOf=function(dev){
+      return PIPES.reduce(function(sum,p){return sum+(dev[p.k]||0)*p.rate;},0);
+    };
     var cards='';
-    var totG=0, totSA=0, totSav=0, pageCount=0;
+    var totG=0, totPurch=0, totMonthly=0, totDevQty=0, pageCount=0;
 
     if(S.manualVolume){
-      // ── Manual mode: synthesize N cards from manualPoolCount, split evenly ──
+      // ── Manual mode: synthesize N cards from manualPoolCount, distribute evenly ──
       var nPools=Math.max(1, Math.min(20, parseInt(S.manualPoolCount,10)||1));
       var totalGal=Math.round(parseFloat(S.manualTotalGallons)||0);
       var perPoolG=totalGal/nPools;
-      var perPoolSA=perPoolG>0?perPoolG/29.92:0;
-      var perPoolLoss=perPoolSA*5.57;
-      var perPoolSav=perPoolLoss*wlr*W;
+      var perPoolDev={};
+      PIPES.forEach(function(p){ perPoolDev[p.k]=(S[p.k]||0)/nPools; });
+      var perPoolPurch=purchaseOf(perPoolDev);
+      var perPoolMonthly=monthlyOf(perPoolDev);
+      var perPoolDevStr=buildDevList(perPoolDev);
       var cardArr=[];
       for(var mi=0;mi<nPools;mi++){
         cardArr.push(
@@ -1492,37 +1507,44 @@ function generateReport(){
               +'<span class="rpt-pp-pill" style="background:#64748b;color:#fff;border-color:#64748b">Manual Est.</span>'
             +'</div>'
             +'<div class="rpt-pp-rows">'
-              +'<div class="rpt-pp-row"><span class="k">Dimensions</span><span class="v">Manual total</span></div>'
               +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(perPoolG))+' gal</span></div>'
-              +'<div class="rpt-pp-row"><span class="k">Surface Area</span><span class="v">'+fn(Math.round(perPoolSA))+' sq ft</span></div>'
-              +'<div class="rpt-pp-row"><span class="k">Loss / mo</span><span class="v">'+fn(Math.round(perPoolLoss))+' gal</span></div>'
-              +'<div class="rpt-pp-row strong"><span class="k">Saved / mo</span><span class="v pos">'+fn(Math.round(perPoolSav))+' gal</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Devices</span><span class="v">'+perPoolDevStr+'</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Purchase Price</span><span class="v">'+(perPoolPurch>0?fc(perPoolPurch,0):'\u2014')+'</span></div>'
+              +'<div class="rpt-pp-row strong"><span class="k">60 Month Plan</span><span class="v pos">'+(perPoolMonthly>0?fc(perPoolMonthly,0)+' / mo':'\u2014')+'</span></div>'
             +'</div>'
           +'</div>'
         +'</div>');
       }
       cards=cardArr.join('');
       totG=totalGal;
-      totSA=totalGal>0?totalGal/29.92:0;
-      totSav=totSA*5.57*wlr*W;
+      totPurch=perPoolPurch*nPools;
+      totMonthly=perPoolMonthly*nPools;
+      PIPES.forEach(function(p){ totDevQty+=(S[p.k]||0); });
       pageCount=nPools;
     } else if(S.bodies.length>0){
       // ── Normal mode: one card per body ──
+      var nBodies=S.bodies.length||1;
       cards=S.bodies.map(function(b,idx){
         var G=bodyGallons(b);
-        var sa=G>0?G/29.92:0;
-        var lossMo=sa*5.57;
-        var savMo=lossMo*wlr*W;
-        var dimLabel=(b.inputMode!=='gallons'&&b.length&&b.width&&b.depth)
-          ? (b.length+'\u2032 \u00d7 '+b.width+'\u2032 \u00d7 '+b.depth+'\u2032')
-          : 'Manual entry';
+        // Per-pool devices: if devicesByPool is on, use body fields; else distribute aggregate evenly
+        var poolDev={};
+        if(S.devicesByPool){
+          PIPES.forEach(function(p){ poolDev[p.k]=Number(b[p.k])||0; });
+        } else {
+          PIPES.forEach(function(p){ poolDev[p.k]=(S[p.k]||0)/nBodies; });
+        }
+        var poolPurch=purchaseOf(poolDev);
+        var poolMonthly=monthlyOf(poolDev);
+        var poolDevStr=buildDevList(poolDev);
         var typeLabel=b.poolType==='saltwater'?'Saltwater':'Chlorine';
         var typeColor=b.poolType==='saltwater'?'#0891b2':'#00b4d8';
         var co2Pill=b.co2Use?'<span class="rpt-pp-pill" style="background:#ecfeff;color:#0891b2;border-color:#a5f3fc">CO\u2082</span>':'';
         var imgSlot=b.image
           ? '<div class="rpt-pp-img"><img src="'+b.image+'" alt="" /></div>'
           : '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 15l-5-5-8 8"/></svg><div class="rpt-pp-img-empty-lbl">No image</div></div>';
-        totG+=G; totSA+=sa; totSav+=savMo;
+        totG+=G;
+        totPurch+=poolPurch;
+        totMonthly+=poolMonthly;
         return '<div class="rpt-pp-card">'
           +imgSlot
           +'<div class="rpt-pp-info">'
@@ -1532,15 +1554,15 @@ function generateReport(){
               +co2Pill
             +'</div>'
             +'<div class="rpt-pp-rows">'
-              +'<div class="rpt-pp-row"><span class="k">Dimensions</span><span class="v">'+dimLabel+'</span></div>'
               +'<div class="rpt-pp-row"><span class="k">Volume</span><span class="v">'+fn(Math.round(G))+' gal</span></div>'
-              +'<div class="rpt-pp-row"><span class="k">Surface Area</span><span class="v">'+fn(Math.round(sa))+' sq ft</span></div>'
-              +'<div class="rpt-pp-row"><span class="k">Loss / mo</span><span class="v">'+fn(Math.round(lossMo))+' gal</span></div>'
-              +'<div class="rpt-pp-row strong"><span class="k">Saved / mo</span><span class="v pos">'+fn(Math.round(savMo))+' gal</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Devices</span><span class="v">'+poolDevStr+'</span></div>'
+              +'<div class="rpt-pp-row"><span class="k">Purchase Price</span><span class="v">'+(poolPurch>0?fc(poolPurch,0):'\u2014')+'</span></div>'
+              +'<div class="rpt-pp-row strong"><span class="k">60 Month Plan</span><span class="v pos">'+(poolMonthly>0?fc(poolMonthly,0)+' / mo':'\u2014')+'</span></div>'
             +'</div>'
           +'</div>'
         +'</div>';
       }).join('');
+      PIPES.forEach(function(p){ totDevQty+=(S[p.k]||0); });
       pageCount=S.bodies.length;
     }
 
@@ -1551,11 +1573,18 @@ function generateReport(){
           +'<div class="rpt-pp-sub">'+esc(propName)+' \u00b7 '+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
         +'</div>'
         +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
-        +'<div class="rpt-pp-summary">'
-          +'<span>Total volume: <strong>'+fn(Math.round(totG))+' gal</strong></span>'
-          +'<span>Surface: <strong>'+fn(Math.round(totSA))+' sq ft</strong></span>'
-          +'<span>Combined savings / mo: <strong>'+fn(Math.round(totSav))+' gal</strong></span>'
-          +'<span>5-yr: <strong>'+fn(Math.round(totSav*60))+' gal</strong></span>'
+        // ── CTA bar (same as Assessment page) ──
+        +'<div class="rpt-cta-bar">'
+          +'<span class="cta-label">AquaRev Reference Information</span>'
+          +'<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
+        +'</div>'
+        // ── Footer band (same as Assessment page) ──
+        +'<div class="rpt-foot">'
+          +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
+          +'<div class="rpt-foot-info">'
+            +'<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA, O\u02bbahu, Hawai\u02bbi<br>'
+            +'NSF/ANSI\u00a050\u2002\u00b7\u2002NSF-372 Lead-Free\u2002\u00b7\u2002US\u00a0Pat.\u00a010,934,180\u2002\u00b7\u200211,358,881\u2002\u00b7\u200212,037,269'
+          +'</div>'
         +'</div>'
       +'</div>';
     }
