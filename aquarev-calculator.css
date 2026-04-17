@@ -492,9 +492,10 @@
 #ar2-report .rpt-fs-img-page{max-width:860px;margin:32px auto 0;background:#fff;box-shadow:0 2px 12px rgba(4,15,30,.08);}
 #ar2-report .rpt-fs-img-page img{width:100%;height:auto;display:block;}
 /* Preview-only separation between the Assessment page and subsequent pages */
-#ar2-report .rpt-pp-page{margin-top:32px;box-shadow:0 2px 12px rgba(4,15,30,.08);}
-/* Pool Profile page footer — span full page width edge-to-edge */
-#ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px;margin-right:-28px;margin-bottom:-18px;}
+#ar2-report .rpt-pp-page{margin-top:32px;box-shadow:0 2px 12px rgba(4,15,30,.08);min-height:1113px;display:flex;flex-direction:column;}
+#ar2-report .rpt-pp-page .rpt-pp-grid{flex:1;}
+/* Pool Profile page footer — span full page width edge-to-edge and sit at bottom of page */
+#ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px;margin-right:-28px;margin-bottom:-18px;margin-top:auto;}
 /* ── Pool Profiles Page ── */
 #ar2-report .rpt-pp-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:12px;line-height:1.4;max-width:860px;margin:0 auto;padding:22px 28px 18px;page-break-before:always;break-before:page;box-sizing:border-box;}
 #ar2-report .rpt-pp-page *{box-sizing:border-box;}
