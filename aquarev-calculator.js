@@ -1868,11 +1868,29 @@ function renderExportSection(){
 
     // Comments (portrait only) — single line, max 120 chars (one PDF row width)
     +(EX.layout==='portrait'
-      ?'<div class="ar-export-field">'
-        +'<label class="ar-export-field-lbl">Comments (Optional)</label>'
-        +'<input class="ar-input" id="ar2-comments" type="text" maxlength="120" placeholder="Add a single-line comment for the report..." value="'+esc(EX.comments)+'" />'
-        +'<p class="ar-export-note">One line, up to 120 characters. Appears below images in the PDF.</p>'
-      +'</div>'
+      ?(function(){
+        var val=EX.comments||'';
+        var used=val.length;
+        var max=120;
+        var counterCls='ar-comm-counter'+(used>=max?' full':used>=max*0.85?' warn':'');
+        var showClear=used>0;
+        return '<div class="ar-export-field">'
+          +'<div class="ar-comm-head">'
+            +'<label class="ar-export-field-lbl" style="margin:0">Comments <span style="color:var(--mu);font-weight:400">(Optional)</span></label>'
+            +'<div class="'+counterCls+'" id="ar2-comm-counter"><span id="ar2-comm-used">'+used+'</span><span class="ar-comm-counter-sep">/</span>'+max+'</div>'
+          +'</div>'
+          +'<div class="ar-comm-wrap'+(used>0?' filled':'')+'" id="ar2-comm-wrap">'
+            +'<span class="ar-comm-icon">'
+              +'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8a5 5 0 01-5 5H6l-3 2v-4.5A5 5 0 016 4h3a5 5 0 015 4z"/><circle cx="6.5" cy="8.5" r="0.5" fill="currentColor"/><circle cx="9" cy="8.5" r="0.5" fill="currentColor"/><circle cx="11.5" cy="8.5" r="0.5" fill="currentColor"/></svg>'
+            +'</span>'
+            +'<input class="ar-comm-input" id="ar2-comments" type="text" maxlength="'+max+'" placeholder="e.g. Quarterly review \u2014 proposed upgrade for indoor facility" value="'+esc(val)+'" autocomplete="off" />'
+            +'<button type="button" class="ar-comm-clear" id="ar2-comm-clear"'+(showClear?'':' style="display:none"')+' data-action="clear-comments" title="Clear">'
+              +'<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>'
+            +'</button>'
+          +'</div>'
+          +'<p class="ar-export-note" style="margin-top:6px">Single line \u2014 appears beneath property images in the PDF report.</p>'
+        +'</div>';
+      })()
       :'')
 
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">'
@@ -2000,6 +2018,21 @@ function handleClick(e){
   // Save to Archive
   var saveBtn=e.target.closest('[data-action="save-report"]');
   if(saveBtn){ bankSaveReport(); return; }
+  // Clear comments field
+  var clrCmt=e.target.closest('[data-action="clear-comments"]');
+  if(clrCmt){
+    EX.comments='';
+    var ci=document.getElementById('ar2-comments');
+    var cc=document.getElementById('ar2-comm-counter');
+    var cu=document.getElementById('ar2-comm-used');
+    var cw=document.getElementById('ar2-comm-wrap');
+    if(ci){ ci.value=''; ci.focus(); }
+    if(cu) cu.textContent='0';
+    if(cc) cc.classList.remove('warn','full');
+    if(cw) cw.classList.remove('filled');
+    clrCmt.style.display='none';
+    return;
+  }
   // Reset / New Assessment
   var resetBtn=e.target.closest('[data-action="reset-app"]');
   if(resetBtn){
@@ -2154,7 +2187,24 @@ function handleInput(e){
     return;
   }
   // Export: comments textarea
-  if(el.id==='ar2-comments'){ EX.comments=el.value; return; }
+  if(el.id==='ar2-comments'){
+    EX.comments=el.value;
+    // Live-update character counter, counter color state, wrapper filled state, clear button visibility
+    var used=el.value.length, max=120;
+    var cEl=document.getElementById('ar2-comm-counter');
+    var uEl=document.getElementById('ar2-comm-used');
+    var wEl=document.getElementById('ar2-comm-wrap');
+    var xEl=document.getElementById('ar2-comm-clear');
+    if(uEl) uEl.textContent=used;
+    if(cEl){
+      cEl.classList.remove('warn','full');
+      if(used>=max) cEl.classList.add('full');
+      else if(used>=max*0.85) cEl.classList.add('warn');
+    }
+    if(wEl) wEl.classList.toggle('filled', used>0);
+    if(xEl) xEl.style.display=used>0?'':'none';
+    return;
+  }
   // Export: YouTube URL pending input
   if(el.id==='ar2-yt-input'){ EX.ytPending=el.value; return; }
   // Body fields (label, length, width, depth, manualGallons)
