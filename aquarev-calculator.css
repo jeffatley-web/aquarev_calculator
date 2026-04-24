@@ -800,6 +800,17 @@
 #ap2 .ap-tog-btn{padding:8px 10px;text-align:center;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:none;background:transparent;color:var(--mu);transition:.18s;font-family:inherit;}
 #ap2 .ap-tog-btn.on{background:rgba(0,180,216,.18);color:var(--t);}
 #ap2 .ap-help{font-size:11px;color:var(--mu);line-height:1.5;margin-top:6px;}
+#ap2 .ap-lbl-aux{font-weight:400;color:var(--mu);text-transform:none;letter-spacing:0;font-size:10px;margin-left:4px;}
+#ap2 .ap-name-wrap{position:relative;}
+#ap2 .ap-name-dropdown{position:absolute;top:calc(100% + 2px);left:0;right:0;background:rgba(4,15,30,.98);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.6);max-height:280px;overflow-y:auto;z-index:900;display:none;}
+#ap2 .ap-name-dropdown.show{display:block;}
+#ap2 .ap-name-sug{padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s;}
+#ap2 .ap-name-sug:last-child{border-bottom:none;}
+#ap2 .ap-name-sug:hover,#ap2 .ap-name-sug.active{background:rgba(0,180,216,.12);}
+#ap2 .ap-name-sug-label{font-size:13px;color:var(--tx);font-weight:500;line-height:1.3;}
+#ap2 .ap-name-sug-meta{font-size:11px;color:var(--mu);margin-top:2px;line-height:1.3;}
+#ap2 .ap-name-sug-type{display:inline-block;font-size:9px;color:var(--t);text-transform:uppercase;letter-spacing:.5px;margin-right:6px;opacity:.7;}
+#ap2 .ap-name-empty{padding:10px 12px;font-size:11px;color:var(--mu);text-align:center;}
 #ap2 .ap-info-btn{flex:0 0 auto;width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,180,216,.5);background:rgba(0,180,216,.08);color:var(--t);font-weight:700;font-family:inherit;font-size:12px;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;transition:.18s;}
 #ap2 .ap-info-btn:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.8);}
 #ap2 .ap-measurement .ap-help{display:none;}

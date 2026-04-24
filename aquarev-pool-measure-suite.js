@@ -215,21 +215,136 @@ async function geocode(q) {
 }
 
 async function onLocate() {
-  const q = $('ap-query').value.trim();
-  if (!q) { toast('Enter an address or Plus Code', 'err'); return; }
+  // Prefer address/Plus Code (precise) then fall back to the Name field so reps can search with just a hotel name.
+  const q = ($('ap-query').value.trim()) || ($('ap-name').value.trim());
+  if (!q) { toast('Enter a property name, address, or Plus Code', 'err'); return; }
   setStatus('Geocoding…', 'busy');
   try {
     const loc = await geocode(q);
     S.center = [loc.lon, loc.lat];
     map.flyTo({ center: S.center, zoom: 18, duration: 1200 });
     if (!$('ap-name').value) $('ap-name').value = loc.name.split(',')[0];
-    // Record as the property anchor so the Centre button and property flag work.
     setPropertyCenter([loc.lon, loc.lat], 18);
     setStatus('Located', 'ready');
   } catch (err) {
     setStatus('Error', 'ready');
     toast(err.message, 'err');
   }
+}
+
+// ─── Name autocomplete (Photon / OSM-backed) ─────────────────
+let _nameSearchTimer = null;
+let _nameSearchAbort = null;
+let _nameSuggestions = [];
+let _nameActiveIdx = -1;
+
+async function photonSearch(q, signal) {
+  const url = 'https://photon.komoot.io/api/?' + new URLSearchParams({ q, limit: '6' });
+  const r = await fetch(url, { signal });
+  if (!r.ok) return [];
+  const data = await r.json();
+  return (data.features || []).map(f => {
+    const p = f.properties || {};
+    const locality = [p.city, p.state, p.country].filter(Boolean).join(', ');
+    return {
+      name: p.name || p.street || p.housenumber || '',
+      type: p.osm_key || '',
+      locality,
+      address: [p.housenumber, p.street, p.city, p.state, p.country].filter(Boolean).join(', '),
+      lat: f.geometry.coordinates[1],
+      lon: f.geometry.coordinates[0]
+    };
+  }).filter(r => r.name);
+}
+
+function _renderNameDropdown() {
+  const el = $('ap-name-dropdown');
+  if (!el) return;
+  if (!_nameSuggestions.length) {
+    el.innerHTML = '<div class="ap-name-empty">No matches — try a different spelling.</div>';
+    el.classList.add('show');
+    return;
+  }
+  el.innerHTML = _nameSuggestions.map((r, i) => {
+    const typeLabel = r.type === 'tourism' ? 'hotel' : r.type === 'amenity' ? 'poi' : r.type === 'place' ? 'place' : r.type || '';
+    const safe = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return `<div class="ap-name-sug${i === _nameActiveIdx ? ' active' : ''}" data-idx="${i}" role="option">`
+      + `<div class="ap-name-sug-label">${typeLabel ? `<span class="ap-name-sug-type">${safe(typeLabel)}</span>` : ''}${safe(r.name)}</div>`
+      + `<div class="ap-name-sug-meta">${safe(r.locality || r.address)}</div>`
+      + `</div>`;
+  }).join('');
+  el.classList.add('show');
+}
+
+function _hideNameDropdown() {
+  const el = $('ap-name-dropdown');
+  if (el) el.classList.remove('show');
+  _nameActiveIdx = -1;
+}
+
+function _applyNameSuggestion(r) {
+  $('ap-name').value = r.name;
+  if (!$('ap-query').value.trim()) $('ap-query').value = r.address || r.locality || '';
+  _hideNameDropdown();
+  S.center = [r.lon, r.lat];
+  map.flyTo({ center: S.center, zoom: 18, duration: 1200 });
+  setPropertyCenter([r.lon, r.lat], 18);
+  setStatus('Located', 'ready');
+}
+
+function onNameInput(ev) {
+  const q = ev.target.value.trim();
+  clearTimeout(_nameSearchTimer);
+  if (_nameSearchAbort) { _nameSearchAbort.abort(); _nameSearchAbort = null; }
+  if (q.length < 3) { _hideNameDropdown(); _nameSuggestions = []; return; }
+  _nameSearchTimer = setTimeout(async () => {
+    _nameSearchAbort = new AbortController();
+    try {
+      _nameSuggestions = await photonSearch(q, _nameSearchAbort.signal);
+      _nameActiveIdx = -1;
+      _renderNameDropdown();
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* silent — keep the dropdown hidden on error */ }
+    }
+  }, 280);
+}
+
+function onNameKeydown(ev) {
+  const dd = $('ap-name-dropdown');
+  const open = dd && dd.classList.contains('show') && _nameSuggestions.length;
+  if (ev.key === 'Escape') { _hideNameDropdown(); return; }
+  if (ev.key === 'Enter') {
+    if (open) {
+      ev.preventDefault();
+      const idx = _nameActiveIdx >= 0 ? _nameActiveIdx : 0;
+      _applyNameSuggestion(_nameSuggestions[idx]);
+    } else {
+      onLocate();
+    }
+    return;
+  }
+  if (!open) return;
+  if (ev.key === 'ArrowDown') { ev.preventDefault(); _nameActiveIdx = Math.min(_nameActiveIdx + 1, _nameSuggestions.length - 1); _renderNameDropdown(); }
+  else if (ev.key === 'ArrowUp') { ev.preventDefault(); _nameActiveIdx = Math.max(_nameActiveIdx - 1, 0); _renderNameDropdown(); }
+}
+
+function wireNameAutocomplete() {
+  const input = $('ap-name');
+  const dd = $('ap-name-dropdown');
+  if (!input || !dd) return;
+  input.addEventListener('input', onNameInput);
+  input.addEventListener('keydown', onNameKeydown);
+  input.addEventListener('focus', () => { if (_nameSuggestions.length) _renderNameDropdown(); });
+  dd.addEventListener('mousedown', (ev) => {
+    const sug = ev.target.closest('.ap-name-sug');
+    if (!sug) return;
+    ev.preventDefault();
+    const idx = parseInt(sug.dataset.idx, 10);
+    if (!isNaN(idx) && _nameSuggestions[idx]) _applyNameSuggestion(_nameSuggestions[idx]);
+  });
+  document.addEventListener('click', (ev) => {
+    if (!ev.target.closest('#ap-name, #ap-name-dropdown')) _hideNameDropdown();
+  });
 }
 
 // ─── Draw modes ──────────────────────────────────────────────
@@ -2062,6 +2177,9 @@ document.getElementById('ap-pool-list').addEventListener('contextmenu', (ev) => 
 
 // Enter key in query = locate
 $('ap-query').addEventListener('keydown', (e) => { if (e.key === 'Enter') onLocate(); });
+
+// Name field = autocomplete search (hotels, resorts, addresses)
+wireNameAutocomplete();
 
 // ⌘Z / Ctrl+Z = undo (skip when typing in inputs)
 document.addEventListener('keydown', (e) => {
