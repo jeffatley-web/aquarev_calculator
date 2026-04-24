@@ -174,10 +174,29 @@ function onDrawChange(e) {
         existing.polygon = f;
         existing.sq_m = geoAreaSqMeters(f.geometry);
         ensurePoolMarker(existing);    // follow the polygon with the flag
+        // JS state is source of truth. Re-assert the draw-feature props after any edit
+        // so if mapbox-gl-draw strips custom properties mid-transition, the paint style
+        // and the "Registered" badge stay consistent.
+        try {
+          draw.setFeatureProperty(f.id, 'role', 'pool');
+          draw.setFeatureProperty(f.id, 'registered', !!existing.registered);
+        } catch(e){}
       }
     }
   }
   renderCatalog();
+}
+
+// Global reconciler — walks S.pools and re-asserts the map feature props from JS state.
+// Call after any flow that might have strayed from the invariant (direct_select → simple_select
+// transitions, mode changes, etc.) to guarantee the catalog and the map paint agree.
+function reassertPoolFlags() {
+  for (const p of S.pools) {
+    try {
+      draw.setFeatureProperty(p.drawId, 'role', 'pool');
+      draw.setFeatureProperty(p.drawId, 'registered', !!p.registered);
+    } catch(e){}
+  }
 }
 
 // ─── Geocoding ───────────────────────────────────────────────
@@ -2242,6 +2261,21 @@ document.addEventListener('click', (ev) => {
   else if (action === 'zoom-boundary') { if (S.boundary) { const r=S.boundary.geometry.coordinates[0]; const los=r.map(c=>c[0]), las=r.map(c=>c[1]); map.fitBounds([[Math.min(...los),Math.min(...las)],[Math.max(...los),Math.max(...las)]],{padding:60,duration:500}); } }
   else if (action === 'center-property') centreOnProperty();
   else if (action === 'clear-pools') resetAll(true);
+  else if (action === 'register-all') {
+    const drafts = S.pools.filter(p => !p.registered);
+    if (!drafts.length) { toast('All pools already registered', 'ok'); return; }
+    pushHistory(`register all (${drafts.length})`);
+    for (const p of drafts) {
+      p.registered = true;
+      if (p.number == null) p.number = S.nextPoolNumber++;
+      try { draw.setFeatureProperty(p.drawId, 'registered', true); } catch(e){}
+      ensurePoolMarker(p);
+    }
+    renumberPools();
+    reassertPoolFlags();
+    renderCatalog();
+    toast(`Registered ${drafts.length} pool${drafts.length>1?'s':''}`, 'ok');
+  }
   else if (action === 'save') onSave();
   else if (action === 'library') onLibrary();
   else if (action === 'undo') onUndo();
