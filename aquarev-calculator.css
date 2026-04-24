@@ -800,6 +800,11 @@
 #ap2 .ap-tog-btn{padding:8px 10px;text-align:center;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:none;background:transparent;color:var(--mu);transition:.18s;font-family:inherit;}
 #ap2 .ap-tog-btn.on{background:rgba(0,180,216,.18);color:var(--t);}
 #ap2 .ap-help{font-size:11px;color:var(--mu);line-height:1.5;margin-top:6px;}
+#ap2 .ap-info-btn{flex:0 0 auto;width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,180,216,.5);background:rgba(0,180,216,.08);color:var(--t);font-weight:700;font-family:inherit;font-size:12px;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;transition:.18s;}
+#ap2 .ap-info-btn:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.8);}
+#ap2 .ap-measurement .ap-help{display:none;}
+#ap2 .ap-measurement.show-help .ap-help{display:block;}
+#ap2 .ap-measurement.show-help .ap-info-btn{background:var(--t);border-color:var(--t);color:#04101e;}
 #ap2 .ap-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(4,15,30,.95);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:10px;padding:10px 16px 10px 14px;font-size:13px;color:var(--tx);z-index:1000;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;}
 #ap2 .ap-toast.show{opacity:1;}
 #ap2 .ap-toast.err{border-color:rgba(239,68,68,.5);}
