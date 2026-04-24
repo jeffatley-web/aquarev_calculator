@@ -234,11 +234,105 @@ async function onLocate() {
   }
 }
 
-// ─── Name autocomplete (Photon / OSM-backed) ─────────────────
+// ─── Name autocomplete (Google Places with Photon fallback) ──
+// Primary source: Google Places Autocomplete — absolute hotel/resort/POI accuracy.
+// Fallback: Photon (free OSM) if Google key absent or API fails for any reason.
+// Key is injected by the Webflow embed as `window.AQUAREV_GOOGLE_KEY` so it can
+// be rotated without redeploying the JS file.
 let _nameSearchTimer = null;
 let _nameSearchAbort = null;
 let _nameSuggestions = [];
 let _nameActiveIdx = -1;
+
+let _googleMapsPromise = null;
+function loadGoogleMaps() {
+  const key = (typeof window !== 'undefined' && window.AQUAREV_GOOGLE_KEY) || null;
+  if (!key) return Promise.reject(new Error('no google key'));
+  if (_googleMapsPromise) return _googleMapsPromise;
+  _googleMapsPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.maps && window.google.maps.places) { resolve(); return; }
+    window.__ar2GmapsReady = () => resolve();
+    const s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&libraries=places&callback=__ar2GmapsReady&loading=async';
+    s.async = true;
+    s.onerror = () => { _googleMapsPromise = null; reject(new Error('google maps load failed')); };
+    document.head.appendChild(s);
+  });
+  return _googleMapsPromise;
+}
+
+let _gpSession = null;
+function _ensureGpSession() {
+  if (!_gpSession && window.google && window.google.maps && window.google.maps.places) {
+    _gpSession = new google.maps.places.AutocompleteSessionToken();
+  }
+  return _gpSession;
+}
+function _resetGpSession() { _gpSession = null; }
+
+async function googleSearch(q) {
+  try { await Promise.race([loadGoogleMaps(), new Promise((_,rej)=>setTimeout(()=>rej(new Error('gmaps timeout')),4000))]); }
+  catch (e) { return null; }
+  const token = _ensureGpSession();
+  const svc = new google.maps.places.AutocompleteService();
+  const preds = await Promise.race([
+    new Promise((resolve) => {
+      svc.getPlacePredictions({
+        input: q,
+        sessionToken: token,
+        types: ['establishment']
+      }, (predictions, status) => {
+        const PS = google.maps.places.PlacesServiceStatus;
+        if (status === PS.ZERO_RESULTS) return resolve([]);
+        if (status !== PS.OK) return resolve(null);
+        resolve(predictions || []);
+      });
+    }),
+    // Safety timeout — if Google's callback never fires (e.g., referrer rejection hangs the SDK), fall through to Photon.
+    new Promise((resolve) => setTimeout(() => resolve(null), 3500))
+  ]);
+  if (preds === null) return null;
+  return preds.map(p => {
+    const t = p.types || [];
+    const typeLabel = t.includes('lodging') ? 'hotel'
+                    : t.includes('restaurant') ? 'restaurant'
+                    : t.includes('tourist_attraction') ? 'poi'
+                    : t.includes('locality') ? 'city'
+                    : '';
+    return {
+      _source: 'google',
+      placeId: p.place_id,
+      name: (p.structured_formatting && p.structured_formatting.main_text) || p.description,
+      typeLabel,
+      locality: (p.structured_formatting && p.structured_formatting.secondary_text) || '',
+      address: p.description,
+      lat: null, lon: null     // resolved later via getDetails (same session)
+    };
+  });
+}
+
+async function googleGetPlaceDetails(placeId) {
+  await loadGoogleMaps();
+  const token = _ensureGpSession();
+  const svc = new google.maps.places.PlacesService(document.createElement('div'));
+  const result = await new Promise((resolve, reject) => {
+    svc.getDetails({
+      placeId,
+      sessionToken: token,
+      fields: ['geometry', 'formatted_address', 'name']
+    }, (place, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK) return reject(new Error('details ' + status));
+      resolve(place);
+    });
+  });
+  _resetGpSession();
+  return {
+    name: result.name,
+    address: result.formatted_address,
+    lat: result.geometry.location.lat(),
+    lon: result.geometry.location.lng()
+  };
+}
 
 async function photonSearch(q, signal) {
   // Rank & filter: OSM hospitality tags (hotel, resort, motel, guest_house) score highest,
@@ -322,7 +416,21 @@ function _hideNameDropdown() {
   _nameActiveIdx = -1;
 }
 
-function _applyNameSuggestion(r) {
+async function _applyNameSuggestion(r) {
+  // Google predictions don't include coords — resolve via getDetails (same session).
+  if (r._source === 'google' && (r.lat == null || r.lon == null)) {
+    setStatus('Resolving…', 'busy');
+    try {
+      const det = await googleGetPlaceDetails(r.placeId);
+      r.lat = det.lat; r.lon = det.lon;
+      r.address = det.address || r.address;
+      if (det.name) r.name = det.name;
+    } catch (e) {
+      setStatus('Error', 'ready');
+      toast('Could not load details — pick another result', 'err');
+      return;
+    }
+  }
   $('ap-name').value = r.name;
   if (!$('ap-query').value.trim()) $('ap-query').value = r.address || r.locality || '';
   _hideNameDropdown();
@@ -340,11 +448,16 @@ function onNameInput(ev) {
   _nameSearchTimer = setTimeout(async () => {
     _nameSearchAbort = new AbortController();
     try {
-      _nameSuggestions = await photonSearch(q, _nameSearchAbort.signal);
+      let results = await googleSearch(q);
+      if (results === null) {
+        // Google unavailable (no key / quota / network) — fall back to Photon.
+        results = await photonSearch(q, _nameSearchAbort.signal);
+      }
+      _nameSuggestions = results || [];
       _nameActiveIdx = -1;
       _renderNameDropdown();
     } catch (e) {
-      if (e.name !== 'AbortError') { /* silent — keep the dropdown hidden on error */ }
+      if (e.name !== 'AbortError') { /* silent */ }
     }
   }, 280);
 }
