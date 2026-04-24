@@ -931,3 +931,5 @@
 /* Invert + and - icons so they render bright white on dark background */
 .mapboxgl-ctrl-group button .mapboxgl-ctrl-icon,
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1) brightness(2) contrast(1.1);}
+</style>
+

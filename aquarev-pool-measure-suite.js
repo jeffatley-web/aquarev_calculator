@@ -119,10 +119,12 @@ const map = new maplibregl.Map({
     layers: [{
       id: 'esri', type: 'raster', source: 'esri',
       paint: {
-        'raster-contrast':   0.18,    // sharpens edges between water/concrete/roof
-        'raster-saturation': 0.14,    // more vivid pool blues
-        'raster-brightness-min': 0.02,
-        'raster-brightness-max': 1.0,
+        // Tuned for PDF-bound photo captures: sharper water/deck/roof edges,
+        // vivid pool blues, lifted shadows, tamed blown highlights on white concrete.
+        'raster-contrast':   0.28,
+        'raster-saturation': 0.22,
+        'raster-brightness-min': 0.06,
+        'raster-brightness-max': 0.96,
         'raster-resampling': 'linear',
       }
     }]
@@ -239,37 +241,75 @@ let _nameSuggestions = [];
 let _nameActiveIdx = -1;
 
 async function photonSearch(q, signal) {
-  const url = 'https://photon.komoot.io/api/?' + new URLSearchParams({ q, limit: '6' });
+  // Rank & filter: OSM hospitality tags (hotel, resort, motel, guest_house) score highest,
+  // then leisure/resort, then generic tourism POIs. Restaurants / offices / bare "place"
+  // entries are dropped — they confuse reps searching for hotel chains.
+  const HOTEL_VALUES = new Set(['hotel', 'resort', 'motel', 'guest_house', 'hostel', 'apartment']);
+  const accept = (p) => {
+    if (!p) return false;
+    if (p.osm_key === 'tourism') return true;
+    if (p.osm_key === 'leisure' && p.osm_value === 'resort') return true;
+    if (p.osm_key === 'building' && HOTEL_VALUES.has(p.osm_value)) return true;
+    return false;
+  };
+  const rankOf = (p) => {
+    if (p.osm_key === 'tourism' && HOTEL_VALUES.has(p.osm_value)) return 0;
+    if (p.osm_key === 'leisure' && p.osm_value === 'resort') return 1;
+    if (p.osm_key === 'tourism') return 2;
+    if (p.osm_key === 'building' && HOTEL_VALUES.has(p.osm_value)) return 3;
+    return 9;
+  };
+
+  const url = 'https://photon.komoot.io/api/?' + new URLSearchParams({ q, limit: '15' });
   const r = await fetch(url, { signal });
   if (!r.ok) return [];
   const data = await r.json();
-  return (data.features || []).map(f => {
+  const hits = (data.features || []).filter(f => accept(f.properties)).map(f => {
     const p = f.properties || {};
     const locality = [p.city, p.state, p.country].filter(Boolean).join(', ');
     return {
       name: p.name || p.street || p.housenumber || '',
-      type: p.osm_key || '',
+      osmKey: p.osm_key || '',
+      osmValue: p.osm_value || '',
+      typeLabel: (p.osm_key === 'tourism' && HOTEL_VALUES.has(p.osm_value)) ? (p.osm_value === 'resort' ? 'resort' : 'hotel')
+               : (p.osm_key === 'leisure' && p.osm_value === 'resort') ? 'resort'
+               : (p.osm_key === 'tourism') ? (p.osm_value || 'tourism')
+               : (p.osm_key || ''),
       locality,
       address: [p.housenumber, p.street, p.city, p.state, p.country].filter(Boolean).join(', '),
       lat: f.geometry.coordinates[1],
-      lon: f.geometry.coordinates[0]
+      lon: f.geometry.coordinates[0],
+      _rank: rankOf(p)
     };
   }).filter(r => r.name);
+
+  hits.sort((a, b) => a._rank - b._rank);
+
+  // Dedupe: OSM often has N identical-looking entries for chain hotels in the same city
+  // (one per building/block). Collapse them to one result per name+city pair.
+  const seen = new Set();
+  const deduped = [];
+  for (const h of hits) {
+    const key = (h.name + '|' + (h.locality || '')).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(h);
+  }
+  return deduped.slice(0, 8);
 }
 
 function _renderNameDropdown() {
   const el = $('ap-name-dropdown');
   if (!el) return;
   if (!_nameSuggestions.length) {
-    el.innerHTML = '<div class="ap-name-empty">No matches — try a different spelling.</div>';
+    el.innerHTML = '<div class="ap-name-empty">No hotels match. Try adding a city: "Iberostar Punta Cana".</div>';
     el.classList.add('show');
     return;
   }
   el.innerHTML = _nameSuggestions.map((r, i) => {
-    const typeLabel = r.type === 'tourism' ? 'hotel' : r.type === 'amenity' ? 'poi' : r.type === 'place' ? 'place' : r.type || '';
     const safe = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     return `<div class="ap-name-sug${i === _nameActiveIdx ? ' active' : ''}" data-idx="${i}" role="option">`
-      + `<div class="ap-name-sug-label">${typeLabel ? `<span class="ap-name-sug-type">${safe(typeLabel)}</span>` : ''}${safe(r.name)}</div>`
+      + `<div class="ap-name-sug-label">${r.typeLabel ? `<span class="ap-name-sug-type">${safe(r.typeLabel)}</span>` : ''}${safe(r.name)}</div>`
       + `<div class="ap-name-sug-meta">${safe(r.locality || r.address)}</div>`
       + `</div>`;
   }).join('');
