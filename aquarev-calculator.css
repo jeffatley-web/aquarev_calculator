@@ -801,6 +801,11 @@
 #ap2 .ap-tog-btn.on{background:rgba(0,180,216,.18);color:var(--t);}
 #ap2 .ap-help{font-size:11px;color:var(--mu);line-height:1.5;margin-top:6px;}
 #ap2 .ap-lbl-aux{font-weight:400;color:var(--mu);text-transform:none;letter-spacing:0;font-size:10px;margin-left:4px;}
+#ap2 .ap-xref-row{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--mu);flex-wrap:wrap;}
+#ap2 .ap-xref-lbl{text-transform:uppercase;letter-spacing:.8px;font-size:9px;color:var(--mu);opacity:.8;}
+#ap2 .ap-xref-link{color:var(--t);text-decoration:none;font-size:11px;font-weight:500;border-bottom:1px dotted rgba(0,180,216,.4);transition:.15s;}
+#ap2 .ap-xref-link:hover{color:#fff;border-bottom-color:var(--t);}
+#ap2 .ap-xref-sep{color:var(--mu);opacity:.6;}
 #ap2 .ap-name-wrap{position:relative;}
 #ap2 .ap-name-dropdown{position:absolute;top:calc(100% + 2px);left:0;right:0;background:rgba(4,15,30,.98);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.6);max-height:280px;overflow-y:auto;z-index:900;display:none;}
 #ap2 .ap-name-dropdown.show{display:block;}

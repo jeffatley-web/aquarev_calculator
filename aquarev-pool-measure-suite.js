@@ -4,6 +4,11 @@
 // ─── Constants ───────────────────────────────────────────────
 const ESRI_TMPL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const ESRI_ATTR = 'Imagery © Esri, Maxar, Earthstar Geographics';
+const GOOGLE_TILE_ATTR = 'Imagery © Google';
+// Active tile template — starts on Esri, swaps to Google once session resolves.
+// Used by the wand (fetchTile) so the pixels analysed match what's on-screen.
+let _activeTileTmpl = ESRI_TMPL;
+let _activeTileMaxZoom = 18;
 const TILE_PX = 256;
 const MIN_SQM = 6;       // ~65 sq ft: smallest plausible pool
 const MAX_SQM = 3000;    // ~32k sq ft: reject ocean
@@ -114,7 +119,10 @@ const map = new maplibregl.Map({
       // Source maxzoom matches ESRI's native cap (tiles don't exist past 19).
       // Map-level maxZoom is higher so MapLibre *overzooms* by upscaling the 19 tiles,
       // instead of requesting missing 20+ tiles (which would return 404 and blank).
-      esri: { type: 'raster', tiles: [ESRI_TMPL], tileSize: TILE_PX, attribution: ESRI_ATTR, maxzoom: 19 }
+      // Source maxzoom 18 — zoom 19 coverage is spotty for resort/beach destinations
+      // (serves "Map data not yet available" placeholders). MapLibre overzooms the 18 tiles
+      // for display zoom >18, which stays pixel-sharp enough for pool tracing.
+      esri: { type: 'raster', tiles: [ESRI_TMPL], tileSize: TILE_PX, attribution: ESRI_ATTR, maxzoom: 18 }
     },
     layers: [{
       id: 'esri', type: 'raster', source: 'esri',
@@ -142,6 +150,68 @@ const draw = new MapboxDraw({
   styles: mapboxDrawStyles(),
 });
 map.addControl(draw);
+
+// ─── Google Map Tiles upgrade (session-based, falls back to Esri) ──
+// Uses the same Google API key as Places. $2/1000 sessions — a session
+// covers all tile fetches for ~1 hour. Well within the $200/mo free credit.
+let _googleTileSessionExpiry = 0;
+let _googleTileRefreshTimer = null;
+
+async function activateGoogleTiles() {
+  const key = (typeof window !== 'undefined' && window.AQUAREV_GOOGLE_KEY) || null;
+  if (!key) return false;
+  try {
+    const res = await fetch('https://tile.googleapis.com/v1/createSession?key=' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mapType: 'satellite', language: 'en-US', region: 'US' })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const session = data.session;
+    _googleTileSessionExpiry = parseInt(data.expiry, 10) * 1000;
+    const tileUrl = 'https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=' + encodeURIComponent(session) + '&key=' + encodeURIComponent(key);
+
+    // Swap the MapLibre source so map rendering picks up Google tiles.
+    // Source maxzoom can't be changed post-init — remove + re-add to update it.
+    const existingLayer = map.getStyle().layers.find(l => l.id === 'esri');
+    if (existingLayer) map.removeLayer('esri');
+    if (map.getSource('esri')) map.removeSource('esri');
+    map.addSource('esri', {
+      type: 'raster',
+      tiles: [tileUrl],
+      tileSize: 256,
+      attribution: GOOGLE_TILE_ATTR,
+      maxzoom: 20
+    });
+    // Insert imagery layer beneath any existing draw layers.
+    const firstDrawLayerId = map.getStyle().layers.find(l => l.id.startsWith('gl-draw-'))?.id;
+    map.addLayer({
+      id: 'esri', type: 'raster', source: 'esri',
+      paint: {
+        // Google imagery is already sharp & well-saturated — lighter touch than Esri.
+        'raster-contrast':   0.12,
+        'raster-saturation': 0.08,
+        'raster-brightness-min': 0.02,
+        'raster-brightness-max': 1.0,
+        'raster-resampling': 'linear',
+      }
+    }, firstDrawLayerId);
+
+    // Keep the wand (fetchTile) and any other raw-tile consumers in sync.
+    _activeTileTmpl = tileUrl;
+    _activeTileMaxZoom = 20;
+
+    // Refresh the session 2 minutes before expiry so tile fetches never 401.
+    if (_googleTileRefreshTimer) clearTimeout(_googleTileRefreshTimer);
+    const refreshIn = Math.max(60000, _googleTileSessionExpiry - Date.now() - 120000);
+    _googleTileRefreshTimer = setTimeout(() => { activateGoogleTiles().catch(()=>{}); }, refreshIn);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+map.on('load', () => { activateGoogleTiles().catch(()=>{}); });
 
 map.on('draw.create', onDrawChange);
 map.on('draw.update', onDrawChange);
@@ -465,8 +535,8 @@ async function _applyNameSuggestion(r) {
   S.center = [r.lon, r.lat];
   if (viewport) {
     // fitBounds — Google-supplied viewport sizes to the property; Esri tile coverage stays safe.
-    // maxZoom 19 gets as close as Esri tile coverage allows. padding keeps the pin + a bit of context visible.
-    map.fitBounds([viewport.sw, viewport.ne], { padding: 60, duration: 1200, maxZoom: 19 });
+    // maxZoom follows the active tile source: Google=20 (crisp globally), Esri=18.
+    map.fitBounds([viewport.sw, viewport.ne], { padding: 60, duration: 1200, maxZoom: Math.min(20, _activeTileMaxZoom) });
   } else {
     map.flyTo({ center: S.center, zoom: 17, duration: 1200 });
   }
@@ -621,7 +691,7 @@ function pointInPoly(px, py, polyPlanar) {
 
 // ─── Detection ───────────────────────────────────────────────
 async function fetchTile(z, x, y) {
-  const url = ESRI_TMPL.replace('{z}',z).replace('{x}',x).replace('{y}',y);
+  const url = _activeTileTmpl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   const img = new Image();
   img.crossOrigin = 'anonymous';
   await new Promise((res, rej) => {
@@ -877,7 +947,10 @@ async function magicWandAtLngLat(lngLat) {
   try { await _magicWand(lngLat); } finally { _wandInFlight = false; }
 }
 async function _magicWand(lngLat) {
-  const zoom = Math.min(19, Math.max(17, Math.round(map.getZoom())));
+  // Cap to the active source's real max — Esri=18, Google=20. Keeps the pixel
+  // analysis on actual imagery rather than a placeholder or upscaled tile.
+  const sourceCap = Math.min(20, _activeTileMaxZoom);
+  const zoom = Math.min(sourceCap, Math.max(17, Math.round(map.getZoom())));
   const tc = deg2tile(lngLat.lat, lngLat.lng, zoom);
   const R = 2;                          // 5×5 tiles ≈ 380 m at zoom 19
   const cols = R*2+1, rows = R*2+1;
@@ -2383,6 +2456,29 @@ $('ap-query').addEventListener('keydown', (e) => { if (e.key === 'Enter') onLoca
 
 // Name field = autocomplete search (hotels, resorts, addresses)
 wireNameAutocomplete();
+
+// Cross-reference links (Google Maps / Google Earth) — update live as the rep types.
+function updateXrefLinks() {
+  const name = ($('ap-name')?.value || '').trim();
+  const addr = ($('ap-query')?.value || '').trim();
+  const q = [name, addr].filter(Boolean).join(' · ');
+  const encoded = encodeURIComponent(q || '');
+  const gmaps = $('ap-xref-gmaps');
+  const gearth = $('ap-xref-gearth');
+  if (!gmaps || !gearth) return;
+  if (!q) {
+    gmaps.href = 'https://www.google.com/maps';
+    gearth.href = 'https://earth.google.com/web';
+  } else {
+    gmaps.href = 'https://www.google.com/maps/search/?api=1&query=' + encoded;
+    gearth.href = 'https://earth.google.com/web/search/' + encoded;
+  }
+}
+['ap-name', 'ap-query'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('input', updateXrefLinks);
+});
+updateXrefLinks();
 
 // ⌘Z / Ctrl+Z = undo (skip when typing in inputs)
 document.addEventListener('keydown', (e) => {
