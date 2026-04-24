@@ -179,13 +179,39 @@ function onDrawChange(e) {
 }
 
 // ─── Geocoding ───────────────────────────────────────────────
-async function geocode(q) {
+async function nominatimSearch(q) {
   const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({ q, format:'json', limit:'1' });
   const r = await fetch(url, { headers:{ 'Accept':'application/json' }});
   if (!r.ok) throw new Error('Geocoding failed: ' + r.status);
   const hits = await r.json();
-  if (!hits.length) throw new Error('No results for "' + q + '"');
-  return { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon), name: hits[0].display_name };
+  return hits[0] || null;
+}
+
+async function geocode(q) {
+  // Plus Code path — Nominatim can't resolve these, so use Open Location Code.
+  // Accepts: "87G8PQXV+J5" (full), "PH72+8JR Higuey, DR" (short + locality).
+  const OLC = (typeof window !== 'undefined' && window.OpenLocationCode) ? new window.OpenLocationCode() : null;
+  if (OLC) {
+    const token = q.split(/\s+/)[0].toUpperCase();
+    if (OLC.isValid(token)) {
+      let fullCode = token;
+      let displayName = token;
+      if (OLC.isShort(token)) {
+        const locality = q.slice(token.length).trim().replace(/^[,\s]+/, '');
+        if (!locality) throw new Error('Short Plus Code needs a city — e.g. "PH72+8JR Higuey, DR"');
+        const ref = await nominatimSearch(locality);
+        if (!ref) throw new Error('Could not find "' + locality + '" to anchor the Plus Code');
+        fullCode = OLC.recoverNearest(token, parseFloat(ref.lat), parseFloat(ref.lon));
+        displayName = ref.display_name;
+      }
+      const area = OLC.decode(fullCode);
+      return { lat: area.latitudeCenter, lon: area.longitudeCenter, name: displayName };
+    }
+  }
+  // Address / hotel name path
+  const hit = await nominatimSearch(q);
+  if (!hit) throw new Error('No results for "' + q + '"');
+  return { lat: parseFloat(hit.lat), lon: parseFloat(hit.lon), name: hit.display_name };
 }
 
 async function onLocate() {
@@ -1917,6 +1943,7 @@ document.addEventListener('click', (ev) => {
   const action = t.dataset.action;
   const paction = t.dataset.poolAction;
   if (action === 'locate') onLocate();
+  else if (action === 'toggle-help') { const card = t.closest('.ap-card'); if (card) card.classList.toggle('show-help'); }
   else if (action === 'draw-boundary') onDrawBoundary();
   else if (action === 'clear-boundary') onClearBoundary();
   else if (action === 'detect') onDetect();
