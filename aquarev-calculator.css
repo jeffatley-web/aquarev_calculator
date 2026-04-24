@@ -919,17 +919,15 @@
 .ap-pool-flag:hover{transform:rotate(-45deg) scale(1.1);box-shadow:0 5px 14px rgba(0,0,0,.6);}
 .ap-pool-flag.selected{background:linear-gradient(135deg,var(--go),#d88b00);}
 /* Property (big) flag — shown only when zoomed out beyond pool scale so the user can navigate back. */
-.ap-property-flag{width:44px;height:54px;cursor:pointer;display:flex;align-items:flex-start;justify-content:center;padding-top:4px;font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:1.5px;color:#fff;text-transform:uppercase;background:linear-gradient(135deg,#f0a500,#d88b00);border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 5px 16px rgba(0,0,0,.7);transition:transform .15s,box-shadow .15s;}
-.ap-property-flag > span{transform:rotate(45deg);display:inline-block;font-size:16px;padding-top:2px;}
-.ap-property-flag:hover{transform:rotate(-45deg) scale(1.08);box-shadow:0 7px 22px rgba(0,0,0,.75);}
+/* Google-Maps-style red teardrop pin. The :before is the teardrop body,
+   the :after is the white dot in the centre. Drop-shadow below for depth. */
+.ap-property-flag{width:28px;height:40px;cursor:pointer;position:relative;filter:drop-shadow(0 4px 6px rgba(0,0,0,.55));transition:transform .15s;}
+.ap-property-flag::before{content:'';position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50% 50% 50% 0;background:linear-gradient(135deg,#ea4335 0%,#c5221f 100%);transform:rotate(-45deg);border:2px solid #fff;box-sizing:border-box;}
+.ap-property-flag::after{content:'';position:absolute;left:50%;top:9px;width:9px;height:9px;background:#fff;border-radius:50%;transform:translateX(-50%);}
+.ap-property-flag > span{display:none;}
+.ap-property-flag:hover{transform:scale(1.12) translateY(-2px);}
 .maplibregl-ctrl-attrib{background:rgba(4,15,30,.7) !important;color:#7db8cc !important;font-size:10px !important;}
 .maplibregl-ctrl-attrib a{color:#48cae4 !important;}
 .mapboxgl-ctrl-group,.maplibregl-ctrl-group{background:rgba(4,15,30,.92) !important;border:1px solid rgba(0,180,216,.45) !important;box-shadow:0 4px 14px rgba(0,0,0,.5) !important;}
 .mapboxgl-ctrl-group button,.maplibregl-ctrl-group button{background:transparent !important;width:32px !important;height:32px !important;}
 .mapboxgl-ctrl-group button+button,.maplibregl-ctrl-group button+button{border-top:1px solid rgba(0,180,216,.25) !important;}
-.mapboxgl-ctrl-group button:hover,.maplibregl-ctrl-group button:hover{background:rgba(0,180,216,.22) !important;}
-/* Invert + and - icons so they render bright white on dark background */
-.mapboxgl-ctrl-group button .mapboxgl-ctrl-icon,
-.maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1) brightness(2) contrast(1.1);}
-</style>
-

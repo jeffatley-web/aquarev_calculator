@@ -40,7 +40,7 @@ const S = {
   propertyZoom: 18,           // zoom used when Centre button fires
   propertyMarker: null,       // MapLibre Marker that shows when zoomed out
 };
-const PROPERTY_FLAG_MAX_ZOOM = 16;   // show the big property flag below this zoom
+const PROPERTY_FLAG_MAX_ZOOM = 17;   // show the big property flag below this zoom
 const MAX_HISTORY = 30;
 
 // ─── Small DOM utils ─────────────────────────────────────────
@@ -224,9 +224,9 @@ async function onLocate() {
   try {
     const loc = await geocode(q);
     S.center = [loc.lon, loc.lat];
-    map.flyTo({ center: S.center, zoom: 18, duration: 1200 });
+    map.flyTo({ center: S.center, zoom: 17, duration: 1200 });
     if (!$('ap-name').value) $('ap-name').value = loc.name.split(',')[0];
-    setPropertyCenter([loc.lon, loc.lat], 18);
+    setPropertyCenter([loc.lon, loc.lat], 17);
     setStatus('Located', 'ready');
   } catch (err) {
     setStatus('Error', 'ready');
@@ -319,18 +319,25 @@ async function googleGetPlaceDetails(placeId) {
     svc.getDetails({
       placeId,
       sessionToken: token,
-      fields: ['geometry', 'formatted_address', 'name']
+      fields: ['geometry.location', 'geometry.viewport', 'formatted_address', 'name']
     }, (place, status) => {
       if (status !== google.maps.places.PlacesServiceStatus.OK) return reject(new Error('details ' + status));
       resolve(place);
     });
   });
   _resetGpSession();
+  const vp = result.geometry.viewport;
   return {
     name: result.name,
     address: result.formatted_address,
     lat: result.geometry.location.lat(),
-    lon: result.geometry.location.lng()
+    lon: result.geometry.location.lng(),
+    // Google viewport (SW/NE corners) bounds the full property — used for fitBounds
+    // so sprawling resorts zoom out and compact hotels zoom in, always within Esri tile coverage.
+    viewport: vp ? {
+      sw: [vp.getSouthWest().lng(), vp.getSouthWest().lat()],
+      ne: [vp.getNorthEast().lng(), vp.getNorthEast().lat()]
+    } : null
   };
 }
 
@@ -418,6 +425,7 @@ function _hideNameDropdown() {
 
 async function _applyNameSuggestion(r) {
   // Google predictions don't include coords — resolve via getDetails (same session).
+  let viewport = null;
   if (r._source === 'google' && (r.lat == null || r.lon == null)) {
     setStatus('Resolving…', 'busy');
     try {
@@ -425,6 +433,7 @@ async function _applyNameSuggestion(r) {
       r.lat = det.lat; r.lon = det.lon;
       r.address = det.address || r.address;
       if (det.name) r.name = det.name;
+      viewport = det.viewport;
     } catch (e) {
       setStatus('Error', 'ready');
       toast('Could not load details — pick another result', 'err');
@@ -435,8 +444,14 @@ async function _applyNameSuggestion(r) {
   if (!$('ap-query').value.trim()) $('ap-query').value = r.address || r.locality || '';
   _hideNameDropdown();
   S.center = [r.lon, r.lat];
-  map.flyTo({ center: S.center, zoom: 18, duration: 1200 });
-  setPropertyCenter([r.lon, r.lat], 18);
+  if (viewport) {
+    // fitBounds — Google-supplied viewport sizes to the property; Esri tile coverage stays safe.
+    // maxZoom 19 gets as close as Esri tile coverage allows. padding keeps the pin + a bit of context visible.
+    map.fitBounds([viewport.sw, viewport.ne], { padding: 60, duration: 1200, maxZoom: 19 });
+  } else {
+    map.flyTo({ center: S.center, zoom: 17, duration: 1200 });
+  }
+  setPropertyCenter([r.lon, r.lat], 17);
   setStatus('Located', 'ready');
 }
 
@@ -1440,7 +1455,8 @@ function ensurePropertyMarker() {
     el.title = 'Property location — click to centre';
     el.innerHTML = '<span>\u25CE</span>';
     el.addEventListener('click', (ev) => { ev.stopPropagation(); centreOnProperty(); });
-    S.propertyMarker = new maplibregl.Marker({ element: el, anchor: 'bottom-left' })
+    // Anchor at the tip of the teardrop (bottom-center) so the pin points precisely at the lat/lon.
+    S.propertyMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat(S.propertyCenter).addTo(map);
   } else {
     S.propertyMarker.setLngLat(S.propertyCenter);
