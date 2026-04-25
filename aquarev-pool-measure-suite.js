@@ -605,7 +605,17 @@ function wireNameAutocomplete() {
 }
 
 // ─── Draw modes ──────────────────────────────────────────────
+// Guards the `draw.create` handlers so that programmatic draw.add calls
+// (magic wand, auto-detect, merge) don't fire stale once-handlers left over
+// from a previously-started "Trace polygon" or "Draw boundary" that the rep
+// abandoned without completing. Each handler only runs if the flag matches
+// its role when the event fires.
+let _awaitingDraw = null;  // 'pool' | 'boundary' | null
+function _cancelAwaitingDraw() { _awaitingDraw = null; hint(''); }
+
 function onDrawBoundary() {
+  _cancelAwaitingDraw();
+  _awaitingDraw = 'boundary';
   if (S.boundary) {
     draw.delete(S.boundary.id);
     S.boundary = null;
@@ -613,6 +623,8 @@ function onDrawBoundary() {
   draw.changeMode('draw_polygon');
   hint('Click to add boundary vertices. <strong>Double-click</strong> to finish. Keep detection inside your property.');
   const handler = (e) => {
+    if (_awaitingDraw !== 'boundary') { map.off('draw.create', handler); return; }
+    _awaitingDraw = null;
     if (e.features?.[0]) {
       pushHistory('set boundary');
       draw.setFeatureProperty(e.features[0].id, 'role', 'boundary');
@@ -623,7 +635,7 @@ function onDrawBoundary() {
       toast('Boundary set', 'ok');
     }
   };
-  map.once('draw.create', handler);
+  map.on('draw.create', handler);
 }
 
 function onClearBoundary() {
@@ -636,9 +648,15 @@ function onClearBoundary() {
 }
 
 function onDrawPool() {
+  _cancelAwaitingDraw();
+  _awaitingDraw = 'pool';
+  // Turn wand off so the map click handler doesn't race against the trace flow.
+  if (S.magicWand) onMagicWandToggle();
   draw.changeMode('draw_polygon');
   hint('Click to trace a pool, <strong>double-click</strong> to finish.');
   const handler = (e) => {
+    if (_awaitingDraw !== 'pool') { map.off('draw.create', handler); return; }
+    _awaitingDraw = null;
     if (e.features?.[0]) {
       pushHistory('draw pool');
       draw.setFeatureProperty(e.features[0].id, 'role', 'pool');
@@ -650,7 +668,7 @@ function onDrawPool() {
       hint('');
     }
   };
-  map.once('draw.create', handler);
+  map.on('draw.create', handler);
 }
 
 // ─── Geometry helpers (Web Mercator) ─────────────────────────
@@ -728,6 +746,7 @@ function tile2deg(x, y, z) {
 }
 
 async function onDetect() {
+  _cancelAwaitingDraw();
   const bounds = map.getBounds();
   const zoom = Math.min(19, Math.max(17, Math.round(map.getZoom())));
   const nw = { lat: bounds.getNorth(), lon: bounds.getWest() };
@@ -928,6 +947,7 @@ async function onDetect() {
 
 // ─── Magic Wand: click-to-trace one pool at a time ──────────
 function onMagicWandToggle() {
+  _cancelAwaitingDraw();
   S.magicWand = !S.magicWand;
   document.getElementById('ap2').classList.toggle('wand', S.magicWand);
   const btn = document.getElementById('ap-btn-wand');
@@ -947,6 +967,8 @@ async function magicWandAtLngLat(lngLat) {
   try { await _magicWand(lngLat); } finally { _wandInFlight = false; }
 }
 async function _magicWand(lngLat) {
+  // Defensive: belt-and-suspenders cancel before any programmatic draw.add fires.
+  _cancelAwaitingDraw();
   // Cap to the active source's real max — Esri=18, Google=20. Keeps the pixel
   // analysis on actual imagery rather than a placeholder or upscaled tile.
   const sourceCap = Math.min(20, _activeTileMaxZoom);
@@ -1148,6 +1170,8 @@ function detectHoles(mask, W, H, minX, minY, maxX, maxY, pxArea) {
 function mergePoolsByIds(ids) {
   const pools = ids.map(id => S.pools.find(p => p.id === id)).filter(Boolean);
   if (pools.length < 2) { toast('Select at least 2 pools', 'err'); return; }
+  // Stale Trace/Boundary handler must not interpret our programmatic draw.add as a user completion.
+  _cancelAwaitingDraw();
   pushHistory(`merge ${pools.length} pools`);
 
   let minLon=Infinity, minLat=Infinity, maxLon=-Infinity, maxLat=-Infinity;
@@ -1915,6 +1939,7 @@ async function enterReviewFor(pool) {
 
 // ─── Merge mode (click 2 polygons on the map) ────────────────
 function onMergeModeToggle() {
+  _cancelAwaitingDraw();
   S.mergeMode = !S.mergeMode;
   S.mergeModePicks = [];
   document.getElementById('ap2').classList.toggle('merge-mode', S.mergeMode);
@@ -1985,6 +2010,7 @@ function updateUndoButton() {
 }
 function onUndo() {
   if (!S.history.length) { toast('Nothing to undo', 'err'); return; }
+  _cancelAwaitingDraw();
   const snap = S.history.pop();
   for (const p of S.pools) { try { draw.delete(p.drawId); } catch(e){} removePoolMarker(p.id); }
   if (S.boundary) { try { draw.delete(S.boundary.id); } catch(e){} }
@@ -2060,6 +2086,7 @@ function onLibrary() {
   if (!n || n<1 || n>idx.length) return;
   const snap = JSON.parse(localStorage.getItem('ap2:report:' + idx[n-1].id));
   if (!snap) return;
+  _cancelAwaitingDraw();
   resetAll(false);
   $('ap-name').value = snap.propertyName;
   map.flyTo({ center: snap.center, zoom: snap.zoom, duration: 800 });
@@ -2603,6 +2630,7 @@ window.AR2_MAP = {
   // Restore on archive recall.
   loadSnapshot(snap) {
     if (!snap) return;
+    _cancelAwaitingDraw();
     resetAll(false);
     if (snap.propertyName && $('ap-name')) $('ap-name').value = snap.propertyName;
     if (snap.addressQuery && $('ap-query')) $('ap-query').value = snap.addressQuery;
