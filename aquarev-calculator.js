@@ -7,7 +7,6 @@ var I={
   close:  '<svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>',
   ruler:  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="5" width="14" height="6" rx="1"/><path d="M4 5v3M7 5v2M10 5v3M13 5v2"/></svg>',
   drop:   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2C6 5 3 9 3 11.5a5 5 0 0010 0C13 9 10 5 8 2z"/></svg>',
-  warning:'<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L2 13h12L8 2z"/><path d="M8 6v4M8 11.5v.01"/></svg>',
   dropLg: '<svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2C6 5 3 9 3 11.5a5 5 0 0010 0C13 9 10 5 8 2z"/></svg>',
   up:     '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 13V3M3 8l5-5 5 5"/></svg>',
   zap:    '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
@@ -52,9 +51,9 @@ var EX={
   layout:'portrait',      // 'portrait' | 'landscape'
   inclWater:true,         // include water loss 5yr section
   inclCover:false,        // include cover page
-  inclFactSheet:false,    // include fact sheet (pages 2 & 3 only)
-  inclBackCover:false,    // include back cover page (separate from fact sheet)
+  inclFactSheet:false,    // include fact sheet
   inclPoolProfiles:false, // include pool profiles page
+  inclExecSummary:false,  // include 2-page Executive Summary
   images:[],              // [{id, data, comment}]
   ytEntries:[],           // [{id, url, videoId, comment}]
   showYtDrawer:false,
@@ -71,47 +70,6 @@ var VIEW='form';
 
 /* ── Archive session-unlock flag (in-memory only, resets on reload) ── */
 var ARCHIVE_UNLOCKED=false;
-
-/* ── Confetti burst (moderate success celebration) ──
-   Called on archive save + PDF download. Pure DOM, no library. */
-function confettiBurst(opts){
-  opts=opts||{};
-  var count=opts.count||45;
-  var duration=opts.duration||2600;
-  var originEl=opts.originEl;
-  var colors=['#00b4d8','#48cae4','#90e0ef','#f0a500','#22c55e','#ffffff'];
-  var ox=window.innerWidth/2, oy=window.innerHeight/2;
-  if(originEl){var r=originEl.getBoundingClientRect(); ox=r.left+r.width/2; oy=r.top+r.height/2;}
-  var container=document.createElement('div');
-  container.className='ar-confetti';
-  document.body.appendChild(container);
-  for(var i=0;i<count;i++){
-    var piece=document.createElement('div');
-    piece.className='ar-confetti-piece';
-    piece.style.left=ox+'px';
-    piece.style.top=oy+'px';
-    piece.style.background=colors[Math.floor(Math.random()*colors.length)];
-    var angle=Math.random()*Math.PI*2;
-    var burstVel=180+Math.random()*220;
-    var mx=Math.cos(angle)*burstVel*0.55;
-    var my=Math.sin(angle)*burstVel*0.55-80;          // slight upward bias
-    var tx=Math.cos(angle)*burstVel*0.9+(Math.random()-0.5)*80;
-    var ty=Math.sin(angle)*burstVel*0.5+420+Math.random()*200;  // gravity pulls down
-    var rot=(Math.random()-0.5)*900;
-    piece.style.setProperty('--mx',mx+'px');
-    piece.style.setProperty('--my',my+'px');
-    piece.style.setProperty('--tx',tx+'px');
-    piece.style.setProperty('--ty',ty+'px');
-    piece.style.setProperty('--r',rot+'deg');
-    piece.style.animation='ar-confetti-burst '+duration+'ms cubic-bezier(.2,.75,.4,1) forwards';
-    piece.style.animationDelay=(Math.random()*120)+'ms';
-    // vary shape — 25% are little rectangles oriented sideways
-    if(Math.random()<0.25){ piece.style.width='12px'; piece.style.height='6px'; }
-    container.appendChild(piece);
-  }
-  setTimeout(function(){ if(container.parentNode) container.parentNode.removeChild(container); }, duration+400);
-}
-window.confettiBurst=confettiBurst;  // expose so Pool Measure bridge can fire it too
 var ARCHIVE_PASSCODE='1116';
 
 /* ── Archive passcode modal ── */
@@ -206,32 +164,8 @@ function bankGetIndex(){
 
 function bankSaveReport(){
   if(EX.saving)return;
-  // Sync property name from Map Pools step if it's been entered there but not
-  // yet mirrored into S.propertyName (happens when user saves before Continue).
-  if(!S.propertyName && window.AR2_MAP && AR2_MAP.getPropertyName){
-    var mapName=AR2_MAP.getPropertyName();
-    if(mapName) S.propertyName=mapName;
-  }
-  // Require a Property Name before any archive save. Especially important on
-  // Step 0 (Map Pools) where the user can trace pools without ever entering one.
-  var nm=(S.propertyName||'').trim();
-  if(!nm){
-    var msg='A Property Name is required before saving to the Archive.';
-    var promptRes=prompt(msg+'\n\nEnter a name for this property:', '');
-    if(promptRes==null) return;          // user cancelled
-    var entered=promptRes.trim();
-    if(!entered){
-      alert('Property Name required to save to the Archive.');
-      return;
-    }
-    S.propertyName=entered;
-    // Mirror back into both possible DOM inputs so the field updates visually
-    var formInput=document.querySelector('#ar2 [data-f="propertyName"]');
-    if(formInput) formInput.value=entered;
-    if(window.AR2_MAP && AR2_MAP.setPropertyName) AR2_MAP.setPropertyName(entered);
-  }
   // Check for duplicate property name in archive before saving
-  var targetName=S.propertyName.trim().toLowerCase();
+  var targetName=(S.propertyName||'Unnamed Property').trim().toLowerCase();
   bankGetIndex().then(function(idx){
     var dupes=idx.filter(function(e){
       return (e.propertyName||'').trim().toLowerCase()===targetName;
@@ -293,7 +227,7 @@ function bankSaveReportImpl(replaceIds){
       bodies:S.bodies,
       manualVolume:S.manualVolume, manualTotalGallons:S.manualTotalGallons,
       manualChlorineGallons:S.manualChlorineGallons, manualCo2:S.manualCo2, manualPoolCount:S.manualPoolCount,
-      devicesByPool:S.devicesByPool,
+      devicesByPool:S.devicesByPool, propertiesCount:S.propertiesCount,
       pool_gallons:S.pool_gallons, chlorine_pool_gallons:S.chlorine_pool_gallons,
       co2_pool_gallons:S.co2_pool_gallons,
       water_cost_per_gal:S.water_cost_per_gal, water_loss_reduction:S.water_loss_reduction,
@@ -312,13 +246,9 @@ function bankSaveReportImpl(replaceIds){
     },
     ex:{
       scenario:EX.scenario, bothScenarios:EX.bothScenarios,
-      layout:EX.layout, inclWater:EX.inclWater, inclFactSheet:EX.inclFactSheet, inclBackCover:EX.inclBackCover, inclPoolProfiles:EX.inclPoolProfiles,
+      layout:EX.layout, inclWater:EX.inclWater, inclFactSheet:EX.inclFactSheet, inclPoolProfiles:EX.inclPoolProfiles, inclExecSummary:EX.inclExecSummary,
       comments:EX.comments, ytEntries:EX.ytEntries,
-      images:EX.images,
     },
-    // Map Pools step full snapshot — polygons, map view, property anchor.
-    // Absent for non-map archives (e.g. records from pre-v4 calculator saves).
-    mapping: (window.AR2_MAP && AR2_MAP.exportSnapshot) ? AR2_MAP.exportSnapshot() : null,
   };
   var entry={id:id, propertyName:snapshot.propertyName, savedAt:snapshot.savedAt, summary:snapshot.summary};
 
@@ -343,9 +273,6 @@ function bankSaveReportImpl(replaceIds){
     .then(function(){
       EX.saving=false; EX.saveStatus='saved';
       renderDevices(); renderResults();
-      // Celebrate a successful archive save — origin at the Archive button.
-      var originBtn=document.querySelector('[data-action="archive"],[data-save-btn],#ar2-bank-nav');
-      try { confettiBurst({ originEl: originBtn, count: 55 }); } catch(e){}
       setTimeout(function(){EX.saveStatus=null;renderDevices();renderResults();},3000);
     })
     .catch(function(){
@@ -374,29 +301,13 @@ function bankRecall(snapshot){
   EX.layout=snapshot.ex.layout;
   EX.inclWater=snapshot.ex.inclWater;
   EX.inclFactSheet=snapshot.ex.inclFactSheet;
-  // Migration shim (v3 → v4): the back cover used to be bundled into the Fact
-  // Sheet toggle. When loading a pre-v4 snapshot (inclBackCover field missing),
-  // mirror the bundled behavior so exports look identical to the v3 output.
-  if (typeof snapshot.ex.inclBackCover === 'undefined') {
-    EX.inclBackCover = !!snapshot.ex.inclFactSheet;
-  } else {
-    EX.inclBackCover = !!snapshot.ex.inclBackCover;
-  }
   EX.inclPoolProfiles=!!snapshot.ex.inclPoolProfiles;
+  EX.inclExecSummary=!!snapshot.ex.inclExecSummary;
   EX.comments=snapshot.ex.comments;
   EX.ytEntries=snapshot.ex.ytEntries||[];
-  // Restore property images (dataURLs); pre-v4 snapshots won't have this field.
-  EX.images=Array.isArray(snapshot.ex.images)?snapshot.ex.images.slice():[];
+  EX.images=[];
   EX.saving=false; EX.saveStatus=null;
-  // Hydrate the Map Pools side: polygons, boundary, map centre, property flag.
-  // Absent on pre-v4 snapshots and on records that never touched Step 0 — the
-  // bridge handles a null payload gracefully.
-  if (snapshot.mapping && window.AR2_MAP && AR2_MAP.loadSnapshot) {
-    try { AR2_MAP.loadSnapshot(snapshot.mapping); } catch(e) {}
-  }
-  // Step index shifted by +1 with the new Map Pool step at 0. Land on what was
-  // previously "Pricing & Settings" (step 1) → now step 2.
-  S.step=2;
+  S.step=1;
   showView('form');
 }
 
@@ -631,11 +542,12 @@ function resetApp(){
   S.devicesByPool=false;
   S.pool_gallons=0; S.chlorine_pool_gallons=0; S.co2_pool_gallons=0;
   S.manualVolume=false; S.manualTotalGallons=''; S.manualChlorineGallons=''; S.manualCo2=false; S.manualPoolCount=1;
+  S.propertiesCount=1;
   S.pipe_2in=0; S.pipe_3in=0; S.pipe_4in=0; S.pipe_6in=0; S.pipe_8in=0; S.pipe_10in=0;
   S.discount=0; S.savings_weight=1;
   EX.images=[]; EX.ytEntries=[]; EX.comments='';
   EX.scenario='advantage'; EX.bothScenarios=true; EX.layout='portrait';
-  EX.inclCover=false; EX.inclWater=true; EX.inclFactSheet=false; EX.inclBackCover=false; EX.inclPoolProfiles=false;
+  EX.inclCover=false; EX.inclWater=true; EX.inclFactSheet=false; EX.inclPoolProfiles=false; EX.inclExecSummary=false;
   EX.saving=false; EX.saveStatus=null; EX.exporting=false;
   initDefaultYt();
   if(VIEW==='bank') showView('form');
@@ -691,8 +603,8 @@ var CHEMS=[
   {k:'clarifier', lbl:'Clarifier',      ck:'clarifier_cost',  rk:'clarifier_reduction', chlGal:false, isCo2:false},
 ];
 
-var STEPS=['map-pools','pool-system','settings','export'];
-var STEP_LBLS=['Map Pools','Pool & System','Pricing & Settings','Export'];
+var STEPS=['pool-system','settings','export'];
+var STEP_LBLS=['Pool & System','Pricing & Settings','Export'];
 
 /* ── State — DEFAULT_INPUTS from types.ts + bodies of water ── */
 var S={
@@ -705,6 +617,7 @@ var S={
   // Manual volume override (when dimensions unavailable for all pools)
   manualVolume:false, manualTotalGallons:'', manualChlorineGallons:'', manualCo2:false, manualPoolCount:1,
   devicesByPool:false,
+  propertiesCount:1,    // shown in Exec Summary "Portfolio Snapshot"
   // Pipe devices
   pipe_2in:0, pipe_3in:0, pipe_4in:0, pipe_6in:0, pipe_8in:0, pipe_10in:0,
   // Pricing
@@ -779,29 +692,8 @@ function fd(n,p){return (+(n||0)).toFixed(p!=null?p:4);}
 /* ── Pool volume helpers (CUBIC_FEET_TO_GALLONS = 7.48 from types.ts) ── */
 function bodyGallons(b){
   if(b.inputMode==='gallons') return parseFloat(b.manualGallons)||0;
-  if(b.inputMode==='surface'){
-    var S2=parseFloat(b.surface_sqft)||0, D2=parseFloat(b.depth)||0;
-    return S2*D2*7.48052;
-  }
   var L=parseFloat(b.length)||0, W=parseFloat(b.width)||0, D=parseFloat(b.depth)||0;
-  return L*W*D*7.48052;
-}
-// Gallons estimate from the original polygon area captured at map-time (v4 only).
-// Used to show the divergence badge when user edits drive the body away from
-// what the map originally measured.
-function bodyGallonsFromMap(b){
-  if(!b.fromMap || !b.sq_m) return null;
-  var D=parseFloat(b.depth)||0;
-  if(!D) return null;
-  return b.sq_m * 10.7639 * D * 7.48052;
-}
-// Percent divergence between user-entered volume and the map-polygon estimate.
-function bodyDivergencePct(b){
-  var mapGal=bodyGallonsFromMap(b);
-  if(!mapGal) return null;
-  var userGal=bodyGallons(b);
-  if(!userGal) return null;
-  return Math.abs(userGal - mapGal) / mapGal;
+  return L*W*D*7.48;
 }
 function syncGallons(){
   if(S.manualVolume){
@@ -842,7 +734,7 @@ function patchBodyGallons(bodyId){
   var g=bodyGallons(b);
   var valEl=document.getElementById('bgal-'+bodyId);
   var card=document.getElementById('bc-'+bodyId);
-  var hint=b.inputMode==='gallons'?'— enter gallons':(b.inputMode==='surface'?'— enter sq ft × depth':'— enter dimensions');
+  var hint=b.inputMode==='gallons'?'— enter gallons':'— enter dimensions';
   if(valEl) valEl.textContent=g>0?fn(Math.round(g))+' gal':hint;
   if(card) card.classList.toggle('has-gal',g>0);
   var totEl=document.getElementById('ar2-total-gal');
@@ -971,38 +863,6 @@ function renderStepper(){
   el.innerHTML=h;
 }
 
-/* ── Step 0: Map Pool ──
-   #ap2 is a persistent sibling to #ar2-main-layout — see the render() hook that
-   toggles .map-step on the #ar2 root. renderMapPool() stays empty; Pool Measure
-   owns its own UI (map, review card, catalog, and step-0 nav bar). */
-function renderMapPool(){ return ''; }
-
-/* Pull bodies from the Pool Measure bridge and replace S.bodies.
-   Runs when the user clicks Continue on Step 0. Drops the default "Pool 1"
-   skeleton if the bridge returned registered bodies; otherwise leaves S.bodies
-   alone (user either hit Skip or didn't register anything). */
-function consumeMapPoolBodies(){
-  if(!window.AR2_MAP || !AR2_MAP.getBodies) return;
-  var mapped=AR2_MAP.getBodies();
-  if(!mapped || !mapped.length) return;
-  // Pull in the property name too if one was set in Map Pool
-  var pname=(AR2_MAP.getPropertyName && AR2_MAP.getPropertyName()) || '';
-  if(pname && !S.propertyName) S.propertyName=pname;
-  S.bodies=mapped;
-  // When any mapped body carries device counts, flip on "Devices by Pool" so
-  // those per-pool values display on Step 1, and roll them up into the
-  // aggregate Return Pipe - Device Selection in the middle column.
-  var PIPE_KEYS=['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'];
-  var anyPerPool=mapped.some(function(b){
-    return PIPE_KEYS.some(function(k){ return (b[k]|0) > 0; });
-  });
-  if(anyPerPool){
-    S.devicesByPool=true;
-    syncDevicesFromBodies();
-  }
-  syncGallons();
-}
-
 /* ── Step 1: Pool & System ── */
 function renderStep0(){
   // ── Bodies of water ──
@@ -1011,53 +871,25 @@ function renderStep0(){
     var g=bodyGallons(b);
     totalGal+=g;
     var showRm=S.bodies.length>1;
-    var mode=b.inputMode||'dimensions';
-    var isDim=(mode==='dimensions');
-    var isGal=(mode==='gallons');
-    var isSurf=(mode==='surface');
+    var isDim=b.inputMode!=='gallons';
 
-    // Divergence badge (only shown when body came from Map Pool and user input
-    // has drifted from the polygon-derived estimate by more than the threshold).
-    var DIV_THRESHOLD=0.15;
-    var divPct=bodyDivergencePct(b);
-    var divBadge='';
-    if(divPct!=null && divPct>DIV_THRESHOLD){
-      var mapGal=bodyGallonsFromMap(b);
-      var pctStr=Math.round(divPct*100)+'%';
-      var dir=bodyGallons(b)<mapGal?'below':'above';
-      divBadge='<div class="ar-diverge-badge" title="Map estimate: '+fn(Math.round(mapGal))+' gal &#10;Your input: '+fn(Math.round(bodyGallons(b)))+' gal" data-body-use-map="'+b.id+'">'
-        +I.warning+' '+pctStr+' '+dir+' map estimate &mdash; <u>use map</u>'
-      +'</div>';
-    }
-
-    var inputContent;
-    if(isSurf){
-      inputContent='<div class="ar-body-surf">'
-          +'<div><label class="ar-lbl">Surface (sq ft)</label>'
-            +'<input class="ar-inp sm" type="number" data-bf="surface_sqft" data-bid="'+b.id+'" value="'+(b.surface_sqft||'')+'" placeholder="sq ft" /></div>'
-          +'<div><label class="ar-lbl">Avg Depth</label>'
-            +'<input class="ar-inp sm" type="number" data-bf="depth" data-bid="'+b.id+'" value="'+(b.depth||'')+'" placeholder="ft" /></div>'
-        +'</div>';
-    } else if(isDim){
-      inputContent='<div class="ar-body-dims">'
+    var inputContent=isDim
+      ?'<div class="ar-body-dims">'
           +'<div><label class="ar-lbl">Length</label>'
             +'<input class="ar-inp sm" type="number" data-bf="length" data-bid="'+b.id+'" value="'+(b.length||'')+'" placeholder="ft" /></div>'
           +'<div><label class="ar-lbl">Width</label>'
             +'<input class="ar-inp sm" type="number" data-bf="width" data-bid="'+b.id+'" value="'+(b.width||'')+'" placeholder="ft" /></div>'
           +'<div><label class="ar-lbl">Avg Depth</label>'
             +'<input class="ar-inp sm" type="number" data-bf="depth" data-bid="'+b.id+'" value="'+(b.depth||'')+'" placeholder="ft" /></div>'
-        +'</div>';
-    } else {
-      inputContent='<div style="margin-bottom:10px">'
+        +'</div>'
+      :'<div style="margin-bottom:10px">'
           +'<label class="ar-lbl">Pool Volume (Gallons)</label>'
           +'<input class="ar-inp" type="text" inputmode="numeric" data-bf="manualGallons" data-bid="'+b.id+'" value="'+(b.manualGallons?fn(parseFloat(b.manualGallons)):'')+'" placeholder="e.g. 100,000" />'
         +'</div>';
-    }
 
     return '<div class="ar-body-card'+(g>0?' has-gal':'')+'" id="bc-'+b.id+'">'
       +'<div class="ar-body-hd">'
         +'<input class="ar-inp sm" style="flex:1;min-width:80px" data-bf="label" data-bid="'+b.id+'" value="'+esc(b.label)+'" placeholder="Pool name" />'
-        +(b.fromMap?'<span class="ar-body-map-tag" title="Traced on the Map Pool step">MAP</span>':'')
         +'<div style="display:flex;align-items:center;gap:7px;flex-shrink:0">'
           +'<div class="ar-body-type">'
             +'<button class="ar-btype-btn'+(b.poolType==='chlorine'?' on':'')+'" data-bpt="chlorine" data-bid="'+b.id+'">Chlorine</button>'
@@ -1069,12 +901,10 @@ function renderStep0(){
       +'<div style="margin-bottom:11px">'
         +'<div class="ar-imode">'
           +'<button class="ar-imode-btn'+(isDim?' on':'')+'" data-set-mode="dimensions" data-bid="'+b.id+'">'+I.ruler+' Dimensions</button>'
-          +'<button class="ar-imode-btn'+(isSurf?' on':'')+'" data-set-mode="surface" data-bid="'+b.id+'">'+I.drop+' Surface</button>'
-          +'<button class="ar-imode-btn'+(isGal?' on':'')+'" data-set-mode="gallons" data-bid="'+b.id+'">'+I.drop+' Gallons</button>'
+          +'<button class="ar-imode-btn'+(!isDim?' on':'')+'" data-set-mode="gallons" data-bid="'+b.id+'">'+I.drop+' Enter Gallons</button>'
         +'</div>'
       +'</div>'
       +inputContent
-      +divBadge
       +'<div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
         +'<span style="font-size:12px;color:var(--mu)">CO\u2082 pH system</span>'
         +'<div class="ar-sw-track'+(b.co2Use?' on':'')+'" data-co2-bid="'+b.id+'"><div class="ar-sw-thumb"></div></div>'
@@ -1142,6 +972,11 @@ function renderStep0(){
       +'<label class="ar-lbl">Property Name</label>'
       +'<input class="ar-inp" type="text" data-f="propertyName" value="'+esc(S.propertyName)+'" placeholder="Client Property Name" autocomplete="organization" />'
     +'</div>'
+    // Number of Properties — for Exec Summary "Portfolio Snapshot"
+    +'<div class="ar-field" style="display:flex;align-items:center;gap:12px">'
+      +'<label class="ar-lbl" style="margin:0;flex:1">Number of Properties <span style="font-weight:400;color:var(--mu)">(for Exec Summary)</span></label>'
+      +'<input class="ar-inp" type="number" min="1" max="999" step="1" data-f="propertiesCount" value="'+(S.propertiesCount||1)+'" style="max-width:100px" onfocus="this.select()" />'
+    +'</div>'
     // Devices by Pool toggle
     +'<div class="ar-manual-lede" data-sw-s="devicesByPool" style="margin-bottom:12px">'
       +'<span>'+(S.devicesByPool?'\u2714 Devices entered per pool':'Devices by Pool')+'<span style="font-size:10px;color:var(--mu);display:block;margin-top:2px;font-weight:400">'+(S.devicesByPool?'Totals computed from per-pool counts':'Toggle on to enter device counts per pool')+'</span></span>'
@@ -1171,9 +1006,7 @@ function renderDevices(){
   var el=document.getElementById('ar2-devices');
   if(!el)return;
 
-  // Step 0 (Map Pool): no middle-column device content — the map takes the full width.
-  if(S.step===0){ el.innerHTML=''; return; }
-  if(S.step===1){
+  if(S.step===0){
     var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
     var advTotal=S.pipe_2in*99+S.pipe_3in*99+S.pipe_4in*139+S.pipe_6in*329+S.pipe_8in*649+S.pipe_10in*1601.19;
     var pipeRows=PIPES.map(function(p){
@@ -1205,8 +1038,8 @@ function renderDevices(){
         :'<div class="ar-note" style="margin-top:12px;display:flex;align-items:center;gap:6px">'+I.up+' Select at least one device to unlock savings calculations.</div>'
       )
     +'</div>';
-  } else if(S.step===2){
-    // Step 3 (Pricing & Settings): Device summary + Total Water Volume + Water Loss Reduction
+  } else if(S.step===1){
+    // Step 2: Device summary + Total Water Volume + Water Loss Reduction
     var devCount=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in;
     var devList=PIPES.filter(function(p){return S[p.k]>0}).map(function(p){
       return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(0,180,216,.08);font-size:12px">'
@@ -1237,8 +1070,8 @@ function renderDevices(){
       +'</div>'
     +'</div>';
     el.innerHTML=html;
-  } else if(S.step===3){
-    // Step 4 (Export): Export options in middle column
+  } else if(S.step===2){
+    // Step 3 (Export): Export options in middle column
     el.innerHTML=renderExportSection();
   } else {
     el.innerHTML='';
@@ -1491,35 +1324,27 @@ function renderResults(){
 function renderNav(){
   var el=document.getElementById('ar2-nav');
   if(!el)return;
-  // Step 0 (Map Pools) has its own top-of-column nav inside #ap2 — hide the
-  // calculator's shared nav entirely on that step so there's one source of truth.
-  if(S.step===0){ el.style.display='none'; el.innerHTML=''; return; }
-  el.style.display='';
   var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
-  var isLast=S.step===STEPS.length-1;
-  // Step 1 gates Continue on at least one device selected.
-  var disableNext=S.step===1 && !hasDevices;
-  // Continue button is omitted on the final step — Export panel below is the action.
-  var nextLabel='Continue \u2192';
-  if(S.step===1) nextLabel='Continue \u2192 Pricing';
-  else if(S.step===2) nextLabel='Continue \u2192 Export';
-  var backLabel='\u2190 Back';
-  if(S.step===1) backLabel='\u2190 Map Pools';
-  else if(S.step===2) backLabel='\u2190 Pool & System';
-  else if(S.step===3) backLabel='\u2190 Pricing & Settings';
-  var html='<div class="ar-nav-stack">'
-    +(isLast?'':'<button class="ar-btn primary full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
-    +'<button class="ar-btn ghost full" data-nav="back">'+backLabel+'</button>'
-    +(disableNext?'<div class="ar-nav-hint">Select a device above to continue</div>':'')
-  +'</div>';
-  el.innerHTML=html;
+  var isFirst=S.step===0, isLast=S.step===STEPS.length-1;
+  var backBtn=isFirst
+    ?'<span></span>'
+    :'<button class="ar-btn ghost" data-nav="back">\u2190 Back</button>';
+  // On the last step (Review), the export panel in the right column is the primary action;
+  // the nav shows only Back — no competing print/download button here.
+  var nextBtn=isLast
+    ?'<span></span>'
+    :'<button class="ar-btn primary" data-nav="next" '+(S.step===0&&!hasDevices?'disabled':'')+'>Continue \u2192</button>';
+  var hint=(S.step===0&&!hasDevices)
+    ?'<div class="ar-nav-hint">Select a device above to continue</div>'
+    :'';
+  el.innerHTML=backBtn+nextBtn+hint;
 }
 
 /* ── Form ── */
 function renderForm(){
   var el=document.getElementById('ar2-form');
   if(!el)return;
-  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStep3][S.step];
+  var stepFn=[renderStep0,renderStep1,renderStep3][S.step];
   el.innerHTML=stepFn?stepFn():'';
   syncRangeStyles();
 }
@@ -1538,16 +1363,11 @@ function syncRangeStyles(){
 
 /* ── Full render ── */
 function render(){
-  // Toggle map-step class so CSS hides calc columns + shows #ap2
-  var root=document.getElementById('ar2');
-  if(root) root.classList.toggle('map-step', S.step===0);
   renderStepper();
   renderForm();
   renderDevices();
   renderNav();
   renderResults();
-  // Re-initialize map canvas dimensions after visibility toggles
-  if(S.step===0 && window.AR2_MAP && AR2_MAP.resize){ setTimeout(function(){ AR2_MAP.resize(); },60); }
 }
 
 /* ── Generate printable PDF report ── */
@@ -1671,6 +1491,154 @@ function generateReport(){
       +'<div class="rpt-fs-img-page">'
         +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6691362723606ee841a2_AquaRev_Fact%20Sheet_v3_RDX_Page_3.jpg','',1100)
       +'</div>';
+  }
+
+  // ── Executive Summary pages (optional, portrait only) ──
+  // Helper: format dollars as either full ($X,XXX) for under $10K or compact ($XX.XK / $XXXK)
+  var fmtMoneyK=function(amount){
+    var n=Math.round(Number(amount)||0);
+    if(Math.abs(n)<10000) return '$'+n.toLocaleString('en-US');
+    var k=n/1000;
+    if(Math.abs(k)<100) return '$'+k.toFixed(1)+'K';
+    return '$'+Math.round(k).toLocaleString('en-US')+'K';
+  };
+  var execSummaryHtml='';
+  if(EX.inclExecSummary && EX.layout==='portrait'){
+    var esPropsCount=Math.max(1, parseInt(S.propertiesCount,10)||1);
+    var esPoolCount=S.manualVolume?(parseInt(S.manualPoolCount,10)||1):S.bodies.length;
+    var esVolume=S.pool_gallons||0;
+    var esGrossMo=R.total_mo||0;
+    var esGrossYr=R.total_yr||0;
+    var esNet5=R.net5||0;
+    var esInv=R.inv||0;
+    var esAdvMo=R.adv_mo||0;
+    var esPayback=R.payback||0;
+    var esPropName=esc(S.propertyName||'The Property');
+    // Static asset URLs (proxied for size, with fallback to original)
+    var poolHero='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e26db5d019b75080b52_Pool%20Top%20Shot%20Fact%20Sheet.png';
+    var ritzImg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e25e47a5ed71f709c13_Ritz%20Fact%20Sheet%20Image.png';
+    var videoThumb='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e7b7ad1e4dd22ebb22b_Video%20Thumbnail.png';
+    var videoUrl='https://youtu.be/zWqMcZFWpyE';
+
+    // ── PAGE 1 ──
+    var esPage1='<div class="rpt-es-page">'
+      +'<div class="rpt-es-left">'
+        +'<div class="rpt-es-title">Objective</div>'
+        +'<p class="rpt-es-lead">'+esPropName+' has a meaningful opportunity to significantly reduce recurring pool operating costs and improve pool-water performance across the portfolio of properties \u2014 while strengthening measurable, NOI and ESG outcomes through a standardized deployment of AquaRev Water pool water optimization devices, that augment all existing pool water treatment systems.</p>'
+        +'<div class="rpt-es-h2">Why This Matters</div>'
+        +'<p class="rpt-es-p">Hotel pools are a high-visibility, premium amenity and a persistent operational cost center. Across hospitality assets, pool/spa operations can drive volatile costs (chemicals, labor, energy, loss), equipment wear, and guest dissatisfaction when water conditions fluctuate. The operational burden typically falls on Engineering, while the business impact shows up in NOI, guest sentiment, and brand standards.</p>'
+        +'<div class="rpt-es-h2">Portfolio Snapshot</div>'
+        +'<p class="rpt-es-p">A general property assessment was conducted to estimate the measurable impact of deploying AquaRev Water devices across the pool and aquatic facilities of the property.</p>'
+        +'<p class="rpt-es-p"><strong>Assessment Scope:</strong> '+esPropsCount+' '+(esPropsCount===1?'Property':'Properties')+' / '+esPoolCount+' '+(esPoolCount===1?'Feature Pool':'Feature Pools')+'</p>'
+        +'<p class="rpt-es-p"><strong>Estimated Total Active Pool Volume:</strong></p>'
+        +'<div class="rpt-es-bignum">'+fn(Math.round(esVolume))+' <span class="rpt-es-bignum-unit">US Gallons</span></div>'
+        +'<div class="rpt-es-h2">Financial Impacts</div>'
+        +'<p class="rpt-es-p">Based on the applicable portfolio model and proven performance metrics, the assessment estimates:</p>'
+        +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esGrossMo)+'</span><span class="k">Gross Monthly Savings</span></div>'
+        +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esGrossYr)+'</span><span class="k">Gross Annual Savings</span></div>'
+        +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esNet5)+'</span><span class="k">5-Year NET Benefit</span></div>'
+        +'<div class="rpt-es-h2">Investment Profile 5-Year Outlook</div>'
+        +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esInv)+'</span><span class="k">One-Time Investment</span></div>'
+        +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>'
+        +'<div class="rpt-es-statline"><span class="v">'+(esPayback>0?(esPayback>=10?Math.round(esPayback):esPayback.toFixed(1))+' Months':'\u2014')+'</span><span class="k">Payback Period</span></div>'
+        +'<p class="rpt-es-note">Note: Monthly financing is available.</p>'
+      +'</div>'
+      +'<div class="rpt-es-right">'
+        +'<div class="rpt-es-h2 rpt-es-h2-light">Outcome Impact Across Portfolio</div>'
+        +'<ul class="rpt-es-ul">'
+          +'<li>Cleaner, naturally conditioned pool water</li>'
+          +'<li>Major OpEx and water savings</li>'
+          +'<li>Positive NOI contribution</li>'
+          +'<li>ESG impacts aligned with sustainability targets</li>'
+          +'<li>No downtime or disruption to operations</li>'
+          +'<li>Improved guest experience</li>'
+          +'<li>Compliance / exposure risk mitigation</li>'
+        +'</ul>'
+        +'<div class="rpt-es-h2 rpt-es-h2-light">What AquaRev Water Does</div>'
+        +'<p class="rpt-es-p-light">AquaRev Water is a passive, in-line device that augments existing pool treatment systems using hydrodynamic cavitation inside a patented chamber to naturally improve and stabilize water conditions.</p>'
+        +'<div class="rpt-es-h3-light">Operational Advantages:</div>'
+        +'<ul class="rpt-es-ul">'
+          +'<li>Zero Power Required</li>'
+          +'<li>Zero Maintenance</li>'
+          +'<li>Zero Moving Parts</li>'
+          +'<li>~1 Hour Installation</li>'
+          +'<li>NSF/ANSI 50 Certified</li>'
+          +'<li>Lifetime Warranty</li>'
+        +'</ul>'
+        +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
+        +'<p class="rpt-es-p-light">Based on real-world use case averages and certified lab reports, properties deploying AquaRev Water have achieved material reductions across key cost centers, including:</p>'
+        +'<p class="rpt-es-p-light"><strong>Averages of:</strong></p>'
+        +'<div class="rpt-es-pct-grid">'
+          +'<div class="rpt-es-pct"><span class="n">54%</span><span class="lbl">Chlorine Reduction</span></div>'
+          +'<div class="rpt-es-pct"><span class="n">44%</span><span class="lbl">Acid Reduction</span></div>'
+          +'<div class="rpt-es-pct"><span class="n">44%</span><span class="lbl">Water Loss Reduction</span></div>'
+          +'<div class="rpt-es-pct"><span class="n">20%</span><span class="lbl">Energy-Use Reduction</span></div>'
+          +'<div class="rpt-es-pct"><span class="n">70%</span><span class="lbl">Fast Degradation</span></div>'
+          +'<div class="rpt-es-pct"><span class="n">200%</span><span class="lbl">Softer Water</span></div>'
+        +'</div>'
+      +'</div>'
+      +'<div class="rpt-es-url">www.AquaRevWater.us</div>'
+    +'</div>';
+
+    // ── PAGE 2 ──
+    var esPage2='<div class="rpt-es-page rpt-es-page-2">'
+      +'<div class="rpt-es-hero">'+cdnImg(poolHero,'',1100)+'</div>'
+      +'<div class="rpt-es-body-2">'
+        +'<div class="rpt-es-left rpt-es-left-2">'
+          +'<div class="rpt-es-h2">Active Use Case Reference</div>'
+          +'<p class="rpt-es-p"><strong>The Ritz-Carlton, Turtle Bay \u2014 O\u2018ahu, HI</strong></p>'
+          +'<div class="rpt-es-ritz">'+cdnImg(ritzImg,'',600)+'</div>'
+          +'<p class="rpt-es-p">Active use case with measured outcomes:</p>'
+          +'<div class="rpt-es-statline"><span class="v">68%</span><span class="k">Operating Cost Reduction</span></div>'
+          +'<div class="rpt-es-statline"><span class="v">30%</span><span class="k">Salt Reduction</span></div>'
+          +'<div class="rpt-es-statline"><span class="v">70%</span><span class="k">Water Loss Reduction</span></div>'
+          +'<div class="rpt-es-statline"><span class="v">20%</span><span class="k">Energy-Use Reduction</span></div>'
+          +'<div class="rpt-es-statline"><span class="v">50%</span><span class="k">Sodium Bicarbonate Reduction</span></div>'
+          +'<div class="rpt-es-statline"><span class="v">43%</span><span class="k">Acid Reduction</span></div>'
+          +'<blockquote class="rpt-es-quote"><span class="quote-mark">\u201C</span>Thank you again, we are still seeing savings since installing AquaRev.<span class="quote-mark">\u201D</span><cite>Chief Engineer \u2014 Turtle Bay, Oahu, HI</cite></blockquote>'
+          +'<div class="rpt-es-h2">ESG and Sustainability Value</div>'
+          +'<p class="rpt-es-p">Implementation of AquaRev Water technology supports measurable ESG outcomes through:</p>'
+          +'<ul class="rpt-es-ul-dark">'
+            +'<li><strong>Environmental:</strong> Lower chemical load released, less packaging and freight</li>'
+            +'<li><strong>Conservation:</strong> Reduced water loss from evaporation and backwashing</li>'
+            +'<li><strong>Energy:</strong> Lower energy consumption in treatment cycles; no added power requirement</li>'
+            +'<li><strong>Social:</strong> Healthier swimming environment for guests and responsible operations</li>'
+          +'</ul>'
+        +'</div>'
+        +'<div class="rpt-es-right rpt-es-right-2">'
+          +'<div class="rpt-es-h2 rpt-es-h2-light">Why This is a Fit</div>'
+          +'<p class="rpt-es-p-light">The AquaRev Water technology is designed to be a low-friction operational improvement across all aquatic facilities.</p>'
+          +'<ul class="rpt-es-ul">'
+            +'<li>Non-disruptive installation &amp; no downtime</li>'
+            +'<li>No new operating complexity</li>'
+            +'<li>Operations and engineering-aligned</li>'
+            +'<li>Ownership value \u2014 lower OpEx &amp; stronger NOI</li>'
+          +'</ul>'
+          +'<div class="rpt-es-h2 rpt-es-h2-light">Proposed Next Step</div>'
+          +'<p class="rpt-es-p-light"><strong>Presentation &amp; Alignment Discovery</strong></p>'
+          +'<ul class="rpt-es-ul">'
+            +'<li>Financial impact and data</li>'
+            +'<li>Product and technology</li>'
+            +'<li>Points of contact and timelines</li>'
+          +'</ul>'
+          +'<div class="rpt-es-h2 rpt-es-h2-light">Resources</div>'
+          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank">\u25B8 Technical White Paper</a></p>'
+          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank">\u25B8 Resources and Data</a></p>'
+          +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
+          +'<p class="rpt-es-p-light" style="margin-bottom:6px">Click to view.</p>'
+          +'<a href="'+videoUrl+'" target="_blank" class="rpt-es-video">'+cdnImg(videoThumb,'',600)+'</a>'
+          +'<div class="rpt-es-h2 rpt-es-h2-light">Contact</div>'
+          +'<p class="rpt-es-contact">'
+            +'<strong>AquaRev Water</strong><br>'
+            +'t. 832-979-6758<br>'
+            +'e. <a href="mailto:water@AquaRevWater.us" style="color:inherit">water@AquaRevWater.us</a>'
+          +'</p>'
+        +'</div>'
+      +'</div>'
+      +'<div class="rpt-es-url">www.AquaRevWater.us</div>'
+    +'</div>';
+
+    execSummaryHtml=esPage1+esPage2;
   }
 
   // ── Pool Profiles page (optional, portrait only) ──
@@ -1942,11 +1910,12 @@ function generateReport(){
     +'</div>'
 
   +'</div>' // end .rpt
+  +execSummaryHtml
   +poolProfilesHtml
   +fsHtml;
 
-  // ── Back Cover (portrait only) — independent of fact sheet since 2026-04-23. ──
-  if(EX.inclBackCover && EX.layout==='portrait'){
+  // ── Back Cover (portrait only) ──
+  if(EX.inclFactSheet && EX.layout==='portrait'){
     html+='<div class="rpt-fs-img-page">'
       +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69dd4124dd8d52082f7f0510_Exec_Sum_CLUB%20MED_AquaRev_FIN_Page_6.png','',1100)
     +'</div>';
@@ -2043,7 +2012,6 @@ function generateReport(){
             window.addEventListener('afterprint',function onAfter(){
               window.removeEventListener('afterprint',onAfter);
               setTimeout(restoreApp,100);
-              try { confettiBurst({ count: 60 }); } catch(e){}
             });
             window.print();
             setTimeout(function(){if(!restored)restoreApp();},3000);
@@ -2052,7 +2020,6 @@ function generateReport(){
           window.addEventListener('afterprint',function onAfter(){
             window.removeEventListener('afterprint',onAfter);
             setTimeout(restoreApp,100);
-            try { confettiBurst({ count: 60 }); } catch(e){}
           });
           window.print();
           // Fallback timeout
@@ -2092,9 +2059,6 @@ function renderExportSection(){
         +'<div class="ar-toggle-row"><label>Include AquaRev Fact Sheet'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
           +'<div class="ar-sw-track'+(EX.inclFactSheet&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclFactSheet"><div class="ar-sw-thumb"></div></div>'
         +'</div>'
-        +'<div class="ar-toggle-row"><label>Include Back Cover'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
-          +'<div class="ar-sw-track'+(EX.inclBackCover&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclBackCover"><div class="ar-sw-thumb"></div></div>'
-        +'</div>'
         +(function(){
           var hasImg=S.bodies.some(function(b){return !!b.image;});
           // Manual mode: always allowed (uses synthetic N cards without images).
@@ -2108,6 +2072,9 @@ function renderExportSection(){
             +'<div class="ar-sw-track'+(EX.inclPoolProfiles&&!disabled?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
           +'</div>';
         })()
+        +'<div class="ar-toggle-row"'+(EX.layout==='landscape'?' style="opacity:.5;pointer-events:none"':'')+'><label>Include Exec Summary'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
+          +'<div class="ar-sw-track'+(EX.inclExecSummary&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclExecSummary"><div class="ar-sw-thumb"></div></div>'
+        +'</div>'
       +'</div>'
     +'</div>'
 
@@ -2214,28 +2181,7 @@ function handleClick(e){
     renderForm();
     return;
   }
-  // Divergence "use map" link — snap this body back to the polygon-derived values.
-  var useMapEl=e.target.closest('[data-body-use-map]');
-  if(useMapEl && e.target.closest('u')){
-    var mid=String(useMapEl.dataset.bodyUseMap);
-    for(var umi=0;umi<S.bodies.length;umi++){
-      if(String(S.bodies[umi].id)===mid){
-        var bm=S.bodies[umi];
-        if(bm.fromMap && bm.sq_m){
-          bm.inputMode='surface';
-          bm.surface_sqft=Math.round(bm.sq_m*10.7639*10)/10;
-          // leave depth as the user's current value
-          bm.manualGallons='';
-          syncGallons();
-          renderForm();
-          patchResults();
-        }
-        break;
-      }
-    }
-    return;
-  }
-  // Per-body input mode toggle (Dimensions / Surface / Gallons)
+  // Per-body input mode toggle (Dimensions / Gallons)
   var modeBtn=e.target.closest('[data-set-mode]');
   if(modeBtn){
     var bid=String(modeBtn.dataset.bid);
@@ -2254,14 +2200,11 @@ function handleClick(e){
     var swKey=swSBtn.dataset.swS;
     S[swKey]=!S[swKey];
     syncGallons();
-    // If Devices by Pool just toggled ON, replace aggregates with per-pool sums.
+    // If Devices by Pool just toggled ON, replace aggregates with per-pool sums
     if(swKey==='devicesByPool' && S.devicesByPool){
       syncDevicesFromBodies();
     }
-    // Middle-column pipe rows show a "locked" visual whenever devicesByPool is
-    // on. Re-render the devices column so the lock state and aggregate values
-    // flip immediately when the toggle changes.
-    renderForm(); renderDevices(); renderNav(); patchResults();
+    renderForm(); renderNav(); patchResults();
     return;
   }
   // Per-body pool type toggle
@@ -2378,11 +2321,7 @@ function handleClick(e){
   if(rmBtn){
     var rmId=String(rmBtn.dataset.rb);
     S.bodies=S.bodies.filter(function(x){return String(x.id)!==rmId;});
-    // When "Devices by Pool" is on, per-pool counts feed the aggregate pipe
-    // totals. Deleting a pool must re-sum those aggregates AND refresh the
-    // middle-column Return Pipe Device Selector so it reflects the change.
-    if(S.devicesByPool) syncDevicesFromBodies();
-    syncGallons(); renderForm(); renderDevices(); renderNav(); patchResults();
+    syncGallons(); renderForm(); renderNav(); patchResults();
     return;
   }
   // CO2 toggle
@@ -2420,18 +2359,6 @@ function handleClick(e){
     var dir=navBtn.dataset.nav;
     if(dir==='next'&&S.step<STEPS.length-1){S.step++;render();}
     else if(dir==='back'&&S.step>0){S.step--;render();}
-    return;
-  }
-  // Step 0 (Map Pool) → Pool & System: pull registered pools from the bridge.
-  var mapCont=e.target.closest('[data-action="map-continue"]');
-  if(mapCont){
-    consumeMapPoolBodies();
-    S.step=1; render();
-    return;
-  }
-  var mapSkip=e.target.closest('[data-action="map-skip"]');
-  if(mapSkip){
-    S.step=1; render();
     return;
   }
   // Review edit links
@@ -2539,6 +2466,14 @@ function handleInput(e){
     if(n>20) n=20;
     S.manualPoolCount=n;
     patchResults();
+    return;
+  }
+  // Properties count — clamp 1-999 (used in Exec Summary)
+  if(el.dataset.f==='propertiesCount'){
+    var pn=parseInt(el.value,10);
+    if(isNaN(pn)||pn<1) pn=1;
+    if(pn>999) pn=999;
+    S.propertiesCount=pn;
     return;
   }
   // Generic calculator field
