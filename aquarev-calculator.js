@@ -2098,8 +2098,8 @@ function generateReport(){
     +'</div>'
 
   +'</div>' // end .rpt
-  +execSummaryHtml
   +poolProfilesHtml
+  +execSummaryHtml
   +fsHtml;
 
   // ── Back Cover (portrait only) — independent of fact sheet since 2026-04-23. ──
@@ -2246,12 +2246,6 @@ function renderExportSection(){
         +'<div class="ar-toggle-row"><label>Include Cover Page'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
           +'<div class="ar-sw-track'+(EX.inclCover&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclCover"><div class="ar-sw-thumb"></div></div>'
         +'</div>'
-        +'<div class="ar-toggle-row"><label>Include AquaRev Fact Sheet'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
-          +'<div class="ar-sw-track'+(EX.inclFactSheet&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclFactSheet"><div class="ar-sw-thumb"></div></div>'
-        +'</div>'
-        +'<div class="ar-toggle-row"><label>Include Back Cover'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
-          +'<div class="ar-sw-track'+(EX.inclBackCover&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclBackCover"><div class="ar-sw-thumb"></div></div>'
-        +'</div>'
         +(function(){
           var hasImg=S.bodies.some(function(b){return !!b.image;});
           // Manual mode: always allowed (uses synthetic N cards without images).
@@ -2267,6 +2261,12 @@ function renderExportSection(){
         })()
         +'<div class="ar-toggle-row"'+(EX.layout==='landscape'?' style="opacity:.5;pointer-events:none"':'')+'><label>Include Exec Summary'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
           +'<div class="ar-sw-track'+(EX.inclExecSummary&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclExecSummary"><div class="ar-sw-thumb"></div></div>'
+        +'</div>'
+        +'<div class="ar-toggle-row"><label>Include AquaRev Fact Sheet'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
+          +'<div class="ar-sw-track'+(EX.inclFactSheet&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclFactSheet"><div class="ar-sw-thumb"></div></div>'
+        +'</div>'
+        +'<div class="ar-toggle-row"><label>Include Back Cover'+(EX.layout==='landscape'?' <span style="font-size:10px;color:var(--mu)">(Portrait only)</span>':'')+'</label>'
+          +'<div class="ar-sw-track'+(EX.inclBackCover&&EX.layout!=='landscape'?' on':'')+'" data-ex-sw="inclBackCover"><div class="ar-sw-thumb"></div></div>'
         +'</div>'
       +'</div>'
     +'</div>'
