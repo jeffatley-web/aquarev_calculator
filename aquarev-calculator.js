@@ -654,8 +654,10 @@ function resetApp(){
 /* ── Switch between form and bank views ── */
 function showView(v){
   VIEW=v;
+  var root=document.getElementById('ar2');
   var mainLayout=document.getElementById('ar2-main-layout');
   var bankEl=document.getElementById('ar2-bank');
+  var mapEl=document.getElementById('ap2');
   var navBtn=document.getElementById('ar2-bank-nav');
   var stepper=document.getElementById('ar2-stepper');
   var navBar=document.getElementById('ar2-nav');
@@ -663,6 +665,11 @@ function showView(v){
   if(v==='bank'){
     if(mainLayout)mainLayout.style.display='none';
     if(bankEl){bankEl.style.display='block';renderBank();}
+    // Force-hide Map Pools panel and clear the map-step class so the calculator's
+    // CSS rules (#ar2.map-step #ap2{display:block}) don't surface the map below
+    // the Archive list when the user is on Step 0 (Map Pools).
+    if(mapEl) mapEl.style.display='none';
+    if(root) root.classList.remove('map-step');
     if(navBtn){navBtn.textContent=''; navBtn.innerHTML=I.back+' Calculator'; navBtn.classList.add('on');}
     if(stepper)stepper.style.display='none';
     if(navBar)navBar.style.display='none';
@@ -670,6 +677,9 @@ function showView(v){
   } else {
     if(mainLayout)mainLayout.style.display='';
     if(bankEl)bankEl.style.display='none';
+    // Restore Map Pools visibility — the inline display:none we added above is
+    // cleared so the CSS class can take over again. render() re-applies map-step.
+    if(mapEl) mapEl.style.display='';
     if(navBtn){navBtn.textContent='Archive'; navBtn.classList.remove('on');}
     if(stepper)stepper.style.display='';
     if(navBar)navBar.style.display='';
@@ -1712,14 +1722,14 @@ function generateReport(){
     var poolHero='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e26db5d019b75080b52_Pool%20Top%20Shot%20Fact%20Sheet.png';
     var ritzImg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e25e47a5ed71f709c13_Ritz%20Fact%20Sheet%20Image.png';
     var videoThumb='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e7b7ad1e4dd22ebb22b_Video%20Thumbnail.png';
-    var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f0d5f86649459d7c61c33f_AquaRev%20Device_Graphic%201.png';
+    var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f0d5f86649459d7c61c33f_596f3aedcf6477562723a75af58fcc66_AquaRev%20Device_Graphic%201.png';
     var videoUrl='https://youtu.be/zWqMcZFWpyE';
 
     // Reusable footer band (same as Assessment + Pool Profile pages)
     var esFooterBand='<div class="rpt-foot rpt-es-foot">'
       +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
       +'<div class="rpt-foot-info">'
-        +'<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA, Oʻahu, Hawaiʻi<br>'
+        +'t. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
         +'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
       +'</div>'
     +'</div>';
@@ -1736,6 +1746,72 @@ function generateReport(){
         +'<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
       +'</div>'
     +'</div>';
+
+    // ── 60-Month Investment Chart (SVG, fully dynamic) ──
+    // Renders cumulative cash flow from -inv at month 0 to +net5 at month 60.
+    // Sized for a column of ~440-500px wide on print (text stays legible).
+    var buildInvestmentChart=function(inv, totalMo, payback, net5){
+      var W=520, H=300;
+      var pad={top:38, right:24, bottom:36, left:70};
+      var plotW=W-pad.left-pad.right;
+      var plotH=H-pad.top-pad.bottom;
+      // Y range — rounded to next 100K above net5 and below -inv
+      var topRound=Math.max(Math.abs(net5)||0, 100000);
+      var botRound=Math.max(Math.abs(inv)||0, 100000);
+      var yMax=Math.ceil(topRound/100000)*100000;
+      var yMin=-Math.ceil(botRound/100000)*100000;
+      var yRange=yMax-yMin;
+      var xMax=60;
+      var xCoord=function(m){return pad.left+(m/xMax)*plotW;};
+      var yCoord=function(v){return pad.top+plotH-((v-yMin)/yRange)*plotH;};
+      var fmtTick=function(v){var s=v<0?'-':'';var a=Math.abs(v);return s+'$'+a.toLocaleString('en-US');};
+      var x0=xCoord(0), y0=yCoord(-inv), x60=xCoord(60), y60=yCoord(net5), yZero=yCoord(0);
+      var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
+      // Build Y ticks
+      var yTicks=[];
+      for(var v=yMin; v<=yMax; v+=100000) yTicks.push(v);
+      var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
+        +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
+          +'<stop offset="0%" stop-color="#001f4d" stop-opacity="0.95"/>'
+          +'<stop offset="100%" stop-color="#1e40af" stop-opacity="0.55"/>'
+        +'</linearGradient></defs>';
+      // Y gridlines + tick labels
+      yTicks.forEach(function(v){
+        var py=yCoord(v);
+        svg+='<line x1="'+pad.left+'" y1="'+py+'" x2="'+(W-pad.right)+'" y2="'+py+'" stroke="#e6e9ef" stroke-width="1"/>';
+        svg+='<text x="'+(pad.left-8)+'" y="'+(py+4)+'" text-anchor="end" font-size="11" fill="#222" font-family="DM Sans, sans-serif">'+fmtTick(v)+'</text>';
+      });
+      // X axis baseline at y=yMin
+      var xBase=pad.top+plotH;
+      svg+='<line x1="'+pad.left+'" y1="'+xBase+'" x2="'+(W-pad.right)+'" y2="'+xBase+'" stroke="#222" stroke-width="1"/>';
+      svg+='<text x="'+x0+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">0</text>';
+      svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
+      svg+='<text x="22" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 22 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
+      svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
+      // Fill polygon — line + drop to y=0 + back to start
+      var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
+      svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
+      // Line over fill
+      svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#001f4d" stroke-width="2"/>';
+      // Vertical marker at payback crossover for visual reference (no overlapping text)
+      if(payback>0 && payback<=60){
+        svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#001f4d" stroke-width="1.2" stroke-dasharray="2,2"/>';
+        svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#001f4d"/>';
+      }
+      // Stacked legend at top-right — Net Benefit + Payback Period (no overlap with chart data)
+      svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#001f4d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
+      if(payback>0 && payback<=60){
+        var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
+        svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
+      }
+      svg+='</svg>';
+      return '<div class="rpt-es-chart">'
+        +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
+        +'<div class="rpt-es-chart-sub">Based on capital investment. 60 month financing available.</div>'
+        +svg
+      +'</div>';
+    };
+    var esChartHtml=buildInvestmentChart(esInv, esGrossMo, esPayback, esNet5);
 
     // Optional Custom section at bottom of Page 1 — only renders if title or copy filled
     var ctTitle=(EX.execCustomTitle||'').trim();
@@ -1754,9 +1830,10 @@ function generateReport(){
       +'<div class="rpt-es-body-1">'
         +'<div class="rpt-es-left">'
         +'<div class="rpt-es-title">Objective</div>'
-        +'<p class="rpt-es-lead">'+esPropName+' has a meaningful opportunity to significantly reduce recurring pool operating costs and improve pool-water performance across the portfolio of properties \u2014 while strengthening measurable, NOI and ESG outcomes through a standardized deployment of AquaRev Water pool water optimization devices, that augment all existing pool water treatment systems.</p>'
+        +'<p class="rpt-es-lead">'+esPropName+' has a clear and immediate opportunity to materially reduce recurring pool operating costs while elevating water performance. By standardizing the deployment of AquaRev Water devices\u2014engineered to seamlessly integrate with and enhance existing pool systems\u2014the Property can unlock measurable improvements in operating efficiency, Net Operating Income (NOI), and ESG performance, without disruption to current infrastructure.</p>'
         +'<div class="rpt-es-h2">Why This Matters</div>'
-        +'<p class="rpt-es-p">Hotel pools are a high-visibility, premium amenity and a persistent operational cost center. Across hospitality assets, pool/spa operations can drive volatile costs (chemicals, labor, energy, loss), equipment wear, and guest dissatisfaction when water conditions fluctuate. The operational burden typically falls on Engineering, while the business impact shows up in NOI, guest sentiment, and brand standards.</p>'
+        +'<p class="rpt-es-p">Pool and spa environments represent both a signature guest experience and a persistent operational burden within hospitality assets. These systems are inherently cost-intensive and often unpredictable\u2014driven by ongoing chemical consumption, labor demands, energy use, water loss, and equipment degradation.</p>'
+        +'<p class="rpt-es-p">While day-to-day management sits with Engineering, the broader impact extends far beyond operations\u2014directly influencing NOI, guest satisfaction, brand perception, and compliance with evolving sustainability standards. Stabilizing and optimizing pool performance is therefore not simply a maintenance function, but a strategic lever for both financial and experiential value creation.</p>'
         +'<div class="rpt-es-h2">Assessment Snapshot</div>'
         +'<p class="rpt-es-p">A general property assessment was conducted to estimate the measurable impact of deploying AquaRev Water devices across the pool and aquatic facilities of the property.</p>'
         +'<p class="rpt-es-p"><strong>Assessment Scope:</strong> '+esPropsCount+' '+(esPropsCount===1?'Property':'Properties')+' / '+esPoolCount+' '+(esPoolCount===1?'Feature Pool':'Feature Pools')+'</p>'
@@ -1771,45 +1848,41 @@ function generateReport(){
         +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esInv)+'</span><span class="k">One-Time Investment</span></div>'
         +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>'
         +'<div class="rpt-es-statline"><span class="v">'+(esPayback>0?(esPayback>=10?Math.round(esPayback):esPayback.toFixed(1))+' Months':'\u2014')+'</span><span class="k">Payback Period</span></div>'
-        +'<p class="rpt-es-note">Note: Monthly financing is available.</p>'
       +'</div>'
       +'<div class="rpt-es-right">'
-        +'<div class="rpt-es-h2 rpt-es-h2-light">Outcome Impact</div>'
-        +'<ul class="rpt-es-ul">'
-          +'<li>Cleaner, naturally conditioned pool water</li>'
-          +'<li>Major OpEx and water savings</li>'
-          +'<li>Positive NOI contribution</li>'
-          +'<li>ESG impacts aligned with sustainability targets</li>'
-          +'<li>No downtime or disruption to operations</li>'
-          +'<li>Improved guest experience</li>'
-          +'<li>Compliance / exposure risk mitigation</li>'
-        +'</ul>'
+        // ── AquaRev Water Technology + Operational Advantages | Outcome Impact (right column only) ──
         +'<div class="rpt-es-h2 rpt-es-h2-light">AquaRev Water Technology</div>'
-        +'<div class="rpt-es-device">'+cdnImg(deviceGraphic,'',600)+'</div>'
-        +'<p class="rpt-es-p-light">AquaRev Water is a passive, in-line device that augments existing pool treatment systems using hydrodynamic cavitation inside a patented chamber to naturally improve and stabilize water conditions.</p>'
-        +'<div class="rpt-es-h3-light">Operational Advantages:</div>'
-        +'<ul class="rpt-es-ul">'
-          +'<li>Zero Power Required</li>'
-          +'<li>Zero Maintenance</li>'
-          +'<li>Zero Moving Parts</li>'
-          +'<li>~1 Hour Installation</li>'
-          +'<li>NSF/ANSI 50 Certified</li>'
-          +'<li>Lifetime Warranty</li>'
-        +'</ul>'
-        +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
-        +'<p class="rpt-es-p-light">Based on real-world use case averages and certified lab reports, properties deploying AquaRev Water have achieved material reductions across key cost centers, including:</p>'
-        +'<p class="rpt-es-p-light"><strong>Averages of:</strong></p>'
-        +'<div class="rpt-es-pct-grid">'
-          +'<div class="rpt-es-pct"><span class="n">54%</span><span class="lbl">Chlorine Reduction</span></div>'
-          +'<div class="rpt-es-pct"><span class="n">44%</span><span class="lbl">Acid Reduction</span></div>'
-          +'<div class="rpt-es-pct"><span class="n">44%</span><span class="lbl">Water Loss Reduction</span></div>'
-          +'<div class="rpt-es-pct"><span class="n">20%</span><span class="lbl">Energy-Use Reduction</span></div>'
-          +'<div class="rpt-es-pct"><span class="n">70%</span><span class="lbl">Fast Degradation</span></div>'
-          +'<div class="rpt-es-pct"><span class="n">200%</span><span class="lbl">Softer Water</span></div>'
+        +'<p class="rpt-es-p-light rpt-es-tech-blurb">AquaRev Water is a passive, in-line device that augments existing pool treatment systems using hydrodynamic cavitation inside a patented chamber to naturally improve and stabilize water conditions.</p>'
+        +'<div class="rpt-es-device rpt-es-device-full">'+cdnImg(deviceGraphic,'',900)+'</div>'
+        +'<div class="rpt-es-feat-grid">'
+          +'<div class="rpt-es-feat-col">'
+            +'<div class="rpt-es-h3-light">OPERATIONAL ADVANTAGES</div>'
+            +'<ul class="rpt-es-ul">'
+              +'<li>Zero Power Required</li>'
+              +'<li>Zero Maintenance</li>'
+              +'<li>Zero Moving Parts</li>'
+              +'<li>~1 Hour Installation</li>'
+              +'<li>NSF/ANSI 50 Certified</li>'
+              +'<li>Lifetime Warranty</li>'
+            +'</ul>'
+          +'</div>'
+          +'<div class="rpt-es-feat-col">'
+            +'<div class="rpt-es-h3-light">OUTCOME IMPACT</div>'
+            +'<ul class="rpt-es-ul">'
+              +'<li>Cleaner, naturally conditioned pool water</li>'
+              +'<li>Major OpEx and water savings</li>'
+              +'<li>Positive NOI contribution</li>'
+              +'<li>ESG impacts aligned with sustainability targets</li>'
+              +'<li>No downtime or disruption to operations</li>'
+              +'<li>Improved guest experience</li>'
+              +'<li>Compliance / exposure risk mitigation</li>'
+            +'</ul>'
+          +'</div>'
         +'</div>'
+        +esChartHtml
+        +esCustom
       +'</div>'
       +'</div>'
-      +esCustom
       +esFooterBand
     +'</div>';
 
@@ -1839,6 +1912,17 @@ function generateReport(){
           +'</ul>'
         +'</div>'
         +'<div class="rpt-es-right rpt-es-right-2">'
+          // ── Documented Performance Outcomes — top of Page 2 right column ──
+          +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
+          +'<p class="rpt-es-p-light">Based on real-world use case averages and certified lab reports, properties deploying AquaRev Water have achieved material reductions across key cost centers:</p>'
+          +'<div class="rpt-es-outcome-cards">'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">54%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">20%</div><div class="rpt-es-out-lbl">Energy-Use Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">70%</div><div class="rpt-es-out-lbl">Fast Degradation</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">200%</div><div class="rpt-es-out-lbl">Softer Water</div></div>'
+          +'</div>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Why This is a Fit</div>'
           +'<p class="rpt-es-p-light">The AquaRev Water technology is designed to be a low-friction operational improvement across all aquatic facilities.</p>'
           +'<ul class="rpt-es-ul">'
@@ -1859,12 +1943,6 @@ function generateReport(){
           +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
           +'<p class="rpt-es-p-light" style="margin-bottom:6px">Click to view.</p>'
           +'<a href="'+videoUrl+'" target="_blank" class="rpt-es-video">'+cdnImg(videoThumb,'',600)+'</a>'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">Contact</div>'
-          +'<p class="rpt-es-contact">'
-            +'<strong>AquaRev Water</strong><br>'
-            +'t. 832-979-6758<br>'
-            +'e. <a href="mailto:water@AquaRevWater.us" style="color:inherit">water@AquaRevWater.us</a>'
-          +'</p>'
         +'</div>'
       +'</div>'
       +esFooterBand
@@ -1998,7 +2076,7 @@ function generateReport(){
         +'<div class="rpt-foot">'
           +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
           +'<div class="rpt-foot-info">'
-            +'<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA, O\u02bbahu, Hawai\u02bbi<br>'
+            +'t. 832-979-6758\u2002\u00b7\u2002<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA<br>'
             +'NSF/ANSI\u00a050\u2002\u00b7\u2002NSF-372 Lead-Free\u2002\u00b7\u2002US\u00a0Pat.\u00a010,934,180\u2002\u00b7\u200211,358,881\u2002\u00b7\u200212,037,269'
           +'</div>'
         +'</div>'
@@ -2136,7 +2214,7 @@ function generateReport(){
     +'<div class="rpt-foot">'
       +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
       +'<div class="rpt-foot-info">'
-        +'<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA, O\u02bbahu, Hawai\u02bbi<br>'
+        +'t. 832-979-6758\u2002\u00b7\u2002<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA<br>'
         +'NSF/ANSI\u00a050\u2002\u00b7\u2002NSF-372 Lead-Free\u2002\u00b7\u2002US\u00a0Pat.\u00a010,934,180\u2002\u00b7\u200211,358,881\u2002\u00b7\u200212,037,269'
       +'</div>'
     +'</div>'
@@ -2574,7 +2652,15 @@ function handleClick(e){
   }
   // Export section toggles
   var exSw=e.target.closest('[data-ex-sw]');
-  if(exSw){ EX[exSw.dataset.exSw]=!EX[exSw.dataset.exSw]; exSw.classList.toggle('on',EX[exSw.dataset.exSw]); return; }
+  if(exSw){
+    var swKey=exSw.dataset.exSw;
+    EX[swKey]=!EX[swKey];
+    exSw.classList.toggle('on',EX[swKey]);
+    // inclExecSummary controls visibility of the Custom Section drawer below it.
+    // Export options live in #ar2-devices (middle column), so re-render that.
+    if(swKey==='inclExecSummary') renderDevices();
+    return;
+  }
   // Remove image
   var rmImg=e.target.closest('[data-rm-img]');
   if(rmImg){ EX.images=EX.images.filter(function(x){return x.id!==rmImg.dataset.rmImg;}); renderResults(); return; }
