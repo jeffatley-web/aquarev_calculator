@@ -1762,7 +1762,7 @@ function generateReport(){
     var poolHero='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e26db5d019b75080b52_Pool%20Top%20Shot%20Fact%20Sheet.png';
     var ritzImg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e25e47a5ed71f709c13_Ritz%20Fact%20Sheet%20Image.png';
     var videoThumb='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e7b7ad1e4dd22ebb22b_Video%20Thumbnail.png';
-    var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f0d5f86649459d7c61c33f_596f3aedcf6477562723a75af58fcc66_AquaRev%20Device_Graphic%201.png';
+    var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f22a2011cff3bb7b7deb5f_AquaRev-Device_Graphic-6.png';
     var videoUrl='https://youtu.be/zWqMcZFWpyE';
 
     // Reusable footer band (same as Assessment + Pool Profile pages)
@@ -1991,7 +1991,7 @@ function generateReport(){
           +'</ul>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Resources</div>'
           +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h7l3 3v9H3V2z"/><path d="M10 2v3h3"/><path d="M5.5 8h5M5.5 10.5h5M5.5 13h3"/></svg>Technical White Paper</a></p>'
-          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h12"/><path d="M4 13V8"/><path d="M7 13V5"/><path d="M10 13V9"/><path d="M13 13V3"/></svg>Resources and Data</a></p>'
+          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h12"/><path d="M4 13V8"/><path d="M7 13V5"/><path d="M10 13V9"/><path d="M13 13V3"/></svg>Resources, Data and Lab Reports</a></p>'
           +'<p class="rpt-es-link"><a href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69cfba72e683a7267308c79a_AquaRev_CaseStudy_Ritz_TB_FIN.pdf" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12"/><path d="M5 9h6M5 11h4"/></svg>The Ritz-Carlton, Turtle Bay \u2014 Case Study</a></p>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
           +'<p class="rpt-es-p-light" style="margin-bottom:6px">Click to view.</p>'
