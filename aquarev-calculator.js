@@ -117,6 +117,46 @@ function confettiBurst(opts){
 window.confettiBurst=confettiBurst;  // expose so Pool Measure bridge can fire it too
 var ARCHIVE_PASSCODE='1116';
 
+/* ── Calculator session-unlock flag (in-memory, resets on reload) ── */
+var CALC_UNLOCKED=false;
+var CALC_PASSCODE='1717';
+
+/* ── Calculator full-page passcode gate ── */
+function showCalcPasswordModal(onUnlock){
+  var existing=document.getElementById('ar2-calc-pw-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-calc-pw-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.95);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:999999;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:36px 32px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:30px;letter-spacing:5px;color:#fff;margin-bottom:4px">AQUAREV WATER</div>'
+    +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">ROI Calculator</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">Enter the passcode to access the calculator.</div>'
+    +'<input id="ar2-calc-pw-input" type="password" inputmode="numeric" autocomplete="off" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:18px;font-family:\'JetBrains Mono\',monospace;letter-spacing:6px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center" placeholder="••••" />'
+    +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:14px"></div>'
+    +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
+  +'</div>';
+  document.body.appendChild(m);
+  var input=document.getElementById('ar2-calc-pw-input');
+  var err=document.getElementById('ar2-calc-pw-err');
+  var submit=function(){
+    if(input.value===CALC_PASSCODE){
+      if(m.parentNode) m.parentNode.removeChild(m);
+      CALC_UNLOCKED=true;
+      onUnlock();
+    } else {
+      err.textContent='Incorrect passcode';
+      input.value='';
+      input.focus();
+    }
+  };
+  document.getElementById('ar2-calc-pw-unlock').onclick=submit;
+  input.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){e.preventDefault();submit();}
+  });
+  setTimeout(function(){input.focus();},50);
+}
+
 /* ── Archive passcode modal ── */
 function showArchivePasswordModal(onUnlock){
   var existing=document.getElementById('ar2-pw-modal');
@@ -1755,11 +1795,22 @@ function generateReport(){
       var pad={top:38, right:24, bottom:36, left:96};
       var plotW=W-pad.left-pad.right;
       var plotH=H-pad.top-pad.bottom;
-      // Y range — rounded to next 100K above net5 and below -inv
-      var topRound=Math.max(Math.abs(net5)||0, 100000);
-      var botRound=Math.max(Math.abs(inv)||0, 100000);
-      var yMax=Math.ceil(topRound/100000)*100000;
-      var yMin=-Math.ceil(botRound/100000)*100000;
+      // Dynamic Y range — pick a tick step that gives 4-6 ticks across the data
+      // Prevents wasted whitespace at low investment levels.
+      var pickStep=function(mag){
+        if(mag<10000) return 2500;
+        if(mag<25000) return 5000;
+        if(mag<60000) return 10000;
+        if(mag<150000) return 25000;
+        if(mag<300000) return 50000;
+        if(mag<800000) return 100000;
+        if(mag<2000000) return 250000;
+        return 500000;
+      };
+      var maxAbs=Math.max(Math.abs(Number(net5)||0), Math.abs(Number(inv)||0), 1);
+      var step=pickStep(maxAbs);
+      var yMax=Math.ceil(Math.max(Number(net5)||0, step)/step)*step;
+      var yMin=-Math.ceil(Math.max(Number(inv)||0, step)/step)*step;
       var yRange=yMax-yMin;
       var xMax=60;
       var xCoord=function(m){return pad.left+(m/xMax)*plotW;};
@@ -1767,13 +1818,13 @@ function generateReport(){
       var fmtTick=function(v){var s=v<0?'-':'';var a=Math.abs(v);return s+'$'+a.toLocaleString('en-US');};
       var x0=xCoord(0), y0=yCoord(-inv), x60=xCoord(60), y60=yCoord(net5), yZero=yCoord(0);
       var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
-      // Build Y ticks
+      // Build Y ticks at the dynamic step interval
       var yTicks=[];
-      for(var v=yMin; v<=yMax; v+=100000) yTicks.push(v);
+      for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
       var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
         +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
-          +'<stop offset="0%" stop-color="#001f4d" stop-opacity="0.95"/>'
-          +'<stop offset="100%" stop-color="#1e40af" stop-opacity="0.55"/>'
+          +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
+          +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
         +'</linearGradient></defs>';
       // Y gridlines + tick labels
       yTicks.forEach(function(v){
@@ -1791,15 +1842,15 @@ function generateReport(){
       // Fill polygon — line + drop to y=0 + back to start
       var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
       svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
-      // Line over fill
-      svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#001f4d" stroke-width="2"/>';
+      // Line over fill (green for positive trajectory)
+      svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
       // Vertical marker at payback crossover for visual reference (no overlapping text)
       if(payback>0 && payback<=60){
-        svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#001f4d" stroke-width="1.2" stroke-dasharray="2,2"/>';
-        svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#001f4d"/>';
+        svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
+        svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
       }
       // Stacked legend at top-right — Net Benefit + Payback Period (no overlap with chart data)
-      svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#001f4d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
+      svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
       if(payback>0 && payback<=60){
         var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
         svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
@@ -1939,9 +1990,9 @@ function generateReport(){
             +'<li>Review of Product and Financial Benefits</li>'
           +'</ul>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Resources</div>'
-          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank">\u25B8 Technical White Paper</a></p>'
-          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank">\u25B8 Resources and Data</a></p>'
-          +'<p class="rpt-es-link"><a href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69cfba72e683a7267308c79a_AquaRev_CaseStudy_Ritz_TB_FIN.pdf" target="_blank">\u25B8 The Ritz-Carlton, Turtle Bay \u2014 Case Study</a></p>'
+          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h7l3 3v9H3V2z"/><path d="M10 2v3h3"/><path d="M5.5 8h5M5.5 10.5h5M5.5 13h3"/></svg>Technical White Paper</a></p>'
+          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h12"/><path d="M4 13V8"/><path d="M7 13V5"/><path d="M10 13V9"/><path d="M13 13V3"/></svg>Resources and Data</a></p>'
+          +'<p class="rpt-es-link"><a href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69cfba72e683a7267308c79a_AquaRev_CaseStudy_Ritz_TB_FIN.pdf" target="_blank"><svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12"/><path d="M5 9h6M5 11h4"/></svg>The Ritz-Carlton, Turtle Bay \u2014 Case Study</a></p>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
           +'<p class="rpt-es-p-light" style="margin-bottom:6px">Click to view.</p>'
           +'<a href="'+videoUrl+'" target="_blank" class="rpt-es-video">'+cdnImg(videoThumb,'',600)+'</a>'
@@ -2933,6 +2984,11 @@ function handleChange(e){
 function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
+  // Calculator passcode gate — show modal on first load (in-memory, resets on reload).
+  // The modal overlays the full viewport at z-index 999999 so the calc behind is unreachable.
+  if(!CALC_UNLOCKED){
+    showCalcPasswordModal(function(){/* unlocked — calc already initialized below; modal removes itself */});
+  }
   initDefaultYt();
   // Set initial bank nav button label
   var navBtn=document.getElementById('ar2-bank-nav');
