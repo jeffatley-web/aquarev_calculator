@@ -1751,8 +1751,8 @@ function generateReport(){
     // Renders cumulative cash flow from -inv at month 0 to +net5 at month 60.
     // Sized for a column of ~440-500px wide on print (text stays legible).
     var buildInvestmentChart=function(inv, totalMo, payback, net5){
-      var W=520, H=300;
-      var pad={top:38, right:24, bottom:36, left:70};
+      var W=540, H=300;
+      var pad={top:38, right:24, bottom:36, left:96};
       var plotW=W-pad.left-pad.right;
       var plotH=H-pad.top-pad.bottom;
       // Y range — rounded to next 100K above net5 and below -inv
@@ -1786,7 +1786,7 @@ function generateReport(){
       svg+='<line x1="'+pad.left+'" y1="'+xBase+'" x2="'+(W-pad.right)+'" y2="'+xBase+'" stroke="#222" stroke-width="1"/>';
       svg+='<text x="'+x0+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">0</text>';
       svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
-      svg+='<text x="22" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 22 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
+      svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
       svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
       // Fill polygon — line + drop to y=0 + back to start
       var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
@@ -1807,7 +1807,7 @@ function generateReport(){
       svg+='</svg>';
       return '<div class="rpt-es-chart">'
         +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
-        +'<div class="rpt-es-chart-sub">Based on capital investment. 60 month financing available.</div>'
+        +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
         +svg
       +'</div>';
     };
@@ -1940,6 +1940,7 @@ function generateReport(){
           +'<div class="rpt-es-h2 rpt-es-h2-light">Resources</div>'
           +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank">\u25B8 Technical White Paper</a></p>'
           +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank">\u25B8 Resources and Data</a></p>'
+          +'<p class="rpt-es-link"><a href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69cfba72e683a7267308c79a_AquaRev_CaseStudy_Ritz_TB_FIN.pdf" target="_blank">\u25B8 The Ritz-Carlton, Turtle Bay \u2014 Case Study</a></p>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
           +'<p class="rpt-es-p-light" style="margin-bottom:6px">Click to view.</p>'
           +'<a href="'+videoUrl+'" target="_blank" class="rpt-es-video">'+cdnImg(videoThumb,'',600)+'</a>'
@@ -2149,10 +2150,6 @@ function generateReport(){
           +devRows
           +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
           +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
-          +'<div class="rpt-row" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px">'
-            +'<span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span>'
-            +'<span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span>'
-          +'</div>'
         +'</div>'
       +'</div>'
 
@@ -2173,6 +2170,7 @@ function generateReport(){
                 +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
               +'</tbody>'
             +'</table>'
+            +'<div class="rpt-row" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?waterHtml:'')
           +'</div>'
         +'</div>'
@@ -2194,6 +2192,7 @@ function generateReport(){
                 +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
               +'</tbody>'
             +'</table>'
+            +'<div class="rpt-row" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
           +'</div>'
         +'</div>'
@@ -2388,10 +2387,10 @@ function renderExportSection(){
             +'<summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--aq);letter-spacing:1px;text-transform:uppercase;padding:2px 0">Add Custom Section to Page 1</summary>'
             +'<div style="margin-top:10px">'
               +'<label class="ar-export-field-lbl" style="display:block;margin-bottom:3px">Custom Title</label>'
-              +'<input class="ar-input" id="ar2-es-custom-title" type="text" maxlength="80" placeholder="e.g., Property Notes — ABC Resort" value="'+esc(EX.execCustomTitle||'')+'" />'
+              +'<input class="ar-inp" id="ar2-es-custom-title" type="text" maxlength="80" placeholder="e.g., Property Notes — ABC Resort" value="'+esc(EX.execCustomTitle||'')+'" />'
               +'<label class="ar-export-field-lbl" style="display:block;margin:8px 0 3px">Custom Copy</label>'
-              +'<textarea class="ar-textarea" id="ar2-es-custom-copy" rows="4" maxlength="600" placeholder="Add any property-specific narrative or notes. Renders at the bottom of Page 1.">'+esc(EX.execCustomCopy||'')+'</textarea>'
-              +'<p class="ar-export-note" style="margin-top:4px">Both optional. Empty = section hidden. Constrained to fit within page.</p>'
+              +'<textarea class="ar-textarea" id="ar2-es-custom-copy" rows="4" maxlength="240" placeholder="Add any property-specific narrative or notes. Renders at the bottom of Page 1.">'+esc(EX.execCustomCopy||'')+'</textarea>'
+              +'<p class="ar-export-note" style="margin-top:4px">Both optional, max 240 characters. Empty = section hidden.</p>'
             +'</div>'
           +'</details>'
           :''
