@@ -1888,6 +1888,7 @@ function generateReport(){
 
     // ── PAGE 2 ──
     var esPage2='<div class="rpt-es-page rpt-es-page-2">'
+      +esHeader
       +'<div class="rpt-es-hero">'+cdnImg(poolHero,'',1100)+'</div>'
       +'<div class="rpt-es-body-2">'
         +'<div class="rpt-es-left rpt-es-left-2">'
