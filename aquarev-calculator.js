@@ -846,6 +846,29 @@ function bodyGallons(b){
   var L=parseFloat(b.length)||0, W=parseFloat(b.width)||0, D=parseFloat(b.depth)||0;
   return L*W*D*7.48052;
 }
+// Surface area in square feet — uses the most accurate input available:
+//   - dimensions mode → L × W (true plan-view footprint)
+//   - surface mode    → surface_sqft directly
+//   - gallons mode    → fall back to gallons / (depth × 7.48052) if depth known,
+//                       else legacy 4-ft assumption (gallons / 29.92)
+function bodySurfaceArea(b){
+  // Only return a surface value if the body's volume is also fully specified —
+  // prevents phantom water-loss totals when the user has typed partial inputs.
+  var g=bodyGallons(b);
+  if(g<=0) return 0;
+  if(b.inputMode==='dimensions'){
+    var L=parseFloat(b.length)||0, W=parseFloat(b.width)||0;
+    if(L>0 && W>0) return L*W;
+  }
+  if(b.inputMode==='surface'){
+    var S2=parseFloat(b.surface_sqft)||0;
+    if(S2>0) return S2;
+  }
+  // gallons mode — use depth-aware fallback when depth known, else 4-ft legacy
+  var d=parseFloat(b.depth)||0;
+  if(d>0) return g/(d*7.48052);
+  return g/29.92;
+}
 // Gallons estimate from the original polygon area captured at map-time (v4 only).
 // Used to show the divergence badge when user edits drive the body away from
 // what the map originally measured.
@@ -928,11 +951,22 @@ function calcROI(){
   // ── Advantage monthly cost ──
   var adv_mo=S.pipe_2in*99+S.pipe_3in*99+S.pipe_4in*139+S.pipe_6in*329+S.pipe_8in*649+S.pipe_10in*1601.19;
 
-  // ── Water loss (exact calc.ts surface-area formula) ──
-  // pool_surface_area = pool_gallons / GALLONS_PER_SF_AT_4FT (29.92)
-  // gallons_lost_per_month = pool_surface_area * LOSS_PER_MONTH_SF_AREA (5.57)
-  var pool_sa=G/29.92;
-  var gal_lost_mo=pool_sa*5.57;
+  // ── Water loss (surface-area formula) ──
+  // Use the most accurate surface area available per body:
+  //   dimensions mode → actual L × W
+  //   surface mode    → entered sq ft directly
+  //   gallons mode    → depth-aware fallback (or 4-ft legacy if no depth)
+  // In manual-volume mode there's only one synthetic body — fall back to legacy.
+  var pool_sa;
+  if(S.manualVolume){
+    pool_sa=G/29.92;
+  } else {
+    pool_sa=0;
+    for(var sai=0;sai<S.bodies.length;sai++) pool_sa+=bodySurfaceArea(S.bodies[sai]);
+  }
+  // gallons_lost_per_month = pool_surface_area × LOSS_PER_MONTH_SF_AREA (4.0)
+  // 4.0 gal/sq-ft/mo ≈ 0.21 in/day — conservative evaporation-only baseline.
+  var gal_lost_mo=pool_sa*4.0;
   // annual_water_loss uses the separate ANNUAL_WATER_LOSS_RATE constant (0.1862)
   var annual_water_loss=G*0.1862;
   var gal_saved_mo=gal_lost_mo*wlr*W;
