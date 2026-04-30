@@ -1903,7 +1903,10 @@ function generateReport(){
       +'<div class="rpt-es-right">'
         // ── AquaRev Water Technology + Operational Advantages | Outcome Impact (right column only) ──
         +'<div class="rpt-es-h2 rpt-es-h2-light">AquaRev Water Technology</div>'
-        +'<p class="rpt-es-p-light rpt-es-tech-blurb">AquaRev Water is a passive, in-line device that augments existing pool treatment systems using hydrodynamic cavitation inside a patented chamber to naturally improve and stabilize water conditions.</p>'
+        +'<p class="rpt-es-p-light rpt-es-tech-blurb">AquaRev Water is a passive, in-line device that enhances existing pool and spa treatment systems through the controlled application of hydrodynamic cavitation within a patented chamber. As water flows through the system, engineered pressure differentials continuously generate and collapse nano bubbles in a precise, high-frequency cycle.</p>'
+        +'<p class="rpt-es-p-light rpt-es-tech-blurb">The implosion of these nano bubbles produces localized, high-energy micro-events—creating transient thermal, mechanical, and oxidative effects within the water. This includes the formation of hydroxyl radicals (OH•), high-shear microjets, and micro-scale temperature spikes, which work simultaneously to disrupt bacteria, break down chloramines, degrade organic contaminants, and stabilize overall water chemistry.</p>'
+        +'<p class="rpt-es-p-light rpt-es-tech-blurb">In parallel, these cavitation-driven reactions promote particle agglomeration, enabling sub-micron contaminants to combine into filterable sizes, while also modifying water surface characteristics to improve stability and reduce evaporation loss.</p>'
+        +'<p class="rpt-es-p-light rpt-es-tech-blurb">The result is a continuously conditioned water system: cleaner, clearer, and more stable water with reduced chemical demand, improved filtration efficiency, and enhanced operational performance—delivered without added energy, moving parts, or system complexity.</p>'
         +'<div class="rpt-es-device rpt-es-device-full">'+cdnImg(deviceGraphic,'',900)+'</div>'
         +'<div class="rpt-es-feat-grid">'
           +'<div class="rpt-es-feat-col">'
@@ -2222,7 +2225,7 @@ function generateReport(){
                 +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
               +'</tbody>'
             +'</table>'
-            +'<div class="rpt-row" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
+            +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?waterHtml:'')
           +'</div>'
         +'</div>'
@@ -2244,7 +2247,7 @@ function generateReport(){
                 +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
               +'</tbody>'
             +'</table>'
-            +'<div class="rpt-row" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
+            +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
           +'</div>'
         +'</div>'
