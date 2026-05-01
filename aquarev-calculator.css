@@ -341,7 +341,20 @@
   #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;}
   #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid;break-inside:avoid;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
+  /* Back cover — full bleed, no white borders (overrides fact-sheet contain) */
+  #ar2-report .rpt-back-cover-page img{object-fit:cover!important;}
   #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;break-after:avoid;}
+  /* ── Landscape variants — clamp to exactly one landscape page, no bleed ── */
+  #ar2-report .rpt-ls-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-ls-back-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;}
+  #ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-ls-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;width:100vw!important;max-width:none!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-es-page,#ar2-report .rpt-ls-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  #ar2-report .rpt-ls-es-body-3col,#ar2-report .rpt-ls-es-body-2col{flex:1!important;min-height:0!important;overflow:hidden!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-foot{margin-top:auto!important;}
+  #ar2-report .rpt-ls-es-page a[href]{color:inherit;}
+  #ar2-report .rpt-pres-deck-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt a[href]{color:inherit;}
   #ar2-report .rpt-cta-bar a{color:#48cae4!important;text-decoration:none!important;}
   #ar2-report .rpt-media-wrap a{display:block;}
@@ -400,6 +413,27 @@
      same value is already visible via the savings_weight applied in the
      scenario boxes; keeping it on portrait only. */
   #ar2-report .rpt-sw-applied{display:none!important;}
+  /* Pool Profiles in landscape — wider/shorter page benefits from 3-col grid
+     so 10 pools fit comfortably without overflow. Tighter card heights too. */
+  #ar2-report .rpt-pp-page .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:8px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:140px!important;padding:8px!important;grid-template-columns:110px 1fr!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-img{width:110px!important;height:74px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-name{font-size:12px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-row{font-size:9.5px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-row .v{font-size:10.5px!important;min-width:64px!important;}
+  #ar2-report .rpt-pp-page{padding:12px 24px 8px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-title{font-size:18px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-sub{font-size:9.5px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:6px!important;margin-bottom:8px!important;}
+  /* ── Landscape Exec Summary fine-tuning ── */
+  #ar2-report .rpt-ls-es-page .rpt-es-head{padding:10px 24px 8px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-left,#ar2-report .rpt-ls-es-page .rpt-es-right,#ar2-report .rpt-ls-es-page .rpt-es-mid{padding:14px 22px 16px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-foot{padding:6px 24px!important;font-size:8px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:200px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-hero img{height:110px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-ritz img{max-height:110px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-video img{max-height:110px!important;}
 }
 /* ── Mobile: results panel above form ── */
 @media(max-width:860px){
@@ -551,6 +585,9 @@
 #ar2-report .rpt-fs-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:13px;line-height:1.5;max-width:860px;margin:0 auto;page-break-before:always;}
 #ar2-report .rpt-fs-img-page{max-width:860px;margin:32px auto 0;background:#fff;box-shadow:0 2px 12px rgba(4,15,30,.08);}
 #ar2-report .rpt-fs-img-page img{width:100%;height:auto;display:block;}
+/* Back cover preview — taller area to mimic full-bleed page */
+#ar2-report .rpt-back-cover-page{aspect-ratio:8.5/11;overflow:hidden;}
+#ar2-report .rpt-back-cover-page img{width:100%;height:100%;object-fit:cover;}
 /* Preview-only separation between the Assessment page and subsequent pages */
 #ar2-report .rpt-pp-page{margin-top:32px;box-shadow:0 2px 12px rgba(4,15,30,.08);min-height:1113px;display:flex;flex-direction:column;}
 /* Grid keeps cards at natural height — empty space goes below, footer sits at bottom */
@@ -652,6 +689,60 @@
 #ar2-report .rpt-es-contact{font-size:11px;line-height:1.6;color:#444;}
 #ar2-report .rpt-es-contact a{color:#444;text-decoration:none;}
 #ar2-report .rpt-es-url{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:2px;color:#48cae4;font-family:'DM Sans',sans-serif;font-weight:600;}
+/* ── Step 3 export panel header ── */
+#ar2 .ar-export-panel-label{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--aq);margin:8px 0 4px;}
+/* ── Landscape Cover (page) ── */
+#ar2-report .rpt-ls-cover-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;overflow:hidden;aspect-ratio:11/8.5;box-shadow:0 2px 12px rgba(4,15,30,.08);}
+#ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:9%;top:60%;transform:translateY(-50%);text-align:left;z-index:2;color:#fff;}
+#ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:13px;letter-spacing:5px;text-transform:uppercase;color:#48cae4;font-weight:600;}
+#ar2-report .rpt-ls-cover-prop{margin-top:14px;font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:3px;color:#fff;line-height:1.05;}
+#ar2-report .rpt-ls-cover-date{margin-top:10px;font-family:'DM Sans',sans-serif;font-size:13px;color:#7db8cc;}
+/* ── Landscape Back Cover (page) — full bleed ── */
+#ar2-report .rpt-ls-back-cover-page{aspect-ratio:11/8.5;}
+/* ── Landscape Exec Summary pages (preview screen) ── */
+#ar2-report .rpt-ls-es-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:11px;line-height:1.5;max-width:1120px;margin:32px auto 0;page-break-before:always;break-before:page;display:flex;flex-direction:column;aspect-ratio:11/8.5;position:relative;box-shadow:0 2px 12px rgba(4,15,30,.08);overflow:hidden;}
+#ar2-report .rpt-ls-es-page *{box-sizing:border-box;}
+#ar2-report .rpt-ls-es-head{flex-shrink:0;}
+#ar2-report .rpt-ls-es-foot{margin-top:auto;flex-shrink:0;}
+#ar2-report .rpt-ls-es-body-3col{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;min-height:0;}
+#ar2-report .rpt-ls-es-body-2col{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0;}
+#ar2-report .rpt-ls-es-col{padding:18px 22px 22px;overflow:hidden;}
+#ar2-report .rpt-ls-es-col-dark{background:#0a2540;color:#fff;}
+#ar2-report .rpt-ls-es-col-light{background:#fff;color:#222;}
+#ar2-report .rpt-ls-es-page .rpt-es-title{font-size:34px;letter-spacing:2px;}
+#ar2-report .rpt-ls-es-page .rpt-es-h2{font-size:14px;margin:10px 0 5px;}
+#ar2-report .rpt-ls-es-page .rpt-es-lead{font-size:10.5px;line-height:1.5;}
+#ar2-report .rpt-ls-es-page .rpt-es-p,#ar2-report .rpt-ls-es-page .rpt-es-p-light{font-size:10.5px;line-height:1.5;margin-bottom:5px;}
+#ar2-report .rpt-ls-es-page .rpt-es-bignum{font-size:18px;margin:2px 0 8px;}
+#ar2-report .rpt-ls-es-page .rpt-es-bignum-unit{font-size:11px;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline{padding:3px 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline .v{font-size:14px;min-width:64px;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline .k{font-size:10px;}
+#ar2-report .rpt-ls-es-page .rpt-es-ul li{font-size:10.5px;line-height:1.4;margin-bottom:3px;}
+#ar2-report .rpt-ls-es-page .rpt-es-h3-light{font-size:12px;letter-spacing:2px;color:#0a2540;font-family:'Bebas Neue',sans-serif;font-weight:700;margin:6px 0 4px;}
+#ar2-report .rpt-ls-es-page .rpt-es-tech-blurb{font-size:10px;line-height:1.5;}
+#ar2-report .rpt-ls-es-page .rpt-es-device-full{margin:6px 0 8px;}
+#ar2-report .rpt-ls-es-page .rpt-es-device-full img{max-width:80%;margin:0 auto;}
+#ar2-report .rpt-ls-feat-row .rpt-es-feat-col{margin-top:4px;}
+#ar2-report .rpt-ls-outcome-cards{grid-template-columns:1fr 1fr 1fr!important;gap:6px!important;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-card{padding:8px 6px;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-pct{font-size:18px;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-lbl{font-size:9.5px;}
+#ar2-report .rpt-ls-es-page .rpt-es-ritz img{max-height:140px;object-fit:cover;}
+#ar2-report .rpt-ls-es-page .rpt-es-quote{font-size:11px;line-height:1.5;}
+#ar2-report .rpt-ls-es-page .rpt-es-link a{font-size:11.5px;}
+#ar2-report .rpt-ls-es-page .rpt-es-video img{max-height:130px;object-fit:cover;}
+#ar2-report .rpt-ls-es-page .rpt-es-chart{margin:0 0 8px;}
+#ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:240px;}
+#ar2-report .rpt-ls-es-page .rpt-es-custom{padding:10px 14px;border-top:3px solid #00b4d8;background:#f0fbff;}
+/* ── Presentation Deck (stub) ── */
+#ar2-report .rpt-pres-deck-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;color:#fff;aspect-ratio:11/8.5;display:flex;align-items:center;justify-content:center;overflow:hidden;page-break-before:always;break-before:page;box-shadow:0 2px 12px rgba(4,15,30,.08);}
+#ar2-report .rpt-pres-deck-stub{text-align:center;padding:40px;}
+#ar2-report .rpt-pres-deck-logo{font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:6px;color:#fff;}
+#ar2-report .rpt-pres-deck-sub{font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-top:6px;}
+#ar2-report .rpt-pres-deck-prop{margin-top:24px;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;}
+#ar2-report .rpt-pres-deck-note{margin-top:18px;font-size:11px;color:#7db8cc;font-style:italic;}
 /* ── Pool Profiles Page ── */
 #ar2-report .rpt-pp-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:12px;line-height:1.4;max-width:860px;margin:0 auto;padding:22px 28px 18px;page-break-before:always;break-before:page;box-sizing:border-box;}
 #ar2-report .rpt-pp-page *{box-sizing:border-box;}
