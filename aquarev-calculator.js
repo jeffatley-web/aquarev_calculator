@@ -63,6 +63,9 @@ var EX={
   inclLsExecSummary:false,  // landscape Executive Summary (3 pages)
   inclPresentationDeck:false, // landscape Presentation Deck (multi-page)
   inclLsBackCover:false,    // landscape Back Cover
+  inclLsP2Col3Photos:false, // landscape Exec Summary Page 2 col 3 — use uploaded property photos (4 max stacked) instead of default
+  lsP2Col3Photos:[],        // up to 4 {data} entries for Page 2 col 3 stacked layout
+  showP2Col3Drawer:false,   // drawer expanded state for the col 3 photo uploader
   images:[],              // [{id, data, comment}]
   ytEntries:[],           // [{id, url, videoId, comment}]
   showYtDrawer:false,
@@ -363,6 +366,8 @@ function bankSaveReportImpl(replaceIds){
       layout:EX.layout, inclWater:EX.inclWater, inclFactSheet:EX.inclFactSheet, inclBackCover:EX.inclBackCover, inclPoolProfiles:EX.inclPoolProfiles, inclExecSummary:EX.inclExecSummary,
       execCustomTitle:EX.execCustomTitle, execCustomCopy:EX.execCustomCopy,
       inclLsCover:EX.inclLsCover, inclLsExecSummary:EX.inclLsExecSummary, inclPresentationDeck:EX.inclPresentationDeck, inclLsBackCover:EX.inclLsBackCover,
+      inclLsP2Col3Photos:EX.inclLsP2Col3Photos,
+      lsP2Col3Photos:Array.isArray(EX.lsP2Col3Photos)?EX.lsP2Col3Photos.slice():[],
       comments:EX.comments, ytEntries:EX.ytEntries,
       images:EX.images,
     },
@@ -438,6 +443,9 @@ function bankRecall(snapshot){
   EX.inclLsExecSummary=!!snapshot.ex.inclLsExecSummary;
   EX.inclPresentationDeck=!!snapshot.ex.inclPresentationDeck;
   EX.inclLsBackCover=!!snapshot.ex.inclLsBackCover;
+  EX.inclLsP2Col3Photos=!!snapshot.ex.inclLsP2Col3Photos;
+  EX.lsP2Col3Photos=Array.isArray(snapshot.ex.lsP2Col3Photos)?snapshot.ex.lsP2Col3Photos.slice():[];
+  EX.showP2Col3Drawer=false; // collapse drawer on every snapshot recall
   EX.execCustomTitle=snapshot.ex.execCustomTitle||'';
   EX.execCustomCopy=snapshot.ex.execCustomCopy||'';
   EX.comments=snapshot.ex.comments;
@@ -696,6 +704,7 @@ function resetApp(){
   EX.inclCover=false; EX.inclWater=true; EX.inclFactSheet=false; EX.inclBackCover=false; EX.inclPoolProfiles=false; EX.inclExecSummary=false;
   EX.execCustomTitle=''; EX.execCustomCopy='';
   EX.inclLsCover=false; EX.inclLsExecSummary=false; EX.inclPresentationDeck=false; EX.inclLsBackCover=false;
+  EX.inclLsP2Col3Photos=false; EX.lsP2Col3Photos=[]; EX.showP2Col3Drawer=false;
   EX.saving=false; EX.saveStatus=null; EX.exporting=false;
   initDefaultYt();
   if(VIEW==='bank') showView('form');
@@ -1798,8 +1807,83 @@ function generateReport(){
   var poolHero='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e26db5d019b75080b52_Pool%20Top%20Shot%20Fact%20Sheet.png';
   var ritzImg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e25e47a5ed71f709c13_Ritz%20Fact%20Sheet%20Image.png';
   var videoThumb='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e7b7ad1e4dd22ebb22b_Video%20Thumbnail.png';
-  var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f22a2011cff3bb7b7deb5f_AquaRev-Device_Graphic-6.png';
+  var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f5eac5d97359fb40db8d46_AquaRev-Device_Graphic-10_B.png';
   var videoUrl='https://youtu.be/zWqMcZFWpyE';
+  // ── 60-Month Investment Chart (function declaration — at function-scope so it's
+  //    fully hoisted, accessible from BOTH portrait and landscape Exec Summary builders).
+  //    Used to be nested inside the portrait if-block, which broke the landscape path. ──
+  function buildInvestmentChart(inv, totalMo, payback, net5){
+    var W=540, H=300;
+    var pad={top:38, right:24, bottom:36, left:96};
+    var plotW=W-pad.left-pad.right;
+    var plotH=H-pad.top-pad.bottom;
+    // Dynamic Y range — pick a tick step that gives 4-6 ticks across the data
+    // Prevents wasted whitespace at low investment levels.
+    var pickStep=function(mag){
+      if(mag<10000) return 2500;
+      if(mag<25000) return 5000;
+      if(mag<60000) return 10000;
+      if(mag<150000) return 25000;
+      if(mag<300000) return 50000;
+      if(mag<800000) return 100000;
+      if(mag<2000000) return 250000;
+      return 500000;
+    };
+    var maxAbs=Math.max(Math.abs(Number(net5)||0), Math.abs(Number(inv)||0), 1);
+    var step=pickStep(maxAbs);
+    var yMax=Math.ceil(Math.max(Number(net5)||0, step)/step)*step;
+    var yMin=-Math.ceil(Math.max(Number(inv)||0, step)/step)*step;
+    var yRange=yMax-yMin;
+    var xMax=60;
+    var xCoord=function(m){return pad.left+(m/xMax)*plotW;};
+    var yCoord=function(v){return pad.top+plotH-((v-yMin)/yRange)*plotH;};
+    var fmtTick=function(v){var s=v<0?'-':'';var a=Math.abs(v);return s+'$'+a.toLocaleString('en-US');};
+    var x0=xCoord(0), y0=yCoord(-inv), x60=xCoord(60), y60=yCoord(net5), yZero=yCoord(0);
+    var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
+    // Build Y ticks at the dynamic step interval
+    var yTicks=[];
+    for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
+      +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
+        +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
+        +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
+      +'</linearGradient></defs>';
+    // Y gridlines + tick labels
+    yTicks.forEach(function(v){
+      var py=yCoord(v);
+      svg+='<line x1="'+pad.left+'" y1="'+py+'" x2="'+(W-pad.right)+'" y2="'+py+'" stroke="#e6e9ef" stroke-width="1"/>';
+      svg+='<text x="'+(pad.left-8)+'" y="'+(py+4)+'" text-anchor="end" font-size="11" fill="#222" font-family="DM Sans, sans-serif">'+fmtTick(v)+'</text>';
+    });
+    // X axis baseline at y=yMin
+    var xBase=pad.top+plotH;
+    svg+='<line x1="'+pad.left+'" y1="'+xBase+'" x2="'+(W-pad.right)+'" y2="'+xBase+'" stroke="#222" stroke-width="1"/>';
+    svg+='<text x="'+x0+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">0</text>';
+    svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
+    svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
+    svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
+    // Fill polygon — line + drop to y=0 + back to start
+    var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
+    svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
+    // Line over fill (green for positive trajectory)
+    svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
+    // Vertical marker at payback crossover for visual reference (no overlapping text)
+    if(payback>0 && payback<=60){
+      svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
+      svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
+    }
+    // Stacked legend at top-right — Net Benefit + Payback Period (no overlap with chart data)
+    svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
+    if(payback>0 && payback<=60){
+      var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
+      svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
+    }
+    svg+='</svg>';
+    return '<div class="rpt-es-chart">'
+      +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
+      +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+      +svg
+    +'</div>';
+  }
   // Shared chart HTML — built when any Exec Summary variant is on
   var esChartHtml='';
   if(EX.inclExecSummary || EX.inclLsExecSummary){
@@ -1840,80 +1924,7 @@ function generateReport(){
       +'</div>'
     +'</div>';
 
-    // ── 60-Month Investment Chart (function declaration — fully hoisted,
-    // accessible from both portrait and landscape Exec Summary builders) ──
-    function buildInvestmentChart(inv, totalMo, payback, net5){
-      var W=540, H=300;
-      var pad={top:38, right:24, bottom:36, left:96};
-      var plotW=W-pad.left-pad.right;
-      var plotH=H-pad.top-pad.bottom;
-      // Dynamic Y range — pick a tick step that gives 4-6 ticks across the data
-      // Prevents wasted whitespace at low investment levels.
-      var pickStep=function(mag){
-        if(mag<10000) return 2500;
-        if(mag<25000) return 5000;
-        if(mag<60000) return 10000;
-        if(mag<150000) return 25000;
-        if(mag<300000) return 50000;
-        if(mag<800000) return 100000;
-        if(mag<2000000) return 250000;
-        return 500000;
-      };
-      var maxAbs=Math.max(Math.abs(Number(net5)||0), Math.abs(Number(inv)||0), 1);
-      var step=pickStep(maxAbs);
-      var yMax=Math.ceil(Math.max(Number(net5)||0, step)/step)*step;
-      var yMin=-Math.ceil(Math.max(Number(inv)||0, step)/step)*step;
-      var yRange=yMax-yMin;
-      var xMax=60;
-      var xCoord=function(m){return pad.left+(m/xMax)*plotW;};
-      var yCoord=function(v){return pad.top+plotH-((v-yMin)/yRange)*plotH;};
-      var fmtTick=function(v){var s=v<0?'-':'';var a=Math.abs(v);return s+'$'+a.toLocaleString('en-US');};
-      var x0=xCoord(0), y0=yCoord(-inv), x60=xCoord(60), y60=yCoord(net5), yZero=yCoord(0);
-      var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
-      // Build Y ticks at the dynamic step interval
-      var yTicks=[];
-      for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
-      var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
-        +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
-          +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
-          +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
-        +'</linearGradient></defs>';
-      // Y gridlines + tick labels
-      yTicks.forEach(function(v){
-        var py=yCoord(v);
-        svg+='<line x1="'+pad.left+'" y1="'+py+'" x2="'+(W-pad.right)+'" y2="'+py+'" stroke="#e6e9ef" stroke-width="1"/>';
-        svg+='<text x="'+(pad.left-8)+'" y="'+(py+4)+'" text-anchor="end" font-size="11" fill="#222" font-family="DM Sans, sans-serif">'+fmtTick(v)+'</text>';
-      });
-      // X axis baseline at y=yMin
-      var xBase=pad.top+plotH;
-      svg+='<line x1="'+pad.left+'" y1="'+xBase+'" x2="'+(W-pad.right)+'" y2="'+xBase+'" stroke="#222" stroke-width="1"/>';
-      svg+='<text x="'+x0+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">0</text>';
-      svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
-      svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
-      svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
-      // Fill polygon — line + drop to y=0 + back to start
-      var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
-      svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
-      // Line over fill (green for positive trajectory)
-      svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
-      // Vertical marker at payback crossover for visual reference (no overlapping text)
-      if(payback>0 && payback<=60){
-        svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
-        svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
-      }
-      // Stacked legend at top-right — Net Benefit + Payback Period (no overlap with chart data)
-      svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
-      if(payback>0 && payback<=60){
-        var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
-        svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
-      }
-      svg+='</svg>';
-      return '<div class="rpt-es-chart">'
-        +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
-        +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
-        +svg
-      +'</div>';
-    }
+    // (buildInvestmentChart is hoisted above — see definition before esChartHtml.)
 
     // Optional Custom section at bottom of Page 1 — only renders if title or copy filled
     var ctTitle=(EX.execCustomTitle||'').trim();
@@ -2128,81 +2139,109 @@ function generateReport(){
       +'</div>'
     +'</div>';
 
-    // ── PAGE 1 ── Objective + Why + Snapshot/Financials/Investment
+    // ── PAGE 1 ── 3-column layout: blue narrative | white tech | white financials.
+    //   Col 1 (dark/blue):  Objective → Why This Matters
+    //   Col 2 (light/white): AquaRev Water Technology → Device → Operational Advantages → Outcome Impact
+    //   Col 3 (light/white): Assessment Snapshot → Financial Impacts → Investment Profile → Investment & Return chart
+    //   Custom section drawer (if filled) appears at the bottom of col 3.
     var lsPage1='<div class="rpt-ls-es-page rpt-ls-es-page-1">'
       +lsHeader
       +'<div class="rpt-ls-es-body-3col">'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark">'
-          +'<div class="rpt-es-title">Objective</div>'
-          +'<p class="rpt-es-lead">'+lsPropName+' has a clear and immediate opportunity to materially reduce recurring pool operating costs while elevating water performance. By standardizing the deployment of AquaRev Water devices—engineered to seamlessly integrate with and enhance existing pool systems—the Property can unlock measurable improvements in operating efficiency, Net Operating Income (NOI), and ESG performance, without disruption to current infrastructure.</p>'
-          +'<div class="rpt-es-h2">Why This Matters</div>'
-          +'<p class="rpt-es-p">Pool and spa environments represent both a signature guest experience and a persistent operational burden within hospitality assets. These systems are inherently cost-intensive and often unpredictable—driven by ongoing chemical consumption, labor demands, energy use, water loss, and equipment degradation.</p>'
-          +'<p class="rpt-es-p">While day-to-day management sits with Engineering, the broader impact extends far beyond operations—directly influencing NOI, guest satisfaction, brand perception, and compliance with evolving sustainability standards.</p>'
-        +'</div>'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark">'
-          +'<div class="rpt-es-h2">Assessment Snapshot</div>'
-          +'<p class="rpt-es-p"><strong>Assessment Scope:</strong> '+lsPropsCount+' '+(lsPropsCount===1?'Property':'Properties')+' / '+lsPoolCount+' '+(lsPoolCount===1?'Feature Pool':'Feature Pools')+'</p>'
-          +'<p class="rpt-es-p"><strong>Estimated Total Active Pool Volume:</strong></p>'
-          +'<div class="rpt-es-bignum">'+fn(Math.round(lsVolume))+' <span class="rpt-es-bignum-unit">US Gallons</span></div>'
-          +'<div class="rpt-es-h2">Financial Impacts</div>'
-          +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsGrossMo)+'</span><span class="k">Gross Monthly Savings</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsGrossYr)+'</span><span class="k">Gross Annual Savings</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsNet5)+'</span><span class="k">5-Year NET Benefit</span></div>'
-          +'<div class="rpt-es-h2">Investment Profile 5-Year Outlook</div>'
-          +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsInv)+'</span><span class="k">One-Time Investment</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">'+(lsPayback>0?(lsPayback>=10?Math.round(lsPayback):lsPayback.toFixed(1))+' Months':'—')+'</span><span class="k">Payback Period</span></div>'
-        +'</div>'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-light">'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">Outcome Impact</div>'
-          +'<ul class="rpt-es-ul">'
-            +'<li>Cleaner, naturally conditioned pool water</li>'
-            +'<li>Major OpEx and water savings</li>'
-            +'<li>Positive NOI contribution</li>'
-            +'<li>ESG impacts aligned with sustainability targets</li>'
-            +'<li>No downtime or disruption to operations</li>'
-            +'<li>Improved guest experience</li>'
-            +'<li>Compliance / exposure risk mitigation</li>'
-          +'</ul>'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
-          +'<p class="rpt-es-p-light"><strong>Averages of:</strong></p>'
-          +'<div class="rpt-es-outcome-cards rpt-ls-outcome-cards">'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">54%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">20%</div><div class="rpt-es-out-lbl">Energy-Use Reduction</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">70%</div><div class="rpt-es-out-lbl">Fast Degradation</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">200%</div><div class="rpt-es-out-lbl">Softer Water</div></div>'
+        // ── Col 1 (dark) — Objective + Why This Matters + Operational Advantages + Outcome Impact ──
+        // "Objective" uses h2 styling (matching other column headings) so all
+        // three column paragraph tops align on the same baseline.
+        // Operational Advantages + Outcome Impact 2-col grid anchored to bottom.
+        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark rpt-ls-col-with-anchor">'
+          +'<div class="rpt-ls-col-content">'
+            +'<div class="rpt-es-h2">Objective</div>'
+            +'<p class="rpt-es-lead">'+lsPropName+' has a clear and immediate opportunity to materially reduce recurring pool operating costs while elevating water performance. By standardizing the deployment of AquaRev Water devices—engineered to seamlessly integrate with and enhance existing pool systems—the Property can unlock measurable improvements in operating efficiency, Net Operating Income (NOI), and ESG performance, without disruption to current infrastructure.</p>'
+            +'<div class="rpt-es-h2">Why This Matters</div>'
+            +'<p class="rpt-es-p">Pool and spa environments represent both a signature guest experience and a persistent operational burden within hospitality assets. These systems are inherently cost-intensive and often unpredictable—driven by ongoing chemical consumption, labor demands, energy use, water loss, and equipment degradation.</p>'
+            +'<p class="rpt-es-p">While day-to-day management sits with Engineering, the broader impact extends far beyond operations—directly influencing NOI, guest satisfaction, brand perception, and compliance with evolving sustainability standards. Stabilizing and optimizing pool performance is therefore not simply a maintenance function, but a strategic lever for both financial and experiential value creation.</p>'
           +'</div>'
-        +'</div>'
-      +'</div>'
-      +lsFooter
-    +'</div>';
-
-    // ── PAGE 2 ── AquaRev Water Technology (full-width tech showcase) + Investment chart
-    var lsPage2='<div class="rpt-ls-es-page rpt-ls-es-page-2">'
-      +lsHeader
-      +'<div class="rpt-ls-es-body-2col">'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-light rpt-ls-tech-col">'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">AquaRev Water Technology</div>'
-          +'<p class="rpt-es-p-light">AquaRev Water is a passive, in-line device that enhances existing pool and spa treatment systems through the controlled application of hydrodynamic cavitation within a patented chamber. As water flows through the system, engineered pressure differentials continuously generate and collapse nano bubbles in a precise, high-frequency cycle.</p>'
-          +'<p class="rpt-es-p-light">The implosion of these nano bubbles produces localized, high-energy micro-events—creating transient thermal, mechanical, and oxidative effects within the water. This includes the formation of hydroxyl radicals (OH•), high-shear microjets, and micro-scale temperature spikes, which work simultaneously to disrupt bacteria, break down chloramines, degrade organic contaminants, and stabilize overall water chemistry.</p>'
-          +'<p class="rpt-es-p-light">The result is a continuously conditioned water system: cleaner, clearer, and more stable water with reduced chemical demand, improved filtration efficiency, and enhanced operational performance—delivered without added energy, moving parts, or system complexity.</p>'
-          +'<div class="rpt-es-device-full">'+cdnImg(deviceGraphic,'',900)+'</div>'
-          +'<div class="rpt-ls-feat-row">'
-            +'<div class="rpt-es-feat-col">'
-              +'<div class="rpt-es-h3-light">OPERATIONAL ADVANTAGES</div>'
-              +'<ul class="rpt-es-ul">'
-                +'<li>Zero Power Required</li>'
-                +'<li>Zero Maintenance · Zero Moving Parts</li>'
-                +'<li>~1 Hour Installation</li>'
-                +'<li>NSF/ANSI 50 Certified · Lifetime Warranty</li>'
-              +'</ul>'
+          +'<div class="rpt-ls-col-anchor">'
+            +'<div class="rpt-es-feat-grid">'
+              +'<div class="rpt-es-feat-col">'
+                +'<div class="rpt-es-h3-dark">OPERATIONAL ADVANTAGES</div>'
+                +'<ul class="rpt-es-ul-dark">'
+                  +'<li>Zero Power Required</li>'
+                  +'<li>Zero Maintenance</li>'
+                  +'<li>Zero Moving Parts</li>'
+                  +'<li>~1 Hour Installation</li>'
+                  +'<li>NSF/ANSI 50 Certified</li>'
+                  +'<li>Lifetime Warranty</li>'
+                +'</ul>'
+              +'</div>'
+              +'<div class="rpt-es-feat-col">'
+                +'<div class="rpt-es-h3-dark">OUTCOME IMPACT</div>'
+                +'<ul class="rpt-es-ul-dark">'
+                  +'<li>Cleaner, naturally conditioned pool water</li>'
+                  +'<li>Major OpEx and water savings</li>'
+                  +'<li>Positive NOI contribution</li>'
+                  +'<li>ESG impacts aligned with sustainability targets</li>'
+                  +'<li>No downtime or disruption to operations</li>'
+                  +'<li>Improved guest experience</li>'
+                  +'<li>Compliance / exposure risk mitigation</li>'
+                +'</ul>'
+              +'</div>'
             +'</div>'
           +'</div>'
         +'</div>'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-light">'
-          +esChartHtml
+        // ── Col 2 (light) — AquaRev Water Technology + Device cutaway + Inline Device Installation photo ──
+        +'<div class="rpt-ls-es-col rpt-ls-es-col-light rpt-ls-col-with-anchor">'
+          +'<div class="rpt-ls-col-content">'
+            +'<div class="rpt-es-h2 rpt-es-h2-light">AquaRev Water Technology</div>'
+            +'<p class="rpt-es-p-light rpt-es-tech-blurb">AquaRev Water is a passive, in-line device that enhances existing pool and spa treatment systems through the controlled application of hydrodynamic cavitation within a patented chamber. As water flows through the system, engineered pressure differentials continuously generate and collapse nano bubbles in a precise, high-frequency cycle.</p>'
+            +'<p class="rpt-es-p-light rpt-es-tech-blurb">The implosion of these nano bubbles produces localized, high-energy micro-events—creating transient thermal, mechanical, and oxidative effects within the water. This includes the formation of hydroxyl radicals (OH•), high-shear microjets, and micro-scale temperature spikes, which work simultaneously to disrupt bacteria, break down chloramines, degrade organic contaminants, and stabilize overall water chemistry.</p>'
+            +'<p class="rpt-es-p-light rpt-es-tech-blurb">The result is a continuously conditioned water system: cleaner, clearer, and more stable water with reduced chemical demand, improved filtration efficiency, and enhanced operational performance—delivered without added energy, moving parts, or system complexity.</p>'
+            +'<div class="rpt-es-device-full">'+cdnImg(deviceGraphic,'',900)+'</div>'
+          +'</div>'
+          +'<div class="rpt-ls-col-anchor">'
+            +'<div class="rpt-ls-col-anchor-title-light">AquaRev Water — Inline Device Installation</div>'
+            +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f4d1ee8f81cc5957ead786_AquaRev_Pump_Room%203.png','class="rpt-ls-col-anchor-img"',900)
+          +'</div>'
+        +'</div>'
+        // ── Col 3 (dark/blue) — Assessment Snapshot + Financial Impacts + Investment Profile + Chart ──
+        // Sections wrapped in .rpt-ls-section and column uses .rpt-ls-distribute
+        // so content spreads evenly down the column with consistent breathing room.
+        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark rpt-ls-distribute">'
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2">Assessment Snapshot</div>'
+            +'<p class="rpt-es-p">A general property assessment was conducted to estimate the measurable impact of deploying AquaRev Water devices across the pool and aquatic facilities of the property.</p>'
+            // Assessment Scope as a 2-stat panel — visually striking properties / pools split
+            +'<div class="rpt-ls-scope-row">'
+              +'<div class="rpt-ls-scope-item">'
+                +'<div class="rpt-ls-scope-num">'+lsPropsCount+'</div>'
+                +'<div class="rpt-ls-scope-lbl">'+(lsPropsCount===1?'Property':'Properties')+'</div>'
+              +'</div>'
+              +'<div class="rpt-ls-scope-divider"></div>'
+              +'<div class="rpt-ls-scope-item">'
+                +'<div class="rpt-ls-scope-num">'+lsPoolCount+'</div>'
+                +'<div class="rpt-ls-scope-lbl">'+(lsPoolCount===1?'Feature Pool':'Feature Pools')+'</div>'
+              +'</div>'
+            +'</div>'
+            +'<p class="rpt-es-p rpt-ls-volume-lbl">Estimated Total Active Pool Volume</p>'
+            +'<div class="rpt-es-bignum">'+fn(Math.round(lsVolume))+' <span class="rpt-es-bignum-unit">US Gallons</span></div>'
+          +'</div>'
+          // Financial Impacts + Investment Profile combined as ONE section, with
+          // internal padding between the two subsections via .rpt-ls-subhead margin.
+          // External gaps (above + below) are handled by the .rpt-ls-distribute
+          // pattern; this internal gap is calibrated to be tighter than external
+          // gaps so the two parts read as related-but-distinct subsections.
+          +'<div class="rpt-ls-section rpt-ls-financial-block">'
+            +'<div class="rpt-es-h2">Financial Impacts</div>'
+            +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsGrossMo)+'</span><span class="k">Gross Monthly Savings</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsGrossYr)+'</span><span class="k">Gross Annual Savings</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsNet5)+'</span><span class="k">5-Year NET Benefit</span></div>'
+            +'<div class="rpt-es-h2 rpt-ls-subhead">Investment Profile 5-Year Outlook</div>'
+            +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsInv)+'</span><span class="k">One-Time Investment</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">'+(lsPayback>0?(lsPayback>=10?Math.round(lsPayback):lsPayback.toFixed(1))+' Months':'—')+'</span><span class="k">Payback Period</span></div>'
+          +'</div>'
+          // Chart wrapped in white card so SVG text + axes remain readable on the blue column
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-ls-chart-card">'+esChartHtml+'</div>'
+          +'</div>'
           +(lsCtTitle||lsCtCopy
             ? '<div class="rpt-es-custom rpt-ls-es-custom">'
               +(lsCtTitle?'<div class="rpt-es-custom-title">'+esc(lsCtTitle)+'</div>':'')
@@ -2214,71 +2253,113 @@ function generateReport(){
       +lsFooter
     +'</div>';
 
-    // ── PAGE 3 ── Active Use Case + ESG + Why Fit + Next Step + Resources + Video
-    var lsPage3='<div class="rpt-ls-es-page rpt-ls-es-page-3">'
+    // ── PAGE 2 ── Mirrors PORTRAIT Page 2 order across 3 landscape columns:
+    //   Col 1 (dark): Active Use Case Reference (heading + image + 6 stats + quote) → ESG and Sustainability Value
+    //   Col 2 (light): Documented Performance Outcomes → Why This is a Fit
+    //   Col 3 (light): Proposed Next Step → Resources → Video Summary
+    //   Reading column-then-row, this matches portrait Page 2 left/right column item order exactly.
+    var lsPage2='<div class="rpt-ls-es-page rpt-ls-es-page-2">'
       +lsHeader
-      +'<div class="rpt-ls-es-body-3col">'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark">'
-          +'<div class="rpt-es-h2">Active Use Case Reference</div>'
-          +'<p class="rpt-es-p"><strong>The Ritz-Carlton, Turtle Bay — O‘ahu, HI</strong></p>'
-          +'<div class="rpt-es-ritz">'+cdnImg(ritzImg,'',600)+'</div>'
-          +'<div class="rpt-es-statline"><span class="v">68%</span><span class="k">Operating Cost Reduction</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">30%</span><span class="k">Salt Reduction</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">70%</span><span class="k">Water Loss Reduction</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">20%</span><span class="k">Energy-Use Reduction</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">50%</span><span class="k">Sodium Bicarbonate Reduction</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">43%</span><span class="k">Acid Reduction</span></div>'
-          +'<blockquote class="rpt-es-quote"><span class="quote-mark">“</span>Thank you again, we are still seeing savings since installing AquaRev.<span class="quote-mark">”</span><cite>Chief Engineer — Turtle Bay, Oahu, HI</cite></blockquote>'
+      +'<div class="rpt-ls-es-body-3col rpt-ls-es-body-p2">'
+        // ── Col 1 (dark) — Active Use Case + Quote + ESG ──
+        // Three sections wrapped in .rpt-ls-section so the column distributes
+        // them evenly via justify-content:space-between. The quote sits as its
+        // own section between the stats and ESG so gaps above and below balance.
+        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark rpt-ls-distribute">'
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2">Active Use Case Reference</div>'
+            +'<p class="rpt-es-p"><strong>The Ritz-Carlton, Turtle Bay — O‘ahu, HI</strong></p>'
+            +'<div class="rpt-es-ritz">'+cdnImg(ritzImg,'',600)+'</div>'
+            +'<p class="rpt-es-p">Active use case with measured outcomes:</p>'
+            +'<div class="rpt-es-statline"><span class="v">68%</span><span class="k">Operating Cost Reduction</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">30%</span><span class="k">Salt Reduction</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">70%</span><span class="k">Water Loss Reduction</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">20%</span><span class="k">Energy-Use Reduction</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">50%</span><span class="k">Sodium Bicarbonate Reduction</span></div>'
+            +'<div class="rpt-es-statline"><span class="v">43%</span><span class="k">Acid Reduction</span></div>'
+          +'</div>'
+          +'<div class="rpt-ls-section">'
+            +'<blockquote class="rpt-es-quote"><span class="quote-mark">“</span>Thank you again, we are still seeing savings since installing AquaRev.<span class="quote-mark">”</span><cite>Chief Engineer — Turtle Bay, Oahu, HI</cite></blockquote>'
+          +'</div>'
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2">ESG and Sustainability Value</div>'
+            +'<p class="rpt-es-p">Implementation of AquaRev Water technology supports measurable ESG outcomes through:</p>'
+            +'<ul class="rpt-es-ul-dark">'
+              +'<li><strong>Environmental:</strong> Lower chemical load released, less packaging and freight</li>'
+              +'<li><strong>Conservation:</strong> Reduced water loss from evaporation and backwashing</li>'
+              +'<li><strong>Energy:</strong> Lower energy consumption in treatment cycles; no added power requirement</li>'
+              +'<li><strong>Social:</strong> Healthier swimming environment for guests and responsible operations</li>'
+            +'</ul>'
+          +'</div>'
         +'</div>'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-dark">'
-          +'<div class="rpt-es-h2">ESG and Sustainability Value</div>'
-          +'<p class="rpt-es-p">Implementation of AquaRev Water technology supports measurable ESG outcomes through:</p>'
-          +'<ul class="rpt-es-ul-dark">'
-            +'<li><strong>Environmental:</strong> Lower chemical load released, less packaging and freight</li>'
-            +'<li><strong>Conservation:</strong> Reduced water loss from evaporation and backwashing</li>'
-            +'<li><strong>Energy:</strong> Lower energy consumption in treatment cycles</li>'
-            +'<li><strong>Social:</strong> Healthier swimming environment for guests and responsible operations</li>'
-          +'</ul>'
-          +'<div class="rpt-es-h2">Why This is a Fit</div>'
-          +'<p class="rpt-es-p">The AquaRev Water technology is designed to be a low-friction operational improvement across all aquatic facilities.</p>'
-          +'<ul class="rpt-es-ul-dark">'
-            +'<li>Non-disruptive installation &amp; no downtime</li>'
-            +'<li>No new operating complexity</li>'
-            +'<li>Operations and engineering-aligned</li>'
-            +'<li>Ownership value — lower OpEx &amp; stronger NOI</li>'
-          +'</ul>'
+        // ── Col 2 (light) — Documented Performance → Why-Fit → Resources → Video Summary
+        //   Each section wrapped in .rpt-ls-section so they distribute vertically
+        //   via justify-content:space-between, filling the column height proportionately.
+        +'<div class="rpt-ls-es-col rpt-ls-es-col-light rpt-ls-es-col-2of2 rpt-ls-distribute">'
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
+            +'<p class="rpt-es-p-light">Based on real-world use case averages and certified lab reports, properties deploying AquaRev Water have achieved material reductions across key cost centers:</p>'
+            +'<div class="rpt-es-outcome-cards rpt-ls-outcome-cards">'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">54%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">20%</div><div class="rpt-es-out-lbl">Energy-Use Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">70%</div><div class="rpt-es-out-lbl">Fast Degradation</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">200%</div><div class="rpt-es-out-lbl">Softer Water</div></div>'
+            +'</div>'
+          +'</div>'
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2 rpt-es-h2-light">Why This is a Fit</div>'
+            +'<p class="rpt-es-p-light">The AquaRev Water technology is designed to be a low-friction operational improvement across all aquatic facilities.</p>'
+            +'<ul class="rpt-es-ul">'
+              +'<li>Non-disruptive installation &amp; no downtime</li>'
+              +'<li>No new operating complexity</li>'
+              +'<li>Operations and engineering-aligned</li>'
+              +'<li>Ownership value — lower OpEx &amp; stronger NOI</li>'
+            +'</ul>'
+          +'</div>'
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2 rpt-es-h2-light">Resources</div>'
+            +'<p class="rpt-es-p-light rpt-ls-video-caption-pre">Click to open</p>'
+            +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank">'
+              +'<svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h7l3 3v9H3V2z"/><path d="M10 2v3h3"/><path d="M5.5 8h5M5.5 10.5h5M5.5 13h3"/></svg>'
+              +'Technical White Paper</a></p>'
+            +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank">'
+              +'<svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h12"/><path d="M4 13V8"/><path d="M7 13V5"/><path d="M10 13V9"/><path d="M13 13V3"/></svg>'
+              +'Resources, Data and Lab Reports</a></p>'
+            +'<p class="rpt-es-link"><a href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69cfba72e683a7267308c79a_AquaRev_CaseStudy_Ritz_TB_FIN.pdf" target="_blank">'
+              +'<svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12"/><path d="M5 9h6M5 11h4"/></svg>'
+              +'The Ritz-Carlton, Turtle Bay — Case Study</a></p>'
+          +'</div>'
+          // Video Summary section. "Click to view" caption above thumbnail, left-justified.
+          +'<div class="rpt-ls-section">'
+            +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
+            +'<p class="rpt-es-p-light rpt-ls-video-caption-pre">Click to view</p>'
+            +'<a href="'+videoUrl+'" target="_blank" class="rpt-es-video rpt-ls-video-hero">'+cdnImg(videoThumb,'',900)+'</a>'
+          +'</div>'
         +'</div>'
-        +'<div class="rpt-ls-es-col rpt-ls-es-col-light">'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">Proposed Next Step</div>'
-          +'<p class="rpt-es-p-light"><strong>Presentation &amp; Alignment Discovery</strong></p>'
-          +'<ul class="rpt-es-ul">'
-            +'<li>Points of Contact Alignment</li>'
-            +'<li>Review of Product and Financial Benefits</li>'
-          +'</ul>'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">Resources</div>'
-          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/techpaper" target="_blank">'
-            +'<svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h7l3 3v9H3V2z"/><path d="M10 2v3h3"/><path d="M5.5 8h5M5.5 10.5h5M5.5 13h3"/></svg>'
-            +'Technical White Paper</a></p>'
-          +'<p class="rpt-es-link"><a href="https://www.aquarevwater.us/data" target="_blank">'
-            +'<svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h12"/><path d="M4 13V8"/><path d="M7 13V5"/><path d="M10 13V9"/><path d="M13 13V3"/></svg>'
-            +'Resources, Data and Lab Reports</a></p>'
-          +'<p class="rpt-es-link"><a href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69cfba72e683a7267308c79a_AquaRev_CaseStudy_Ritz_TB_FIN.pdf" target="_blank">'
-            +'<svg class="rpt-es-link-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M2 6h12"/><path d="M5 9h6M5 11h4"/></svg>'
-            +'The Ritz-Carlton, Turtle Bay — Case Study</a></p>'
-          +'<div class="rpt-es-h2 rpt-es-h2-light">Video Summary</div>'
-          +'<p class="rpt-es-p-light" style="margin-bottom:6px">Click to view.</p>'
-          +'<a href="'+videoUrl+'" target="_blank" class="rpt-es-video">'+cdnImg(videoThumb,'',600)+'</a>'
+        // ── Col 3 (light) — Property photo column.
+        //   Default: Pool Top Shot rotated 90° CW filling the column.
+        //   When inclLsP2Col3Photos toggle is on AND photos are uploaded:
+        //   stacked grid of up to 4 photos cropped to fit.
+        +'<div class="rpt-ls-es-col rpt-ls-es-col-light rpt-ls-es-col-3of3 rpt-ls-p2c3">'
+          +(EX.inclLsP2Col3Photos && EX.lsP2Col3Photos && EX.lsP2Col3Photos.length>0
+            ? '<div class="rpt-ls-p2c3-stack rpt-ls-p2c3-stack-'+EX.lsP2Col3Photos.length+'">'
+              + EX.lsP2Col3Photos.map(function(p){return '<div class="rpt-ls-p2c3-tile"><img src="'+p.data+'" alt="" /></div>';}).join('')
+            +'</div>'
+            : '<img src="https://wsrv.nl/?url='+encodeURIComponent('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f5e2d4389fef473e3dd4de_Product%20Shot%20NSF.png')+'&w=700&q=72&output=jpg" class="rpt-ls-p2c3-default-img" alt="" />')
         +'</div>'
       +'</div>'
       +lsFooter
     +'</div>';
 
-    lsExecSummaryHtml=lsPage1+lsPage2+lsPage3;
+    lsExecSummaryHtml=lsPage1+lsPage2;
   }
 
-  // ── Presentation Deck — landscape only (stub for next iteration) ──
+  // ── Presentation Deck — LOCKED. Will be built later; render disabled.
+  //    Toggle is visually locked in Step 3 panel; this stays empty regardless.
   var presentationDeckHtml='';
-  if(EX.inclPresentationDeck && EX.layout==='landscape'){
+  if(false && EX.inclPresentationDeck && EX.layout==='landscape'){
     presentationDeckHtml='<div class="rpt-pres-deck-page">'
       +'<div class="rpt-pres-deck-stub">'
         +'<div class="rpt-pres-deck-logo">AQUAREV WATER</div>'
@@ -2404,10 +2485,20 @@ function generateReport(){
     }
 
     if(pageCount>0){
-      poolProfilesHtml='<div class="rpt-pp-page">'
-        +'<div class="rpt-pp-header">'
-          +'<div class="rpt-pp-title">POOL PROFILES</div>'
-          +'<div class="rpt-pp-sub">'+esc(propName)+' \u00b7 '+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
+      poolProfilesHtml='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
+        // Assessment-style header band \u2014 matches the Assessment page exactly,
+        // with the subtitle changed to "Pool Profiles" so the document reads
+        // as a coherent suite (same logo, property, date, and NSF badge).
+        +'<div class="rpt-head rpt-pp-head-band">'
+          +'<div class="rpt-head-left">'
+            +'<div class="rpt-logo">AQUAREV WATER</div>'
+            +'<div class="rpt-logo-sub">Pool Profiles</div>'
+          +'</div>'
+          +'<div class="rpt-head-right">'
+            +'<div class="rpt-prop-name">'+esc(propName)+'</div>'
+            +'<div class="rpt-prop-date">'+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
+            +'<span class="rpt-nsf-badge">NSF/ANSI\u00a050 Certified\u2002\u00b7\u2002IAPMO</span>'
+          +'</div>'
         +'</div>'
         +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
         // ── Footer band (spans full page width via negative margins) ──
@@ -2450,7 +2541,7 @@ function generateReport(){
   // Page order:
   //   Portrait : Cover → Exec Summary → Assessment → Pool Profiles → Fact Sheet → Back Cover
   //   Landscape: Ls Cover → Ls Exec Summary → Assessment → Pool Profiles → Ls Back Cover → Presentation Deck
-  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml+'<div class="rpt">'
+  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml+'<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
 
     // ── Header band ──
     +'<div class="rpt-head">'
@@ -2465,12 +2556,15 @@ function generateReport(){
       +'</div>'
     +'</div>'
 
-    // ── KPI stripe ──
-    +'<div class="rpt-kpis">'
+    // ── KPI stripe ── (landscape adds a 5th block: Savings Projection Applied)
+    +'<div class="rpt-kpis'+(EX.layout==='landscape'?' rpt-kpis-5':'')+'">'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Devices</div><div class="rpt-kpi-val teal">'+R.total_dev+'</div></div>'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Monthly Savings</div><div class="rpt-kpi-val green">'+fc(R.total_mo,0)+'</div></div>'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Annual Savings</div><div class="rpt-kpi-val green">'+fc(R.total_yr,0)+'</div></div>'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Purchase Payback</div><div class="rpt-kpi-val teal">'+(R.payback>0?Math.round(R.payback)+'\u00a0mo':'N/A')+'</div></div>'
+      +(EX.layout==='landscape'
+        ? '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Savings Projection Applied</div><div class="rpt-kpi-val teal">'+Math.round(S.savings_weight*100)+'%</div></div>'
+        : '')
     +'</div>'
 
     // ── Body ──
@@ -2496,12 +2590,15 @@ function generateReport(){
       // Rows B-D: layout-aware
       +(EX.layout==='landscape'
         // ── LANDSCAPE: compact single-page layout ──
-        ?'<div class="rpt-sec rpt-cols">'
+        // Right col holds Monthly Savings + Water Conservation + (NEW) Video
+        // Resources — videos span the full right-column width and grow to fill
+        // available space below the breakdown table.
+        ?'<div class="rpt-sec rpt-cols rpt-ls-row-b">'
           +'<div>'
             +'<div class="rpt-stitle">Purchase Options</div>'
             +purBox+advBox
           +'</div>'
-          +'<div>'
+          +'<div class="rpt-ls-rcol">'
             +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
             +'<table class="rpt-tbl">'
               +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
@@ -2512,9 +2609,13 @@ function generateReport(){
             +'</table>'
             +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?waterHtml:'')
+            // Video Resources / Property Images — full-width within right col,
+            // sized to fill remaining vertical space.
+            +((imgHtml||ytHtml)
+              ? '<div class="rpt-ls-media-stack">'+imgHtml+ytHtml+'</div>'
+              : '')
           +'</div>'
         +'</div>'
-        +((imgHtml||ytHtml)?'<div class="rpt-sec"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+imgHtml+ytHtml+'</div></div>':'')
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
 
         // ── PORTRAIT: Purchase Options stacked left, Breakdown + Water right ──
@@ -2777,8 +2878,38 @@ function renderExportSection(){
             +'</details>'
             :''
           )
-          +'<div class="ar-toggle-row"><label>Include Presentation Deck</label>'
-            +'<div class="ar-sw-track'+(EX.inclPresentationDeck?' on':'')+'" data-ex-sw="inclPresentationDeck"><div class="ar-sw-thumb"></div></div>'
+          // Custom property photos for Page 2 col 3 — toggle + drag-drop drawer
+          +'<div class="ar-toggle-row"><label>Custom Property Photos <span style="font-size:10px;color:var(--mu)">(Exec Summ Pg 2)</span></label>'
+            +'<div class="ar-sw-track'+(EX.inclLsP2Col3Photos?' on':'')+'" data-ex-sw="inclLsP2Col3Photos"><div class="ar-sw-thumb"></div></div>'
+          +'</div>'
+          +(EX.inclLsP2Col3Photos
+            ? '<details class="ar-es-custom-drawer ar-p2c3-drawer" style="margin:6px 0 8px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:8px 12px"'+(EX.showP2Col3Drawer?' open':'')+' data-action="toggle-p2c3-drawer">'
+              +'<summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--aq);letter-spacing:1px;text-transform:uppercase;padding:2px 0">'
+                +'Photo Slots <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu);font-size:10px">— up to 4 (drag &amp; drop or click)</span>'
+              +'</summary>'
+              +'<div class="ar-p2c3-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">'
+                +[0,1,2,3].map(function(i){
+                  var photo=(EX.lsP2Col3Photos&&EX.lsP2Col3Photos[i])||null;
+                  if(photo){
+                    return '<div class="ar-p2c3-slot filled" data-slot="'+i+'">'
+                      +'<img src="'+photo.data+'" alt="" />'
+                      +'<button class="ar-p2c3-rm" data-action="remove-p2c3-photo" data-slot="'+i+'" title="Remove">×</button>'
+                    +'</div>';
+                  }
+                  return '<label class="ar-p2c3-slot" data-slot="'+i+'">'
+                    +'<div class="ar-p2c3-empty"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg><span>Slot '+(i+1)+'</span></div>'
+                    +'<input type="file" accept="image/*" class="ar2-p2c3-upload" data-slot="'+i+'" style="display:none" />'
+                  +'</label>';
+                }).join('')
+              +'</div>'
+              +'<p class="ar-export-note" style="margin-top:8px;font-size:10px;color:var(--mu)">Photos stack vertically in column 3 of Exec Summ Page 2 — each cropped to fill width.</p>'
+            +'</details>'
+            :''
+          )
+          // Presentation Deck — LOCKED. Will be built later. Toggle visually
+          // disabled and click is suppressed via CSS pointer-events:none.
+          +'<div class="ar-toggle-row" style="opacity:.5;pointer-events:none"><label>Include Presentation Deck <span style="font-size:10px;color:var(--mu)">(coming soon)</span></label>'
+            +'<div class="ar-sw-track" data-ex-sw-disabled="inclPresentationDeck"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +'<div class="ar-toggle-row"><label>Include Back Cover</label>'
             +'<div class="ar-sw-track'+(EX.inclLsBackCover?' on':'')+'" data-ex-sw="inclLsBackCover"><div class="ar-sw-thumb"></div></div>'
@@ -2992,6 +3123,16 @@ function handleClick(e){
   // Toggle YouTube drawer
   var togYt=e.target.closest('[data-action="toggle-yt-drawer"]');
   if(togYt){ EX.showYtDrawer=!EX.showYtDrawer; renderForm(); return; }
+  // Remove photo from a P2 col 3 slot
+  var rmP2c3=e.target.closest('[data-action="remove-p2c3-photo"]');
+  if(rmP2c3){
+    e.preventDefault();
+    var idx=parseInt(rmP2c3.getAttribute('data-slot'),10);
+    if(EX.lsP2Col3Photos && !isNaN(idx)) delete EX.lsP2Col3Photos[idx];
+    EX.showP2Col3Drawer=true;
+    renderDevices();
+    return;
+  }
   // Toggle advanced rates
   var togAdv=e.target.closest('[data-action="toggle-adv-rates"]');
   if(togAdv){ S.showAdvRates=!S.showAdvRates; renderForm(); return; }
@@ -3039,8 +3180,9 @@ function handleClick(e){
     EX[swKey]=!EX[swKey];
     exSw.classList.toggle('on',EX[swKey]);
     // inclExecSummary controls visibility of the Custom Section drawer below it.
+    // inclLsP2Col3Photos controls visibility of the photo-slot drawer.
     // Export options live in #ar2-devices (middle column), so re-render that.
-    if(swKey==='inclExecSummary'||swKey==='inclLsExecSummary') renderDevices();
+    if(swKey==='inclExecSummary'||swKey==='inclLsExecSummary'||swKey==='inclLsP2Col3Photos') renderDevices();
     return;
   }
   // Remove image
@@ -3343,6 +3485,52 @@ function init(){
         reader.readAsDataURL(file);
       }
       e.target.value='';
+    }
+    // P2 col 3 photo upload
+    if(e.target&&e.target.classList.contains('ar2-p2c3-upload')){
+      var slot=parseInt(e.target.getAttribute('data-slot'),10);
+      var f=e.target.files&&e.target.files[0];
+      if(f && !isNaN(slot)){
+        var rd=new FileReader();
+        rd.onload=function(ev){
+          if(!EX.lsP2Col3Photos) EX.lsP2Col3Photos=[];
+          EX.lsP2Col3Photos[slot]={data:ev.target.result};
+          // Auto-enable toggle if user uploads a photo while toggle was off
+          if(!EX.inclLsP2Col3Photos) EX.inclLsP2Col3Photos=true;
+          EX.showP2Col3Drawer=true;
+          renderDevices();
+        };
+        rd.readAsDataURL(f);
+      }
+      e.target.value='';
+    }
+  });
+  // Drag-and-drop on P2 col 3 slots
+  root.addEventListener('dragover',function(e){
+    var slot=e.target.closest('.ar-p2c3-slot');
+    if(slot){ e.preventDefault(); slot.classList.add('drag-over'); }
+  });
+  root.addEventListener('dragleave',function(e){
+    var slot=e.target.closest('.ar-p2c3-slot');
+    if(slot) slot.classList.remove('drag-over');
+  });
+  root.addEventListener('drop',function(e){
+    var slot=e.target.closest('.ar-p2c3-slot');
+    if(!slot) return;
+    e.preventDefault();
+    slot.classList.remove('drag-over');
+    var idx=parseInt(slot.getAttribute('data-slot'),10);
+    var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f && f.type.indexOf('image/')===0 && !isNaN(idx)){
+      var rd=new FileReader();
+      rd.onload=function(ev){
+        if(!EX.lsP2Col3Photos) EX.lsP2Col3Photos=[];
+        EX.lsP2Col3Photos[idx]={data:ev.target.result};
+        if(!EX.inclLsP2Col3Photos) EX.inclLsP2Col3Photos=true;
+        EX.showP2Col3Drawer=true;
+        renderDevices();
+      };
+      rd.readAsDataURL(f);
     }
   });
 }

@@ -269,6 +269,16 @@
 #ar2 .ar-img-slot:hover{background:rgba(0,180,216,.05);}
 #ar2 .ar-img-slot.filled{border-style:solid;border-color:rgba(0,180,216,.2);}
 #ar2 .ar-img-slot img{width:100%;height:100%;object-fit:cover;display:block;}
+/* P2 col 3 photo slots — drag-and-drop drawer */
+#ar2 .ar-p2c3-slot{aspect-ratio:4/3;border:1px dashed rgba(0,180,216,.35);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,border-color .15s;overflow:hidden;position:relative;background:rgba(0,180,216,.02);}
+#ar2 .ar-p2c3-slot:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.55);}
+#ar2 .ar-p2c3-slot.filled{border-style:solid;border-color:rgba(0,180,216,.3);background:transparent;}
+#ar2 .ar-p2c3-slot.drag-over{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.8);border-style:solid;}
+#ar2 .ar-p2c3-slot img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;}
+#ar2 .ar-p2c3-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:var(--mu);opacity:.7;pointer-events:none;}
+#ar2 .ar-p2c3-empty span{font-size:10.5px;font-weight:600;letter-spacing:.5px;}
+#ar2 .ar-p2c3-rm{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.7);border:none;color:#fff;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:2;}
+#ar2 .ar-p2c3-rm:hover{background:rgba(0,0,0,.9);}
 #ar2 .ar-img-slot .ar-img-cap-input{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);border:none;color:#fff;font-size:11px;padding:6px 8px;font-family:inherit;outline:none;}
 /* ── YouTube drawer ── */
 #ar2 .ar-yt-drawer{max-height:0;overflow:hidden;transition:max-height .3s ease;}
@@ -413,18 +423,53 @@
      same value is already visible via the savings_weight applied in the
      scenario boxes; keeping it on portrait only. */
   #ar2-report .rpt-sw-applied{display:none!important;}
-  /* Pool Profiles in landscape — wider/shorter page benefits from 3-col grid
-     so 10 pools fit comfortably without overflow. Tighter card heights too. */
-  #ar2-report .rpt-pp-page .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:8px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:140px!important;padding:8px!important;grid-template-columns:110px 1fr!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-img{width:110px!important;height:74px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-name{font-size:12px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-row{font-size:9.5px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-row .v{font-size:10.5px!important;min-width:64px!important;}
-  #ar2-report .rpt-pp-page{padding:12px 24px 8px!important;}
+  /* ── Assessment page (.rpt) in landscape — 2-column body layout.
+     Each .rpt-sec.rpt-cols keeps its native 2-column internal grid. Video
+     Resources are nested inside the right column and grow to fill remaining
+     vertical space via flex layout. */
+  #ar2-report .rpt .rpt-body{display:flex!important;flex-direction:column!important;gap:8px!important;}
+  #ar2-report .rpt .rpt-body > .rpt-sec.rpt-cols{display:grid!important;grid-template-columns:1fr 1fr!important;gap:18px!important;margin-bottom:0!important;}
+  #ar2-report .rpt-ls-row-b{flex:1!important;}
+  #ar2-report .rpt-ls-rcol{display:flex!important;flex-direction:column!important;}
+  #ar2-report .rpt-ls-media-stack{margin-top:8px!important;flex:1!important;display:flex!important;flex-direction:column!important;gap:6px!important;}
+  #ar2-report .rpt-ls-media-stack > div{display:flex!important;flex-direction:column!important;}
+  #ar2-report .rpt-ls-media-stack .rpt-img-grid{grid-template-columns:repeat(2,1fr)!important;gap:6px!important;width:100%!important;}
+  #ar2-report .rpt-ls-media-stack .rpt-img-wrap{width:100%!important;aspect-ratio:16/9!important;max-height:none!important;border-radius:5px!important;overflow:hidden!important;background:#0a2540!important;border:none!important;}
+  #ar2-report .rpt-ls-media-stack .rpt-img-wrap img{width:100%!important;height:100%!important;max-height:none!important;display:block!important;object-fit:cover!important;border-radius:5px!important;}
+  #ar2-report .rpt-ls-media-stack .rpt-img-cap{font-size:8px!important;color:#5a7388!important;margin-top:2px!important;line-height:1.25!important;}
+  /* Section sub-titles + rows tighter in landscape to fit the narrower columns */
+  #ar2-report .rpt .rpt-row{font-size:9px!important;padding:1.5px 0!important;line-height:1.3!important;}
+  #ar2-report .rpt .rpt-row em{font-size:8px!important;}
+  #ar2-report .rpt .rpt-row .v{font-size:9px!important;}
+  /* Inline pool dimensions — hide in landscape to save horizontal room (Total Volume conveys the same info) */
+  #ar2-report .rpt .rpt-row span[style*="margin-left:6px"]{display:none!important;}
+  /* Scenario boxes (Purchase / Advantage) — tighter padding + smaller numbers */
+  #ar2-report .rpt-sbox{padding:5px 7px!important;margin-bottom:4px!important;}
+  #ar2-report .rpt-sbox-title{font-size:6.5px!important;letter-spacing:1.5px!important;margin-bottom:3px!important;padding-bottom:3px!important;}
+  /* Monthly Savings table — smaller font, dense rows */
+  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:2.5px 5px!important;font-size:8.5px!important;}
+  /* Water Conservation big-stat — compress vertically */
+  #ar2-report .rpt-stat{padding:4px 7px!important;}
+  #ar2-report .rpt-stat-val{font-size:12px!important;}
+  /* Video Resources — show but make compact 2-up thumbs */
+  #ar2-report .rpt-img-grid{gap:6px!important;}
+  #ar2-report .rpt-img-wrap{max-height:80px!important;overflow:hidden!important;}
+  #ar2-report .rpt-img-wrap img{max-height:80px!important;object-fit:cover!important;}
+  /* Pool Profiles in landscape — wider/shorter 11×8.5" page (612px tall).
+     3-col × up-to-4-row grid fits up to 12 cards (handles the 10-pool max).
+     Tight card heights keep the grid + header + footer within one sheet. */
+  #ar2-report .rpt-pp-page .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:6px 10px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:108px!important;padding:6px 8px!important;grid-template-columns:96px 1fr!important;gap:8px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-img{width:96px!important;height:64px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-name{font-size:11px!important;line-height:1.15!important;margin-bottom:2px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-meta{font-size:8.5px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-row{font-size:8.5px!important;padding:0 0 1px!important;line-height:1.25!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-row .v{font-size:9.5px!important;min-width:54px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-head{margin-bottom:2px!important;padding-bottom:2px!important;}
+  #ar2-report .rpt-pp-page{padding:10px 22px 6px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-title{font-size:18px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-sub{font-size:9.5px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:6px!important;margin-bottom:8px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-sub{font-size:9px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:5px!important;margin-bottom:7px!important;}
   /* ── Landscape Exec Summary fine-tuning ── */
   #ar2-report .rpt-ls-es-page .rpt-es-head{padding:10px 24px 8px!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-left,#ar2-report .rpt-ls-es-page .rpt-es-right,#ar2-report .rpt-ls-es-page .rpt-es-mid{padding:14px 22px 16px!important;}
@@ -485,6 +530,8 @@
 #ar2-report .rpt-nsf-badge{display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid rgba(0,180,216,.4);border-radius:3px;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:600;}
 /* ── KPI stripe ── */
 #ar2-report .rpt-kpis{background:linear-gradient(to right,#071628,#0a2540);border-bottom:3px solid #00b4d8;display:grid;grid-template-columns:repeat(4,1fr);}
+/* Landscape adds a 5th block (Savings Projection Applied %) — 5-col grid */
+#ar2-report .rpt-kpis-5{grid-template-columns:repeat(5,1fr);}
 #ar2-report .rpt-kpi{padding:16px 16px;text-align:center;border-right:1px solid rgba(0,180,216,.15);}
 #ar2-report .rpt-kpi:last-child{border-right:none;}
 #ar2-report .rpt-kpi-lbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#fff;margin-bottom:6px;}
@@ -661,6 +708,12 @@
 #ar2-report .rpt-es-statline{display:flex;align-items:baseline;gap:14px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.08);}
 #ar2-report .rpt-es-statline .v{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#fff;min-width:80px;}
 #ar2-report .rpt-es-statline .k{font-size:11px;color:#cfe2eb;}
+/* Light-bg variants — same numbers, swapped colors for use on white columns */
+#ar2-report .rpt-es-bignum-light{font-family:'JetBrains Mono','Bebas Neue',monospace;font-size:24px;font-weight:700;color:#0a2540;margin:4px 0 12px;line-height:1.1;}
+#ar2-report .rpt-es-bignum-light .rpt-es-bignum-unit{color:#5a7388;}
+#ar2-report .rpt-es-statline-light{display:flex;align-items:baseline;gap:14px;padding:5px 0;border-bottom:1px solid #e0ecf4;}
+#ar2-report .rpt-es-statline-light .v{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#0a2540;min-width:80px;}
+#ar2-report .rpt-es-statline-light .k{font-size:11px;color:#5a7388;}
 #ar2-report .rpt-es-note{font-size:9.5px;color:#7db8cc;margin-top:6px;font-style:italic;}
 #ar2-report .rpt-es-ul{list-style:none;padding:0;margin:0 0 10px;}
 #ar2-report .rpt-es-ul li{position:relative;padding-left:14px;font-size:11px;line-height:1.5;color:#444;margin-bottom:4px;}
@@ -691,15 +744,23 @@
 #ar2-report .rpt-es-url{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:2px;color:#48cae4;font-family:'DM Sans',sans-serif;font-weight:600;}
 /* ── Step 3 export panel header ── */
 #ar2 .ar-export-panel-label{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--aq);margin:8px 0 4px;}
-/* ── Landscape Cover (page) ── */
-#ar2-report .rpt-ls-cover-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;overflow:hidden;aspect-ratio:11/8.5;box-shadow:0 2px 12px rgba(4,15,30,.08);}
+/* ── Landscape Cover (page) ──
+   Text overlays directly on the dark-blue logo pill (no CSS box).
+   Anchored to the LEFT edge of the "A" in AquaRevWater (~10.5% from left).
+   Sits BELOW the logo wordmark within the pill, with compact typography so
+   tagline + property name + date all fit inside the dark blue zone.        */
+#ar2-report .rpt-ls-cover-page{position:relative;width:100%;max-width:1120px!important;margin:32px auto 0;background:#0a2540;overflow:hidden;aspect-ratio:11/8.5;box-shadow:0 2px 12px rgba(4,15,30,.08);}
 #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%;height:100%;object-fit:cover;display:block;}
-#ar2-report .rpt-ls-cover-overlay{position:absolute;left:9%;top:60%;transform:translateY(-50%);text-align:left;z-index:2;color:#fff;}
-#ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:13px;letter-spacing:5px;text-transform:uppercase;color:#48cae4;font-weight:600;}
-#ar2-report .rpt-ls-cover-prop{margin-top:14px;font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:3px;color:#fff;line-height:1.05;}
-#ar2-report .rpt-ls-cover-date{margin-top:10px;font-family:'DM Sans',sans-serif;font-size:13px;color:#7db8cc;}
+/* Overlay positioned BELOW the AquaRevWater logo wordmark — clearly outside
+   the wordmark area. Left edge aligned to the "A" of the logo (~10.5% from
+   left). Strong text-shadow keeps text legible on the water area beneath
+   the pill. Each line forced to a single row via white-space:nowrap.        */
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:10.5%;top:42%;max-width:80%;text-align:left;z-index:2;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.6);}
+#ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:3.5px;text-transform:uppercase;color:#48cae4;font-weight:600;line-height:1.2;white-space:nowrap;}
+#ar2-report .rpt-ls-cover-prop{margin-top:7px;font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:#fff;line-height:1.06;white-space:nowrap;}
+#ar2-report .rpt-ls-cover-date{margin-top:6px;font-family:'DM Sans',sans-serif;font-size:11px;color:#cfe2eb;letter-spacing:1px;white-space:nowrap;}
 /* ── Landscape Back Cover (page) — full bleed ── */
-#ar2-report .rpt-ls-back-cover-page{aspect-ratio:11/8.5;}
+#ar2-report .rpt-ls-back-cover-page{aspect-ratio:11/8.5;max-width:1120px!important;margin:32px auto 0!important;}
 /* ── Landscape Exec Summary pages (preview screen) ── */
 #ar2-report .rpt-ls-es-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:11px;line-height:1.5;max-width:1120px;margin:32px auto 0;page-break-before:always;break-before:page;display:flex;flex-direction:column;aspect-ratio:11/8.5;position:relative;box-shadow:0 2px 12px rgba(4,15,30,.08);overflow:hidden;}
 #ar2-report .rpt-ls-es-page *{box-sizing:border-box;}
@@ -714,16 +775,148 @@
 #ar2-report .rpt-ls-es-page .rpt-es-h2{font-size:14px;margin:10px 0 5px;}
 #ar2-report .rpt-ls-es-page .rpt-es-lead{font-size:10.5px;line-height:1.5;}
 #ar2-report .rpt-ls-es-page .rpt-es-p,#ar2-report .rpt-ls-es-page .rpt-es-p-light{font-size:10.5px;line-height:1.5;margin-bottom:5px;}
-#ar2-report .rpt-ls-es-page .rpt-es-bignum{font-size:18px;margin:2px 0 8px;}
+#ar2-report .rpt-ls-es-page .rpt-es-bignum,#ar2-report .rpt-ls-es-page .rpt-es-bignum-light{font-size:18px;margin:2px 0 8px;}
 #ar2-report .rpt-ls-es-page .rpt-es-bignum-unit{font-size:11px;}
-#ar2-report .rpt-ls-es-page .rpt-es-statline{padding:3px 0;}
-#ar2-report .rpt-ls-es-page .rpt-es-statline .v{font-size:14px;min-width:64px;}
-#ar2-report .rpt-ls-es-page .rpt-es-statline .k{font-size:10px;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline,#ar2-report .rpt-ls-es-page .rpt-es-statline-light{padding:3px 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline .v,#ar2-report .rpt-ls-es-page .rpt-es-statline-light .v{font-size:14px;min-width:64px;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline .k,#ar2-report .rpt-ls-es-page .rpt-es-statline-light .k{font-size:10px;}
 #ar2-report .rpt-ls-es-page .rpt-es-ul li{font-size:10.5px;line-height:1.4;margin-bottom:3px;}
 #ar2-report .rpt-ls-es-page .rpt-es-h3-light{font-size:12px;letter-spacing:2px;color:#0a2540;font-family:'Bebas Neue',sans-serif;font-weight:700;margin:6px 0 4px;}
 #ar2-report .rpt-ls-es-page .rpt-es-tech-blurb{font-size:10px;line-height:1.5;}
-#ar2-report .rpt-ls-es-page .rpt-es-device-full{margin:6px 0 8px;}
-#ar2-report .rpt-ls-es-page .rpt-es-device-full img{max-width:80%;margin:0 auto;}
+#ar2-report .rpt-ls-es-page .rpt-es-device-full{margin:6px 0 8px;text-align:center;}
+#ar2-report .rpt-ls-es-page .rpt-es-device-full img{max-width:100%;height:auto;margin:0 auto;}
+/* Tighter chart for narrower 3-col layout (vs the older 2-col lsPage2) */
+#ar2-report .rpt-ls-es-page-2 .rpt-es-chart-svg{max-height:200px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-chart-title{font-size:13px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-chart-sub{font-size:9.5px;}
+/* ── Page 1 unified heading rhythm — all column h2s render at the same size
+   and margin so paragraph tops align across all 3 columns.                  */
+#ar2-report .rpt-ls-es-page-1 .rpt-es-h2,
+#ar2-report .rpt-ls-es-page-1 .rpt-es-h2-light{margin:0 0 7px;font-size:13.5px;line-height:1.15;}
+#ar2-report .rpt-ls-es-page-1 .rpt-es-h2:first-child,
+#ar2-report .rpt-ls-es-page-1 .rpt-es-h2-light:first-child{margin-top:0;}
+/* Page 1 col 1 (dark) — body text bumped for readability */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-lead{font-size:11px;line-height:1.55;margin-bottom:8px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-p{font-size:11px;line-height:1.55;margin-bottom:6px;}
+/* Subsequent h2 in col 1 (Why This Matters) gets a bit of breathing room */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-h2 + .rpt-es-h2,
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-p + .rpt-es-h2{margin-top:8px;}
+/* Col-with-anchor pattern — flex column where the anchor is pinned to the
+   bottom of the column via margin-top:auto. Used for both col 1 (Operational
+   Advantages + Outcome Impact on dark) and col 2 (Inline Device Installation
+   on light) so the page's two columns end at the same baseline. */
+#ar2-report .rpt-ls-col-with-anchor{display:flex!important;flex-direction:column!important;}
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-content{flex:0 0 auto;}
+#ar2-report .rpt-ls-col-anchor{margin-top:auto;padding-top:10px;}
+/* Dark-bg variant title (cyan) — used in col 1 if needed */
+#ar2-report .rpt-ls-col-anchor-title{font-family:'Bebas Neue',sans-serif;font-size:11.5px;letter-spacing:1.8px;color:#48cae4;margin-bottom:6px;text-transform:uppercase;font-weight:700;}
+/* Light-bg variant title (deep navy) — used in col 2 below the device cutaway */
+#ar2-report .rpt-ls-col-anchor-title-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.8px;color:#0a2540;margin-bottom:4px;text-transform:uppercase;font-weight:700;}
+#ar2-report .rpt-ls-col-anchor-img{width:100%!important;max-width:100%!important;height:auto!important;max-height:170px!important;object-fit:cover!important;display:block!important;border-radius:6px;}
+/* Operational Advantages + Outcome Impact in DARK col 1 — h3 + bullets in light tones */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-h3-dark{font-size:10px;letter-spacing:1.8px;margin:0 0 4px;color:#48cae4;font-family:'Bebas Neue',sans-serif;font-weight:700;text-transform:uppercase;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-feat-col .rpt-es-ul-dark{margin:0;padding-left:0;list-style:none;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-feat-col .rpt-es-ul-dark li{font-size:9.5px;line-height:1.35;margin-bottom:2px;padding-left:13px;color:#cfe2eb;position:relative;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-feat-col .rpt-es-ul-dark li::before{content:'\2022';position:absolute;left:0;color:#48cae4;font-weight:700;}
+/* ── Assessment Scope stat panel (col 3) — striking 2-stat split with divider ── */
+#ar2-report .rpt-ls-scope-row{display:flex;align-items:center;gap:12px;margin:5px 0 7px;padding:8px 12px;border-radius:8px;background:rgba(72,202,228,.08);border:1px solid rgba(72,202,228,.22);}
+#ar2-report .rpt-ls-scope-item{flex:1;text-align:center;}
+#ar2-report .rpt-ls-scope-num{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;color:#48cae4;line-height:1;}
+#ar2-report .rpt-ls-scope-lbl{font-size:8.5px;letter-spacing:1.6px;text-transform:uppercase;color:#cfe2eb;font-weight:600;margin-top:3px;}
+#ar2-report .rpt-ls-scope-divider{width:1px;align-self:stretch;background:rgba(72,202,228,.3);}
+#ar2-report .rpt-ls-volume-lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#cfe2eb;margin:4px 0 1px;font-weight:600;}
+/* ── Page 1 col 2 (white) — Tech + Device cutaway (top) + Inline Device Installation (anchor) ──
+   Tech blurbs and device cutaway flow at top; Inline Device Installation
+   image anchors to bottom via the anchor pattern.                            */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-light .rpt-es-tech-blurb{font-size:10px;line-height:1.5;margin-bottom:5px;color:#3a4858;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-light .rpt-es-device-full{margin:8px 0 8px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-light .rpt-es-device-full img{width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;display:block;margin:0;}
+/* Feat-grid (Operational Advantages + Outcome Impact) lives in DARK col 1 anchor */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-ls-col-anchor .rpt-es-feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+/* ── Page 1 col 3 (dark/blue) — Snapshot / Financial / Investment Profile / Chart card ──
+   Sections wrapped in .rpt-ls-section + col uses .rpt-ls-distribute so the
+   4 sections (Snapshot, Financial Impacts, Investment Profile, Chart) spread
+   evenly down the column with consistent breathing room.                     */
+/* Financial data items — bumped for prominence (compact enough to fit page) */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-bignum{font-size:26px;margin:2px 0 6px;color:#fff;line-height:1.05;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-bignum-unit{font-size:11px;color:#cfe2eb;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-statline{padding:4px 0;border-bottom:1px solid rgba(72,202,228,.18);}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-statline .v{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;font-weight:700;min-width:64px;color:#48cae4;line-height:1.1;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-statline .k{font-size:10px;color:#fff;font-weight:500;letter-spacing:.3px;}
+/* Section h2s in col 3 get more breathing room for clearer breaks */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-ls-section .rpt-es-h2{margin:0 0 8px;}
+/* Combined Financial / Investment block — small visible top padding before the
+   second subhead so the two subsections read as related-but-distinct. */
+#ar2-report .rpt-ls-financial-block .rpt-ls-subhead{margin-top:10px!important;padding-top:6px;border-top:1px solid rgba(72,202,228,.18);}
+/* Slightly tighter chart card to make room for the subhead spacing */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-chart-card{padding:8px 10px 6px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-chart-card .rpt-es-chart-svg{max-height:120px;}
+/* Chart card — white plate inside the blue column */
+#ar2-report .rpt-ls-chart-card{background:#fff;border-radius:6px;padding:10px 12px 8px;box-shadow:0 1px 6px rgba(0,0,0,.18);}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart{margin:0;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-svg{max-height:140px;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-title{font-size:11px;line-height:1.15;color:#0a2540;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-sub-title{font-size:9px;color:#0a2540;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-sub{font-size:8.5px;line-height:1.3;color:#444;margin-bottom:2px;}
+/* ── Page 2 col 2 (white, 50% of page) — Documented Performance → Why-Fit
+   → Resources → Video Summary. Compact typography keeps everything within
+   the column height. */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-h2-light{margin:7px 0 4px;font-size:12px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-h2-light:first-child{margin-top:0;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-p-light{font-size:10px;line-height:1.45;margin-bottom:4px;color:#3a4858;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-outcome-cards{margin:3px 0 3px;gap:5px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-out-card{padding:6px 5px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-out-pct{font-size:18px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-out-lbl{font-size:8.5px;line-height:1.2;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-ul{margin:0 0 2px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-ul li{font-size:9.5px;line-height:1.35;margin-bottom:1px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-link{margin:2px 0;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-es-link a{font-size:10px;}
+/* 6-card outcome grid — 3 cols (instead of default 2 in narrow col 2) */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-light .rpt-ls-outcome-cards{grid-template-columns:repeat(3,1fr)!important;}
+/* ── Page 2 — 3-column layout (col 1 dark | col 2 light | col 3 photo column) ──
+   Col 3 = property-photo column. Default = Pool Top Shot rotated 90° CW
+   filling column. Toggle on + uploads = stacked custom photos.             */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2{display:grid;grid-template-columns:1fr 1fr 1fr;}
+#ar2-report .rpt-ls-es-col-3of3{background:#fff;}
+/* P2 col 3 — full-bleed image (default) or stacked photo grid (custom) */
+#ar2-report .rpt-ls-p2c3{padding:0!important;overflow:hidden;}
+#ar2-report .rpt-ls-p2c3-default-img{width:100%;height:100%;object-fit:cover;object-position:100% 50%;display:block;}
+/* Stacked custom photos — fills column with N evenly-distributed tiles */
+#ar2-report .rpt-ls-p2c3-stack{width:100%;height:100%;display:flex;flex-direction:column;gap:0;}
+#ar2-report .rpt-ls-p2c3-tile{flex:1 1 0;min-height:0;overflow:hidden;}
+#ar2-report .rpt-ls-p2c3-tile img{width:100%;height:100%;object-fit:cover;display:block;}
+/* Proportional vertical distribution — sections in .rpt-ls-distribute columns
+   spread out via justify-content:space-between so the column height is filled
+   evenly (top section at top, last section at bottom, equal gaps in between). */
+#ar2-report .rpt-ls-distribute{display:flex!important;flex-direction:column!important;justify-content:space-between!important;}
+#ar2-report .rpt-ls-section{flex:0 0 auto;}
+/* Last child within each section drops its bottom margin (avoids double-spacing) */
+#ar2-report .rpt-ls-section > *:last-child{margin-bottom:0!important;}
+/* "Click to view" caption — left-justified, just above the thumbnail */
+#ar2-report .rpt-ls-video-caption-pre{font-size:10.5px;color:#3a4858;margin:0 0 5px;text-align:left;font-style:italic;}
+/* Video thumbnail in col 2 — full image, full column width, natural aspect */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-video-hero{display:block;margin:0;border-radius:6px;overflow:hidden;border:1px solid #d5eaf5;box-shadow:0 2px 8px rgba(4,15,30,.06);}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-video-hero img{width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;display:block!important;object-fit:unset!important;}
+/* ── Page 2 image aspect-ratio fix — Ritz + video render at full natural
+   aspect ratio. width:100%, height:auto so the full image fills the column
+   width and scales proportionately. */
+#ar2-report .rpt-ls-es-page-2 .rpt-es-ritz{margin:6px 0 8px;border-radius:6px;overflow:hidden;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-ritz img{width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;object-fit:unset!important;display:block;}
+/* Page 2 col 1 (dark) — typography compression to fit Ritz image + 6 stats + ESG.
+   With wider col (50%) the Ritz image is bigger and stats can be tighter. */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-h2{font-size:13px;margin:6px 0 4px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-h2:first-child{margin-top:0;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-p{font-size:10px;line-height:1.45;margin-bottom:4px;}
+/* Reduction statlines — prominent numbers, cyan accent, white labels */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-statline{padding:3px 0;border-bottom:1px solid rgba(72,202,228,.18);}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-statline .v{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;font-weight:700;min-width:54px;color:#48cae4;line-height:1.1;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-statline .k{font-size:10px;color:#fff;font-weight:500;letter-spacing:.3px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-quote{margin:4px 0 6px;padding:5px 0 5px 10px;border-left:2px solid #48cae4;font-size:9.5px;line-height:1.4;font-style:italic;color:#cfe2eb;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-quote cite{display:block;margin-top:3px;font-size:8.5px;font-style:normal;color:#7db8cc;letter-spacing:1px;text-transform:uppercase;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-quote .quote-mark{font-family:'Bebas Neue',sans-serif;font-size:14px;color:#48cae4;font-style:normal;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-ul-dark{margin:0;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-ul-dark li{font-size:9.5px;line-height:1.4;margin-bottom:2px;}
 #ar2-report .rpt-ls-feat-row .rpt-es-feat-col{margin-top:4px;}
 #ar2-report .rpt-ls-outcome-cards{grid-template-columns:1fr 1fr 1fr!important;gap:6px!important;}
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-card{padding:8px 6px;}
@@ -736,6 +929,52 @@
 #ar2-report .rpt-ls-es-page .rpt-es-chart{margin:0 0 8px;}
 #ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:240px;}
 #ar2-report .rpt-ls-es-page .rpt-es-custom{padding:10px 14px;border-top:3px solid #00b4d8;background:#f0fbff;}
+/* ── Page 1 enhancements ──
+   Property at-a-Glance card sits at the bottom of the OBJECTIVE column to fill
+   negative space. 5-Year Bottom Line ROI hero anchors the middle column.
+   Brand promise statement caps the right column. All three balance the page. */
+#ar2-report .rpt-ls-prop-card{margin-top:14px;padding:11px 14px;border-radius:8px;background:rgba(72,202,228,.08);border:1px solid rgba(72,202,228,.25);}
+#ar2-report .rpt-ls-prop-card-title{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:2.5px;color:#48cae4;margin-bottom:6px;}
+#ar2-report .rpt-ls-prop-card-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+#ar2-report .rpt-ls-prop-card-grid > div{display:flex;flex-direction:column;}
+#ar2-report .rpt-ls-prop-card-grid .lbl{font-size:9px;color:#7db8cc;text-transform:uppercase;letter-spacing:1px;margin-bottom:1px;}
+#ar2-report .rpt-ls-prop-card-grid .val{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;letter-spacing:1px;}
+#ar2-report .rpt-ls-prop-card-grid .val .unit{font-family:'DM Sans',sans-serif;font-size:9.5px;color:#7db8cc;margin-left:4px;letter-spacing:0;font-weight:400;}
+#ar2-report .rpt-ls-bottomline{margin-top:14px;padding:14px 16px;border-radius:10px;background:linear-gradient(135deg,#00b4d8,#0077b6);text-align:center;}
+#ar2-report .rpt-ls-bl-lbl{font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.85);font-weight:600;}
+#ar2-report .rpt-ls-bl-num{font-family:'Bebas Neue',sans-serif;font-size:42px;color:#fff;letter-spacing:1px;line-height:1;margin:4px 0 2px;}
+#ar2-report .rpt-ls-bl-num .x{font-size:24px;margin-left:2px;color:rgba(255,255,255,.9);}
+#ar2-report .rpt-ls-bl-sub{font-size:9.5px;color:rgba(255,255,255,.85);}
+#ar2-report .rpt-ls-promise{margin-top:14px;padding:11px 14px;border-left:3px solid #00b4d8;background:#eef9fc;font-size:11px;line-height:1.45;color:#0a2540;font-style:italic;border-radius:0 6px 6px 0;}
+/* ── Page 2 enhancements ──
+   Deployment Snapshot fills the empty space below the chart with concrete
+   install/inclusion details. 4 mini stat blocks + an inclusion paragraph.    */
+#ar2-report .rpt-ls-deploy{margin-top:10px;padding-top:10px;border-top:1px solid #d5eaf5;}
+#ar2-report .rpt-ls-deploy-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:6px 0 10px;}
+#ar2-report .rpt-ls-deploy-item{padding:8px 6px;border-radius:6px;background:#f0fbff;border:1px solid #d5eaf5;text-align:center;}
+#ar2-report .rpt-ls-deploy-num{font-family:'Bebas Neue',sans-serif;font-size:22px;color:#00b4d8;letter-spacing:1px;line-height:1;margin-bottom:3px;}
+#ar2-report .rpt-ls-deploy-lbl{font-size:8.5px;color:#444;letter-spacing:.5px;text-transform:uppercase;line-height:1.3;}
+#ar2-report .rpt-ls-deploy-incl{font-size:10px;line-height:1.5;color:#444;padding:8px 12px;background:#f9fcfd;border-radius:6px;border-left:3px solid #48cae4;}
+/* ── Page 2 column 3 (dark) — Active Use Case + Next Step + Resources ──
+   Compact 4-stat grid for the case-study highlights, plus a subtle horizontal
+   divider before the CTA section, and an alternative h3 treatment on dark bg. */
+#ar2-report .rpt-ls-case-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin:8px 0 6px;}
+#ar2-report .rpt-ls-case-stats > div{display:flex;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid rgba(72,202,228,.15);}
+#ar2-report .rpt-ls-case-stats .v{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#48cae4;min-width:46px;}
+#ar2-report .rpt-ls-case-stats .k{font-size:9.5px;color:#cfe2eb;letter-spacing:.5px;}
+#ar2-report .rpt-ls-cta-divider{height:1px;background:linear-gradient(90deg,transparent,rgba(72,202,228,.4),transparent);margin:14px 0 10px;}
+#ar2-report .rpt-es-h3-dark{font-size:12px;letter-spacing:2px;color:#48cae4;font-family:'Bebas Neue',sans-serif;font-weight:700;margin:8px 0 4px;}
+#ar2-report .rpt-ls-res-link{margin:4px 0;}
+#ar2-report .rpt-ls-res-link a{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:500;color:#fff;text-decoration:none;border-bottom:1px solid rgba(72,202,228,.4);padding-bottom:2px;}
+#ar2-report .rpt-ls-res-link a:hover{color:#48cae4;}
+#ar2-report .rpt-ls-res-link .rpt-es-link-ico{width:13px;height:13px;color:#48cae4;flex-shrink:0;}
+/* Ritz Carlton image in Page 2 col 1 — fills full column width at natural
+   aspect ratio. No max-height cap, no cropping. */
+#ar2-report .rpt-ls-es-page-2 .rpt-es-ritz{margin:6px 0 8px;border-radius:6px;overflow:hidden;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-ritz img{width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;object-fit:unset!important;display:block;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-quote{margin:4px 0 6px;padding:6px 0 6px 12px;border-left:3px solid #48cae4;font-size:10.5px;line-height:1.45;color:#cfe2eb;font-style:italic;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-quote cite{display:block;margin-top:5px;font-size:9px;font-style:normal;color:#7db8cc;letter-spacing:1px;text-transform:uppercase;}
+#ar2-report .rpt-ls-es-page-2 .rpt-es-quote .quote-mark{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#48cae4;font-style:normal;line-height:0;vertical-align:-1px;}
 /* ── Presentation Deck (stub) ── */
 #ar2-report .rpt-pres-deck-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;color:#fff;aspect-ratio:11/8.5;display:flex;align-items:center;justify-content:center;overflow:hidden;page-break-before:always;break-before:page;box-shadow:0 2px 12px rgba(4,15,30,.08);}
 #ar2-report .rpt-pres-deck-stub{text-align:center;padding:40px;}
@@ -743,8 +982,100 @@
 #ar2-report .rpt-pres-deck-sub{font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-top:6px;}
 #ar2-report .rpt-pres-deck-prop{margin-top:24px;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;}
 #ar2-report .rpt-pres-deck-note{margin-top:18px;font-size:11px;color:#7db8cc;font-style:italic;}
+/* ── Assessment page in LANDSCAPE mode (.rpt.rpt-landscape) ──
+   Renders in a true 11×8.5 landscape canvas on screen so the preview matches
+   the PDF output. Body uses a 4-column flatten of the two stacked rpt-cols
+   sections, putting Pool Config | Device Selection | Purchase | Monthly Savings
+   side-by-side. Print-mode rules (@media print and (orientation:landscape))
+   mirror this exactly — same selectors, just scoped to print orientation.    */
+#ar2-report .rpt.rpt-landscape{max-width:1120px;margin:32px auto 0;aspect-ratio:11/8.5;display:flex;flex-direction:column;box-shadow:0 2px 12px rgba(4,15,30,.08);overflow:hidden;font-size:10.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-head{padding:12px 22px 10px;}
+#ar2-report .rpt.rpt-landscape .rpt-logo{font-size:21px;}
+#ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
+#ar2-report .rpt.rpt-landscape .rpt-prop-date{font-size:10.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpis{padding:10px 18px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpi{padding:8px 10px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:7.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-body{flex:1;padding:10px 22px 6px;display:flex;flex-direction:column;gap:8px;}
+#ar2-report .rpt.rpt-landscape .rpt-body > .rpt-sec.rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:0;}
+/* Row B right column — Monthly Savings + Water + (NEW) Video Resources stack.
+   The right col uses flex-column so the media block can flex-grow into any
+   remaining vertical space, making videos as large as the column allows. */
+#ar2-report .rpt.rpt-landscape .rpt-ls-row-b{flex:1;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex;flex-direction:column;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:10px;flex:1;display:flex;flex-direction:column;gap:8px;justify-content:flex-start;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack > div{display:flex;flex-direction:column;}
+/* Inner thumb grid spans full width of the right col; thumbs auto-size up.
+   Container uses object-fit:contain with a wide aspect-ratio so the FULL
+   YouTube hqdefault thumbnail is visible at its natural proportions (no
+   cropping of the top/bottom letterbox region of 4:3 hqdefault, no cropping
+   of edges either). */
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px!important;width:100%!important;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-item{width:100%;}
+/* Thumbnails fill the full right-column width side-by-side (each at ~50% of
+   the column with no max cap). Container at 16:9 aspect crops the 4:3
+   hqdefault letterbox bars, showing the actual video frame at full size and
+   filling the column proportionately.                                       */
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-item{width:100%;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-wrap{width:100%!important;aspect-ratio:16/9!important;max-height:none!important;border-radius:6px!important;overflow:hidden!important;background:#0a2540!important;border:none!important;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-wrap img{width:100%!important;height:100%!important;max-height:none!important;display:block!important;object-fit:cover!important;border-radius:6px!important;}
+/* Tighten Monthly Savings + Water Conservation in landscape Assessment to
+   accommodate the larger Video Resources thumbnails on the same page. */
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-tbl{font-size:9.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-tbl td,
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-tbl th{padding:3px 5px;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-stat{padding:5px 8px;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-stat-val{font-size:14px;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-stat-lbl{font-size:7.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-sw-applied{padding-top:4px!important;margin-top:4px!important;}
+#ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-cap{font-size:9px;color:#5a7388;margin-top:3px;line-height:1.3;}
+#ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:4px;}
+#ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:7.5px;letter-spacing:2.5px;margin-bottom:5px;padding-bottom:3px;}
+#ar2-report .rpt.rpt-landscape .rpt-row{font-size:9.5px;padding:1.5px 0;line-height:1.3;}
+#ar2-report .rpt.rpt-landscape .rpt-row em{font-size:8.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-row .v{font-size:9.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-row span[style*="margin-left:6px"]{display:none;}
+#ar2-report .rpt.rpt-landscape .rpt-sbox{padding:6px 8px;margin-bottom:5px;}
+#ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7px;letter-spacing:1.5px;margin-bottom:3px;padding-bottom:3px;}
+#ar2-report .rpt.rpt-landscape .rpt-tbl td,#ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:2.5px 5px;font-size:9px;}
+#ar2-report .rpt.rpt-landscape .rpt-stat{padding:5px 8px;}
+#ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:13px;}
+#ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:7.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:6px;}
+#ar2-report .rpt.rpt-landscape .rpt-img-wrap{max-height:80px;overflow:hidden;}
+#ar2-report .rpt.rpt-landscape .rpt-img-wrap img{max-height:80px;object-fit:cover;}
+#ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px;margin-top:4px;padding-top:4px;line-height:1.5;}
+#ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:7px 22px;}
+#ar2-report .rpt.rpt-landscape .rpt-cta-bar .cta-label{font-size:8.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-cta-bar a{font-size:10px;}
+#ar2-report .rpt.rpt-landscape .rpt-foot{padding:7px 22px;font-size:8.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-foot-logo{font-size:11.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-sw-applied{display:none;}
 /* ── Pool Profiles Page ── */
 #ar2-report .rpt-pp-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:12px;line-height:1.4;max-width:860px;margin:0 auto;padding:22px 28px 18px;page-break-before:always;break-before:page;box-sizing:border-box;}
+/* Pool Profile header band — Assessment-style, scoped via .rpt-pp-head-band so
+   the rpt-head + rpt-logo + rpt-prop-name styles render identically to the
+   Assessment page. Page-break before so the page starts fresh.              */
+#ar2-report .rpt-pp-head-band{margin:-22px -28px 14px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-head-band{margin:-18px -26px 12px;}
+/* Landscape variant — when EX.layout='landscape', class .rpt-pp-page-landscape
+   is added. Switches the canvas to 11:8.5 landscape (1120×865) with 3-column
+   card grid + tighter card heights so 10 pools fit on a single sheet.       */
+#ar2-report .rpt-pp-page-landscape{width:100%!important;max-width:1120px!important;min-height:865px!important;height:865px!important;max-height:865px!important;margin:32px auto 0!important;padding:18px 26px 12px!important;display:flex!important;flex-direction:column!important;box-shadow:0 2px 12px rgba(4,15,30,.08);overflow:hidden;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:8px 10px!important;align-content:start;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-grid-1{grid-template-columns:1fr 1fr 1fr!important;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-card{min-height:130px!important;padding:8px!important;grid-template-columns:104px 1fr!important;gap:10px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-grid-1 .rpt-pp-card{grid-template-columns:104px 1fr!important;min-height:130px!important;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-img{width:104px!important;height:70px!important;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-grid-1 .rpt-pp-img{width:104px!important;height:70px!important;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-name{font-size:12px!important;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-pill{font-size:7px;padding:1.5px 5px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-row{font-size:9.5px;padding:1px 0;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-row .v{font-size:10.5px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-head{margin-bottom:3px;padding-bottom:3px;}
+#ar2-report .rpt-pp-page-landscape .rpt-img-empty-lbl,
+#ar2-report .rpt-pp-page-landscape .rpt-pp-img-empty-lbl{font-size:8px;}
 #ar2-report .rpt-pp-page *{box-sizing:border-box;}
 #ar2-report .rpt-pp-header{border-bottom:1.5px solid #00b4d8;padding-bottom:10px;margin-bottom:14px;}
 #ar2-report .rpt-pp-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#00b4d8;line-height:1;}
