@@ -797,10 +797,10 @@ var S={
   // Pricing
   discount:0, savings_weight:1,
   // Water & chemicals (exact DEFAULT_INPUTS from types.ts)
-  water_cost_per_gal:0.01, water_loss_reduction:0.4433,
-  chlorine_cost:0.0175,  chlorine_reduction:0.5433,
-  muriatic_cost:0.0072,  muriatic_reduction:0.49,
-  bicarb_cost:0.00084,   bicarb_reduction:0.66,
+  water_cost_per_gal:0.01, water_loss_reduction:0.41,
+  chlorine_cost:0.0175,  chlorine_reduction:0.40,
+  muriatic_cost:0.0072,  muriatic_reduction:0.25,
+  bicarb_cost:0.00084,   bicarb_reduction:0.53,
   calcium_cost:0.0006,   calcium_reduction:0,
   cya_cost:0.00069,      cya_reduction:0.49,
   co2_cost:0.002,
@@ -2048,12 +2048,13 @@ function generateReport(){
           +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
           +'<p class="rpt-es-p-light">Based on real-world use case averages and certified lab reports, properties deploying AquaRev Water have achieved material reductions across key cost centers:</p>'
           +'<div class="rpt-es-outcome-cards">'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">54%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
-            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">40%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">25%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
+            +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">41%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
             +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">20%</div><div class="rpt-es-out-lbl">Energy-Use Reduction</div></div>'
             +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">70%</div><div class="rpt-es-out-lbl">Fast Degradation</div></div>'
             +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">200%</div><div class="rpt-es-out-lbl">Softer Water</div></div>'
+            +'<div class="rpt-es-out-card rpt-es-out-card-wide"><div class="rpt-es-out-pct">25%</div><div class="rpt-es-out-lbl">Salt Use Reduction</div></div>'
           +'</div>'
           +'<div class="rpt-es-h2 rpt-es-h2-light">Why This is a Fit</div>'
           +'<p class="rpt-es-p-light">The AquaRev Water technology is designed to be a low-friction operational improvement across all aquatic facilities.</p>'
@@ -2315,12 +2316,13 @@ function generateReport(){
             +'<div class="rpt-es-h2 rpt-es-h2-light">Documented Performance Outcomes</div>'
             +'<p class="rpt-es-p-light">Based on real-world use case averages and certified lab reports, properties deploying AquaRev Water have achieved material reductions across key cost centers:</p>'
             +'<div class="rpt-es-outcome-cards rpt-ls-outcome-cards">'
-              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">54%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
-              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
-              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">44%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">40%</div><div class="rpt-es-out-lbl">Chlorine Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">25%</div><div class="rpt-es-out-lbl">Acid Reduction</div></div>'
+              +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">41%</div><div class="rpt-es-out-lbl">Water Loss Reduction</div></div>'
               +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">20%</div><div class="rpt-es-out-lbl">Energy-Use Reduction</div></div>'
               +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">70%</div><div class="rpt-es-out-lbl">Fast Degradation</div></div>'
               +'<div class="rpt-es-out-card"><div class="rpt-es-out-pct">200%</div><div class="rpt-es-out-lbl">Softer Water</div></div>'
+              +'<div class="rpt-es-out-card rpt-es-out-card-wide"><div class="rpt-es-out-pct">25%</div><div class="rpt-es-out-lbl">Salt Use Reduction</div></div>'
             +'</div>'
           +'</div>'
           +'<div class="rpt-ls-section">'

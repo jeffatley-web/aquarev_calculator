@@ -687,6 +687,11 @@
 #ar2-report .rpt-es-out-card{background:#f0fbff;border:1px solid #c8eaf5;border-top:3px solid #00b4d8;border-radius:0 0 5px 5px;padding:8px 6px;text-align:center;}
 #ar2-report .rpt-es-out-pct{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#00b4d8;line-height:1;margin-bottom:4px;}
 #ar2-report .rpt-es-out-lbl{font-size:9.5px;color:#444;letter-spacing:0.3px;line-height:1.25;}
+/* 7th card (Salt Use Reduction) spans the full row width — gives the new metric
+   feature treatment instead of leaving it as an orphan in the 3-col grid. */
+#ar2-report .rpt-es-out-card-wide{grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px 8px;}
+#ar2-report .rpt-es-out-card-wide .rpt-es-out-pct{margin-bottom:0;font-size:22px;}
+#ar2-report .rpt-es-out-card-wide .rpt-es-out-lbl{font-size:11px;font-weight:600;letter-spacing:0.5px;}
 /* ── Investment Chart (lives in Page 1 right column) ── */
 #ar2-report .rpt-es-chart{margin:6px 0 10px;}
 #ar2-report .rpt-es-chart-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#0a2540;line-height:1.1;margin-bottom:2px;}
@@ -935,6 +940,10 @@
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-card{padding:8px 6px;}
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-pct{font-size:18px;}
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-lbl{font-size:9.5px;}
+/* Wide card scaled down for landscape (narrower col 2 of page 2) */
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-card-wide{padding:6px 8px;gap:10px;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-card-wide .rpt-es-out-pct{font-size:18px;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-card-wide .rpt-es-out-lbl{font-size:10px;}
 #ar2-report .rpt-ls-es-page .rpt-es-ritz img{max-height:140px;object-fit:cover;}
 #ar2-report .rpt-ls-es-page .rpt-es-quote{font-size:11px;line-height:1.5;}
 #ar2-report .rpt-ls-es-page .rpt-es-link a{font-size:11.5px;}
