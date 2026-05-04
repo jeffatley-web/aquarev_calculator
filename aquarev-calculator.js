@@ -403,8 +403,15 @@ function bankSaveReportImpl(replaceIds){
       try { confettiBurst({ originEl: originBtn, count: 55 }); } catch(e){}
       setTimeout(function(){EX.saveStatus=null;renderDevices();renderResults();},3000);
     })
-    .catch(function(){
+    .catch(function(err){
       EX.saving=false; EX.saveStatus='error';
+      // QuotaExceeded = localStorage is full (typical cap ~5 MB). Phone-camera
+      // photos in EX.images / EX.lsP2Col3Photos are the usual culprit. Surface
+      // a concrete hint instead of the generic "Save failed" toast.
+      var name=(err&&(err.name||err.code))||'';
+      if(name==='QuotaExceededError' || name==='NS_ERROR_DOM_QUOTA_REACHED' || name===22){
+        try { alert('Save failed: browser storage is full.\n\nThis is usually caused by uploaded photos. Remove a few property images or custom photos in Step 3, then try Archive again.'); } catch(e){}
+      }
       renderDevices(); renderResults();
       setTimeout(function(){EX.saveStatus=null;renderDevices();renderResults();},4000);
     });
@@ -1871,16 +1878,24 @@ function generateReport(){
       svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
       svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
     }
-    // Stacked legend at top-right — Net Benefit + Payback Period (no overlap with chart data)
-    svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
-    if(payback>0 && payback<=60){
-      var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
-      svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
-    }
+    // Net Benefit + Payback Period now sit ABOVE the chart in their own header
+    // strip (see HTML below) so they never overlap the green fill / data line.
     svg+='</svg>';
+    var netBenefitTxt=fmtTick(Math.round(net5));
+    var paybackTxt=(payback>0 && payback<=60)
+      ? ((payback>=10?Math.round(payback):payback.toFixed(1))+' Months')
+      : '—';
     return '<div class="rpt-es-chart">'
-      +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
-      +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+      +'<div class="rpt-es-chart-hdr">'
+        +'<div class="rpt-es-chart-hdr-text">'
+          +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
+          +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+        +'</div>'
+        +'<div class="rpt-es-chart-stats">'
+          +'<div class="rpt-es-chart-stat-net">'+netBenefitTxt+' Net Benefit</div>'
+          +'<div class="rpt-es-chart-stat-pb">Payback Period: '+paybackTxt+'</div>'
+        +'</div>'
+      +'</div>'
       +svg
     +'</div>';
   }
@@ -2590,13 +2605,15 @@ function generateReport(){
       // Rows B-D: layout-aware
       +(EX.layout==='landscape'
         // ── LANDSCAPE: compact single-page layout ──
-        // Right col holds Monthly Savings + Water Conservation + (NEW) Video
-        // Resources — videos span the full right-column width and grow to fill
-        // available space below the breakdown table.
+        // Left col: Purchase Options + (NEW) Property Images
+        // Right col: Monthly Savings Breakdown + Water Conservation + Video Resources
         ?'<div class="rpt-sec rpt-cols rpt-ls-row-b">'
-          +'<div>'
+          +'<div class="rpt-ls-lcol">'
             +'<div class="rpt-stitle">Purchase Options</div>'
             +purBox+advBox
+            // Property Images — anchored to the left column, sized to fill
+            // remaining vertical space below Purchase Options.
+            +(imgHtml ? '<div class="rpt-ls-media-stack rpt-ls-img-stack">'+imgHtml+'</div>' : '')
           +'</div>'
           +'<div class="rpt-ls-rcol">'
             +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
@@ -2609,11 +2626,8 @@ function generateReport(){
             +'</table>'
             +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?waterHtml:'')
-            // Video Resources / Property Images — full-width within right col,
-            // sized to fill remaining vertical space.
-            +((imgHtml||ytHtml)
-              ? '<div class="rpt-ls-media-stack">'+imgHtml+ytHtml+'</div>'
-              : '')
+            // Video Resources — right col only (Property Images now live left).
+            +(ytHtml ? '<div class="rpt-ls-media-stack">'+ytHtml+'</div>' : '')
           +'</div>'
         +'</div>'
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
@@ -3471,18 +3485,21 @@ function init(){
   root.addEventListener('click',handleClick);
   root.addEventListener('input',handleInput);
   root.addEventListener('change',handleChange);
-  // File upload — delegate via document since input is dynamically created
+  // File upload — delegate via document since input is dynamically created.
+  // All uploads run through resizeAndEncodeImage() so phone-camera photos
+  // (often 3-6 MB raw) get downscaled before going into EX state. Without
+  // this, archive saves blow past localStorage's ~5 MB quota and fail.
   root.addEventListener('change',function(e){
     if(e.target&&(e.target.id==='ar2-img-input'||e.target.classList.contains('ar2-img-upload'))){
       var file=e.target.files&&e.target.files[0];
       if(file){
-        var reader=new FileReader();
-        reader.onload=function(ev){
-          EX.images.push({id:'img-'+Date.now(),data:ev.target.result,comment:''});
+        // Property images appear at ~half-page width in PDFs → 1400px is plenty.
+        resizeAndEncodeImage(file, 1400, 0.82, function(dataUrl){
+          if(!dataUrl){ alert('Could not read that image. Try a different file.'); return; }
+          EX.images.push({id:'img-'+Date.now(),data:dataUrl,comment:''});
           renderForm();
           renderResults();
-        };
-        reader.readAsDataURL(file);
+        });
       }
       e.target.value='';
     }
@@ -3491,16 +3508,16 @@ function init(){
       var slot=parseInt(e.target.getAttribute('data-slot'),10);
       var f=e.target.files&&e.target.files[0];
       if(f && !isNaN(slot)){
-        var rd=new FileReader();
-        rd.onload=function(ev){
+        // P2 col 3 slot is ~280px wide on the PDF page → 1100px is generous.
+        resizeAndEncodeImage(f, 1100, 0.82, function(dataUrl){
+          if(!dataUrl){ alert('Could not read that image. Try a different file.'); return; }
           if(!EX.lsP2Col3Photos) EX.lsP2Col3Photos=[];
-          EX.lsP2Col3Photos[slot]={data:ev.target.result};
+          EX.lsP2Col3Photos[slot]={data:dataUrl};
           // Auto-enable toggle if user uploads a photo while toggle was off
           if(!EX.inclLsP2Col3Photos) EX.inclLsP2Col3Photos=true;
           EX.showP2Col3Drawer=true;
           renderDevices();
-        };
-        rd.readAsDataURL(f);
+        });
       }
       e.target.value='';
     }
@@ -3522,15 +3539,14 @@ function init(){
     var idx=parseInt(slot.getAttribute('data-slot'),10);
     var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
     if(f && f.type.indexOf('image/')===0 && !isNaN(idx)){
-      var rd=new FileReader();
-      rd.onload=function(ev){
+      resizeAndEncodeImage(f, 1100, 0.82, function(dataUrl){
+        if(!dataUrl){ alert('Could not read that image. Try a different file.'); return; }
         if(!EX.lsP2Col3Photos) EX.lsP2Col3Photos=[];
-        EX.lsP2Col3Photos[idx]={data:ev.target.result};
+        EX.lsP2Col3Photos[idx]={data:dataUrl};
         if(!EX.inclLsP2Col3Photos) EX.inclLsP2Col3Photos=true;
         EX.showP2Col3Drawer=true;
         renderDevices();
-      };
-      rd.readAsDataURL(f);
+      });
     }
   });
 }
