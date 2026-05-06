@@ -389,9 +389,95 @@
   #ar2-report .rpt-kpis{background:#071628!important;}
   #ar2-report .rpt-cta-bar{background:#071628!important;}
 
-  /* Body-class print height overrides reverted 2026-05-06 — they made
-     columns shorter than the page, breaking the dark-blue column fill
-     to footer. Original 100vh rules above remain in place. */
+  /* ══════════════════════════════════════════════════════════════════
+     PRINT-ONLY PAGE SIZING via body class (set in JS by setPrintOrientation)
+     ══════════════════════════════════════════════════════════════════
+     PROBLEM: 100vh in print mode is unreliable in Chrome — sometimes
+     it computes from screen viewport (e.g. 1080px) instead of the
+     actual @page size (1056px portrait, 816px landscape). Result:
+     elements render TALLER than the print page → bottom content
+     bleeds past the page edge into the next page (or off the page).
+
+     FIX: Force exact print-page dimensions using body-class selectors,
+     SCOPED ONLY TO @media print so the SCREEN preview is unchanged
+     (preview was working fine — user confirmed). Body class is set
+     in JS via setPrintOrientation() before window.print() fires, so
+     the rule is guaranteed to match during the print pass.
+
+     This block is the targeted fix for the user's "bleeding into
+     footer / orphan pages / missing back cover" complaints. Earlier
+     attempts placed these rules OUTSIDE @media print, which broke
+     the screen preview. Inside @media print only, screen is unaffected. */
+  body.ar-print-portrait #ar2-report .rpt,
+  body.ar-print-portrait #ar2-report .rpt-cover-page,
+  body.ar-print-portrait #ar2-report .rpt-pp-page:not(.rpt-pp-page-landscape),
+  body.ar-print-portrait #ar2-report .rpt-es-page,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page{
+    width:8.5in!important;
+    height:11in!important;
+    max-width:8.5in!important;
+    max-height:11in!important;
+    min-height:11in!important;
+    aspect-ratio:auto!important;
+  }
+  body.ar-print-landscape #ar2-report .rpt,
+  body.ar-print-landscape #ar2-report .rpt-pp-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-es-page,
+  body.ar-print-landscape #ar2-report .rpt-pres-deck-page{
+    width:11in!important;
+    height:8.5in!important;
+    max-width:11in!important;
+    max-height:8.5in!important;
+    min-height:8.5in!important;
+    aspect-ratio:auto!important;
+  }
+  /* Cap full-bleed images so they can't overflow into a phantom 2nd page
+     (cover / back-cover image strips that previously showed up at the top
+     of an extra page after the cover element). */
+  body.ar-print-portrait #ar2-report .rpt-cover-page img,
+  body.ar-print-portrait #ar2-report .rpt-cover-page .rpt-cover-bg,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page img{
+    max-height:11in!important;
+    height:11in!important;
+  }
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page img,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
+  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{
+    max-height:8.5in!important;
+    height:8.5in!important;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     PORTRAIT EXEC SUMMARY — content compression for print only.
+     Pages are now forced to 11in (1056px) but content was designed for
+     1113px screen page. ~57px excess content would bleed past footer.
+     Compression below shrinks paragraph margins, chart SVG max-height,
+     bignum size, and section padding to fit within the 11in print page.
+     SCREEN preview is unaffected because these rules are inside @media
+     print. */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{margin-bottom:4px!important;line-height:1.4!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:6px 0 3px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{font-size:32px!important;line-height:1.05!important;margin:0 0 6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:140px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 4px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-hdr{margin-bottom:2px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{margin-bottom:5px!important;line-height:1.4!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:3px 0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:4px 0 5px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:4px 0 6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero img{height:75px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-ritz img{max-height:150px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left-2,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right-2{padding:14px 24px 16px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{margin-bottom:8px!important;line-height:1.45!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul li,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:3px!important;line-height:1.4!important;}
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
