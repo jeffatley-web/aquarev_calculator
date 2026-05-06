@@ -348,7 +348,13 @@
   #ar2-report .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
   #ar2-report .rpt-es-chart{margin:4px 0 8px!important;}
   #ar2-report .rpt-es-page a[href]{color:inherit;}
-  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;}
+  /* Footer pinned to the bottom of the print page via margin-top:auto so the
+     grid above can never push it off-page (root cause of the trailing blank
+     pages + back-cover bleed when pool count was at the page-cap). Grid is
+     flex:0 1 auto so it sizes to its content and never grows past what's
+     actually rendered. */
+  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;margin-top:auto!important;flex-shrink:0!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{flex:0 1 auto!important;}
   #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid;break-inside:avoid;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
   /* Back cover — full bleed, no white borders (overrides fact-sheet contain) */

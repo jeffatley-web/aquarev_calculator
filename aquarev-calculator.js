@@ -240,14 +240,136 @@ function loadPDFLibs(cb){
 var BANK_IDX='ar2:index';
 var BANK_PFX='ar2:report:';
 
-// localStorage wrapper (Webflow provides window.storage; define fallback for standalone)
-if(!window.storage){
-  window.storage={
+/* ══════════════════════════════════════════════════════════════════
+   Archive storage — IndexedDB with localStorage fallback.
+
+   Why: localStorage caps at ~5 MB per origin and was hitting that wall
+   when reps saved archives with photos. IndexedDB raises the cap to
+   roughly 1 GB+ (browsers grant up to 50% of available disk space),
+   typically a 200-1000× increase.
+
+   API surface is unchanged — get/set/delete return Promises, values
+   are strings (existing call sites JSON.stringify everything). The
+   Webflow host can still provide its own window.storage to override.
+
+   On first boot per device, any existing localStorage archives migrate
+   into IndexedDB and are cleared from localStorage. Migration is
+   idempotent (sentinel key) and best-effort — never blocks app boot.
+
+   navigator.storage.persist() asks the browser to keep the data safe
+   from automatic eviction under disk pressure (does not survive
+   manual "Clear Browsing Data").
+
+   This same adapter becomes the offline cache layer once Supabase
+   ships — no rewrite needed.
+   ══════════════════════════════════════════════════════════════════ */
+(function(){
+  var IDB_NAME='aquarev-archive';
+  var IDB_STORE='kv';
+  var IDB_VERSION=1;
+  var MIGRATION_KEY='ar2:idb-migrated:v1';
+  var _idbPromise=null;
+  var _idbAvailable=(typeof indexedDB!=='undefined');
+
+  function openIdb(){
+    if(_idbPromise) return _idbPromise;
+    if(!_idbAvailable) return Promise.reject(new Error('IndexedDB unavailable'));
+    _idbPromise=new Promise(function(resolve,reject){
+      var req=indexedDB.open(IDB_NAME,IDB_VERSION);
+      req.onupgradeneeded=function(e){
+        var db=e.target.result;
+        if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess=function(){resolve(req.result);};
+      req.onerror=function(){reject(req.error);};
+      req.onblocked=function(){reject(new Error('IndexedDB blocked'));};
+    });
+    // If open ever fails, clear cache so a retry can reopen
+    _idbPromise.catch(function(){_idbPromise=null;});
+    return _idbPromise;
+  }
+
+  // Wrap a single IDB operation in a Promise that resolves on tx complete.
+  function idbTxn(mode,fn){
+    return openIdb().then(function(db){
+      return new Promise(function(resolve,reject){
+        var tx=db.transaction(IDB_STORE,mode);
+        var store=tx.objectStore(IDB_STORE);
+        var result;
+        var op=fn(store);
+        if(op){
+          op.onsuccess=function(){result=op.result;};
+          op.onerror=function(){reject(op.error);};
+        }
+        tx.oncomplete=function(){resolve(result);};
+        tx.onerror=function(){reject(tx.error);};
+        tx.onabort=function(){reject(tx.error||new Error('Transaction aborted'));};
+      });
+    });
+  }
+
+  // localStorage fallback (used only when IndexedDB unavailable, e.g. Safari private mode)
+  var lsStorage={
     get:function(k){try{return Promise.resolve(localStorage.getItem(k));}catch(e){return Promise.reject(e);}},
     set:function(k,v){try{localStorage.setItem(k,v);return Promise.resolve();}catch(e){return Promise.reject(e);}},
     delete:function(k){try{localStorage.removeItem(k);return Promise.resolve();}catch(e){return Promise.reject(e);}}
   };
-}
+
+  // IndexedDB adapter — returns strings to match the existing call-site contract.
+  // IDB returns undefined for missing keys; normalize to null so callers' if(!r) checks work.
+  var idbStorage={
+    get:function(k){return idbTxn('readonly',function(s){return s.get(k);}).then(function(v){return v==null?null:v;});},
+    set:function(k,v){return idbTxn('readwrite',function(s){return s.put(v,k);});},
+    delete:function(k){return idbTxn('readwrite',function(s){return s.delete(k);});}
+  };
+
+  // One-shot migration: copy any ar2:* keys from localStorage into IndexedDB,
+  // then clear them from LS to free that ~5 MB cap. Sentinel key prevents re-runs.
+  function migrateLsToIdb(){
+    if(!_idbAvailable) return Promise.resolve();
+    try { if(localStorage.getItem(MIGRATION_KEY)==='1') return Promise.resolve(); }
+    catch(e){ return Promise.resolve(); }
+    var keys=[];
+    try {
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i);
+        if(k && (k===BANK_IDX || k.indexOf(BANK_PFX)===0)) keys.push(k);
+      }
+    } catch(e){ return Promise.resolve(); }
+    if(keys.length===0){
+      try { localStorage.setItem(MIGRATION_KEY,'1'); } catch(e){}
+      return Promise.resolve();
+    }
+    var copies=keys.map(function(k){
+      var v=null;
+      try { v=localStorage.getItem(k); } catch(e){ return Promise.resolve(); }
+      if(v==null) return Promise.resolve();
+      return idbStorage.set(k,v).then(function(){
+        try { localStorage.removeItem(k); } catch(e){}
+      }).catch(function(){}); // best-effort — never block boot
+    });
+    return Promise.all(copies).then(function(){
+      try { localStorage.setItem(MIGRATION_KEY,'1'); } catch(e){}
+    });
+  }
+
+  // Ask browser to mark this origin's storage as persistent (won't be auto-evicted
+  // under disk pressure). Silent on browsers that don't support it.
+  if(navigator.storage && navigator.storage.persist){
+    try { navigator.storage.persist().catch(function(){}); } catch(e){}
+  }
+
+  // Install adapter — Webflow host can still override by setting window.storage first.
+  if(!window.storage){
+    if(_idbAvailable){
+      window.storage=idbStorage;
+      // Migrate in the background — don't block app boot
+      migrateLsToIdb();
+    } else {
+      window.storage=lsStorage;
+    }
+  }
+})();
 
 function bankGetIndex(){
   return window.storage.get(BANK_IDX)
@@ -992,10 +1114,17 @@ function calcROI(){
     for(var sai=0;sai<S.bodies.length;sai++) pool_sa+=bodySurfaceArea(S.bodies[sai]);
   }
   // gallons_lost_per_month = pool_surface_area × LOSS_PER_MONTH_SF_AREA (4.0)
-  // 4.0 gal/sq-ft/mo ≈ 0.21 in/day — conservative evaporation-only baseline.
-  var gal_lost_mo=pool_sa*4.0;
-  // annual_water_loss uses the separate ANNUAL_WATER_LOSS_RATE constant (0.1862)
-  var annual_water_loss=G*0.1862;
+  // 4.0 gal/sq-ft/mo ≈ 0.214 in/day — moderate evaporation baseline (humid
+  // climates run 0.10–0.15 in/day, hot/arid ~0.30–0.40 in/day). Field-validated
+  // against measured make-up water at active AquaRev installations.
+  var gal_lost_mo_raw=pool_sa*4.0;
+  // Physical sanity cap — clamp monthly evaporation to 30% of total pool
+  // volume. Even hot-climate outdoor pools rarely exceed ~10–15%/month; 30%
+  // gives generous slack while preventing absurd outputs from mis-entered
+  // dimensions (e.g. depth typed as 0.5 ft for a deep pool, swapped L/W
+  // and depth fields, etc.). Without this cap a shallow/wide pool could
+  // report losing >100% of its water every month → grossly inflated savings.
+  var gal_lost_mo=Math.min(gal_lost_mo_raw, G*0.30);
   var gal_saved_mo=gal_lost_mo*wlr*W;
   var gal_saved_5yr=gal_saved_mo*12*5; // monthly × 12 months × 5 years (savings_weight applied via gal_saved_mo)
   var water_cost_mo=gal_lost_mo*wc;
@@ -1399,7 +1528,7 @@ function renderStep1(){
         +'<div><label class="ar-lbl">Reduction Rate (%)</label>'
           +'<input class="ar-inp" type="number" data-f="water_loss_reduction" data-pct="1" value="'+fd(wlrPct,2)+'" step="0.1" /></div>'
       +'</div>'
-      +'<div class="ar-note">Annual water loss: 18.6% of pool volume (lab-verified default).</div>'
+      +'<div class="ar-note">Baseline evaporation: 4.0 gal per sq-ft of pool surface per month (≈0.21 in/day). Calculated from each pool’s actual surface area; clamped to 30% of pool volume per month for sanity.</div>'
     +'</div>'
     +'<div class="ar-card">'
       +'<div class="ar-card-title" style="margin-bottom:12px">Chemical Costs \u2014 Per Gallon Per Month</div>'
@@ -2412,7 +2541,11 @@ function generateReport(){
     var monthlyOf=function(dev){
       return PIPES.reduce(function(sum,p){return sum+(dev[p.k]||0)*p.rate;},0);
     };
-    var cards='';
+    // cardArr holds raw card HTML strings — chunked into multiple pool-profile
+    // pages downstream so the layout never overflows a single sheet. Used to be
+    // a single joined string stuffed into ONE rpt-pp-page; that broke for >12
+    // pools (footer slid off, blank pages appeared, back cover bled).
+    var cardArr=[];
     var totG=0, totPurch=0, totMonthly=0, totDevQty=0, pageCount=0;
 
     if(S.manualVolume){
@@ -2425,7 +2558,7 @@ function generateReport(){
       var perPoolPurch=purchaseOf(perPoolDev);
       var perPoolMonthly=monthlyOf(perPoolDev);
       var perPoolDevStr=buildDevList(perPoolDev);
-      var cardArr=[];
+      // (cardArr is declared in the enclosing scope; reuse it here)
       for(var mi=0;mi<nPools;mi++){
         cardArr.push(
           '<div class="rpt-pp-card">'
@@ -2444,7 +2577,7 @@ function generateReport(){
           +'</div>'
         +'</div>');
       }
-      cards=cardArr.join('');
+      // cards array is already built; do NOT join — pagination needs the raw array
       totG=totalGal;
       totPurch=perPoolPurch*nPools;
       totMonthly=perPoolMonthly*nPools;
@@ -2453,7 +2586,7 @@ function generateReport(){
     } else if(S.bodies.length>0){
       // ── Normal mode: one card per body ──
       var nBodies=S.bodies.length||1;
-      cards=S.bodies.map(function(b,idx){
+      cardArr=S.bodies.map(function(b,idx){
         var G=bodyGallons(b);
         // Per-pool devices: if devicesByPool is on, use body fields; else distribute aggregate evenly
         var poolDev={};
@@ -2496,39 +2629,63 @@ function generateReport(){
             +'</div>'
           +'</div>'
         +'</div>';
-      }).join('');
+      });
+      // cardArr is already an array; chunked into pages downstream \u2014 no .join() here
       PIPES.forEach(function(p){ totDevQty+=(S[p.k]||0); });
       pageCount=S.bodies.length;
     }
 
-    if(pageCount>0){
-      poolProfilesHtml='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
-        // Assessment-style header band \u2014 matches the Assessment page exactly,
-        // with the subtitle changed to "Pool Profiles" so the document reads
-        // as a coherent suite (same logo, property, date, and NSF badge).
-        +'<div class="rpt-head rpt-pp-head-band">'
-          +'<div class="rpt-head-left">'
-            +'<div class="rpt-logo">AQUAREV WATER</div>'
-            +'<div class="rpt-logo-sub">Pool Profiles</div>'
-          +'</div>'
-          +'<div class="rpt-head-right">'
-            +'<div class="rpt-prop-name">'+esc(propName)+'</div>'
-            +'<div class="rpt-prop-date">'+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
-            +'<span class="rpt-nsf-badge">NSF/ANSI\u00a050 Certified\u2002\u00b7\u2002IAPMO</span>'
-          +'</div>'
-        +'</div>'
-        +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
-        // ── Footer band (spans full page width via negative margins) ──
-        +'<div class="rpt-foot">'
-          +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
-          +'<div class="rpt-foot-info">'
-            +'t. 832-979-6758\u2002\u00b7\u2002<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA<br>'
-            +'NSF/ANSI\u00a050\u2002\u00b7\u2002NSF-372 Lead-Free\u2002\u00b7\u2002US\u00a0Pat.\u00a010,934,180\u2002\u00b7\u200211,358,881\u2002\u00b7\u200212,037,269'
-          +'</div>'
+    if(pageCount>0 && cardArr.length>0){
+      // ── Multi-page Pool Profiles ──
+      // Cards split across multiple sheets so the layout always fits cleanly,
+      // regardless of pool count. Caps:
+      //   Landscape: 3 cols × 4 rows = 12 cards/page
+      //   Portrait:  2 cols × 5 rows = 10 cards/page
+      // Each chunk renders into its own .rpt-pp-page with the same header +
+      // footer; @media print rules + page-break-before:always on .rpt-pp-page
+      // ensure each lands on its own sheet without bleed. Used to be a single
+      // .rpt-pp-page stuffed with all cards — broke for >12 pools (footer
+      // slid off, blank pages appeared, back cover bled into trailing pages).
+      var perPage=(EX.layout==='landscape')?12:10;
+      var totalPP=Math.ceil(cardArr.length/perPage);
+      var ppFootBand='<div class="rpt-foot">'
+        +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
+        +'<div class="rpt-foot-info">'
+          +'t. 832-979-6758\u2002\u00b7\u2002<a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a>\u2002\u00b7\u2002<a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a>\u2002\u00b7\u2002Made in USA<br>'
+          +'NSF/ANSI\u00a050\u2002\u00b7\u2002NSF-372 Lead-Free\u2002\u00b7\u2002US\u00a0Pat.\u00a010,934,180\u2002\u00b7\u200211,358,881\u2002\u00b7\u200212,037,269'
         +'</div>'
       +'</div>';
+      var ppPages=[];
+      for(var pp=0; pp<totalPP; pp++){
+        var pageCards=cardArr.slice(pp*perPage, (pp+1)*perPage).join('');
+        // "Page X of Y" appended to date line only when paginated (>1 page).
+        var pageOfStr=(totalPP>1)?(' \u00b7 Page '+(pp+1)+' of '+totalPP):'';
+        var dateLine=todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+pageOfStr;
+        // Grid sizing class: rpt-pp-grid-1 only when this page has exactly 1
+        // card (single-pool hero treatment); otherwise the default 2-col
+        // (portrait) / 3-col (landscape) grid stays intact.
+        var pageCardCount=Math.min(perPage, cardArr.length-(pp*perPage));
+        var gridClass='rpt-pp-grid'+(pageCardCount===1?' rpt-pp-grid-1':'');
+        ppPages.push(
+          '<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
+          +'<div class="rpt-head rpt-pp-head-band">'
+            +'<div class="rpt-head-left">'
+              +'<div class="rpt-logo">AQUAREV WATER</div>'
+              +'<div class="rpt-logo-sub">Pool Profiles</div>'
+            +'</div>'
+            +'<div class="rpt-head-right">'
+              +'<div class="rpt-prop-name">'+esc(propName)+'</div>'
+              +'<div class="rpt-prop-date">'+dateLine+'</div>'
+              +'<span class="rpt-nsf-badge">NSF/ANSI\u00a050 Certified\u2002\u00b7\u2002IAPMO</span>'
+            +'</div>'
+          +'</div>'
+          +'<div class="'+gridClass+'">'+pageCards+'</div>'
+          +ppFootBand
+        +'</div>'
+        );
+      }
+      poolProfilesHtml=ppPages.join('');
     }
-  }
 
   // ── Water conservation stats ──
   var waterHtml='';
