@@ -338,7 +338,14 @@
   #ar2-report .rpt-pp-page .rpt-pp-img{width:140px!important;height:92px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-card{grid-template-columns:140px 1fr!important;}
   #ar2-report .rpt-pp-page,#ar2-report .rpt-pp-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
-  #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
+  /* flex:0 1 auto + min-height:0 — grid takes natural content size, never
+     grows past it. Combined with margin-top:auto on .rpt-pp-page .rpt-foot
+     (set in screen-mode rule, also applies in print since not overridden),
+     the foot is pushed to the bottom of remaining flex space. This avoids
+     the grid expanding to fill space and pushing the foot past the page
+     boundary, which was causing the phantom-footer-page in landscape PDFs
+     even after the negative-margin fix. */
+  #ar2-report .rpt-pp-grid{flex:0 1 auto!important;align-content:start!important;min-height:0!important;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
   #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
@@ -356,13 +363,13 @@
   #ar2-report .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
   #ar2-report .rpt-es-chart{margin:4px 0 8px!important;}
   #ar2-report .rpt-es-page a[href]{color:inherit;}
-  /* RESTORED to baseline: simple negative margins for full-bleed footer
-     band, no margin-top:auto pinning, no flex-shrink override. Combined
-     with .rpt-pp-page's overflow:hidden + fixed 100vh, content flows
-     naturally and clips at page boundary. The negative margin-bottom
-     reduces the footer's outer-height in flex layout, allowing slightly
-     more body content before triggering Chrome's pagination fallback. */
-  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;}
+  /* Pool Profile footer: pinned to bottom via margin-top:auto. Negative
+     left/right for visual full-bleed band. NO negative margin-bottom —
+     that was extending the footer's natural box past the page boundary
+     (10-14px), which Chrome's print engine catches as overflow and
+     paginates onto an empty next page. With margin-bottom:0, the foot
+     ends exactly at the page boundary. */
+  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:0!important;margin-top:auto!important;flex-shrink:0!important;}
   #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
   /* Back cover — full bleed, no white borders (overrides fact-sheet contain) */
