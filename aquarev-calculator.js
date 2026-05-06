@@ -1984,7 +1984,7 @@ function generateReport(){
   var poolHero='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e26db5d019b75080b52_Pool%20Top%20Shot%20Fact%20Sheet.png';
   var ritzImg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e25e47a5ed71f709c13_Ritz%20Fact%20Sheet%20Image.png';
   var videoThumb='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e7b7ad1e4dd22ebb22b_Video%20Thumbnail.png';
-  var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa547c218410884aef0c68_a9e11bad811f37bc59cf9350fdbd17fb_AquaRev-Device_Graphic-5b.png';
+  var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa547c218410884aef0c68_7c39da892a2af616348807ae82c6c6e7_AquaRev-Device_Graphic-5b.png';
   var videoUrl='https://youtu.be/zWqMcZFWpyE';
   // ── 60-Month Investment Chart (function declaration — at function-scope so it's
   //    fully hoisted, accessible from BOTH portrait and landscape Exec Summary builders).
