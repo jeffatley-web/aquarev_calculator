@@ -472,15 +472,23 @@
      footer fully visible. Each delta sized from measured impact —
      readable typography preserved, no aggressive font shrinking. */
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{line-height:1.35!important;margin-bottom:4px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:5px 0 3px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h3-light{margin:5px 0 3px!important;}
+  /* 2026-05-06 — restored slightly larger typographic rhythm. The previous
+     iteration was visibly cramped per user feedback. These margins still
+     buy enough vertical compression to keep content within 11in but
+     restore a non-cramped feel: larger title, more space around H2s,
+     comfortable statline padding. */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:7px 0 4px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h3-light{margin:6px 0 3px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{line-height:1.4!important;margin-bottom:5px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{line-height:1.45!important;margin-bottom:7px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{margin:0 0 6px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:2px 0!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-title{font-size:36px!important;margin-bottom:8px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-head{padding:11px 28px 9px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{line-height:1.45!important;margin-bottom:6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{line-height:1.5!important;margin-bottom:9px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{margin:2px 0 7px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:3px 0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-title{font-size:40px!important;margin-bottom:10px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
+  /* Compensate for the looser margins above by trimming the chart svg
+     height — recovers ~25px to keep total content within 11in. */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:135px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul li,
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:3px!important;line-height:1.4!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:0 0 6px!important;}
@@ -488,7 +496,6 @@
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:2px 0 4px!important;gap:8px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-col .rpt-es-ul li{line-height:1.35!important;margin-bottom:2px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart{margin:4px 0 6px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:150px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left,
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right,
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left-2,
@@ -992,7 +999,7 @@
 #ar2-report .rpt-ls-col-anchor-title{font-family:'Bebas Neue',sans-serif;font-size:11.5px;letter-spacing:1.8px;color:#48cae4;margin-bottom:6px;text-transform:uppercase;font-weight:700;}
 /* Light-bg variant title (deep navy) — used in col 2 below the device cutaway */
 #ar2-report .rpt-ls-col-anchor-title-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.8px;color:#0a2540;margin-bottom:4px;text-transform:uppercase;font-weight:700;}
-#ar2-report .rpt-ls-col-anchor-img{width:100%!important;max-width:100%!important;height:auto!important;max-height:170px!important;object-fit:cover!important;display:block!important;border-radius:6px;}
+#ar2-report .rpt-ls-col-anchor-img{width:100%!important;max-width:100%!important;height:auto!important;max-height:140px!important;object-fit:cover!important;display:block!important;border-radius:6px;}
 /* Operational Advantages + Outcome Impact in DARK col 1 — h3 + bullets in light tones */
 #ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-h3-dark{font-size:10px;letter-spacing:1.8px;margin:0 0 4px;color:#48cae4;font-family:'Bebas Neue',sans-serif;font-weight:700;text-transform:uppercase;}
 #ar2-report .rpt-ls-es-page-1 .rpt-ls-es-col-dark .rpt-es-feat-col .rpt-es-ul-dark{margin:0;padding-left:0;list-style:none;}
