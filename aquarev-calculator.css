@@ -300,7 +300,11 @@
      OR reveal the ancestor chain if it's nested in Webflow wrappers */
   #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;margin:0!important;position:static!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
   /* Ensure Webflow wrapper ancestors of #ar2-report are visible */
-  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
+  /* break-inside:avoid is critical — without it, Chrome's print engine can
+     split this single-page block across multiple physical pages even with
+     overflow:hidden. The Hale Koa landscape PDF showed Assessment splitting
+     across 2 pages because this rule was missing. */
+  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}
   #ar2-report .rpt .rpt-body{flex:1;padding:16px 28px 12px!important;}
   #ar2-report .rpt-foot{margin-top:auto!important;}
   .no-print{display:none!important;}
@@ -320,9 +324,16 @@
   #ar2-report .rpt-fs-kpi,#ar2-report .rpt-cert,#ar2-report .rpt-fs-cell{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-back-cover{page-break-before:always;break-before:page;}
   #ar2-report .rpt-cover-page{page-break-after:auto;break-after:auto;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  /* Cover image — explicit max-height per orientation prevents the image
+     from rendering taller than the print page and overflowing onto a 2nd
+     page (which appeared as a strip of pool water at the top of page 2 in
+     the user's landscape PDF before this fix). */
+  #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;max-height:100vh!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  /* Pool Profiles — break-inside:avoid added so Chrome doesn't paginate the
+     page across multiple physical sheets. Combined with overflow:hidden +
+     fixed height, content stays on a single page. */
+  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
   #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
@@ -333,7 +344,11 @@
   #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
-  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  /* Portrait Exec Summary — break-inside:avoid added to prevent pagination
+     across pages when bottom content (Investment Profile statlines, chart
+     SVG) gets clipped. Without this rule Chrome could paginate the block
+     even with overflow:hidden. */
+  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
   #ar2-report .rpt-es-body-1{flex:1!important;min-height:0!important;overflow:hidden;}
@@ -406,8 +421,12 @@
     min-height:11in!important;
     max-height:11in!important;
   }
+  /* Cap inner full-bleed images at exactly the page height too so they
+     never push pagination, regardless of intrinsic image dimensions. */
   #ar2-report .rpt-fs-img-page img,
-  body.ar-print-portrait #ar2-report .rpt-fs-img-page img{max-height:11in!important;}
+  #ar2-report .rpt-cover-page .rpt-cover-bg,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page img,
+  body.ar-print-portrait #ar2-report .rpt-cover-page .rpt-cover-bg{max-height:11in!important;}
   #ar2-report .rpt-body{padding:12px 24px 8px;}
   #ar2-report .rpt-sec{margin-bottom:8px;}
   #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
@@ -453,7 +472,16 @@
     min-height:8.5in!important;
     max-height:8.5in!important;
   }
+  /* Cap inner full-bleed images at exactly 8.5in (landscape page height)
+     so the cover and back-cover images never overflow into a phantom
+     second page. The user's PDF showed: page 1 = cover, page 2 = strip
+     of pool water at top + blank — caused by the cover image rendering
+     taller than 8.5in even with the wrapper height-clamped. */
+  #ar2-report .rpt-ls-cover-page img,
+  #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
   #ar2-report .rpt-ls-back-cover-page img,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page img,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
   body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{max-height:8.5in!important;}
   #ar2-report .rpt{font-size:10px;}
   #ar2-report .rpt-head{padding:10px 20px;}
