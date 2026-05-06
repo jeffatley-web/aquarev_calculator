@@ -392,6 +392,59 @@
   /* Flatten gradients (applies to both orientations) → smaller PDF raster size */
   #ar2-report .rpt-kpis{background:#071628!important;}
   #ar2-report .rpt-cta-bar{background:#071628!important;}
+
+  /* ══════════════════════════════════════════════════════════════════
+     ORIENTATION-INDEPENDENT BODY-CLASS HEIGHT OVERRIDES
+     ══════════════════════════════════════════════════════════════════
+     These rules use ONLY body class selectors (set in JS via
+     setPrintOrientation), not (orientation:X) media queries. Why:
+     Chrome's print engine sometimes fails to evaluate the orientation
+     media query against the dynamically-injected @page directive,
+     causing the explicit-inch height rules nested inside
+     `@media print and (orientation:landscape)` to NOT apply during
+     actual printing — even though they applied correctly when tested
+     via getComputedStyle.
+
+     The user's print preview (May 6, 2026) showed cover overflow into
+     a 2nd page even after 20260506a deployed all the orientation-scoped
+     fixes. Root cause: orientation media query failed.
+
+     This block guarantees the height clamping ALWAYS fires during
+     print regardless of how Chrome resolves orientation. Body class
+     is set in JS milliseconds before window.print(), so it's always
+     correct. Last in @media print source order = highest priority. */
+  body.ar-print-portrait #ar2-report .rpt,
+  body.ar-print-portrait #ar2-report .rpt-cover-page,
+  body.ar-print-portrait #ar2-report .rpt-pp-page,
+  body.ar-print-portrait #ar2-report .rpt-es-page,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page{
+    height:11in!important;
+    min-height:11in!important;
+    max-height:11in!important;
+  }
+  body.ar-print-portrait #ar2-report .rpt-cover-page .rpt-cover-bg,
+  body.ar-print-portrait #ar2-report .rpt-cover-page img,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page img{
+    height:11in!important;
+    max-height:11in!important;
+  }
+
+  body.ar-print-landscape #ar2-report .rpt,
+  body.ar-print-landscape #ar2-report .rpt-pp-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-es-page,
+  body.ar-print-landscape #ar2-report .rpt-pres-deck-page{
+    height:8.5in!important;
+    min-height:8.5in!important;
+    max-height:8.5in!important;
+  }
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page img,
+  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{
+    height:8.5in!important;
+    max-height:8.5in!important;
+  }
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
@@ -523,8 +576,10 @@
   #ar2-report .rpt-ls-row-b{flex:1!important;}
   #ar2-report .rpt-ls-rcol{display:flex!important;flex-direction:column!important;}
   #ar2-report .rpt-ls-media-stack{margin-top:8px!important;flex:1!important;display:flex!important;flex-direction:column!important;gap:6px!important;}
-  /* Right-col video stack — pinned to bottom (matches screen rule). */
-  #ar2-report .rpt-ls-rcol .rpt-ls-media-stack{margin-top:auto!important;flex:0 0 auto!important;justify-content:flex-end!important;}
+  /* Right-col video stack AND left-col image stack — both pinned to bottom
+     above the footer (matches screen rule). */
+  #ar2-report .rpt-ls-rcol .rpt-ls-media-stack,
+  #ar2-report .rpt-ls-img-stack{margin-top:auto!important;flex:0 0 auto!important;justify-content:flex-end!important;}
   #ar2-report .rpt-ls-media-stack > div{display:flex!important;flex-direction:column!important;}
   #ar2-report .rpt-ls-media-stack .rpt-img-grid{grid-template-columns:repeat(2,1fr)!important;gap:6px!important;width:100%!important;}
   #ar2-report .rpt-ls-media-stack .rpt-img-wrap{width:100%!important;aspect-ratio:16/9!important;max-height:none!important;border-radius:5px!important;overflow:hidden!important;background:#0a2540!important;border:none!important;}
@@ -1119,10 +1174,13 @@
    remaining vertical space, making videos as large as the column allows. */
 #ar2-report .rpt.rpt-landscape .rpt-ls-row-b{flex:1;}
 #ar2-report .rpt.rpt-landscape .rpt-ls-lcol{display:flex;flex-direction:column;}
-/* Property Images stack — anchored to fill the empty space below Purchase
-   Options in the left column. Same flex grow behavior as the right-col
-   media stack so images stretch to consume the remaining vertical room. */
-#ar2-report .rpt.rpt-landscape .rpt-ls-img-stack{flex:1;}
+/* Property Images stack — pinned to the bottom of the left column,
+   immediately above the page footer (same behavior as the video stack
+   in the right column). Auto-margin consumes whatever slack remains
+   above (between Purchase Options and the images), so images always sit
+   at a fixed position regardless of how tall the Purchase Options block
+   ends up. */
+#ar2-report .rpt.rpt-landscape .rpt-ls-img-stack{margin-top:auto!important;flex:0 0 auto!important;justify-content:flex-end!important;}
 #ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex;flex-direction:column;}
 #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:10px;flex:1;display:flex;flex-direction:column;gap:8px;justify-content:flex-start;}
 /* Video media stack (right column) — pinned to the bottom of the column,
