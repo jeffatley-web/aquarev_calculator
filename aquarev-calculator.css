@@ -370,8 +370,13 @@
      grid above can never push it off-page (root cause of the trailing blank
      pages + back-cover bleed when pool count was at the page-cap). Grid is
      flex:0 1 auto so it sizes to its content and never grows past what's
-     actually rendered. */
-  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;margin-top:auto!important;flex-shrink:0!important;}
+     actually rendered.
+     Negative left/right margins extend the footer to bleed full-width past
+     the page padding (visual edge-to-edge band). Vertical margin-bottom
+     was -14px, but that pushed the footer's bottom edge 14px past the
+     page boundary → footer cascaded onto a phantom next page in the
+     PDF. Now 0 so footer ends exactly at the page boundary. */
+  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:0!important;margin-top:auto!important;flex-shrink:0!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{flex:0 1 auto!important;}
   #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
@@ -457,45 +462,82 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════
-     PORTRAIT EXEC SUMMARY — minimal, baseline-style print tweaks.
-     Earlier 20260506f attempt over-compressed everything (font-size
-     down to 10.5px, device image capped at 90px, h2 dropped to 16px)
-     which produced a cramped, hard-to-read page. The baseline 20260430a
-     had ZERO body.ar-print-portrait Exec Summary overrides — it relied
-     on the natural 1113px screen height being close enough to 11in
-     (1056px) print height that content fit naturally with the existing
-     screen styles. Returning to that approach, with only the small
-     deltas needed to absorb the new 6-card outcome grid.
-     ══════════════════════════════════════════════════════════════════ */
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:0 0 8px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:3px 0 8px!important;}
-  /* 6-card outcome grid — slightly tighter than screen so Page 2 right
-     column has breathing room without aggressive font shrinking. */
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-outcome-cards{margin:6px 0 8px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-card{padding:6px 5px!important;}
+     PORTRAIT EXEC SUMMARY — measured print compression.
+     Measured 2026-05-06 with 6-pool dataset at exact 8.5×11in print dims:
+       Page 1 right col was 282px taller than the page (footer was getting
+              clipped behind body content)
+       Page 2 right col was 175px taller (Documented Performance + Why-Fit
+              + Resources + Video stack outgrew the column)
+     Goal of these rules: bring both pages to <=0px overflow with the
+     footer fully visible. Each delta sized from measured impact —
+     readable typography preserved, no aggressive font shrinking. */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{line-height:1.35!important;margin-bottom:4px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:5px 0 3px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h3-light{margin:5px 0 3px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{line-height:1.4!important;margin-bottom:5px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{line-height:1.45!important;margin-bottom:7px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{margin:0 0 6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:2px 0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-title{font-size:36px!important;margin-bottom:8px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-head{padding:11px 28px 9px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul li,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:3px!important;line-height:1.4!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:0 0 6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full img{max-height:105px!important;width:auto!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:2px 0 4px!important;gap:8px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-col .rpt-es-ul li{line-height:1.35!important;margin-bottom:2px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart{margin:4px 0 6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:150px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left-2,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right-2{padding:14px 22px 14px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero img{height:65px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-ritz img{max-height:130px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-quote{margin:8px 0!important;padding:8px 12px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-outcome-cards{margin:5px 0 7px!important;gap:6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-card{padding:5px 4px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-pct{font-size:16px!important;margin-bottom:2px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-lbl{font-size:9px!important;line-height:1.25!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-link{margin:2px 0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-video img{max-height:110px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-foot{padding:8px 28px!important;font-size:8px!important;}
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
-  /* Baseline 20260430a values restored 2026-05-06 — earlier 20260506f
-     compressions over-shrank text (10px rows, 7.5px stitle, 13px stat-val)
-     producing the cramped page the user flagged. These values are slightly
-     tighter than screen but readable, matching the working baseline. */
-  #ar2-report .rpt-body{padding:12px 24px 8px;}
-  #ar2-report .rpt-sec{margin-bottom:8px;}
-  #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
-  #ar2-report .rpt-row{padding:2px 0;font-size:10.5px;}
-  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:4px 8px;font-size:10.5px;}
-  #ar2-report .rpt-tbl{font-size:10.5px;}
-  #ar2-report .rpt-sbox{padding:10px 12px;margin-bottom:6px;}
-  #ar2-report .rpt-sbox-title{margin-bottom:6px;padding-bottom:5px;}
-  #ar2-report .rpt-kpi{padding:12px 12px;}
-  #ar2-report .rpt-kpi-val{font-size:22px;}
-  #ar2-report .rpt-head{padding:16px 28px 14px;}
-  #ar2-report .rpt-disc{font-size:8px;padding-top:6px;margin-top:8px;line-height:1.5;}
-  #ar2-report .rpt-foot{padding:10px 28px;}
-  #ar2-report .rpt-stat{padding:8px 10px;}
-  #ar2-report .rpt-stat-val{font-size:14px;}
-  #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
+  /* Measured 2026-05-06: portrait Assessment was 100px past 11in boundary
+     with 6 pools + breakdown + water + photos. Reductions below trim that
+     overflow without dropping below readable sizes (10.5px → 10px row text
+     is the smallest move, recovering ~12px from row density alone). */
+  #ar2-report .rpt-body{padding:10px 22px 6px!important;}
+  #ar2-report .rpt-sec{margin-bottom:6px!important;}
+  #ar2-report .rpt-stitle{margin-bottom:6px!important;padding-bottom:4px!important;font-size:8px!important;}
+  #ar2-report .rpt-row{padding:1.5px 0!important;font-size:10px!important;line-height:1.35!important;}
+  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:3px 7px!important;font-size:10px!important;}
+  #ar2-report .rpt-tbl{font-size:10px!important;}
+  #ar2-report .rpt-sbox{padding:8px 11px!important;margin-bottom:5px!important;}
+  #ar2-report .rpt-sbox-title{margin-bottom:5px!important;padding-bottom:4px!important;}
+  #ar2-report .rpt-kpi{padding:10px 12px!important;}
+  #ar2-report .rpt-kpi-val{font-size:21px!important;}
+  #ar2-report .rpt-head{padding:13px 26px 12px!important;}
+  #ar2-report .rpt-disc{font-size:8px!important;padding-top:5px!important;margin-top:6px!important;line-height:1.45!important;}
+  #ar2-report .rpt-foot{padding:8px 26px!important;font-size:8.5px!important;}
+  #ar2-report .rpt-stat{padding:6px 9px!important;}
+  #ar2-report .rpt-stat-val{font-size:13px!important;}
+  #ar2-report .rpt-comments{padding:5px 9px!important;font-size:10px!important;}
+  #ar2-report .rpt-cta-bar{padding:7px 26px!important;}
+  /* Property image grid + video grid — keep visible but cap height so they
+     don't push the disclaimer + footer past page boundary. */
+  #ar2-report .rpt-img-grid{gap:7px!important;}
+  #ar2-report .rpt-img-wrap{max-height:130px!important;overflow:hidden!important;}
+  #ar2-report .rpt-img-wrap img{max-height:130px!important;object-fit:cover!important;}
+  /* Pool Profiles portrait — measured 18px overflow, trim card padding +
+     header + grid gap to claw it back. */
+  #ar2-report .rpt-pp-page{padding:14px 26px 8px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:8px!important;margin-bottom:9px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:148px!important;padding:8px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{gap:8px!important;}
 }
 @media print and (orientation:landscape){
   /* Earlier 8.5in height-clamp rules reverted 2026-05-06 — same reason
@@ -585,10 +627,15 @@
   #ar2-report .rpt-pp-page .rpt-pp-row{font-size:8.5px!important;padding:0 0 1px!important;line-height:1.25!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row .v{font-size:9.5px!important;min-width:54px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-head{margin-bottom:2px!important;padding-bottom:2px!important;}
-  #ar2-report .rpt-pp-page{padding:10px 22px 6px!important;}
+  /* Landscape Pool Profiles measured 6px past 8.5in — tighten outer
+     padding + header to recover that without affecting card density. */
+  #ar2-report .rpt-pp-page{padding:8px 22px 4px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-title{font-size:18px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-sub{font-size:9px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:5px!important;margin-bottom:7px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:4px!important;margin-bottom:5px!important;}
+  /* Landscape Assessment (.rpt) measured 3px past 8.5in — micro-trim the
+     footer padding to recover those pixels. */
+  #ar2-report .rpt .rpt-foot{padding:5px 20px!important;}
   /* ── Landscape Exec Summary fine-tuning ── */
   #ar2-report .rpt-ls-es-page .rpt-es-head{padding:10px 24px 8px!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-left,#ar2-report .rpt-ls-es-page .rpt-es-right,#ar2-report .rpt-ls-es-page .rpt-es-mid{padding:14px 22px 16px!important;}
