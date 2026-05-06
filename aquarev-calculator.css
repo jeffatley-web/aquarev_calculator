@@ -380,6 +380,25 @@
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
+  /* ── CRITICAL: replace 100vh with explicit page height ──
+     Browsers (especially Chrome) frequently compute `100vh` in print mode
+     using the SCREEN viewport height instead of the @page size. On a
+     1080px-tall screen with an 11in (1056px) portrait page, elements set
+     to `100vh` are sized at 1080px — content overflows the printable area
+     by 24px+, clipping bottom content (Investment Profile statlines, chart
+     SVG, etc.) and pushing footers to orphan pages.
+     Fix: use absolute inches (`11in`) which always equal the print page
+     height regardless of how the browser interprets `vh`. */
+  #ar2-report .rpt,
+  #ar2-report .rpt-cover-page,
+  #ar2-report .rpt-pp-page,
+  #ar2-report .rpt-es-page,
+  #ar2-report .rpt-fs-img-page{
+    height:11in!important;
+    min-height:11in!important;
+    max-height:11in!important;
+  }
+  #ar2-report .rpt-fs-img-page img{max-height:11in!important;}
   #ar2-report .rpt-body{padding:12px 24px 8px;}
   #ar2-report .rpt-sec{margin-bottom:8px;}
   #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
@@ -398,6 +417,26 @@
   #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
 }
 @media print and (orientation:landscape){
+  /* ── CRITICAL: replace 100vh with explicit page height (8.5in landscape) ──
+     Same root cause as the portrait override: Chrome's print engine often
+     computes `100vh` from the screen viewport (1080px+) rather than the
+     8.5in (816px) landscape page height. Result: every page element is
+     264px+ TALLER than the printable area, causing the Pool Profiles
+     footer to spill onto an orphan page, a phantom blank page in between,
+     and the back cover image rendering as a sliver at the top of the
+     final page (rest clipped by page boundary).
+     Fix: use absolute inches that match the @page size exactly. */
+  #ar2-report .rpt,
+  #ar2-report .rpt-pp-page,
+  #ar2-report .rpt-ls-cover-page,
+  #ar2-report .rpt-ls-back-cover-page,
+  #ar2-report .rpt-ls-es-page,
+  #ar2-report .rpt-pres-deck-page{
+    height:8.5in!important;
+    min-height:8.5in!important;
+    max-height:8.5in!important;
+  }
+  #ar2-report .rpt-ls-back-cover-page img{max-height:8.5in!important;}
   #ar2-report .rpt{font-size:10px;}
   #ar2-report .rpt-head{padding:10px 20px;}
   #ar2-report .rpt-logo{font-size:20px;}
