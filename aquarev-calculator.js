@@ -2686,6 +2686,7 @@ function generateReport(){
       }
       poolProfilesHtml=ppPages.join('');
     }
+  }
 
   // ── Water conservation stats ──
   var waterHtml='';
