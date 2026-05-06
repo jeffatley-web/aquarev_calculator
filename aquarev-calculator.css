@@ -388,17 +388,26 @@
      by 24px+, clipping bottom content (Investment Profile statlines, chart
      SVG, etc.) and pushing footers to orphan pages.
      Fix: use absolute inches (`11in`) which always equal the print page
-     height regardless of how the browser interprets `vh`. */
+     height regardless of how the browser interprets `vh`. The .ar-print-portrait
+     body class is the primary orientation selector — class-based scoping
+     evaluates synchronously without depending on the browser resolving
+     @page size before measuring orientation. */
   #ar2-report .rpt,
   #ar2-report .rpt-cover-page,
   #ar2-report .rpt-pp-page,
   #ar2-report .rpt-es-page,
-  #ar2-report .rpt-fs-img-page{
+  #ar2-report .rpt-fs-img-page,
+  body.ar-print-portrait #ar2-report .rpt,
+  body.ar-print-portrait #ar2-report .rpt-cover-page,
+  body.ar-print-portrait #ar2-report .rpt-pp-page,
+  body.ar-print-portrait #ar2-report .rpt-es-page,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page{
     height:11in!important;
     min-height:11in!important;
     max-height:11in!important;
   }
-  #ar2-report .rpt-fs-img-page img{max-height:11in!important;}
+  #ar2-report .rpt-fs-img-page img,
+  body.ar-print-portrait #ar2-report .rpt-fs-img-page img{max-height:11in!important;}
   #ar2-report .rpt-body{padding:12px 24px 8px;}
   #ar2-report .rpt-sec{margin-bottom:8px;}
   #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
@@ -425,18 +434,27 @@
      footer to spill onto an orphan page, a phantom blank page in between,
      and the back cover image rendering as a sliver at the top of the
      final page (rest clipped by page boundary).
-     Fix: use absolute inches that match the @page size exactly. */
+     Fix: use absolute inches that match the @page size exactly. The body
+     class .ar-print-landscape is the primary orientation selector;
+     `(orientation:landscape)` is kept as a fallback. */
   #ar2-report .rpt,
   #ar2-report .rpt-pp-page,
   #ar2-report .rpt-ls-cover-page,
   #ar2-report .rpt-ls-back-cover-page,
   #ar2-report .rpt-ls-es-page,
-  #ar2-report .rpt-pres-deck-page{
+  #ar2-report .rpt-pres-deck-page,
+  body.ar-print-landscape #ar2-report .rpt,
+  body.ar-print-landscape #ar2-report .rpt-pp-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-cover-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page,
+  body.ar-print-landscape #ar2-report .rpt-ls-es-page,
+  body.ar-print-landscape #ar2-report .rpt-pres-deck-page{
     height:8.5in!important;
     min-height:8.5in!important;
     max-height:8.5in!important;
   }
-  #ar2-report .rpt-ls-back-cover-page img{max-height:8.5in!important;}
+  #ar2-report .rpt-ls-back-cover-page img,
+  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{max-height:8.5in!important;}
   #ar2-report .rpt{font-size:10px;}
   #ar2-report .rpt-head{padding:10px 20px;}
   #ar2-report .rpt-logo{font-size:20px;}
@@ -477,6 +495,8 @@
   #ar2-report .rpt-ls-row-b{flex:1!important;}
   #ar2-report .rpt-ls-rcol{display:flex!important;flex-direction:column!important;}
   #ar2-report .rpt-ls-media-stack{margin-top:8px!important;flex:1!important;display:flex!important;flex-direction:column!important;gap:6px!important;}
+  /* Right-col video stack — pinned to bottom (matches screen rule). */
+  #ar2-report .rpt-ls-rcol .rpt-ls-media-stack{margin-top:auto!important;flex:0 0 auto!important;justify-content:flex-end!important;}
   #ar2-report .rpt-ls-media-stack > div{display:flex!important;flex-direction:column!important;}
   #ar2-report .rpt-ls-media-stack .rpt-img-grid{grid-template-columns:repeat(2,1fr)!important;gap:6px!important;width:100%!important;}
   #ar2-report .rpt-ls-media-stack .rpt-img-wrap{width:100%!important;aspect-ratio:16/9!important;max-height:none!important;border-radius:5px!important;overflow:hidden!important;background:#0a2540!important;border:none!important;}
@@ -1077,6 +1097,13 @@
 #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack{flex:1;}
 #ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex;flex-direction:column;}
 #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:10px;flex:1;display:flex;flex-direction:column;gap:8px;justify-content:flex-start;}
+/* Video media stack (right column) — pinned to the bottom of the column,
+   immediately above the page footer. The auto-margin consumes whatever
+   slack remains above (whether or not the Water Conservation section is
+   present), so videos always sit at a fixed position regardless of which
+   optional sections are included. Image stack in the LEFT column keeps
+   flex:1 grow behavior — this rule is scoped to .rpt-ls-rcol only. */
+#ar2-report .rpt.rpt-landscape .rpt-ls-rcol .rpt-ls-media-stack{margin-top:auto!important;flex:0 0 auto!important;justify-content:flex-end!important;}
 #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack > div{display:flex;flex-direction:column;}
 /* Inner thumb grid spans full width of the right col; thumbs auto-size up.
    Container uses object-fit:contain with a wide aspect-ratio so the FULL

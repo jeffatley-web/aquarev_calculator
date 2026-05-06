@@ -556,6 +556,8 @@ function bankRecall(snapshot){
   EX.scenario=snapshot.ex.scenario;
   EX.bothScenarios=snapshot.ex.bothScenarios;
   EX.layout=snapshot.ex.layout;
+  // Keep @page directive + body class in sync with the restored layout
+  if(typeof setPrintOrientation==='function') setPrintOrientation(EX.layout);
   EX.inclWater=snapshot.ex.inclWater;
   EX.inclFactSheet=snapshot.ex.inclFactSheet;
   // Migration shim (v3 → v4): the back cover used to be bundled into the Fact
@@ -1805,6 +1807,34 @@ function render(){
   if(S.step===0 && window.AR2_MAP && AR2_MAP.resize){ setTimeout(function(){ AR2_MAP.resize(); },60); }
 }
 
+/* ── Print orientation helper ──
+   Sets two things in lockstep:
+     1) The dynamic @page directive that tells the print engine which page
+        size + margins to use. Uses bare @page (NOT wrapped in @media print)
+        because some browsers don't reliably resolve @page rules nested
+        inside @media queries when the style is JS-injected near print time.
+     2) A body class (.ar-print-portrait or .ar-print-landscape) so layout
+        CSS can scope by class instead of (orientation:X) media queries —
+        class selectors are evaluated synchronously and don't depend on the
+        browser resolving @page size before measuring orientation.
+
+   Call this on init() AND whenever EX.layout changes, so the @page rule is
+   live in the document well before window.print() fires. */
+function setPrintOrientation(layout){
+  var orient = (layout==='landscape') ? 'landscape' : 'portrait';
+  var orientEl = document.getElementById('ar2-orient');
+  if(!orientEl){
+    orientEl = document.createElement('style');
+    orientEl.id = 'ar2-orient';
+    document.head.appendChild(orientEl);
+  }
+  orientEl.textContent = '@page{size:'+orient+';margin:0;}';
+  if(document.body){
+    document.body.classList.toggle('ar-print-portrait',  orient==='portrait');
+    document.body.classList.toggle('ar-print-landscape', orient==='landscape');
+  }
+}
+
 /* ── Generate printable PDF report ── */
 function generateReport(){
   var R=calcROI();
@@ -1915,8 +1945,12 @@ function generateReport(){
   }
 
   // Fact sheet pages (full-page CDN images)
+  // TEMPORARILY DISABLED via `false &&` short-circuit while user updates
+  // the linked Fact Sheet assets. Toggle UI is hidden in Step 3 too.
+  // To re-enable: remove `false &&` here AND restore the toggle row in
+  // the portrait export panel.
   var fsHtml='';
-  if(EX.inclFactSheet&&EX.layout==='portrait'){
+  if(false && EX.inclFactSheet&&EX.layout==='portrait'){
     fsHtml=
       // Page 2: Fact Sheet — The AquaRev Water Treatment Advantage
       '<div class="rpt-fs-img-page">'
@@ -2854,10 +2888,15 @@ function generateReport(){
   if(!rEl)return;
   rEl.innerHTML=html;
 
-  // Keep @page orientation
-  var orientEl=document.getElementById('ar2-orient');
-  if(!orientEl){orientEl=document.createElement('style');orientEl.id='ar2-orient';document.head.appendChild(orientEl);}
-  orientEl.textContent='@media print{@page{size:'+EX.layout+';margin:0mm;}}';
+  // Keep @page orientation. Use bare @page (not wrapped in @media print) —
+  // some browsers don't reliably evaluate @page rules nested inside @media
+  // queries, especially when the rule is dynamically injected near print
+  // time. Plain @page is unconditional but only takes effect during print.
+  // Also tag the body with ar-print-portrait/landscape so layout CSS can
+  // select via class instead of (orientation:X) media queries — class-based
+  // selectors are evaluated synchronously and don't depend on the browser
+  // resolving the @page size before measuring orientation.
+  setPrintOrientation(EX.layout);
 
   EX.exporting=true;
   var savedStep=S.step; // Remember current step
@@ -3014,9 +3053,11 @@ function renderExportSection(){
             +'</details>'
             :''
           )
-          +'<div class="ar-toggle-row"><label>Include AquaRev Fact Sheet</label>'
-            +'<div class="ar-sw-track'+(EX.inclFactSheet?' on':'')+'" data-ex-sw="inclFactSheet"><div class="ar-sw-thumb"></div></div>'
-          +'</div>'
+          // Fact Sheet toggle TEMPORARILY HIDDEN — user is updating linked
+          // assets and will reintroduce this option. State key (inclFactSheet)
+          // and rendering branch (search "EX.inclFactSheet&&EX.layout==='portrait'")
+          // remain in code so re-enabling later is just removing the `false &&`
+          // short-circuit + restoring this toggle row.
           +'<div class="ar-toggle-row"><label>Include Back Cover</label>'
             +'<div class="ar-sw-track'+(EX.inclBackCover?' on':'')+'" data-ex-sw="inclBackCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
@@ -3463,7 +3504,15 @@ function handleInput(e){
     return;
   }
   // Export section radio/checkbox inputs
-  if(el.dataset.exRadio){ EX[el.dataset.exRadio]=el.value; renderDevices(); return; }
+  if(el.dataset.exRadio){
+    EX[el.dataset.exRadio]=el.value;
+    // Layout radio: keep @page directive + body class in sync so the print
+    // orientation is correct the moment the user clicks Download (no race
+    // with window.print() reading stale @page).
+    if(el.dataset.exRadio==='layout') setPrintOrientation(EX.layout);
+    renderDevices();
+    return;
+  }
   if(el.dataset.exChk){ EX[el.dataset.exChk]=el.checked; renderResults(); return; }
   // Export: image caption
   if(el.dataset.imgCmt){
@@ -3603,8 +3652,13 @@ function handleChange(e){
     }
     return;
   }
-  // Export: layout radio
-  if(el.dataset.exRadio){ EX[el.dataset.exRadio]=el.value; renderDevices(); return; }
+  // Export: layout radio (and any other ex-radio inputs via change event)
+  if(el.dataset.exRadio){
+    EX[el.dataset.exRadio]=el.value;
+    if(el.dataset.exRadio==='layout') setPrintOrientation(EX.layout);
+    renderDevices();
+    return;
+  }
   // Body type select (fallback)
   if(el.dataset.bf==='type'){
     var bid=String(el.dataset.bid);
@@ -3632,6 +3686,10 @@ function handleChange(e){
 function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
+  // Set print orientation (@page directive + body class) on app load so it's
+  // active well before any window.print() call. Updated again whenever the
+  // user toggles the layout radio in Step 3.
+  setPrintOrientation(EX.layout);
   // Calculator passcode gate — show modal on first load (in-memory, resets on reload).
   // The modal overlays the full viewport at z-index 999999 so the calc behind is unreachable.
   if(!CALC_UNLOCKED){
