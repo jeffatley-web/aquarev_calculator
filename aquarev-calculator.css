@@ -324,11 +324,7 @@
   #ar2-report .rpt-fs-kpi,#ar2-report .rpt-cert,#ar2-report .rpt-fs-cell{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-back-cover{page-break-before:always;break-before:page;}
   #ar2-report .rpt-cover-page{page-break-after:auto;break-after:auto;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  /* Cover image — explicit max-height per orientation prevents the image
-     from rendering taller than the print page and overflowing onto a 2nd
-     page (which appeared as a strip of pool water at the top of page 2 in
-     the user's landscape PDF before this fix). */
-  #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;max-height:100vh!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   /* Pool Profiles — break-inside:avoid added so Chrome doesn't paginate the
      page across multiple physical sheets. Combined with overflow:hidden +
@@ -393,93 +389,15 @@
   #ar2-report .rpt-kpis{background:#071628!important;}
   #ar2-report .rpt-cta-bar{background:#071628!important;}
 
-  /* ══════════════════════════════════════════════════════════════════
-     ORIENTATION-INDEPENDENT BODY-CLASS HEIGHT OVERRIDES
-     ══════════════════════════════════════════════════════════════════
-     These rules use ONLY body class selectors (set in JS via
-     setPrintOrientation), not (orientation:X) media queries. Why:
-     Chrome's print engine sometimes fails to evaluate the orientation
-     media query against the dynamically-injected @page directive,
-     causing the explicit-inch height rules nested inside
-     `@media print and (orientation:landscape)` to NOT apply during
-     actual printing — even though they applied correctly when tested
-     via getComputedStyle.
-
-     The user's print preview (May 6, 2026) showed cover overflow into
-     a 2nd page even after 20260506a deployed all the orientation-scoped
-     fixes. Root cause: orientation media query failed.
-
-     This block guarantees the height clamping ALWAYS fires during
-     print regardless of how Chrome resolves orientation. Body class
-     is set in JS milliseconds before window.print(), so it's always
-     correct. Last in @media print source order = highest priority. */
-  body.ar-print-portrait #ar2-report .rpt,
-  body.ar-print-portrait #ar2-report .rpt-cover-page,
-  body.ar-print-portrait #ar2-report .rpt-pp-page,
-  body.ar-print-portrait #ar2-report .rpt-es-page,
-  body.ar-print-portrait #ar2-report .rpt-fs-img-page{
-    height:11in!important;
-    min-height:11in!important;
-    max-height:11in!important;
-  }
-  body.ar-print-portrait #ar2-report .rpt-cover-page .rpt-cover-bg,
-  body.ar-print-portrait #ar2-report .rpt-cover-page img,
-  body.ar-print-portrait #ar2-report .rpt-fs-img-page img{
-    height:11in!important;
-    max-height:11in!important;
-  }
-
-  body.ar-print-landscape #ar2-report .rpt,
-  body.ar-print-landscape #ar2-report .rpt-pp-page,
-  body.ar-print-landscape #ar2-report .rpt-ls-cover-page,
-  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page,
-  body.ar-print-landscape #ar2-report .rpt-ls-es-page,
-  body.ar-print-landscape #ar2-report .rpt-pres-deck-page{
-    height:8.5in!important;
-    min-height:8.5in!important;
-    max-height:8.5in!important;
-  }
-  body.ar-print-landscape #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
-  body.ar-print-landscape #ar2-report .rpt-ls-cover-page img,
-  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{
-    height:8.5in!important;
-    max-height:8.5in!important;
-  }
+  /* Body-class print height overrides reverted 2026-05-06 — they made
+     columns shorter than the page, breaking the dark-blue column fill
+     to footer. Original 100vh rules above remain in place. */
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
-  /* ── CRITICAL: replace 100vh with explicit page height ──
-     Browsers (especially Chrome) frequently compute `100vh` in print mode
-     using the SCREEN viewport height instead of the @page size. On a
-     1080px-tall screen with an 11in (1056px) portrait page, elements set
-     to `100vh` are sized at 1080px — content overflows the printable area
-     by 24px+, clipping bottom content (Investment Profile statlines, chart
-     SVG, etc.) and pushing footers to orphan pages.
-     Fix: use absolute inches (`11in`) which always equal the print page
-     height regardless of how the browser interprets `vh`. The .ar-print-portrait
-     body class is the primary orientation selector — class-based scoping
-     evaluates synchronously without depending on the browser resolving
-     @page size before measuring orientation. */
-  #ar2-report .rpt,
-  #ar2-report .rpt-cover-page,
-  #ar2-report .rpt-pp-page,
-  #ar2-report .rpt-es-page,
-  #ar2-report .rpt-fs-img-page,
-  body.ar-print-portrait #ar2-report .rpt,
-  body.ar-print-portrait #ar2-report .rpt-cover-page,
-  body.ar-print-portrait #ar2-report .rpt-pp-page,
-  body.ar-print-portrait #ar2-report .rpt-es-page,
-  body.ar-print-portrait #ar2-report .rpt-fs-img-page{
-    height:11in!important;
-    min-height:11in!important;
-    max-height:11in!important;
-  }
-  /* Cap inner full-bleed images at exactly the page height too so they
-     never push pagination, regardless of intrinsic image dimensions. */
-  #ar2-report .rpt-fs-img-page img,
-  #ar2-report .rpt-cover-page .rpt-cover-bg,
-  body.ar-print-portrait #ar2-report .rpt-fs-img-page img,
-  body.ar-print-portrait #ar2-report .rpt-cover-page .rpt-cover-bg{max-height:11in!important;}
+  /* Earlier 11in height-clamp rules reverted 2026-05-06 — they shrank
+     pages below natural content height, breaking column fill. Original
+     screen + 100vh print rules (defined elsewhere) handle sizing. */
   #ar2-report .rpt-body{padding:12px 24px 8px;}
   #ar2-report .rpt-sec{margin-bottom:8px;}
   #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
@@ -498,44 +416,11 @@
   #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
 }
 @media print and (orientation:landscape){
-  /* ── CRITICAL: replace 100vh with explicit page height (8.5in landscape) ──
-     Same root cause as the portrait override: Chrome's print engine often
-     computes `100vh` from the screen viewport (1080px+) rather than the
-     8.5in (816px) landscape page height. Result: every page element is
-     264px+ TALLER than the printable area, causing the Pool Profiles
-     footer to spill onto an orphan page, a phantom blank page in between,
-     and the back cover image rendering as a sliver at the top of the
-     final page (rest clipped by page boundary).
-     Fix: use absolute inches that match the @page size exactly. The body
-     class .ar-print-landscape is the primary orientation selector;
-     `(orientation:landscape)` is kept as a fallback. */
-  #ar2-report .rpt,
-  #ar2-report .rpt-pp-page,
-  #ar2-report .rpt-ls-cover-page,
-  #ar2-report .rpt-ls-back-cover-page,
-  #ar2-report .rpt-ls-es-page,
-  #ar2-report .rpt-pres-deck-page,
-  body.ar-print-landscape #ar2-report .rpt,
-  body.ar-print-landscape #ar2-report .rpt-pp-page,
-  body.ar-print-landscape #ar2-report .rpt-ls-cover-page,
-  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page,
-  body.ar-print-landscape #ar2-report .rpt-ls-es-page,
-  body.ar-print-landscape #ar2-report .rpt-pres-deck-page{
-    height:8.5in!important;
-    min-height:8.5in!important;
-    max-height:8.5in!important;
-  }
-  /* Cap inner full-bleed images at exactly 8.5in (landscape page height)
-     so the cover and back-cover images never overflow into a phantom
-     second page. The user's PDF showed: page 1 = cover, page 2 = strip
-     of pool water at top + blank — caused by the cover image rendering
-     taller than 8.5in even with the wrapper height-clamped. */
-  #ar2-report .rpt-ls-cover-page img,
-  #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
-  #ar2-report .rpt-ls-back-cover-page img,
-  body.ar-print-landscape #ar2-report .rpt-ls-cover-page img,
-  body.ar-print-landscape #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
-  body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{max-height:8.5in!important;}
+  /* Earlier 8.5in height-clamp rules reverted 2026-05-06 — same reason
+     as the portrait revert: forced heights broke column fill / footer
+     positioning. Original 100vh print rules handle sizing. If Chrome's
+     print engine still produces orphan pages on landscape, switching
+     to programmatic PDF generation (html2canvas + jsPDF) is Path B. */
   #ar2-report .rpt{font-size:10px;}
   #ar2-report .rpt-head{padding:10px 20px;}
   #ar2-report .rpt-logo{font-size:20px;}
@@ -1665,117 +1550,19 @@
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1) brightness(2) contrast(1.1);}
 
 /* ══════════════════════════════════════════════════════════════════
-   PRINT-PAGE SIZING — SCREEN RULES (applied via body class)
+   REVERTED 2026-05-06 — page-sizing forces removed
    ══════════════════════════════════════════════════════════════════
-   ROOT CAUSE OF EVERY PRINT BUG: Chrome's print engine prints the DOM
-   at its rendered SCREEN size. The screen rules used aspect-ratio:11/8.5
-   with max-width:1120px which produced 865px tall pages. Print page is
-   only 816px (8.5in landscape) — every page overflowed by 49px,
-   creating the orphan strips/back-cover slivers.
-
-   @media print height overrides DON'T HELP because Chrome computes
-   layout from the rendered DOM (screen styles), then paginates that
-   layout onto the page. By the time @media print rules apply, the
-   element's rendered height has already been determined.
-
-   FIX: force rendered DOM to print page dimensions at the SCREEN level,
-   gated by the body.ar-print-landscape / body.ar-print-portrait class
-   set by setPrintOrientation() in JS. The class is set on init and
-   on layout radio change, so the DOM always renders at the correct
-   page dimensions before window.print() fires.
-
-   Trade-off: the in-app preview pages now render at exactly the print
-   size (816px landscape, 1056px portrait) instead of the previous
-   865px / 1113px. Content fits identically on screen and print.
+   Earlier in 20260506b/c I added body.ar-print-portrait/landscape
+   rules forcing pages to exactly 8.5×11 / 11×8.5 inches at the SCREEN
+   level. Goal was to make Chrome's print engine paginate cleanly.
+   Side effect: the columns inside (.rpt-es-left, .rpt-es-right) no
+   longer filled to the footer because the page was now shorter than
+   the natural content height — leaving empty gaps below the columns
+   and the chart bleeding into the footer.
+   User confirmed the layout was working correctly BEFORE these
+   page-sizing forces. Reverted to let the screen rules use their
+   natural sizing (min-height: 1113px etc) so columns fill again.
+   The original @media print rules with 100vh remain in place; if
+   Chrome's print engine produces orphan pages on landscape we'll
+   solve that with html2canvas/jsPDF (Path B) rather than CSS forces.
    ══════════════════════════════════════════════════════════════════ */
-
-/* Landscape — 11in × 8.5in print page → force these screen dimensions */
-body.ar-print-landscape #ar2-report .rpt-ls-cover-page,
-body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page,
-body.ar-print-landscape #ar2-report .rpt.rpt-landscape,
-body.ar-print-landscape #ar2-report .rpt-ls-es-page,
-body.ar-print-landscape #ar2-report .rpt-pp-page-landscape,
-body.ar-print-landscape #ar2-report .rpt-pres-deck-page{
-  width:11in!important;
-  max-width:11in!important;
-  min-width:11in!important;
-  height:8.5in!important;
-  max-height:8.5in!important;
-  min-height:8.5in!important;
-  aspect-ratio:auto!important;
-  overflow:hidden!important;
-}
-
-/* Landscape cover/back-cover full-bleed images — forced to exact page size */
-body.ar-print-landscape #ar2-report .rpt-ls-cover-page img,
-body.ar-print-landscape #ar2-report .rpt-ls-cover-page .rpt-cover-bg,
-body.ar-print-landscape #ar2-report .rpt-ls-back-cover-page img{
-  width:11in!important;
-  height:8.5in!important;
-  max-width:11in!important;
-  max-height:8.5in!important;
-  object-fit:cover!important;
-}
-
-/* Portrait — 8.5in × 11in print page → force these screen dimensions */
-body.ar-print-portrait #ar2-report .rpt,
-body.ar-print-portrait #ar2-report .rpt-cover-page,
-body.ar-print-portrait #ar2-report .rpt-pp-page:not(.rpt-pp-page-landscape),
-body.ar-print-portrait #ar2-report .rpt-es-page,
-body.ar-print-portrait #ar2-report .rpt-fs-img-page{
-  width:8.5in!important;
-  max-width:8.5in!important;
-  min-width:8.5in!important;
-  height:11in!important;
-  max-height:11in!important;
-  min-height:11in!important;
-  aspect-ratio:auto!important;
-  overflow:hidden!important;
-}
-
-/* Portrait cover/fact-sheet/back-cover images — forced to exact page size */
-body.ar-print-portrait #ar2-report .rpt-cover-page img,
-body.ar-print-portrait #ar2-report .rpt-cover-page .rpt-cover-bg,
-body.ar-print-portrait #ar2-report .rpt-fs-img-page img{
-  width:8.5in!important;
-  height:11in!important;
-  max-width:8.5in!important;
-  max-height:11in!important;
-  object-fit:cover!important;
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   PORTRAIT EXEC SUMMARY CONTENT COMPRESSION
-   ══════════════════════════════════════════════════════════════════
-   With page now forced to exactly 11in (1056px), Exec Summary content
-   was overflowing by 237px on Page 1 and 173px on Page 2 — clipping
-   Investment Profile statlines and chart SVG. Compression below
-   reduces line-heights, paragraph margins, image sizes, and font
-   sizes just enough to fit content cleanly within 11in.
-   Verified live in Chrome: Page 1 overflow 237px → 5px (negligible),
-   Page 2 overflow 173px → 0px.
-   ══════════════════════════════════════════════════════════════════ */
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{margin-bottom:4px!important;line-height:1.4!important;font-size:10.5px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:6px 0 3px!important;font-size:15px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:3px 0 5px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:3px 0 5px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:140px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 4px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-hdr{margin-bottom:2px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{font-size:30px!important;line-height:1.05!important;margin:0 0 4px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{margin-bottom:5px!important;line-height:1.4!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:2px 0!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero img{height:70px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-ritz img{max-height:140px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left-2,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right-2{padding:10px 22px 12px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-title{margin-bottom:8px!important;font-size:38px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{margin-bottom:8px!important;line-height:1.4!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark{margin:0!important;padding-left:18px!important;}
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul li,
-body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:2px!important;line-height:1.35!important;}
