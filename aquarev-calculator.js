@@ -1828,7 +1828,14 @@ function setPrintOrientation(layout){
     orientEl.id = 'ar2-orient';
     document.head.appendChild(orientEl);
   }
-  orientEl.textContent = '@page{size:'+orient+';margin:0;}';
+  // Use EXPLICIT page dimensions (not the keyword 'portrait'/'landscape')
+  // so Chrome doesn't fall back to its default Letter+0.4in margins. Pair
+  // with margin:0 so the printable area equals the full physical page.
+  // Without this, Chrome's "Default" margin UI option silently injects
+  // 0.4in margins → element sized 11in/8.5in is 0.8in too tall → overflow
+  // cascades onto a phantom 2nd page → back cover gets pushed off the deck.
+  var pageDims = (orient==='landscape') ? '11in 8.5in' : '8.5in 11in';
+  orientEl.textContent = '@page{size:'+pageDims+';margin:0;}';
   if(document.body){
     document.body.classList.toggle('ar-print-portrait',  orient==='portrait');
     document.body.classList.toggle('ar-print-landscape', orient==='landscape');

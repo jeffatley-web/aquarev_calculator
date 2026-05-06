@@ -304,9 +304,12 @@
      split this single-page block across multiple physical pages even with
      overflow:hidden. The Hale Koa landscape PDF showed Assessment splitting
      across 2 pages because this rule was missing. */
-  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}
-  #ar2-report .rpt .rpt-body{flex:1;padding:16px 28px 12px!important;}
-  #ar2-report .rpt-foot{margin-top:auto!important;}
+  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}
+  /* min-height:0 + overflow:hidden lets the flex child shrink below content
+     size, preventing it from pushing the footer past the page boundary. The
+     footer always stays anchored at the bottom inside .rpt's 100vh frame. */
+  #ar2-report .rpt .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;padding:16px 28px 12px!important;}
+  #ar2-report .rpt-foot{margin-top:auto!important;flex:0 0 auto!important;}
   .no-print{display:none!important;}
   /* Hide chrome extensions and overlays */
   *[id*="hubspot"],*[class*="hubspot"],*[id*="HubSpot"],*[class*="HubSpot"],
@@ -323,13 +326,13 @@
   #ar2-report .rpt-factsheet-page,#ar2-report .rpt-factsheet-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-fs-kpi,#ar2-report .rpt-cert,#ar2-report .rpt-fs-cell{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-back-cover{page-break-before:always;break-before:page;}
-  #ar2-report .rpt-cover-page{page-break-after:auto;break-after:auto;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-cover-page{page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   /* Pool Profiles — break-inside:avoid added so Chrome doesn't paginate the
      page across multiple physical sheets. Combined with overflow:hidden +
      fixed height, content stays on a single page. */
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
   #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
@@ -344,7 +347,7 @@
      across pages when bottom content (Investment Profile statlines, chart
      SVG) gets clipped. Without this rule Chrome could paginate the block
      even with overflow:hidden. */
-  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
   #ar2-report .rpt-es-body-1{flex:1!important;min-height:0!important;overflow:hidden;}
@@ -366,22 +369,22 @@
      actually rendered. */
   #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;margin-top:auto!important;flex-shrink:0!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{flex:0 1 auto!important;}
-  #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid;break-inside:avoid;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
+  #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
   /* Back cover — full bleed, no white borders (overrides fact-sheet contain) */
   #ar2-report .rpt-back-cover-page img{object-fit:cover!important;}
   #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;break-after:avoid;}
   /* ── Landscape variants — clamp to exactly one landscape page, no bleed ── */
-  #ar2-report .rpt-ls-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
-  #ar2-report .rpt-ls-back-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;}
+  #ar2-report .rpt-ls-back-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:avoid!important;break-after:avoid!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;}
   #ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
-  #ar2-report .rpt-ls-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;width:100vw!important;max-width:none!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-es-page{page-break-before:always!important;break-before:page!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;width:100vw!important;max-width:none!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-ls-es-page,#ar2-report .rpt-ls-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-ls-es-body-3col,#ar2-report .rpt-ls-es-body-2col{flex:1!important;min-height:0!important;overflow:hidden!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-foot{margin-top:auto!important;}
   #ar2-report .rpt-ls-es-page a[href]{color:inherit;}
-  #ar2-report .rpt-pres-deck-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-pres-deck-page{page-break-before:always!important;break-before:page!important;page-break-after:always!important;break-after:page!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt a[href]{color:inherit;}
   #ar2-report .rpt-cta-bar a{color:#48cae4!important;text-decoration:none!important;}
   #ar2-report .rpt-media-wrap a{display:block;}
@@ -457,49 +460,80 @@
      bignum size, and section padding to fit within the 11in print page.
      SCREEN preview is unaffected because these rules are inside @media
      print. */
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{margin-bottom:4px!important;line-height:1.4!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:6px 0 3px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{font-size:32px!important;line-height:1.05!important;margin:0 0 6px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:140px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{margin-bottom:3px!important;line-height:1.35!important;font-size:10.5px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:5px 0 3px!important;font-size:16px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h3-light{margin:5px 0 3px!important;font-size:11px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{font-size:28px!important;line-height:1.05!important;margin:0 0 5px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:120px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 4px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-hdr{margin-bottom:2px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{margin-bottom:5px!important;line-height:1.4!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:3px 0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{margin-bottom:4px!important;line-height:1.35!important;font-size:10.5px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{margin-bottom:6px!important;line-height:1.4!important;font-size:11px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:2px 0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline .v{font-size:15px!important;min-width:64px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline .k{font-size:10px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:4px 0 5px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:4px 0 6px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero img{height:75px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-ritz img{max-height:150px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:3px 0 4px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device img,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full img{max-height:90px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:3px 0 5px!important;gap:10px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-1 .rpt-es-hero img{height:55px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero{margin:0!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero img{height:55px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-ritz img{max-height:120px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left,
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right,
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left-2,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right-2{padding:14px 24px 16px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{margin-bottom:8px!important;line-height:1.45!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right-2{padding:12px 22px 12px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul,
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark{margin:0 0 6px!important;}
   body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul li,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:3px!important;line-height:1.4!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:2px!important;line-height:1.35!important;font-size:10.5px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-col .rpt-es-ul li{font-size:10.5px!important;}
+  /* Documented Performance Outcomes — compress 6-card grid so right column
+     of Page 2 doesn't overflow into footer. */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-outcome-cards{gap:5px!important;margin:5px 0 6px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-card{padding:5px 4px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-pct{font-size:15px!important;margin-bottom:2px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-lbl{font-size:8.5px!important;line-height:1.2!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-quote{margin:6px 0!important;padding:6px 10px!important;font-size:10px!important;line-height:1.35!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-link{margin:2px 0!important;font-size:10px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-video img{max-height:100px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-foot{padding:6px 22px!important;font-size:7.5px!important;}
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
-  /* Earlier 11in height-clamp rules reverted 2026-05-06 — they shrank
-     pages below natural content height, breaking column fill. Original
-     screen + 100vh print rules (defined elsewhere) handle sizing. */
-  #ar2-report .rpt-body{padding:12px 24px 8px;}
-  #ar2-report .rpt-sec{margin-bottom:8px;}
-  #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
-  #ar2-report .rpt-row{padding:2px 0;font-size:10.5px;}
-  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:4px 8px;font-size:10.5px;}
-  #ar2-report .rpt-tbl{font-size:10.5px;}
-  #ar2-report .rpt-sbox{padding:10px 12px;margin-bottom:6px;}
-  #ar2-report .rpt-sbox-title{margin-bottom:6px;padding-bottom:5px;}
-  #ar2-report .rpt-kpi{padding:12px 12px;}
-  #ar2-report .rpt-kpi-val{font-size:22px;}
-  #ar2-report .rpt-head{padding:16px 28px 14px;}
-  #ar2-report .rpt-disc{font-size:8px;padding-top:6px;margin-top:8px;line-height:1.5;}
-  #ar2-report .rpt-foot{padding:10px 28px;}
-  #ar2-report .rpt-stat{padding:8px 10px;}
-  #ar2-report .rpt-stat-val{font-size:14px;}
-  #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
+  /* Tightened 2026-05-06 to fit Assessment page (.rpt) within 11in. The
+     min-height:0 + overflow:hidden on .rpt-body (set in @media print
+     above) means content past the boundary is now clipped instead of
+     pushing the footer off, but we still want full content visible —
+     these compressions ensure that. */
+  #ar2-report .rpt-body{padding:10px 22px 6px!important;}
+  #ar2-report .rpt-sec{margin-bottom:6px!important;}
+  #ar2-report .rpt-stitle{margin-bottom:5px!important;padding-bottom:3px!important;font-size:7.5px!important;}
+  #ar2-report .rpt-row{padding:1.5px 0!important;font-size:10px!important;}
+  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:3px 7px!important;font-size:10px!important;}
+  #ar2-report .rpt-tbl{font-size:10px!important;}
+  #ar2-report .rpt-sbox{padding:8px 10px!important;margin-bottom:5px!important;}
+  #ar2-report .rpt-sbox-title{margin-bottom:5px!important;padding-bottom:4px!important;}
+  #ar2-report .rpt-kpi{padding:10px 10px!important;}
+  #ar2-report .rpt-kpi-val{font-size:20px!important;}
+  #ar2-report .rpt-head{padding:12px 26px 11px!important;}
+  #ar2-report .rpt-disc{font-size:7.5px!important;padding-top:4px!important;margin-top:5px!important;line-height:1.45!important;}
+  #ar2-report .rpt-foot{padding:8px 26px!important;font-size:8px!important;}
+  #ar2-report .rpt-stat{padding:6px 9px!important;}
+  #ar2-report .rpt-stat-val{font-size:13px!important;}
+  #ar2-report .rpt-comments{padding:5px 9px!important;font-size:10px!important;}
+  #ar2-report .rpt-cta-bar{padding:6px 26px!important;}
+  #ar2-report .rpt-cta-bar .cta-label{font-size:8px!important;}
+  #ar2-report .rpt-cta-bar a{font-size:10px!important;}
+  /* Portrait Assessment: keep the property image stack visually pinned to
+     the bottom of left column (above footer) — same intent as the right
+     column video stack on screen. */
+  #ar2-report .rpt-img-grid{gap:6px!important;}
+  #ar2-report .rpt-img-wrap{max-height:120px!important;overflow:hidden!important;}
+  #ar2-report .rpt-img-wrap img{max-height:120px!important;object-fit:cover!important;}
 }
 @media print and (orientation:landscape){
   /* Earlier 8.5in height-clamp rules reverted 2026-05-06 — same reason
@@ -508,13 +542,18 @@
      print engine still produces orphan pages on landscape, switching
      to programmatic PDF generation (html2canvas + jsPDF) is Path B. */
   #ar2-report .rpt{font-size:10px;}
-  #ar2-report .rpt-head{padding:10px 20px;}
-  #ar2-report .rpt-logo{font-size:20px;}
-  #ar2-report .rpt-prop-name{font-size:16px;}
-  #ar2-report .rpt-body{padding:10px 20px 6px;}
-  #ar2-report .rpt-kpi{padding:8px 10px;}
-  #ar2-report .rpt-kpi-val{font-size:18px;}
-  #ar2-report .rpt-kpi-lbl{font-size:7px;}
+  #ar2-report .rpt-head{padding:8px 20px!important;}
+  #ar2-report .rpt-logo{font-size:18px!important;}
+  #ar2-report .rpt-prop-name{font-size:14px!important;}
+  #ar2-report .rpt-body{padding:8px 20px 4px!important;}
+  /* 5-KPI strip needs tighter padding + smaller val so all 5 cells render
+     consistent height without label wrap (which adds 14-18px per cell and
+     pushes Assessment past 8.5in → cascade onto phantom 2nd page). */
+  #ar2-report .rpt-kpi{padding:6px 8px!important;}
+  #ar2-report .rpt-kpis-5 .rpt-kpi{padding:6px 6px!important;}
+  #ar2-report .rpt-kpi-val{font-size:16px!important;}
+  #ar2-report .rpt-kpis-5 .rpt-kpi-val{font-size:14px!important;}
+  #ar2-report .rpt-kpi-lbl{font-size:6.5px!important;letter-spacing:1.5px!important;line-height:1.2!important;}
   #ar2-report .rpt-sec{margin-bottom:6px;}
   #ar2-report .rpt-stitle{font-size:7px;letter-spacing:2.5px;margin-bottom:5px;padding-bottom:3px;}
   #ar2-report .rpt-row{padding:2px 0;font-size:10px;}
