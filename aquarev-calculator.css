@@ -300,20 +300,17 @@
      OR reveal the ancestor chain if it's nested in Webflow wrappers */
   #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;margin:0!important;position:static!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
   /* Ensure Webflow wrapper ancestors of #ar2-report are visible */
-  /* break-inside:avoid is critical — without it, Chrome's print engine can
-     split this single-page block across multiple physical pages even with
-     overflow:hidden. The Hale Koa landscape PDF showed Assessment splitting
-     across 2 pages because this rule was missing. */
-  /* page-break-after:auto (NOT always) — the next page-element has its own
-     page-break-before:always, which generates exactly ONE physical break.
-     Setting :always here would generate adjacent forced breaks, which Chrome
-     resolves as TWO breaks → 1 phantom blank page between sections. */
-  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}
-  /* min-height:0 + overflow:hidden lets the flex child shrink below content
-     size, preventing it from pushing the footer past the page boundary. The
-     footer always stays anchored at the bottom inside .rpt's 100vh frame. */
-  #ar2-report .rpt .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;padding:16px 28px 12px!important;}
-  #ar2-report .rpt-foot{margin-top:auto!important;flex:0 0 auto!important;}
+  /* RESTORED to baseline 20260430a — break-inside:avoid + flex:1 1 0 +
+     min-height:0 on body + margin-top:auto on foot were ADDED on top of
+     baseline architecture, but they interact poorly with Chrome's print
+     pagination: when content is even 1-2px taller than 100vh, Chrome
+     ignores break-inside:avoid (it's a hint) and paginates anyway, but
+     the margin-top:auto pinning combined with flex layout pushes the
+     footer onto a phantom next page. Baseline architecture lets content
+     flow naturally; overflow:hidden + fixed height clips properly. */
+  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
+  #ar2-report .rpt .rpt-body{flex:1;}
+  #ar2-report .rpt-foot{margin-top:auto!important;}
   .no-print{display:none!important;}
   /* Hide chrome extensions and overlays */
   *[id*="hubspot"],*[class*="hubspot"],*[id*="HubSpot"],*[class*="HubSpot"],
@@ -330,13 +327,10 @@
   #ar2-report .rpt-factsheet-page,#ar2-report .rpt-factsheet-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-fs-kpi,#ar2-report .rpt-cert,#ar2-report .rpt-fs-cell{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-back-cover{page-break-before:always;break-before:page;}
-  #ar2-report .rpt-cover-page{page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-cover-page{page-break-after:auto!important;break-after:auto!important;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  /* Pool Profiles — break-inside:avoid added so Chrome doesn't paginate the
-     page across multiple physical sheets. Combined with overflow:hidden +
-     fixed height, content stays on a single page. */
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
   #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
@@ -347,11 +341,7 @@
   #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
-  /* Portrait Exec Summary — break-inside:avoid added to prevent pagination
-     across pages when bottom content (Investment Profile statlines, chart
-     SVG) gets clipped. Without this rule Chrome could paginate the block
-     even with overflow:hidden. */
-  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
   #ar2-report .rpt-es-body-1{flex:1!important;min-height:0!important;overflow:hidden;}
@@ -366,34 +356,29 @@
   #ar2-report .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
   #ar2-report .rpt-es-chart{margin:4px 0 8px!important;}
   #ar2-report .rpt-es-page a[href]{color:inherit;}
-  /* Footer pinned to the bottom of the print page via margin-top:auto so the
-     grid above can never push it off-page (root cause of the trailing blank
-     pages + back-cover bleed when pool count was at the page-cap). Grid is
-     flex:0 1 auto so it sizes to its content and never grows past what's
-     actually rendered.
-     Negative left/right margins extend the footer to bleed full-width past
-     the page padding (visual edge-to-edge band). Vertical margin-bottom
-     was -14px, but that pushed the footer's bottom edge 14px past the
-     page boundary → footer cascaded onto a phantom next page in the
-     PDF. Now 0 so footer ends exactly at the page boundary. */
-  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:0!important;margin-top:auto!important;flex-shrink:0!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-grid{flex:0 1 auto!important;}
-  #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
+  /* RESTORED to baseline: simple negative margins for full-bleed footer
+     band, no margin-top:auto pinning, no flex-shrink override. Combined
+     with .rpt-pp-page's overflow:hidden + fixed 100vh, content flows
+     naturally and clips at page boundary. The negative margin-bottom
+     reduces the footer's outer-height in flex layout, allowing slightly
+     more body content before triggering Chrome's pagination fallback. */
+  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;}
+  #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
   #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
   /* Back cover — full bleed, no white borders (overrides fact-sheet contain) */
   #ar2-report .rpt-back-cover-page img{object-fit:cover!important;}
   #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;break-after:avoid;}
   /* ── Landscape variants — clamp to exactly one landscape page, no bleed ── */
-  #ar2-report .rpt-ls-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
-  #ar2-report .rpt-ls-back-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;}
+  #ar2-report .rpt-ls-back-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;}
   #ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
-  #ar2-report .rpt-ls-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;width:100vw!important;max-width:none!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;width:100vw!important;max-width:none!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-ls-es-page,#ar2-report .rpt-ls-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-ls-es-body-3col,#ar2-report .rpt-ls-es-body-2col{flex:1!important;min-height:0!important;overflow:hidden!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-foot{margin-top:auto!important;}
   #ar2-report .rpt-ls-es-page a[href]{color:inherit;}
-  #ar2-report .rpt-pres-deck-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-pres-deck-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt a[href]{color:inherit;}
   #ar2-report .rpt-cta-bar a{color:#48cae4!important;text-decoration:none!important;}
   #ar2-report .rpt-media-wrap a{display:block;}
