@@ -457,87 +457,45 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════
-     PORTRAIT EXEC SUMMARY — content compression for print only.
-     Pages are now forced to 11in (1056px) but content was designed for
-     1113px screen page. ~57px excess content would bleed past footer.
-     Compression below shrinks paragraph margins, chart SVG max-height,
-     bignum size, and section padding to fit within the 11in print page.
-     SCREEN preview is unaffected because these rules are inside @media
-     print. */
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-tech-blurb{margin-bottom:3px!important;line-height:1.35!important;font-size:10.5px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h2{margin:5px 0 3px!important;font-size:16px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-h3-light{margin:5px 0 3px!important;font-size:11px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-bignum{font-size:28px!important;line-height:1.05!important;margin:0 0 5px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:120px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 4px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-chart-hdr{margin-bottom:2px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-p-light{margin-bottom:4px!important;line-height:1.35!important;font-size:10.5px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-lead{margin-bottom:6px!important;line-height:1.4!important;font-size:11px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline{padding:2px 0!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline .v{font-size:15px!important;min-width:64px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-statline .k{font-size:10px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:3px 0 4px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device img,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full img{max-height:90px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:3px 0 5px!important;gap:10px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page-1 .rpt-es-hero img{height:55px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero{margin:0!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-hero img{height:55px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page-2 .rpt-es-ritz img{max-height:120px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-left-2,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-right-2{padding:12px 22px 12px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark{margin:0 0 6px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul li,
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-ul-dark li{margin-bottom:2px!important;line-height:1.35!important;font-size:10.5px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-col .rpt-es-ul li{font-size:10.5px!important;}
-  /* Documented Performance Outcomes — compress 6-card grid so right column
-     of Page 2 doesn't overflow into footer. */
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-outcome-cards{gap:5px!important;margin:5px 0 6px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-card{padding:5px 4px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-pct{font-size:15px!important;margin-bottom:2px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-lbl{font-size:8.5px!important;line-height:1.2!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-quote{margin:6px 0!important;padding:6px 10px!important;font-size:10px!important;line-height:1.35!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-link{margin:2px 0!important;font-size:10px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-video img{max-height:100px!important;}
-  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-foot{padding:6px 22px!important;font-size:7.5px!important;}
+     PORTRAIT EXEC SUMMARY — minimal, baseline-style print tweaks.
+     Earlier 20260506f attempt over-compressed everything (font-size
+     down to 10.5px, device image capped at 90px, h2 dropped to 16px)
+     which produced a cramped, hard-to-read page. The baseline 20260430a
+     had ZERO body.ar-print-portrait Exec Summary overrides — it relied
+     on the natural 1113px screen height being close enough to 11in
+     (1056px) print height that content fit naturally with the existing
+     screen styles. Returning to that approach, with only the small
+     deltas needed to absorb the new 6-card outcome grid.
+     ══════════════════════════════════════════════════════════════════ */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-device-full{margin:0 0 8px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:3px 0 8px!important;}
+  /* 6-card outcome grid — slightly tighter than screen so Page 2 right
+     column has breathing room without aggressive font shrinking. */
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-outcome-cards{margin:6px 0 8px!important;}
+  body.ar-print-portrait #ar2-report .rpt-es-page .rpt-es-out-card{padding:6px 5px!important;}
 }
 /* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
 @media print and (orientation:portrait){
-  /* Tightened 2026-05-06 to fit Assessment page (.rpt) within 11in. The
-     min-height:0 + overflow:hidden on .rpt-body (set in @media print
-     above) means content past the boundary is now clipped instead of
-     pushing the footer off, but we still want full content visible —
-     these compressions ensure that. */
-  #ar2-report .rpt-body{padding:10px 22px 6px!important;}
-  #ar2-report .rpt-sec{margin-bottom:6px!important;}
-  #ar2-report .rpt-stitle{margin-bottom:5px!important;padding-bottom:3px!important;font-size:7.5px!important;}
-  #ar2-report .rpt-row{padding:1.5px 0!important;font-size:10px!important;}
-  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:3px 7px!important;font-size:10px!important;}
-  #ar2-report .rpt-tbl{font-size:10px!important;}
-  #ar2-report .rpt-sbox{padding:8px 10px!important;margin-bottom:5px!important;}
-  #ar2-report .rpt-sbox-title{margin-bottom:5px!important;padding-bottom:4px!important;}
-  #ar2-report .rpt-kpi{padding:10px 10px!important;}
-  #ar2-report .rpt-kpi-val{font-size:20px!important;}
-  #ar2-report .rpt-head{padding:12px 26px 11px!important;}
-  #ar2-report .rpt-disc{font-size:7.5px!important;padding-top:4px!important;margin-top:5px!important;line-height:1.45!important;}
-  #ar2-report .rpt-foot{padding:8px 26px!important;font-size:8px!important;}
-  #ar2-report .rpt-stat{padding:6px 9px!important;}
-  #ar2-report .rpt-stat-val{font-size:13px!important;}
-  #ar2-report .rpt-comments{padding:5px 9px!important;font-size:10px!important;}
-  #ar2-report .rpt-cta-bar{padding:6px 26px!important;}
-  #ar2-report .rpt-cta-bar .cta-label{font-size:8px!important;}
-  #ar2-report .rpt-cta-bar a{font-size:10px!important;}
-  /* Portrait Assessment: keep the property image stack visually pinned to
-     the bottom of left column (above footer) — same intent as the right
-     column video stack on screen. */
-  #ar2-report .rpt-img-grid{gap:6px!important;}
-  #ar2-report .rpt-img-wrap{max-height:120px!important;overflow:hidden!important;}
-  #ar2-report .rpt-img-wrap img{max-height:120px!important;object-fit:cover!important;}
+  /* Baseline 20260430a values restored 2026-05-06 — earlier 20260506f
+     compressions over-shrank text (10px rows, 7.5px stitle, 13px stat-val)
+     producing the cramped page the user flagged. These values are slightly
+     tighter than screen but readable, matching the working baseline. */
+  #ar2-report .rpt-body{padding:12px 24px 8px;}
+  #ar2-report .rpt-sec{margin-bottom:8px;}
+  #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
+  #ar2-report .rpt-row{padding:2px 0;font-size:10.5px;}
+  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:4px 8px;font-size:10.5px;}
+  #ar2-report .rpt-tbl{font-size:10.5px;}
+  #ar2-report .rpt-sbox{padding:10px 12px;margin-bottom:6px;}
+  #ar2-report .rpt-sbox-title{margin-bottom:6px;padding-bottom:5px;}
+  #ar2-report .rpt-kpi{padding:12px 12px;}
+  #ar2-report .rpt-kpi-val{font-size:22px;}
+  #ar2-report .rpt-head{padding:16px 28px 14px;}
+  #ar2-report .rpt-disc{font-size:8px;padding-top:6px;margin-top:8px;line-height:1.5;}
+  #ar2-report .rpt-foot{padding:10px 28px;}
+  #ar2-report .rpt-stat{padding:8px 10px;}
+  #ar2-report .rpt-stat-val{font-size:14px;}
+  #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
 }
 @media print and (orientation:landscape){
   /* Earlier 8.5in height-clamp rules reverted 2026-05-06 — same reason
@@ -546,18 +504,17 @@
      print engine still produces orphan pages on landscape, switching
      to programmatic PDF generation (html2canvas + jsPDF) is Path B. */
   #ar2-report .rpt{font-size:10px;}
-  #ar2-report .rpt-head{padding:8px 20px!important;}
-  #ar2-report .rpt-logo{font-size:18px!important;}
-  #ar2-report .rpt-prop-name{font-size:14px!important;}
-  #ar2-report .rpt-body{padding:8px 20px 4px!important;}
-  /* 5-KPI strip needs tighter padding + smaller val so all 5 cells render
-     consistent height without label wrap (which adds 14-18px per cell and
-     pushes Assessment past 8.5in → cascade onto phantom 2nd page). */
-  #ar2-report .rpt-kpi{padding:6px 8px!important;}
-  #ar2-report .rpt-kpis-5 .rpt-kpi{padding:6px 6px!important;}
-  #ar2-report .rpt-kpi-val{font-size:16px!important;}
-  #ar2-report .rpt-kpis-5 .rpt-kpi-val{font-size:14px!important;}
-  #ar2-report .rpt-kpi-lbl{font-size:6.5px!important;letter-spacing:1.5px!important;line-height:1.2!important;}
+  #ar2-report .rpt-head{padding:10px 20px;}
+  #ar2-report .rpt-logo{font-size:20px;}
+  #ar2-report .rpt-prop-name{font-size:16px;}
+  #ar2-report .rpt-body{padding:10px 20px 6px;}
+  #ar2-report .rpt-kpi{padding:8px 10px;}
+  #ar2-report .rpt-kpi-val{font-size:18px;}
+  #ar2-report .rpt-kpi-lbl{font-size:7px;}
+  /* 5-KPI strip — slightly smaller val font so 5 cells fit cleanly without
+     label wrap (consistent cell heights). */
+  #ar2-report .rpt-kpis-5 .rpt-kpi-val{font-size:16px;}
+  #ar2-report .rpt-kpis-5 .rpt-kpi-lbl{letter-spacing:1.8px;}
   #ar2-report .rpt-sec{margin-bottom:6px;}
   #ar2-report .rpt-stitle{font-size:7px;letter-spacing:2.5px;margin-bottom:5px;padding-bottom:3px;}
   #ar2-report .rpt-row{padding:2px 0;font-size:10px;}
