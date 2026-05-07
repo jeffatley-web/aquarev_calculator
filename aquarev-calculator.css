@@ -475,57 +475,60 @@
 /* Landscape Assessment — preview at 11×8.5 aspect ratio so it visually
    matches the printed page. JS adds the .rpt-landscape class when
    EX.layout==='landscape'. */
-/* ── Unified landscape page dimensions for SCREEN preview ──
-   Force explicit width AND height so every landscape page (cover,
-   exec summary, assessment, pool profiles, back cover) renders at
-   exactly 11×8.5 in / 1120×866 px on screen. Browsers can compute
-   aspect-ratio inconsistently when content height varies — explicit
-   pixel dimensions remove that ambiguity. */
-#ar2-report .rpt-ls-cover-page,
-#ar2-report .rpt-ls-back-cover-page,
-#ar2-report .rpt-ls-es-page,
-#ar2-report .rpt.rpt-landscape,
-#ar2-report .rpt-pp-page.rpt-pp-page-landscape{
-  width:1120px!important;
-  max-width:1120px!important;
-  height:866px!important;
-  min-height:0!important;
-  max-height:866px!important;
-  margin:32px auto 0!important;
-  overflow:hidden!important;
-  display:flex!important;
-  flex-direction:column!important;
-  box-sizing:border-box!important;
+/* ════════════════════════════════════════════════════════════════════
+   SCREEN-MODE landscape preview rules.
+   IMPORTANT: wrapped in @media screen so they DO NOT leak into print.
+   In print mode, the @media print block (above in this stylesheet) sets
+   page elements to 100vw/100vh which match the actual 11×8.5 print page.
+   Without this @media screen scope, the !important here would override
+   print sizing → content would overflow physical page → Chrome would
+   cascade onto phantom pages. (Caused multi-day debug.)
+   ════════════════════════════════════════════════════════════════════ */
+@media screen {
+  /* Force explicit width/height so every landscape page renders at exactly
+     11×8.5 in / 1120×866 px in screen preview. */
+  #ar2-report .rpt-ls-cover-page,
+  #ar2-report .rpt-ls-back-cover-page,
+  #ar2-report .rpt-ls-es-page,
+  #ar2-report .rpt.rpt-landscape,
+  #ar2-report .rpt-pp-page.rpt-pp-page-landscape{
+    width:1120px;
+    max-width:1120px;
+    height:866px;
+    min-height:0;
+    max-height:866px;
+    margin:32px auto 0;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    box-sizing:border-box;
+  }
+  /* Body containment so content doesn't push CTA/footer past the page boundary */
+  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0;min-height:0;overflow:hidden;}
+  #ar2-report .rpt-pp-page.rpt-pp-page-landscape > .rpt-pp-grid{flex:1 1 0;min-height:0;overflow:hidden;}
+  /* Landscape Assessment compression — fits 5-KPI strip + 2-col body + CTA + footer in 866px */
+  #ar2-report .rpt.rpt-landscape{font-size:11px;}
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 22px 8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:22px;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:10px 12px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:8px;letter-spacing:1.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpis-5 .rpt-kpi-val{font-size:16px;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 22px 8px;font-size:10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:8px;margin-bottom:5px;padding-bottom:3px;}
+  #ar2-report .rpt.rpt-landscape .rpt-row{font-size:10px;padding:1.5px 0;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl td,#ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:3px 6px;font-size:9.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:8px 10px;margin-bottom:5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7.5px;margin-bottom:4px;padding-bottom:3px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat{padding:6px 8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:13px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:6px 22px;font-size:9px;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot{padding:7px 22px;font-size:8.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px;line-height:1.4;}
 }
-/* Landscape Assessment + Pool Profile body containment so content
-   doesn't push CTA/footer past the page boundary. flex:1 1 0 +
-   min-height:0 lets the body shrink below its intrinsic content height;
-   overflow:hidden clips any excess content cleanly. */
-#ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
-#ar2-report .rpt-pp-page.rpt-pp-page-landscape > .rpt-pp-grid{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
-/* Landscape Assessment compression — tighter type so the 5-KPI strip +
-   2-col body + CTA + footer all fit within 866px without clipping. */
-#ar2-report .rpt.rpt-landscape{font-size:11px;}
-#ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 22px 8px;}
-#ar2-report .rpt.rpt-landscape .rpt-logo{font-size:22px;}
-#ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
-#ar2-report .rpt.rpt-landscape .rpt-kpi{padding:10px 12px;}
-#ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
-#ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:8px;letter-spacing:1.5px;}
-#ar2-report .rpt.rpt-landscape .rpt-kpis-5 .rpt-kpi-val{font-size:16px;}
-#ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 22px 8px;font-size:10px;}
-#ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:8px;margin-bottom:5px;padding-bottom:3px;}
-#ar2-report .rpt.rpt-landscape .rpt-row{font-size:10px;padding:1.5px 0;}
-#ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9.5px;}
-#ar2-report .rpt.rpt-landscape .rpt-tbl td,#ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:3px 6px;font-size:9.5px;}
-#ar2-report .rpt.rpt-landscape .rpt-sbox{padding:8px 10px;margin-bottom:5px;}
-#ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7.5px;margin-bottom:4px;padding-bottom:3px;}
-#ar2-report .rpt.rpt-landscape .rpt-stat{padding:6px 8px;}
-#ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:13px;}
-#ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px;}
-#ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:6px 22px;font-size:9px;}
-#ar2-report .rpt.rpt-landscape .rpt-foot{padding:7px 22px;font-size:8.5px;}
-#ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px;line-height:1.4;}
 #ar2-report .rpt .rpt-body{flex:1;}
 #ar2-report .rpt *{box-sizing:border-box;}
 /* ── Header band ── */
