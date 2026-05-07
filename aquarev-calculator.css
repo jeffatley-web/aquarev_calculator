@@ -486,22 +486,28 @@
    ════════════════════════════════════════════════════════════════════ */
 @media screen {
   /* Force explicit width/height so every landscape page renders at exactly
-     11×8.5 in / 1120×866 px in screen preview. */
+     11×8.5 in / 1120×866 px in screen preview.
+     !important inside @media screen is safe — the @media print rules use
+     a separate media query, so this !important only applies on screen and
+     never overrides print sizing. Without !important, other unscoped rules
+     defined later in this stylesheet (e.g. .rpt-ls-cover-page{width:100%})
+     would win the cascade and render some pages narrower than the ES pages. */
   #ar2-report .rpt-ls-cover-page,
   #ar2-report .rpt-ls-back-cover-page,
   #ar2-report .rpt-ls-es-page,
   #ar2-report .rpt.rpt-landscape,
   #ar2-report .rpt-pp-page.rpt-pp-page-landscape{
-    width:1120px;
-    max-width:1120px;
-    height:866px;
-    min-height:0;
-    max-height:866px;
-    margin:32px auto 0;
-    overflow:hidden;
-    display:flex;
-    flex-direction:column;
-    box-sizing:border-box;
+    width:1120px!important;
+    max-width:1120px!important;
+    height:866px!important;
+    min-height:866px!important;
+    max-height:866px!important;
+    margin:32px auto 0!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+    box-sizing:border-box!important;
+    aspect-ratio:auto!important;
   }
   /* Body containment so content doesn't push CTA/footer past the page boundary */
   #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0;min-height:0;overflow:hidden;}
