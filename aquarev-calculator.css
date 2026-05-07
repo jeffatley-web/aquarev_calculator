@@ -472,6 +472,10 @@
    REPORT — Professional design system
    ══════════════════════════════════════════════════ */
 #ar2-report .rpt{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:13px;line-height:1.5;max-width:860px;margin:0 auto;display:flex;flex-direction:column;}
+/* Landscape Assessment — preview at 11×8.5 aspect ratio so it visually
+   matches the printed page. JS adds the .rpt-landscape class when
+   EX.layout==='landscape'. */
+#ar2-report .rpt.rpt-landscape{max-width:1120px;aspect-ratio:11/8.5;overflow:hidden;}
 #ar2-report .rpt .rpt-body{flex:1;}
 #ar2-report .rpt *{box-sizing:border-box;}
 /* ── Header band ── */
@@ -747,6 +751,8 @@
 #ar2-report .rpt-pres-deck-note{margin-top:18px;font-size:11px;color:#7db8cc;font-style:italic;}
 /* ── Pool Profiles Page ── */
 #ar2-report .rpt-pp-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:12px;line-height:1.4;max-width:860px;margin:0 auto;padding:22px 28px 18px;page-break-before:always;break-before:page;box-sizing:border-box;}
+/* Landscape Pool Profiles — preview at 11×8.5 aspect ratio. */
+#ar2-report .rpt-pp-page.rpt-pp-page-landscape{max-width:1120px;aspect-ratio:11/8.5;min-height:0;overflow:hidden;}
 #ar2-report .rpt-pp-page *{box-sizing:border-box;}
 #ar2-report .rpt-pp-header{border-bottom:1.5px solid #00b4d8;padding-bottom:10px;margin-bottom:14px;}
 #ar2-report .rpt-pp-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#00b4d8;line-height:1;}

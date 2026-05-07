@@ -2399,7 +2399,7 @@ function generateReport(){
     }
 
     if(pageCount>0){
-      poolProfilesHtml='<div class="rpt-pp-page">'
+      poolProfilesHtml='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
         +'<div class="rpt-pp-header">'
           +'<div class="rpt-pp-title">POOL PROFILES</div>'
           +'<div class="rpt-pp-sub">'+esc(propName)+' \u00b7 '+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
@@ -2496,11 +2496,12 @@ function generateReport(){
         // ── LANDSCAPE: compact single-page layout ──
         // Left col stack:  Purchase Options → Property Images
         // Right col stack: Monthly Savings Breakdown → Water Conservation → Video Resources
+        // (imgHtml / ytHtml already include their own .rpt-stitle headers)
         ?'<div class="rpt-sec rpt-cols">'
           +'<div>'
             +'<div class="rpt-stitle">Purchase Options</div>'
             +purBox+advBox
-            +(imgHtml?'<div class="rpt-stitle" style="margin-top:10px">Property Images</div>'+imgHtml:'')
+            +(imgHtml?'<div style="margin-top:10px">'+imgHtml+'</div>':'')
           +'</div>'
           +'<div>'
             +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
@@ -2511,9 +2512,10 @@ function generateReport(){
                 +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
               +'</tbody>'
             +'</table>'
-            +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
+            // Savings Projection Applied is shown in the 5-KPI strip on
+            // landscape — skip the duplicate row here.
             +(EX.inclWater?waterHtml:'')
-            +(ytHtml?'<div class="rpt-stitle" style="margin-top:10px">Video Resources</div>'+ytHtml:'')
+            +(ytHtml?'<div style="margin-top:10px">'+ytHtml+'</div>':'')
           +'</div>'
         +'</div>'
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
