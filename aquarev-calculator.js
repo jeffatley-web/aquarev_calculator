@@ -1910,7 +1910,7 @@ function generateReport(){
     return '<div class="rpt-es-chart">'
       +'<div class="rpt-es-chart-hdr">'
         +'<div class="rpt-es-chart-hdr-text">'
-          +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
+          +'<div class="rpt-es-chart-title">Investment &amp; Return Profile <span class="rpt-es-chart-sub-title">— 5-Year Outlook</span></div>'
           +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
         +'</div>'
         +'<div class="rpt-es-chart-stats">'
@@ -2572,28 +2572,30 @@ function generateReport(){
       // Rows B-D: layout-aware
       +(EX.layout==='landscape'
         // ── LANDSCAPE: compact single-page layout ──
-        // Left col stack:  Purchase Options → Property Images
-        // Right col stack: Monthly Savings Breakdown → Water Conservation → Video Resources
-        // (imgHtml / ytHtml already include their own .rpt-stitle headers)
-        ?'<div class="rpt-sec rpt-cols">'
-          +'<div>'
-            +'<div class="rpt-stitle">Purchase Options</div>'
-            +purBox+advBox
-            +(imgHtml?'<div style="margin-top:10px">'+imgHtml+'</div>':'')
+        // Each col is a flex column; content stacks at the top, Property
+        // Images / Video Resources are pinned to the bottom of each col
+        // via .rpt-ls-img-stack / .rpt-ls-media-stack with margin-top:auto.
+        ?'<div class="rpt-sec rpt-cols rpt-ls-row-b">'
+          +'<div class="rpt-ls-lcol">'
+            +'<div>'
+              +'<div class="rpt-stitle">Purchase Options</div>'
+              +purBox+advBox
+            +'</div>'
+            +(imgHtml?'<div class="rpt-ls-img-stack">'+imgHtml+'</div>':'')
           +'</div>'
-          +'<div>'
-            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-            +'<table class="rpt-tbl">'
-              +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
-              +'<tbody>'
-                +bkRows
-                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
-              +'</tbody>'
-            +'</table>'
-            // Savings Projection Applied is shown in the 5-KPI strip on
-            // landscape — skip the duplicate row here.
-            +(EX.inclWater?waterHtml:'')
-            +(ytHtml?'<div style="margin-top:10px">'+ytHtml+'</div>':'')
+          +'<div class="rpt-ls-rcol">'
+            +'<div>'
+              +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+              +'<table class="rpt-tbl">'
+                +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
+                +'<tbody>'
+                  +bkRows
+                  +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
+                +'</tbody>'
+              +'</table>'
+              +(EX.inclWater?waterHtml:'')
+            +'</div>'
+            +(ytHtml?'<div class="rpt-ls-media-stack">'+ytHtml+'</div>':'')
           +'</div>'
         +'</div>'
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
