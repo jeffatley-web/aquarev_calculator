@@ -475,7 +475,57 @@
 /* Landscape Assessment — preview at 11×8.5 aspect ratio so it visually
    matches the printed page. JS adds the .rpt-landscape class when
    EX.layout==='landscape'. */
-#ar2-report .rpt.rpt-landscape{max-width:1120px;aspect-ratio:11/8.5;overflow:hidden;}
+/* ── Unified landscape page dimensions for SCREEN preview ──
+   Force explicit width AND height so every landscape page (cover,
+   exec summary, assessment, pool profiles, back cover) renders at
+   exactly 11×8.5 in / 1120×866 px on screen. Browsers can compute
+   aspect-ratio inconsistently when content height varies — explicit
+   pixel dimensions remove that ambiguity. */
+#ar2-report .rpt-ls-cover-page,
+#ar2-report .rpt-ls-back-cover-page,
+#ar2-report .rpt-ls-es-page,
+#ar2-report .rpt.rpt-landscape,
+#ar2-report .rpt-pp-page.rpt-pp-page-landscape{
+  width:1120px!important;
+  max-width:1120px!important;
+  height:866px!important;
+  min-height:0!important;
+  max-height:866px!important;
+  margin:32px auto 0!important;
+  overflow:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+  box-sizing:border-box!important;
+}
+/* Landscape Assessment + Pool Profile body containment so content
+   doesn't push CTA/footer past the page boundary. flex:1 1 0 +
+   min-height:0 lets the body shrink below its intrinsic content height;
+   overflow:hidden clips any excess content cleanly. */
+#ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
+#ar2-report .rpt-pp-page.rpt-pp-page-landscape > .rpt-pp-grid{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
+/* Landscape Assessment compression — tighter type so the 5-KPI strip +
+   2-col body + CTA + footer all fit within 866px without clipping. */
+#ar2-report .rpt.rpt-landscape{font-size:11px;}
+#ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 22px 8px;}
+#ar2-report .rpt.rpt-landscape .rpt-logo{font-size:22px;}
+#ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpi{padding:10px 12px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:8px;letter-spacing:1.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-kpis-5 .rpt-kpi-val{font-size:16px;}
+#ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 22px 8px;font-size:10px;}
+#ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:8px;margin-bottom:5px;padding-bottom:3px;}
+#ar2-report .rpt.rpt-landscape .rpt-row{font-size:10px;padding:1.5px 0;}
+#ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-tbl td,#ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:3px 6px;font-size:9.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-sbox{padding:8px 10px;margin-bottom:5px;}
+#ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7.5px;margin-bottom:4px;padding-bottom:3px;}
+#ar2-report .rpt.rpt-landscape .rpt-stat{padding:6px 8px;}
+#ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:13px;}
+#ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px;}
+#ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:6px 22px;font-size:9px;}
+#ar2-report .rpt.rpt-landscape .rpt-foot{padding:7px 22px;font-size:8.5px;}
+#ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px;line-height:1.4;}
 #ar2-report .rpt .rpt-body{flex:1;}
 #ar2-report .rpt *{box-sizing:border-box;}
 /* ── Header band ── */
@@ -699,15 +749,16 @@
 #ar2 .ar-export-panel-label{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--aq);margin:8px 0 4px;}
 /* ── Landscape Cover (page) ── */
 #ar2-report .rpt-ls-cover-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;overflow:hidden;aspect-ratio:11/8.5;box-shadow:0 2px 12px rgba(4,15,30,.08);}
-#ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%;height:100%;object-fit:cover;display:block;}
-/* Position overlay inside the dark navy box on the cover image, just below
-   the AquaRevWater logo. Box spans roughly left 0-55%, top 0-45% — overlay
-   sits at left:6% top:32% with max-width:45% so longer property names stay
-   inside the box without bleeding past its right edge. */
-#ar2-report .rpt-ls-cover-overlay{position:absolute;left:6%;top:32%;max-width:45%;text-align:left;z-index:2;color:#fff;}
+#ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;position:absolute!important;inset:0!important;z-index:1;}
+#ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;}
+/* Position overlay inside the dark navy box on the cover image, BELOW
+   the AquaRevWater logo. The logo sits in the upper portion of the box;
+   placing the overlay at top:50% with max-width:45% keeps the title text
+   under the logo and inside the box width. */
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:6%;top:50%;max-width:45%;text-align:left;z-index:2;color:#fff;}
 #ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;}
-#ar2-report .rpt-ls-cover-prop{margin-top:10px;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;line-height:1.1;word-wrap:break-word;}
-#ar2-report .rpt-ls-cover-date{margin-top:8px;font-family:'DM Sans',sans-serif;font-size:12px;color:#7db8cc;}
+#ar2-report .rpt-ls-cover-prop{margin-top:8px;font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:#fff;line-height:1.1;word-wrap:break-word;}
+#ar2-report .rpt-ls-cover-date{margin-top:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#7db8cc;}
 /* ── Landscape Back Cover (page) — full bleed ── */
 #ar2-report .rpt-ls-back-cover-page{aspect-ratio:11/8.5;}
 /* ── Landscape Exec Summary pages (preview screen) ── */
@@ -715,9 +766,15 @@
 #ar2-report .rpt-ls-es-page *{box-sizing:border-box;}
 #ar2-report .rpt-ls-es-head{flex-shrink:0;}
 #ar2-report .rpt-ls-es-foot{margin-top:auto;flex-shrink:0;}
-#ar2-report .rpt-ls-es-body-3col{flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;min-height:0;}
-#ar2-report .rpt-ls-es-body-2col{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0;}
-#ar2-report .rpt-ls-es-col{padding:18px 22px 22px;overflow:hidden;}
+/* Switched from CSS Grid to Flexbox for explicit height containment.
+   Grid auto-rows can stretch row height to max content, leaking past
+   the page footer. Flexbox + flex:1 1 0 + min-height:0 + overflow:hidden
+   guarantees each col fills the body height exactly and clips overflow. */
+#ar2-report .rpt-ls-es-body-3col{flex:1 1 0;min-height:0;display:flex;flex-direction:row;}
+#ar2-report .rpt-ls-es-body-2col{flex:1 1 0;min-height:0;display:flex;flex-direction:row;}
+#ar2-report .rpt-ls-es-body-3col > .rpt-ls-es-col{flex:1 1 0;width:0;min-width:0;}
+#ar2-report .rpt-ls-es-body-2col > .rpt-ls-es-col{flex:1 1 0;width:0;min-width:0;}
+#ar2-report .rpt-ls-es-col{padding:14px 18px 14px;overflow:hidden;min-height:0;height:100%;display:flex;flex-direction:column;}
 #ar2-report .rpt-ls-es-col-dark{background:#0a2540;color:#fff;}
 #ar2-report .rpt-ls-es-col-light{background:#fff;color:#222;}
 /* ── Col-with-anchor pattern (Page 1 cols 1 & 2) ──
@@ -726,7 +783,7 @@
 #ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-content{flex:0 0 auto;}
 #ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-anchor{margin-top:auto;padding-top:10px;}
 #ar2-report .rpt-ls-col-anchor-title-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.8px;color:#0a2540;margin-bottom:4px;text-transform:uppercase;font-weight:700;}
-#ar2-report .rpt-ls-col-anchor-img{width:100%;max-width:100%;height:auto;max-height:170px;object-fit:cover;display:block;border-radius:6px;}
+#ar2-report .rpt-ls-col-anchor-img{width:100%;max-width:100%;height:auto;max-height:120px;object-fit:cover;display:block;border-radius:6px;}
 /* ── H3-dark variant for the bottom-anchor 2-col bullet headers (dark cols) */
 #ar2-report .rpt-ls-es-page .rpt-es-h3-dark{font-size:10px;letter-spacing:1.8px;margin:0 0 4px;color:#48cae4;font-family:'Bebas Neue',sans-serif;font-weight:700;text-transform:uppercase;}
 /* ── Assessment Snapshot scope tiles (Page 1 col 3) — 2-stat panel */
@@ -739,10 +796,13 @@
 #ar2-report .rpt-ls-chart-card{background:#fff;border-radius:6px;margin-top:10px;padding:10px;color:#222;}
 #ar2-report .rpt-ls-chart-card .rpt-es-chart{margin:0;}
 #ar2-report .rpt-ls-chart-card .rpt-es-chart-svg{max-height:140px;}
-/* ── Page 2 Col 3 — NSF default image OR vertical photo stack ── */
-#ar2-report .rpt-ls-p2c3{padding:18px 22px 18px 18px;display:flex;flex-direction:column;gap:8px;justify-content:center;}
-#ar2-report .rpt-ls-p2c3-default-img{width:88%;max-width:100%;height:auto;display:block;margin:0 auto;object-fit:contain;}
-#ar2-report .rpt-ls-p2c3-stack{display:flex;flex-direction:column;gap:8px;height:100%;}
+/* ── Page 2 Col 3 — NSF default image OR vertical photo stack ──
+   Image fills full column width and height (object-fit:cover preserves
+   aspect by cropping). Photo stack uses flex:1 1 0 on each tile so all
+   4 photos share the column height equally with 8px gaps. */
+#ar2-report .rpt-ls-p2c3{padding:14px 18px 14px;display:flex;flex-direction:column;gap:0;}
+#ar2-report .rpt-ls-p2c3-default-img{width:100%;height:100%;max-width:none;display:block;margin:0;object-fit:contain;flex:1 1 0;min-height:0;}
+#ar2-report .rpt-ls-p2c3-stack{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-height:0;width:100%;}
 #ar2-report .rpt-ls-p2c3-tile{width:100%;flex:1 1 0;min-height:0;border-radius:5px;overflow:hidden;background:#0a2540;}
 #ar2-report .rpt-ls-p2c3-tile img{width:100%;height:100%;display:block;object-fit:cover;}
 #ar2-report .rpt-ls-video-caption-pre{margin-bottom:4px;font-size:9.5px;color:#5a7388;}

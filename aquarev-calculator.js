@@ -2456,11 +2456,21 @@ function generateReport(){
     }
 
     if(pageCount>0){
-      poolProfilesHtml='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
-        +'<div class="rpt-pp-header">'
-          +'<div class="rpt-pp-title">POOL PROFILES</div>'
-          +'<div class="rpt-pp-sub">'+esc(propName)+' \u00b7 '+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
+      // Header bar matches Exec Summary style: logo + "Pool Profile" subtitle
+      // on the left; property name + date + pool count + NSF badge on the right.
+      var ppHeader='<div class="rpt-es-head rpt-pp-es-head">'
+        +'<div class="rpt-es-head-left">'
+          +'<div class="rpt-es-logo">AQUAREV WATER</div>'
+          +'<div class="rpt-es-logo-sub">Pool Profile</div>'
         +'</div>'
+        +'<div class="rpt-es-head-right">'
+          +'<div class="rpt-es-prop-name">'+esc(propName)+'</div>'
+          +'<div class="rpt-es-prop-date">'+todayStr+' \u00b7 '+pageCount+' '+(pageCount===1?'pool':'pools')+'</div>'
+          +'<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified \u00b7 IAPMO</span>'
+        +'</div>'
+      +'</div>';
+      poolProfilesHtml='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
+        +ppHeader
         +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
         // ── Footer band (spans full page width via negative margins) ──
         +'<div class="rpt-foot">'
