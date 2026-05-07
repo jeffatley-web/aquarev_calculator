@@ -2461,11 +2461,14 @@ function generateReport(){
     +'</div>'
 
     // ── KPI stripe ──
-    +'<div class="rpt-kpis">'
+    +'<div class="rpt-kpis'+(EX.layout==='landscape'?' rpt-kpis-5':'')+'">'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Devices</div><div class="rpt-kpi-val teal">'+R.total_dev+'</div></div>'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Monthly Savings</div><div class="rpt-kpi-val green">'+fc(R.total_mo,0)+'</div></div>'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Annual Savings</div><div class="rpt-kpi-val green">'+fc(R.total_yr,0)+'</div></div>'
       +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Purchase Payback</div><div class="rpt-kpi-val teal">'+(R.payback>0?Math.round(R.payback)+'\u00a0mo':'N/A')+'</div></div>'
+      +(EX.layout==='landscape'
+        ? '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Savings Projection Applied</div><div class="rpt-kpi-val teal">'+Math.round(S.savings_weight*100)+'%</div></div>'
+        : '')
     +'</div>'
 
     // ── Body ──
@@ -2491,10 +2494,13 @@ function generateReport(){
       // Rows B-D: layout-aware
       +(EX.layout==='landscape'
         // ── LANDSCAPE: compact single-page layout ──
+        // Left col stack:  Purchase Options → Property Images
+        // Right col stack: Monthly Savings Breakdown → Water Conservation → Video Resources
         ?'<div class="rpt-sec rpt-cols">'
           +'<div>'
             +'<div class="rpt-stitle">Purchase Options</div>'
             +purBox+advBox
+            +(imgHtml?'<div class="rpt-stitle" style="margin-top:10px">Property Images</div>'+imgHtml:'')
           +'</div>'
           +'<div>'
             +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
@@ -2507,9 +2513,9 @@ function generateReport(){
             +'</table>'
             +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
             +(EX.inclWater?waterHtml:'')
+            +(ytHtml?'<div class="rpt-stitle" style="margin-top:10px">Video Resources</div>'+ytHtml:'')
           +'</div>'
         +'</div>'
-        +((imgHtml||ytHtml)?'<div class="rpt-sec"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+imgHtml+ytHtml+'</div></div>':'')
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
 
         // ── PORTRAIT: Purchase Options stacked left, Breakdown + Water right ──

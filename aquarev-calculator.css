@@ -485,6 +485,8 @@
 #ar2-report .rpt-nsf-badge{display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid rgba(0,180,216,.4);border-radius:3px;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:600;}
 /* ── KPI stripe ── */
 #ar2-report .rpt-kpis{background:linear-gradient(to right,#071628,#0a2540);border-bottom:3px solid #00b4d8;display:grid;grid-template-columns:repeat(4,1fr);}
+/* Landscape variant: 5th block (Savings Projection Applied) — 5-col grid */
+#ar2-report .rpt-kpis-5{grid-template-columns:repeat(5,1fr);}
 #ar2-report .rpt-kpi{padding:16px 16px;text-align:center;border-right:1px solid rgba(0,180,216,.15);}
 #ar2-report .rpt-kpi:last-child{border-right:none;}
 #ar2-report .rpt-kpi-lbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#fff;margin-bottom:6px;}
