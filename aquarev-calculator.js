@@ -1898,15 +1898,26 @@ function generateReport(){
       svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
       svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
     }
-    svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
+    svg+='</svg>';
+    // Net Benefit + Payback Period labels are now rendered as HTML ABOVE the
+    // SVG (not inside it) so they don't overlap chart graphic / data line
+    // and remain clearly readable.
+    var paybackHtml='';
     if(payback>0 && payback<=60){
       var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
-      svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
+      paybackHtml='<span class="rpt-es-chart-stat-pb">Payback Period: '+paybackTxt+'</span>';
     }
-    svg+='</svg>';
     return '<div class="rpt-es-chart">'
-      +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
-      +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+      +'<div class="rpt-es-chart-hdr">'
+        +'<div class="rpt-es-chart-hdr-text">'
+          +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
+          +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+        +'</div>'
+        +'<div class="rpt-es-chart-stats">'
+          +'<span class="rpt-es-chart-stat-net">'+fmtTick(Math.round(net5))+' Net Benefit</span>'
+          +(paybackHtml?'<br>'+paybackHtml:'')
+        +'</div>'
+      +'</div>'
       +svg
     +'</div>';
   }
@@ -2512,7 +2523,7 @@ function generateReport(){
   // Page order:
   //   Portrait : Cover → Exec Summary → Assessment → Pool Profiles → Fact Sheet → Back Cover
   //   Landscape: Ls Cover → Ls Exec Summary → Assessment → Pool Profiles → Ls Back Cover → Presentation Deck
-  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml+'<div class="rpt">'
+  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml+'<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
 
     // ── Header band ──
     +'<div class="rpt-head">'
