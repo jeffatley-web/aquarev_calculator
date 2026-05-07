@@ -700,10 +700,14 @@
 /* ── Landscape Cover (page) ── */
 #ar2-report .rpt-ls-cover-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;overflow:hidden;aspect-ratio:11/8.5;box-shadow:0 2px 12px rgba(4,15,30,.08);}
 #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%;height:100%;object-fit:cover;display:block;}
-#ar2-report .rpt-ls-cover-overlay{position:absolute;left:9%;top:60%;transform:translateY(-50%);text-align:left;z-index:2;color:#fff;}
-#ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:13px;letter-spacing:5px;text-transform:uppercase;color:#48cae4;font-weight:600;}
-#ar2-report .rpt-ls-cover-prop{margin-top:14px;font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:3px;color:#fff;line-height:1.05;}
-#ar2-report .rpt-ls-cover-date{margin-top:10px;font-family:'DM Sans',sans-serif;font-size:13px;color:#7db8cc;}
+/* Position overlay inside the dark navy box on the cover image, just below
+   the AquaRevWater logo. Box spans roughly left 0-55%, top 0-45% — overlay
+   sits at left:6% top:32% with max-width:45% so longer property names stay
+   inside the box without bleeding past its right edge. */
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:6%;top:32%;max-width:45%;text-align:left;z-index:2;color:#fff;}
+#ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;}
+#ar2-report .rpt-ls-cover-prop{margin-top:10px;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;line-height:1.1;word-wrap:break-word;}
+#ar2-report .rpt-ls-cover-date{margin-top:8px;font-family:'DM Sans',sans-serif;font-size:12px;color:#7db8cc;}
 /* ── Landscape Back Cover (page) — full bleed ── */
 #ar2-report .rpt-ls-back-cover-page{aspect-ratio:11/8.5;}
 /* ── Landscape Exec Summary pages (preview screen) ── */
@@ -716,6 +720,46 @@
 #ar2-report .rpt-ls-es-col{padding:18px 22px 22px;overflow:hidden;}
 #ar2-report .rpt-ls-es-col-dark{background:#0a2540;color:#fff;}
 #ar2-report .rpt-ls-es-col-light{background:#fff;color:#222;}
+/* ── Col-with-anchor pattern (Page 1 cols 1 & 2) ──
+   Top content stacks naturally; anchor section pinned to bottom of column. */
+#ar2-report .rpt-ls-col-with-anchor{display:flex;flex-direction:column;}
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-content{flex:0 0 auto;}
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-anchor{margin-top:auto;padding-top:10px;}
+#ar2-report .rpt-ls-col-anchor-title-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.8px;color:#0a2540;margin-bottom:4px;text-transform:uppercase;font-weight:700;}
+#ar2-report .rpt-ls-col-anchor-img{width:100%;max-width:100%;height:auto;max-height:170px;object-fit:cover;display:block;border-radius:6px;}
+/* ── H3-dark variant for the bottom-anchor 2-col bullet headers (dark cols) */
+#ar2-report .rpt-ls-es-page .rpt-es-h3-dark{font-size:10px;letter-spacing:1.8px;margin:0 0 4px;color:#48cae4;font-family:'Bebas Neue',sans-serif;font-weight:700;text-transform:uppercase;}
+/* ── Assessment Snapshot scope tiles (Page 1 col 3) — 2-stat panel */
+#ar2-report .rpt-ls-scope-row{display:flex;align-items:center;gap:14px;margin:8px 0 10px;padding:10px 8px;background:rgba(72,202,228,.06);border:1px solid rgba(72,202,228,.18);border-radius:6px;}
+#ar2-report .rpt-ls-scope-item{flex:1;text-align:center;}
+#ar2-report .rpt-ls-scope-num{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:2px;color:#48cae4;line-height:1;}
+#ar2-report .rpt-ls-scope-lbl{font-family:'DM Sans',sans-serif;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#cfe2eb;margin-top:3px;}
+#ar2-report .rpt-ls-scope-divider{width:1px;height:36px;background:rgba(72,202,228,.25);}
+#ar2-report .rpt-ls-volume-lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#cfe2eb;margin:6px 0 2px;}
+#ar2-report .rpt-ls-chart-card{background:#fff;border-radius:6px;margin-top:10px;padding:10px;color:#222;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart{margin:0;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-svg{max-height:140px;}
+/* ── Page 2 Col 3 — NSF default image OR vertical photo stack ── */
+#ar2-report .rpt-ls-p2c3{padding:18px 22px 18px 18px;display:flex;flex-direction:column;gap:8px;justify-content:center;}
+#ar2-report .rpt-ls-p2c3-default-img{width:88%;max-width:100%;height:auto;display:block;margin:0 auto;object-fit:contain;}
+#ar2-report .rpt-ls-p2c3-stack{display:flex;flex-direction:column;gap:8px;height:100%;}
+#ar2-report .rpt-ls-p2c3-tile{width:100%;flex:1 1 0;min-height:0;border-radius:5px;overflow:hidden;background:#0a2540;}
+#ar2-report .rpt-ls-p2c3-tile img{width:100%;height:100%;display:block;object-fit:cover;}
+#ar2-report .rpt-ls-video-caption-pre{margin-bottom:4px;font-size:9.5px;color:#5a7388;}
+#ar2-report .rpt-ls-video-hero{display:block;}
+#ar2-report .rpt-ls-video-hero img{width:100%;max-height:120px;object-fit:cover;border-radius:5px;display:block;}
+/* ── Property Photos drawer (Step 4 export panel) ── */
+#ar2 .ar-p2c3-drawer{margin:4px 0 10px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:10px;}
+#ar2 .ar-p2c3-slots{display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-p2c3-slot{position:relative;width:100%;aspect-ratio:16/9;border:1px dashed rgba(0,180,216,.35);border-radius:6px;background:rgba(0,180,216,.04);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;transition:background .15s,border-color .15s;}
+#ar2 .ar-p2c3-slot:hover{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.55);}
+#ar2 .ar-p2c3-slot.filled{cursor:default;border-style:solid;border-color:rgba(0,180,216,.5);}
+#ar2 .ar-p2c3-slot.dragging{background:rgba(0,180,216,.2);border-color:#48cae4;}
+#ar2 .ar-p2c3-slot img{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2 .ar-p2c3-slot-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#7db8cc;font-size:11px;text-align:center;padding:8px;width:100%;height:100%;}
+#ar2 .ar-p2c3-slot-inner input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+#ar2 .ar-p2c3-rm{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.65);color:#fff;cursor:pointer;font-size:14px;line-height:22px;padding:0;display:flex;align-items:center;justify-content:center;}
+#ar2 .ar-p2c3-rm:hover{background:rgba(239,68,68,.85);}
 #ar2-report .rpt-ls-es-page .rpt-es-title{font-size:34px;letter-spacing:2px;}
 #ar2-report .rpt-ls-es-page .rpt-es-h2{font-size:14px;margin:10px 0 5px;}
 #ar2-report .rpt-ls-es-page .rpt-es-lead{font-size:10.5px;line-height:1.5;}
