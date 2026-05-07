@@ -23,6 +23,7 @@ var I={
   port:   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="1" width="10" height="14" rx="1"/><path d="M6 4h4M6 7h4M6 10h2"/></svg>',
   land:   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="14" height="10" rx="1"/><path d="M4 6h8M4 9h8M4 12h5"/></svg>',
   trash:  '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M6 4V2h4v2M5 4v9a1 1 0 001 1h4a1 1 0 001-1V4"/><path d="M7 7v4M9 7v4"/></svg>',
+  copy:   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1"/><path d="M11 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2"/></svg>',
   back:   '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 3L5 8l5 5"/></svg>',
 };
 
@@ -123,8 +124,13 @@ function confettiBurst(opts){
 window.confettiBurst=confettiBurst;  // expose so Pool Measure bridge can fire it too
 var ARCHIVE_PASSCODE='1116';
 
-/* ── Calculator session-unlock flag (in-memory, resets on reload) ── */
+/* ── Calculator session-unlock flag ──
+   Persisted across reloads via localStorage when "Remember password" is
+   checked. The flag is initialized from localStorage on page load so the
+   user only sees the gate on first visit (or after they clear storage). */
+var CALC_REMEMBER_KEY='ar2:calc-unlocked';
 var CALC_UNLOCKED=false;
+try { CALC_UNLOCKED=localStorage.getItem(CALC_REMEMBER_KEY)==='1'; } catch(e){}
 var CALC_PASSCODE='1717';
 
 /* ── Calculator full-page passcode gate ── */
@@ -139,16 +145,26 @@ function showCalcPasswordModal(onUnlock){
     +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">ROI Calculator</div>'
     +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">Enter the passcode to access the calculator.</div>'
     +'<input id="ar2-calc-pw-input" type="password" inputmode="numeric" autocomplete="off" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:18px;font-family:\'JetBrains Mono\',monospace;letter-spacing:6px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center" placeholder="••••" />'
-    +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:14px"></div>'
+    +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:8px"></div>'
+    +'<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cfe2eb;margin-bottom:14px;cursor:pointer;user-select:none">'
+      +'<input id="ar2-calc-pw-remember" type="checkbox" style="width:14px;height:14px;cursor:pointer;accent-color:#00b4d8" />'
+      +'<span>Remember password on this device</span>'
+    +'</label>'
     +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
   +'</div>';
   document.body.appendChild(m);
   var input=document.getElementById('ar2-calc-pw-input');
   var err=document.getElementById('ar2-calc-pw-err');
+  var remember=document.getElementById('ar2-calc-pw-remember');
   var submit=function(){
     if(input.value===CALC_PASSCODE){
       if(m.parentNode) m.parentNode.removeChild(m);
       CALC_UNLOCKED=true;
+      // Persist the unlock if the user opted in. localStorage write is
+      // wrapped in try/catch in case private-browsing storage is denied.
+      if(remember && remember.checked){
+        try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(e){}
+      }
       onUnlock();
     } else {
       err.textContent='Incorrect passcode';
@@ -484,10 +500,60 @@ function bankAction(id, action){
       var s=typeof r==='string'?r:r.value;
       var snap=JSON.parse(s);
       if(action==='recall') bankRecall(snap);
+      else if(action==='duplicate') bankDuplicate(snap);
       else if(action==='portrait') bankDownloadPdf(snap,'portrait');
       else if(action==='landscape') bankDownloadPdf(snap,'landscape');
     })
     .catch(function(){alert('Could not load report.');});
+}
+
+/* ── Bank: duplicate an existing snapshot as a new editable record ──
+   Shows a confirmation prompt (matching the Save-as-New flow style) and
+   on confirm clones the snapshot with a new id, fresh savedAt, and a
+   "Copy of" name prefix so the user can edit it independently. */
+function bankDuplicate(snap){
+  var origName=snap.propertyName||'Unnamed Property';
+  showDuplicateConfirmModal(origName, function(){
+    var newId=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    var newName='Copy of '+origName;
+    // Deep-clone via JSON round-trip (safe — snapshot is plain data)
+    var copy=JSON.parse(JSON.stringify(snap));
+    copy.id=newId;
+    copy.propertyName=newName;
+    copy.savedAt=new Date().toISOString();
+    if(copy.state) copy.state.propertyName=newName;
+    var entry={id:newId, propertyName:newName, savedAt:copy.savedAt, summary:copy.summary};
+    window.storage.set(BANK_PFX+newId, JSON.stringify(copy))
+      .then(function(){return bankGetIndex();})
+      .then(function(idx){
+        idx.unshift(entry);
+        return window.storage.set(BANK_IDX, JSON.stringify(idx));
+      })
+      .then(function(){renderBank();})
+      .catch(function(){alert('Could not duplicate report.');});
+  });
+}
+
+/* ── Duplicate confirmation modal — matches Save-as-New style ── */
+function showDuplicateConfirmModal(propName, onConfirm){
+  var existing=document.getElementById('ar2-dup-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-dup-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.75);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:10px">DUPLICATE ASSESSMENT</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:22px">Create a duplicate of <strong style="color:#fff">"'+esc(propName)+'"</strong>?<br><br>The copy will be saved as <strong style="color:#fff">"Copy of '+esc(propName)+'"</strong> so you can edit it independently from the original.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-dup-cancel" style="background:rgba(255,255,255,.08);color:#cfe2eb;border:1px solid rgba(255,255,255,.15);padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Cancel</button>'
+      +'<button id="ar2-dup-confirm" style="background:linear-gradient(135deg,#f0a500,#f7c948);color:#071628;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Duplicate</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  var close=function(){if(m.parentNode)m.parentNode.removeChild(m);};
+  document.getElementById('ar2-dup-confirm').onclick=function(){close();onConfirm();};
+  document.getElementById('ar2-dup-cancel').onclick=close;
+  m.addEventListener('click',function(e){if(e.target===m)close();});
 }
 
 /* ── Render Archive view ── */
@@ -545,6 +611,7 @@ function renderBank(){
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
           +'<div class="ar-bank-actions">'
             +'<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
             +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
             +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>'
