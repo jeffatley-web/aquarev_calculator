@@ -1800,6 +1800,74 @@ function generateReport(){
   var videoThumb='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e7b7ad1e4dd22ebb22b_Video%20Thumbnail.png';
   var deviceGraphic='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa547c218410884aef0c68_7c39da892a2af616348807ae82c6c6e7_AquaRev-Device_Graphic-5b.png';
   var videoUrl='https://youtu.be/zWqMcZFWpyE';
+  // ── 60-Month Investment Chart (function declaration — defined BEFORE its
+  //    call below. Was previously declared inside the portrait Exec Summary
+  //    if-block, but in strict-mode IIFE that scopes the function to the
+  //    block and made it inaccessible at the call site. Moved here so both
+  //    portrait and landscape Exec Summary builders can call it. ──
+  function buildInvestmentChart(inv, totalMo, payback, net5){
+    var W=540, H=300;
+    var pad={top:38, right:24, bottom:36, left:96};
+    var plotW=W-pad.left-pad.right;
+    var plotH=H-pad.top-pad.bottom;
+    var pickStep=function(mag){
+      if(mag<10000) return 2500;
+      if(mag<25000) return 5000;
+      if(mag<60000) return 10000;
+      if(mag<150000) return 25000;
+      if(mag<300000) return 50000;
+      if(mag<800000) return 100000;
+      if(mag<2000000) return 250000;
+      return 500000;
+    };
+    var maxAbs=Math.max(Math.abs(Number(net5)||0), Math.abs(Number(inv)||0), 1);
+    var step=pickStep(maxAbs);
+    var yMax=Math.ceil(Math.max(Number(net5)||0, step)/step)*step;
+    var yMin=-Math.ceil(Math.max(Number(inv)||0, step)/step)*step;
+    var yRange=yMax-yMin;
+    var xMax=60;
+    var xCoord=function(m){return pad.left+(m/xMax)*plotW;};
+    var yCoord=function(v){return pad.top+plotH-((v-yMin)/yRange)*plotH;};
+    var fmtTick=function(v){var s=v<0?'-':'';var a=Math.abs(v);return s+'$'+a.toLocaleString('en-US');};
+    var x0=xCoord(0), y0=yCoord(-inv), x60=xCoord(60), y60=yCoord(net5), yZero=yCoord(0);
+    var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
+    var yTicks=[];
+    for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
+      +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
+        +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
+        +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
+      +'</linearGradient></defs>';
+    yTicks.forEach(function(v){
+      var py=yCoord(v);
+      svg+='<line x1="'+pad.left+'" y1="'+py+'" x2="'+(W-pad.right)+'" y2="'+py+'" stroke="#e6e9ef" stroke-width="1"/>';
+      svg+='<text x="'+(pad.left-8)+'" y="'+(py+4)+'" text-anchor="end" font-size="11" fill="#222" font-family="DM Sans, sans-serif">'+fmtTick(v)+'</text>';
+    });
+    var xBase=pad.top+plotH;
+    svg+='<line x1="'+pad.left+'" y1="'+xBase+'" x2="'+(W-pad.right)+'" y2="'+xBase+'" stroke="#222" stroke-width="1"/>';
+    svg+='<text x="'+x0+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">0</text>';
+    svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
+    svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
+    svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
+    var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
+    svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
+    svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
+    if(payback>0 && payback<=60){
+      svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
+      svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
+    }
+    svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
+    if(payback>0 && payback<=60){
+      var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
+      svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
+    }
+    svg+='</svg>';
+    return '<div class="rpt-es-chart">'
+      +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
+      +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+      +svg
+    +'</div>';
+  }
   // Shared chart HTML — built when any Exec Summary variant is on
   var esChartHtml='';
   if(EX.inclExecSummary || EX.inclLsExecSummary){
@@ -1840,80 +1908,7 @@ function generateReport(){
       +'</div>'
     +'</div>';
 
-    // ── 60-Month Investment Chart (function declaration — fully hoisted,
-    // accessible from both portrait and landscape Exec Summary builders) ──
-    function buildInvestmentChart(inv, totalMo, payback, net5){
-      var W=540, H=300;
-      var pad={top:38, right:24, bottom:36, left:96};
-      var plotW=W-pad.left-pad.right;
-      var plotH=H-pad.top-pad.bottom;
-      // Dynamic Y range — pick a tick step that gives 4-6 ticks across the data
-      // Prevents wasted whitespace at low investment levels.
-      var pickStep=function(mag){
-        if(mag<10000) return 2500;
-        if(mag<25000) return 5000;
-        if(mag<60000) return 10000;
-        if(mag<150000) return 25000;
-        if(mag<300000) return 50000;
-        if(mag<800000) return 100000;
-        if(mag<2000000) return 250000;
-        return 500000;
-      };
-      var maxAbs=Math.max(Math.abs(Number(net5)||0), Math.abs(Number(inv)||0), 1);
-      var step=pickStep(maxAbs);
-      var yMax=Math.ceil(Math.max(Number(net5)||0, step)/step)*step;
-      var yMin=-Math.ceil(Math.max(Number(inv)||0, step)/step)*step;
-      var yRange=yMax-yMin;
-      var xMax=60;
-      var xCoord=function(m){return pad.left+(m/xMax)*plotW;};
-      var yCoord=function(v){return pad.top+plotH-((v-yMin)/yRange)*plotH;};
-      var fmtTick=function(v){var s=v<0?'-':'';var a=Math.abs(v);return s+'$'+a.toLocaleString('en-US');};
-      var x0=xCoord(0), y0=yCoord(-inv), x60=xCoord(60), y60=yCoord(net5), yZero=yCoord(0);
-      var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
-      // Build Y ticks at the dynamic step interval
-      var yTicks=[];
-      for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
-      var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
-        +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
-          +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
-          +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
-        +'</linearGradient></defs>';
-      // Y gridlines + tick labels
-      yTicks.forEach(function(v){
-        var py=yCoord(v);
-        svg+='<line x1="'+pad.left+'" y1="'+py+'" x2="'+(W-pad.right)+'" y2="'+py+'" stroke="#e6e9ef" stroke-width="1"/>';
-        svg+='<text x="'+(pad.left-8)+'" y="'+(py+4)+'" text-anchor="end" font-size="11" fill="#222" font-family="DM Sans, sans-serif">'+fmtTick(v)+'</text>';
-      });
-      // X axis baseline at y=yMin
-      var xBase=pad.top+plotH;
-      svg+='<line x1="'+pad.left+'" y1="'+xBase+'" x2="'+(W-pad.right)+'" y2="'+xBase+'" stroke="#222" stroke-width="1"/>';
-      svg+='<text x="'+x0+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">0</text>';
-      svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
-      svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
-      svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
-      // Fill polygon — line + drop to y=0 + back to start
-      var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
-      svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
-      // Line over fill (green for positive trajectory)
-      svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
-      // Vertical marker at payback crossover for visual reference (no overlapping text)
-      if(payback>0 && payback<=60){
-        svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
-        svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
-      }
-      // Stacked legend at top-right — Net Benefit + Payback Period (no overlap with chart data)
-      svg+='<text x="'+(W-6)+'" y="'+(pad.top+12)+'" text-anchor="end" font-size="12" fill="#15803d" font-family="DM Sans, sans-serif" font-weight="700">'+fmtTick(Math.round(net5))+' Net Benefit</text>';
-      if(payback>0 && payback<=60){
-        var paybackTxt=(payback>=10?Math.round(payback):payback.toFixed(1))+' Months';
-        svg+='<text x="'+(W-6)+'" y="'+(pad.top+26)+'" text-anchor="end" font-size="10" fill="#444" font-family="DM Sans, sans-serif">Payback Period: '+paybackTxt+'</text>';
-      }
-      svg+='</svg>';
-      return '<div class="rpt-es-chart">'
-        +'<div class="rpt-es-chart-title">Investment &amp; Return Profile<br><span class="rpt-es-chart-sub-title">5-Year Outlook</span></div>'
-        +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
-        +svg
-      +'</div>';
-    }
+    // (buildInvestmentChart is now hoisted above — see definition before esChartHtml.)
 
     // Optional Custom section at bottom of Page 1 — only renders if title or copy filled
     var ctTitle=(EX.execCustomTitle||'').trim();
