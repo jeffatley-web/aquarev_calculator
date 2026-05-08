@@ -703,11 +703,29 @@ function updateModeButtonsUI() {
   if (cancel) cancel.style.display = (S.mode === 'idle') ? 'none' : '';
 }
 
-// Esc key as a global "cancel current tool" — matches the Cancel button.
+// Keyboard shortcuts on the map step:
+//   Esc   — discard pending draft (if any), else cancel current tool mode
+//   Enter — register pending draft (when focus is in the review panel)
+// Skipped when typing in any non-review input so users can edit other fields.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  if (S.mode && S.mode !== 'idle') {
-    setMode('idle');
+  if (e.key === 'Escape') {
+    // Pending draft takes priority over mode cancel — matches the on-card hint.
+    if (S.pendingPoolId) { onReviewDiscard(); e.preventDefault(); return; }
+    if (S.mode && S.mode !== 'idle') { setMode('idle'); e.preventDefault(); }
+    return;
+  }
+  if (e.key === 'Enter') {
+    if (!S.pendingPoolId) return;
+    // Only fire when focus is inside the review panel — leaves other forms
+    // (property name, depth fields elsewhere) untouched.
+    const reviewCard = document.getElementById('ap-review');
+    if (!reviewCard) return;
+    const focused = document.activeElement;
+    if (!focused || !reviewCard.contains(focused)) return;
+    // Don't intercept Enter inside textareas or buttons that handle it themselves.
+    if (focused.tagName === 'TEXTAREA') return;
+    if (focused.tagName === 'BUTTON' && focused.dataset.action) return;
+    onReviewRegister();
     e.preventDefault();
   }
 });
@@ -1033,20 +1051,32 @@ async function onDetect() {
     prepared.push({ type:'Feature', properties:{ role:'pool' }, geometry:{ type:'Polygon', coordinates:[geoRing] }});
   }
   if (prepared.length) pushHistory(`auto-detect (${prepared.length})`);
+  // Auto-detect now produces drafts (per UX rework Phase 2). Reps review
+  // each polygon in the existing single review panel (Next/Prev cycler) and
+  // either Register, Retry, or Discard. No marker is rendered until the rep
+  // accepts. Use "Register all" to bulk-accept the whole batch at once.
+  const firstId = [];
   for (const feat of prepared) {
     const [id] = draw.add(feat);
     draw.setFeatureProperty(id, 'role', 'pool');
-    draw.setFeatureProperty(id, 'registered', true);
+    draw.setFeatureProperty(id, 'registered', false);
     const stored = draw.get(id);
     const p = addPool({ drawId: id, polygon: stored, fromDetect: true });
-    p.number = S.nextPoolNumber++;
-    ensurePoolMarker(p);
+    // Don't assign p.number yet — number is allocated at registration time.
+    firstId.push(p.id);
     addedCount++;
   }
 
   renderCatalog();
   setStatus(`Detected ${addedCount}`, 'ready');
-  toast(`Found ${addedCount} water ${addedCount===1?'body':'bodies'}`, addedCount ? 'ok':'err');
+  toast(`Found ${addedCount} water ${addedCount===1?'body':'bodies'} — review or Register all`, addedCount ? 'ok':'err');
+  // Open the first detected polygon in the review panel so the rep can step
+  // through the batch. The Next/Prev cycler appears automatically when 2+
+  // drafts are pending. The "Register all" mini-button still bulk-accepts.
+  if (firstId.length) {
+    const first = S.pools.find(x => x.id === firstId[0]);
+    if (first) enterReviewFor(first);
+  }
 }
 
 // ─── Magic Wand: click-to-trace one pool at a time ──────────
@@ -1538,9 +1568,10 @@ function addPool({ drawId, polygon, fromDetect, fromUser }) {
   const id = 'p' + (S.nextId++);
   const devices = {};
   for (const pp of PIPES) devices[pp.k] = 0;
-  // Auto-detect dumps many at once → register them immediately so they aren't
-  // all stuck as drafts. Wand / manual single-trace go into review as drafts.
-  const registered = !!fromDetect;
+  // All polygons (trace, wand, auto-detect) start as drafts and require
+  // explicit Register confirmation in the review panel (per UX rework
+  // Phase 2). Bulk acceptance is available via the "Register all" button.
+  const registered = false;
   S.pools.push({
     id, drawId,
     name: `${typeLabel(type)} ${S.pools.filter(p=>classify(p.sq_m)===type).length + 1}`,
@@ -2017,8 +2048,12 @@ function openReviewFor(poolId) {
     $('ap-review-pipes').innerHTML = '';
     $('ap-btn-register').disabled = true;
     $('ap-btn-discard').disabled = true;
+    const retryBtn = $('ap-btn-retry');
+    if (retryBtn) retryBtn.disabled = true;
     $('ap-review-kbd').style.display = 'none';
     $('ap-review-counter').style.display = 'none';
+    const cycleWrap = document.getElementById('ap-review-cycle');
+    if (cycleWrap) cycleWrap.style.display = 'none';
     S.pendingPoolId = null;
     return;
   }
@@ -2048,9 +2083,39 @@ function openReviewFor(poolId) {
   }).join('');
   $('ap-btn-register').disabled = false;
   $('ap-btn-discard').disabled = false;
+  // Retry only enabled for sources where we know which tool to re-enter.
+  const retryBtn = $('ap-btn-retry');
+  if (retryBtn) retryBtn.disabled = !(p.source === 'manual' || p.source === 'wand');
   $('ap-review-kbd').style.display = '';
   renderReviewCounter();
+  renderDraftCycle();
   setTimeout(() => $('ap-review-name').focus(), 50);
+}
+
+// ── Draft cycler — visible when 2+ unregistered drafts exist (typical
+// after Auto-detect-all). Lets the rep step through the batch one at a
+// time without having to click them on the map. JS keeps the index in
+// sync with S.pendingPoolId.
+function renderDraftCycle() {
+  const wrap = document.getElementById('ap-review-cycle');
+  if (!wrap) return;
+  const drafts = S.pools.filter(x => !x.registered);
+  if (drafts.length < 2 || !S.pendingPoolId) { wrap.style.display = 'none'; return; }
+  const idx = drafts.findIndex(x => x.id === S.pendingPoolId);
+  wrap.style.display = '';
+  const cnt = document.getElementById('ap-review-cycle-count');
+  if (cnt) cnt.textContent = `Draft ${idx + 1} of ${drafts.length}`;
+  const prev = document.getElementById('ap-btn-review-prev');
+  const next = document.getElementById('ap-btn-review-next');
+  if (prev) prev.disabled = idx <= 0;
+  if (next) next.disabled = idx >= drafts.length - 1;
+}
+function onReviewCycle(direction) {
+  const drafts = S.pools.filter(x => !x.registered);
+  if (drafts.length < 2) return;
+  const idx = drafts.findIndex(x => x.id === S.pendingPoolId);
+  const target = drafts[Math.max(0, Math.min(drafts.length - 1, idx + direction))];
+  if (target && target.id !== S.pendingPoolId) openReviewFor(target.id);
 }
 
 function onReviewRegister() {
@@ -2083,9 +2148,39 @@ function onReviewDiscard() {
   // Undo entry from creation can go too since we're discarding
   if (S.history.length) S.history.pop();
   updateUndoButton();
-  openReviewFor(null);
+  // If there are still drafts (e.g. auto-detect batch), advance to the next.
+  // Otherwise close the review panel.
+  const nextDraft = S.pools.find(x => !x.registered);
+  if (nextDraft) openReviewFor(nextDraft.id); else openReviewFor(null);
   renderCatalog();
   toast('Discarded');
+}
+
+// ── Retry: discard the current draft and re-enter the same tool that
+// produced it. Lets reps recover from a wand misfire or a botched trace
+// in one click. The pool's source field tells us which mode to re-enter.
+function onReviewRetry() {
+  const id = S.pendingPoolId;
+  if (!id) return;
+  const p = S.pools.find(x => x.id === id);
+  const source = p && p.source;
+  // Discard mirrors onReviewDiscard but skips the toast and the next-draft
+  // handoff because we're going straight back into a tool.
+  if (p) { try { draw.delete(p.drawId); } catch(e){} }
+  S.pools = S.pools.filter(x => x.id !== id);
+  if (S.history.length) S.history.pop();
+  updateUndoButton();
+  openReviewFor(null);
+  renderCatalog();
+  // Re-enter the same mode. Trace = 'manual', wand = 'wand', detected = 'detected' (no auto-retry — just return to idle).
+  const modeFor = { manual: 'tracing', wand: 'wand' };
+  const next = modeFor[source];
+  if (next) {
+    setMode(next);
+    toast(`Retry — ${source === 'wand' ? 'click another point' : 'trace again'}`);
+  } else {
+    toast('Retry not available for detected pools — use Discard');
+  }
 }
 function onReviewPipeDelta(key, delta) {
   const id = S.pendingPoolId;
@@ -2573,6 +2668,9 @@ document.addEventListener('click', (ev) => {
   else if (action === 'send-to-calculator') sendToCalculator();
   else if (action === 'review-register') onReviewRegister();
   else if (action === 'review-discard') onReviewDiscard();
+  else if (action === 'review-retry') onReviewRetry();
+  else if (action === 'review-prev') onReviewCycle(-1);
+  else if (action === 'review-next') onReviewCycle(1);
   else if (action === 'review-recapture') onReviewRecapture();
   else if (action === 'merge-mode') setMode(S.mode === 'merging' ? 'idle' : 'merging');
   else if (action === 'cancel-mode') setMode('idle');
