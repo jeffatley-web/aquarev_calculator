@@ -799,9 +799,12 @@
 #ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-outcome-cards{gap:6px;margin:6px 0 8px;}
 #ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-out-card{padding:6px 5px;}
 #ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-link{margin:4px 0;}
-/* Tail h2 still gets a tiny extra top push so the ESG / Video Summary
-   block sit just above the column footer when content is sparse. */
-#ar2-report .rpt-es-page-2 .rpt-es-left-2 > .rpt-es-h2-tail,
+/* Right col Video Summary still pins to the bottom so the thumbnail
+   sits at the column foot — that's the intentional layout for the right
+   column. Left col ESG no longer pins; it flows naturally under the
+   quote with normal spacing so col-1 content is balanced rather than
+   bunched (top half) + isolated bottom block. Any leftover height drops
+   below the ESG bullets near the footer. */
 #ar2-report .rpt-es-page-2 .rpt-es-right-2 > .rpt-es-h2-tail{margin-top:auto;padding-top:8px;}
 /* Custom user-supplied section (full-width above footer on Page 1) */
 #ar2-report .rpt-es-custom{background:#f0fbff;border-top:3px solid #00b4d8;padding:14px 32px 16px;flex-shrink:0;}
