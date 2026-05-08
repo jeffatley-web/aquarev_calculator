@@ -912,6 +912,34 @@
    image displays at its source proportions without cropping or stretching. */
 #ar2-report .rpt-ls-es-page .rpt-es-video{display:block;border-radius:5px;overflow:hidden;width:100%;margin:6px 0 0;}
 #ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%;height:auto;max-height:none;display:block;}
+/* ── Landscape ES Page 2 ── ──────────────────────────────────────────────
+   Col 1 Ritz photo: full-bleed across the column (no horizontal col padding)
+   so the wide narrow source image has more visual presence. Compress ESG
+   section below to absorb the image's vertical footprint without clipping.
+   Col 2 Video Summary: title sits directly above the thumbnail with normal
+   spacing — no margin-top:auto pin (which used to leave an empty gap).
+   Other content tightened so the column distributes evenly head-to-foot. */
+/* ── Col 1: full-bleed Ritz image — extend past 18px col padding both sides
+   so the image spans wall-to-wall. width:calc(100%+36px) overrides the
+   inherited width:100% from .rpt-ls-es-page .rpt-es-ritz earlier in the file. */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-ritz-fb{margin:8px -18px 8px;border-radius:0;width:calc(100% + 36px);}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-ritz-fb img{width:100%;height:auto;max-height:none;display:block;}
+/* ── Col 1: compressed ESG section ── */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-ul-dark{margin:2px 0 0;padding-left:14px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-ul-dark li{font-size:9.5px;line-height:1.35;margin-bottom:2px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-h2:nth-of-type(2){margin:8px 0 3px;font-size:13px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-h2:nth-of-type(2) + .rpt-es-p{font-size:9.5px;line-height:1.4;margin-bottom:3px;}
+/* ── Col 2: tighten content + flow Video Summary naturally ── */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2){display:flex;flex-direction:column;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-h2{margin:8px 0 4px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-p,
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-p-light{margin-bottom:4px;font-size:10px;line-height:1.4;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-outcome-cards{gap:5px;margin:4px 0 6px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-outcome-cards .rpt-es-out-card{padding:6px 8px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-ul li{font-size:10px;margin-bottom:2px;line-height:1.35;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-video-caption-pre{display:none;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-link{margin:2px 0;font-size:10.5px;line-height:1.3;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-video-hero{margin:6px 0 0;}
 #ar2-report .rpt-ls-es-page .rpt-es-chart{margin:0 0 8px;}
 #ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:240px;}
 #ar2-report .rpt-ls-es-page .rpt-es-custom{padding:10px 14px;border-top:3px solid #00b4d8;background:#f0fbff;}

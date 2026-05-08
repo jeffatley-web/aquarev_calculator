@@ -2350,7 +2350,7 @@ function generateReport(){
         +'<div class="rpt-ls-es-col rpt-ls-es-col-dark">'
           +'<div class="rpt-es-h2">Active Use Case Reference</div>'
           +'<p class="rpt-es-p"><strong>The Ritz-Carlton, Turtle Bay — O‘ahu, HI</strong></p>'
-          +'<div class="rpt-es-ritz">'+cdnImg(ritzImg,'',600)+'</div>'
+          +'<div class="rpt-es-ritz rpt-ls-ritz-fb">'+cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69ef5e25e47a5ed71f709c13_Ritz%20Fact%20Sheet%20Image.png','',900)+'</div>'
           +'<p class="rpt-es-p">Active use case with measured outcomes:</p>'
           +'<div class="rpt-es-statline"><span class="v">68%</span><span class="k">Operating Cost Reduction</span></div>'
           +'<div class="rpt-es-statline"><span class="v">30%</span><span class="k">Salt Reduction</span></div>'
