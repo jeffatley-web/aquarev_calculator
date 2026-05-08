@@ -1918,7 +1918,12 @@ function renderCatalog() {
           : escapeHtml(p.name);
         const dev = PIPES.map(pp => ({ ...pp, count: p[pp.k] || 0 })).filter(x => x.count > 0);
         const deviceSummary = dev.length ? dev.map(x => `${x.count}× ${x.sz}`).join(' · ') : '';
-        return `<div class="ap-pool ${p.id===S.selectedPoolId?'selected':''} ${checked?'checked':''} ${draft?'draft':'registered'}" data-pool="${p.id}">
+        // Phase 3: only registered pools are draggable. Drafts have no number
+        // so reordering them has no visible effect; the drag handle is dimmed
+        // via CSS for drafts.
+        const draggable = p.registered ? 'true' : 'false';
+        return `<div class="ap-pool ${p.id===S.selectedPoolId?'selected':''} ${checked?'checked':''} ${draft?'draft':'registered'}" data-pool="${p.id}" draggable="${draggable}">
+          <span class="ap-pool-drag-handle" title="${draft ? '' : 'Drag to reorder'}" aria-hidden="true">⋮⋮</span>
           <input type="checkbox" class="ap-pool-check" data-pool-check="${p.id}" title="Select for merge">
           <div class="ap-pool-row">
             ${p.image ? `<div class="ap-pool-thumb-sm"><img src="${p.image}" alt=""></div>` : `<div class="ap-pool-thumb-sm empty">\u2013</div>`}
@@ -1944,6 +1949,7 @@ function renderCatalog() {
               </div>
             </div>
           </div>
+          <button class="ap-pool-x" data-pool-action="delete" data-pool="${p.id}" title="Delete this pool" aria-label="Delete pool">×</button>
         </div>`;
       }).join('');
   }
@@ -2750,6 +2756,83 @@ document.getElementById('ap-pool-list').addEventListener('contextmenu', (ev) => 
   ev.preventDefault();
   showPoolContextMenu(ev, card.dataset.pool);
 });
+
+// ─── Phase 3: drag-to-reorder pool rows ─────────────────────────────
+// HTML5 drag/drop on registered pool cards. Reordering renumbers pools
+// 1..N based on their new position in S.pools and updates the map flags
+// live. Drafts are not draggable (no number to reorder yet).
+(function attachPoolListDragDrop() {
+  const list = document.getElementById('ap-pool-list');
+  if (!list) return;
+  let dragSrcId = null;
+  list.addEventListener('dragstart', (ev) => {
+    const card = ev.target.closest('.ap-pool[draggable="true"]');
+    if (!card) return;
+    dragSrcId = card.dataset.pool;
+    card.classList.add('dragging');
+    if (ev.dataTransfer) {
+      ev.dataTransfer.effectAllowed = 'move';
+      // Required for Firefox to actually start a drag.
+      try { ev.dataTransfer.setData('text/plain', dragSrcId); } catch(e){}
+    }
+  });
+  list.addEventListener('dragover', (ev) => {
+    if (!dragSrcId) return;
+    const card = ev.target.closest('.ap-pool[draggable="true"]');
+    if (!card || card.dataset.pool === dragSrcId) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+    // Above-or-below split based on midpoint of the target row.
+    const rect = card.getBoundingClientRect();
+    const above = (ev.clientY - rect.top) < rect.height / 2;
+    list.querySelectorAll('.ap-pool.drop-above, .ap-pool.drop-below').forEach(el => {
+      if (el !== card) el.classList.remove('drop-above', 'drop-below');
+    });
+    card.classList.toggle('drop-above', above);
+    card.classList.toggle('drop-below', !above);
+  });
+  list.addEventListener('dragleave', (ev) => {
+    const card = ev.target.closest('.ap-pool');
+    if (card) card.classList.remove('drop-above', 'drop-below');
+  });
+  list.addEventListener('drop', (ev) => {
+    if (!dragSrcId) return;
+    ev.preventDefault();
+    const card = ev.target.closest('.ap-pool[draggable="true"]');
+    if (!card || card.dataset.pool === dragSrcId) { cleanupDrag(); return; }
+    const rect = card.getBoundingClientRect();
+    const above = (ev.clientY - rect.top) < rect.height / 2;
+    reorderPool(dragSrcId, card.dataset.pool, above ? 'before' : 'after');
+    cleanupDrag();
+  });
+  list.addEventListener('dragend', cleanupDrag);
+  function cleanupDrag() {
+    list.querySelectorAll('.ap-pool.dragging, .ap-pool.drop-above, .ap-pool.drop-below')
+      .forEach(el => el.classList.remove('dragging', 'drop-above', 'drop-below'));
+    dragSrcId = null;
+  }
+})();
+
+// Splice pool srcId out of S.pools and re-insert before/after targetId,
+// then renumber all registered pools 1..N in their new array order.
+function reorderPool(srcId, targetId, position) {
+  const srcIdx = S.pools.findIndex(p => p.id === srcId);
+  if (srcIdx < 0) return;
+  const [src] = S.pools.splice(srcIdx, 1);
+  let targetIdx = S.pools.findIndex(p => p.id === targetId);
+  if (targetIdx < 0) { S.pools.push(src); return; }
+  if (position === 'after') targetIdx += 1;
+  S.pools.splice(targetIdx, 0, src);
+  pushHistory(`reorder ${src.name}`);
+  // Renumber registered pools by their new array position.
+  let n = 1;
+  for (const p of S.pools) {
+    if (p.registered) { p.number = n++; ensurePoolMarker(p); }
+  }
+  S.nextPoolNumber = n;
+  renderCatalog();
+  toast('Reordered');
+}
 
 // Live-recompute gallons as depth changes in the review card.
 ['ap-review-depth'].forEach(id => {
