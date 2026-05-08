@@ -1786,7 +1786,7 @@ function generateReport(){
   // ── Build sub-sections ──────────────────────────────────────
 
   // Pool rows
-  var poolRows=S.bodies.map(function(b,i){
+  var poolRowsArr=S.bodies.map(function(b,i){
     var g=bodyGallons(b);
     // Only surface dimensions when the pool is in dimensions mode — not gallons mode or manual.
     var hasDims=b.inputMode!=='gallons' && b.length && b.width && b.depth;
@@ -1796,7 +1796,8 @@ function generateReport(){
       +'<span class="k">'+esc(b.label)+'\u2002<em style="color:#999;font-size:10px">'+b.poolType+'</em>'+sub+'</span>'
       +'<span class="v">'+fn(Math.round(g))+'\u00a0gal</span>'
     +'</div>';
-  }).join('');
+  });
+  var poolRows=poolRowsArr.join('');
 
   // Device rows
   var devRows=PIPES.filter(function(p){return S[p.k]>0;}).map(function(p){
@@ -2607,7 +2608,7 @@ function generateReport(){
   // Page order:
   //   Portrait : Cover → Exec Summary → Assessment → Pool Profiles → Fact Sheet → Back Cover
   //   Landscape: Ls Cover → Ls Exec Summary → Assessment → Pool Profiles → Ls Back Cover → Presentation Deck
-  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml+'<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
+  var singlePageAssessment='<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
 
     // ── Header band ──
     +'<div class="rpt-head">'
@@ -2725,9 +2726,191 @@ function generateReport(){
       +'</div>'
     +'</div>'
 
-  +'</div>' // end .rpt
-  +poolProfilesHtml
-  +fsHtml;
+  +'</div>'; // end .rpt single-page version
+
+  // ── Multi-page Assessment cascade ──
+  // When pool count exceeds the threshold, sections that won't fit fully on
+  // page 1 are bumped to subsequent pages. Rule: any section displayed must
+  // be FULLY displayed on one page or the next — never cut off or bled off.
+  // Page 1 keeps Pool Configuration (left, first chunk) + Device Selection
+  // (right, fixed). Continuation pages stack remaining pool rows in 2-cols.
+  // Last page hosts Purchase Options + Monthly Breakdown + Water Conservation
+  // + Property Images (pinned bottom-left) + Video Resources (pinned
+  // bottom-right) + CTA bar.
+  var assessmentHtml;
+  var POOL_THRESH_P1 = (EX.layout==='landscape') ? 12 : 10;
+  var POOL_THRESH_CONT = (EX.layout==='landscape') ? 28 : 22;
+  var nPoolRows = poolRowsArr.length;
+
+  if (nPoolRows <= POOL_THRESH_P1) {
+    assessmentHtml = singlePageAssessment;
+  } else {
+    // Compute page count: page 1 (with first chunk + devices) + continuation
+    // pages for remaining pool rows + final page (with Purchase, Breakdown,
+    // images, CTA). Continuation pages render pool rows in 2-column grid.
+    var rowsAfterP1 = nPoolRows - POOL_THRESH_P1;
+    var contPages = (rowsAfterP1>0) ? Math.ceil(rowsAfterP1/POOL_THRESH_CONT) : 0;
+    var totalAssessPages = 1 + contPages + 1;
+
+    var assessFooter='<div class="rpt-foot">'
+      +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
+      +'<div class="rpt-foot-info">'
+        +'t. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+        +'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+      +'</div>'
+    +'</div>';
+
+    var assessCta='<div class="rpt-cta-bar">'
+      +'<span class="cta-label">AquaRev Reference Information</span>'
+      +'<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
+    +'</div>';
+
+    var assessHeader='<div class="rpt-head">'
+      +'<div class="rpt-head-left">'
+        +'<div class="rpt-logo">AQUAREV WATER</div>'
+        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+      +'</div>'
+      +'<div class="rpt-head-right">'
+        +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
+        +'<div class="rpt-prop-date">'+today+'</div>'
+        +'<span class="rpt-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+      +'</div>'
+    +'</div>';
+
+    var assessHeaderCont='<div class="rpt-head">'
+      +'<div class="rpt-head-left">'
+        +'<div class="rpt-logo">AQUAREV WATER</div>'
+        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+      +'</div>'
+      +'<div class="rpt-head-right">'
+        +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
+        +'<div class="rpt-prop-date">'+today+' · Continued</div>'
+        +'<span class="rpt-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+      +'</div>'
+    +'</div>';
+
+    var assessKpiStrip='<div class="rpt-kpis'+(EX.layout==='landscape'?' rpt-kpis-5':'')+'">'
+      +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Devices</div><div class="rpt-kpi-val teal">'+R.total_dev+'</div></div>'
+      +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Monthly Savings</div><div class="rpt-kpi-val green">'+fc(R.total_mo,0)+'</div></div>'
+      +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Annual Savings</div><div class="rpt-kpi-val green">'+fc(R.total_yr,0)+'</div></div>'
+      +'<div class="rpt-kpi"><div class="rpt-kpi-lbl">Purchase Payback</div><div class="rpt-kpi-val teal">'+(R.payback>0?Math.round(R.payback)+' mo':'N/A')+'</div></div>'
+      +(EX.layout==='landscape'
+        ? '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Savings Projection Applied</div><div class="rpt-kpi-val teal">'+Math.round(S.savings_weight*100)+'%</div></div>'
+        : '')
+    +'</div>';
+
+    var pgLbl=function(n){return ' <span style="font-weight:400;color:#7db8cc;font-size:11px;letter-spacing:1px"> · Page '+n+' of '+totalAssessPages+'</span>';};
+
+    // ── Page 1: Pool Config (first chunk) | Device Selection ──
+    assessmentHtml = '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
+      + assessHeader + assessKpiStrip
+      + '<div class="rpt-body">'
+        + '<div class="rpt-sec rpt-cols">'
+          + '<div>'
+            + '<div class="rpt-stitle">Pool Configuration'+pgLbl(1)+'</div>'
+            + poolRowsArr.slice(0, POOL_THRESH_P1).join('')
+          + '</div>'
+          + '<div>'
+            + '<div class="rpt-stitle">Device Selection</div>'
+            + devRows
+            + (R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">-'+fc(R.disc_amt,0)+'</span></div>':'')
+            + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+          + '</div>'
+        + '</div>'
+      + '</div>'
+      + assessFooter
+    + '</div>';
+
+    // ── Continuation pages: Pool Config remainder in 2-col grid ──
+    for (var cpi=0; cpi<contPages; cpi++) {
+      var startIdx = POOL_THRESH_P1 + cpi*POOL_THRESH_CONT;
+      var endIdx = Math.min(startIdx+POOL_THRESH_CONT, nPoolRows);
+      var chunkRows = poolRowsArr.slice(startIdx, endIdx);
+      var halfPt = Math.ceil(chunkRows.length/2);
+      var leftColRows = chunkRows.slice(0, halfPt).join('');
+      var rightColRows = chunkRows.slice(halfPt).join('');
+
+      assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
+        + assessHeaderCont
+        + '<div class="rpt-body">'
+          + '<div class="rpt-sec rpt-cols">'
+            + '<div>'
+              + '<div class="rpt-stitle">Pool Configuration'+pgLbl(2+cpi)+'</div>'
+              + leftColRows
+            + '</div>'
+            + '<div>'
+              + '<div class="rpt-stitle" style="visibility:hidden">.</div>'
+              + rightColRows
+            + '</div>'
+          + '</div>'
+        + '</div>'
+        + assessFooter
+      + '</div>';
+    }
+
+    // ── Last page: Volume totals + Purchase + Breakdown + Water + Images + Videos + CTA ──
+    var totalsBlock = '<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+' gal</span></div>'
+      + (S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'')
+      + '<div class="rpt-row"><span class="k">CO2 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>';
+
+    assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
+      + assessHeaderCont
+      + '<div class="rpt-body">'
+        + '<div class="rpt-sec" style="margin-bottom:10px">'
+          + '<div class="rpt-stitle">Property Volume Totals'+pgLbl(totalAssessPages)+'</div>'
+          + totalsBlock
+        + '</div>'
+        + (EX.layout==='landscape'
+          ?'<div class="rpt-sec rpt-cols rpt-ls-row-b">'
+            + '<div class="rpt-ls-lcol">'
+              + '<div>'
+                + '<div class="rpt-stitle">Purchase Options</div>'
+                + purBox + advBox
+              + '</div>'
+              + (imgHtml?'<div class="rpt-ls-img-stack">'+imgHtml+'</div>':'')
+            + '</div>'
+            + '<div class="rpt-ls-rcol">'
+              + '<div>'
+                + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+                + '<table class="rpt-tbl">'
+                  + '<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
+                  + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
+                + '</table>'
+                + (EX.inclWater?waterHtml:'')
+              + '</div>'
+              + (ytHtml?'<div class="rpt-ls-media-stack">'+ytHtml+'</div>':'')
+            + '</div>'
+          + '</div>'
+          + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
+          :'<div class="rpt-sec rpt-cols">'
+            + '<div>'
+              + '<div class="rpt-stitle">Purchase Options</div>'
+              + purBox + advBox
+            + '</div>'
+            + '<div>'
+              + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+              + '<table class="rpt-tbl">'
+                + '<thead><tr><th>Category</th><th>Monthly Savings</th><th>% of Total</th></tr></thead>'
+                + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
+              + '</table>'
+              + '<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
+              + (EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
+            + '</div>'
+          + '</div>'
+          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols">'+imgHtml+ytHtml+'</div>':'')
+          + commHtml
+          + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
+        )
+      + '</div>'
+      + assessCta
+      + assessFooter
+    + '</div>';
+  }
+
+  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml
+    +assessmentHtml
+    +poolProfilesHtml
+    +fsHtml;
 
   // ── Portrait Back Cover — independent of fact sheet since 2026-04-23.
   // Uses .rpt-back-cover-page so the image can full-bleed (object-fit:cover)
