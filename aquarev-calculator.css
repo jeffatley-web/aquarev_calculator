@@ -830,6 +830,41 @@
 #ar2-report .rpt-ls-col-with-anchor{display:flex;flex-direction:column;}
 #ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-content{flex:0 0 auto;}
 #ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-anchor{margin-top:auto;padding-top:10px;}
+/* ── Flow modifier ── opt out of bottom-anchored layout so the bullets sit
+   directly under the paragraphs above instead of being pushed to the
+   column footer. Used on Page 1 col 1 (Operational Advantages / Outcome
+   Impact). The leftover space is reserved for future content. */
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-anchor.rpt-ls-anchor-flow{margin-top:0;padding-top:14px;}
+/* ── ES Page 1 — extra breathing room between bottom content and the
+   footer band. Col 2 has slightly less footer padding to give the
+   technology blurb more room for readable font. Col 3 keeps a fuller
+   pad since its chart card has its own visual separation. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2){padding-bottom:10px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(3){padding-bottom:32px;}
+/* Col 2 — device graphic displays at full width and natural aspect (no
+   crop). Pump-room image gets 5% trimmed off the bottom (aspect-ratio
+   16/8.55 ≈ 1.872, object-position top) to recover vertical space.
+   Tech blurb font bumped to 10.5px for readability — the slack absorbed
+   the auto-margin gap that used to sit between the device image and the
+   "Inline Device Installation" header (~43px of dead space). */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-es-tech-blurb{font-size:10.5px;line-height:1.4;margin-bottom:3px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-es-device-full{margin:2px 0 0;}
+/* Crop ~10px off the top of the device image (aspect 1.785 vs natural
+   1.692 — keeps the device body and arrows visible, trims the empty
+   upper margin of the source PNG). object-position:center bottom. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-es-device-full img{width:100%;max-width:100%;max-height:none;height:auto;aspect-ratio:1.785/1;object-fit:cover;object-position:center bottom;}
+/* Tighten the anchor padding-top in col 2 so the device image and the
+   Installation title sit close together (was ~16-26px apart in addition
+   to the auto-margin gap). */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-ls-col-anchor{padding-top:2px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-ls-col-anchor-title-light{margin-bottom:2px;}
+/* Pump room — crop 5% off the bottom by constraining display aspect to
+   1.872 (vs natural 16/9 = 1.778) and pinning content to the top. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-ls-col-anchor-img{aspect-ratio:1.872/1;object-fit:cover;object-position:center top;}
+/* Col 3 — slightly tighter chart card and stat lines so the chart lifts
+   off the footer with the new padding-bottom. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(3) .rpt-es-chart-svg{max-height:160px!important;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(3) .rpt-es-statline{padding:2px 0;}
 #ar2-report .rpt-ls-col-anchor-title-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.8px;color:#0a2540;margin-bottom:4px;text-transform:uppercase;font-weight:700;}
 /* Pump room photo — fixed 16:9 aspect, fills column width, no distortion. */
 #ar2-report .rpt-ls-col-anchor-img{width:100%;max-width:100%;aspect-ratio:16/9;object-fit:cover;display:block;border-radius:6px;}

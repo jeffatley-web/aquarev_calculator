@@ -2196,7 +2196,7 @@ function generateReport(){
   // ── Landscape Back Cover ──
   var lsBackCoverHtml='';
   if(EX.inclLsBackCover && EX.layout==='landscape'){
-    var lsBackBg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f3c14e714d529c46361620_Back-Cover_Landscape-1.png';
+    var lsBackBg='https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fd65acdab5284ac598f1bc_Back-Cover_Landscape-v2.png';
     lsBackCoverHtml='<div class="rpt-fs-img-page rpt-back-cover-page rpt-ls-back-cover-page">'
       +cdnImg(lsBackBg,'',1400)
     +'</div>';
@@ -2260,7 +2260,7 @@ function generateReport(){
             +'<p class="rpt-es-p">Pool and spa environments represent both a signature guest experience and a persistent operational burden within hospitality assets. These systems are inherently cost-intensive and often unpredictable—driven by ongoing chemical consumption, labor demands, energy use, water loss, and equipment degradation.</p>'
             +'<p class="rpt-es-p">While day-to-day management sits with Engineering, the broader impact extends far beyond operations—directly influencing NOI, guest satisfaction, brand perception, and compliance with evolving sustainability standards.</p>'
           +'</div>'
-          +'<div class="rpt-ls-col-anchor">'
+          +'<div class="rpt-ls-col-anchor rpt-ls-anchor-flow">'
             +'<div class="rpt-es-feat-grid">'
               +'<div class="rpt-es-feat-col">'
                 +'<div class="rpt-es-h3-dark">OPERATIONAL ADVANTAGES</div>'
@@ -2927,7 +2927,7 @@ function generateReport(){
   // without affecting the inner fact sheet pages, which need object-fit:contain. ──
   if(EX.inclBackCover && EX.layout==='portrait'){
     html+='<div class="rpt-fs-img-page rpt-back-cover-page">'
-      +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69dd4124dd8d52082f7f0510_Exec_Sum_CLUB%20MED_AquaRev_FIN_Page_6.png','',1100)
+      +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fd65a10e9889939b9b992d_Back-Cover_Portrait-v2.png','',1100)
     +'</div>';
   }
   // ── Landscape Back Cover + Presentation Deck (Presentation deck follows back cover, separate document). ──
