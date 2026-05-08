@@ -2738,18 +2738,28 @@ function generateReport(){
   // + Property Images (pinned bottom-left) + Video Resources (pinned
   // bottom-right) + CTA bar.
   var assessmentHtml;
-  var POOL_THRESH_P1 = (EX.layout==='landscape') ? 12 : 10;
-  var POOL_THRESH_CONT = (EX.layout==='landscape') ? 28 : 22;
+  // Two distinct numbers:
+  //   POOL_TRIGGER: above this → cascade. Tuned to the single-page max where
+  //   ALL sections (pool + device + purchase + breakdown + water + images +
+  //   videos + CTA) still fit without bleeding off the page.
+  //   POOL_P1_FILL: in cascade mode, page 1 only carries pool config + device
+  //   selection, so it holds many more rows. Body ~687px / row ~20px ≈ 30
+  //   rows fit comfortably.
+  //   POOL_CONT_FILL: continuation pages render in 2 sub-columns of pool
+  //   rows, so they hold roughly twice the page-1 count.
+  var POOL_TRIGGER = (EX.layout==='landscape') ? 12 : 10;
+  var POOL_P1_FILL = (EX.layout==='landscape') ? 30 : 24;
+  var POOL_CONT_FILL = (EX.layout==='landscape') ? 60 : 44;
   var nPoolRows = poolRowsArr.length;
 
-  if (nPoolRows <= POOL_THRESH_P1) {
+  if (nPoolRows <= POOL_TRIGGER) {
     assessmentHtml = singlePageAssessment;
   } else {
     // Compute page count: page 1 (with first chunk + devices) + continuation
     // pages for remaining pool rows + final page (with Purchase, Breakdown,
     // images, CTA). Continuation pages render pool rows in 2-column grid.
-    var rowsAfterP1 = nPoolRows - POOL_THRESH_P1;
-    var contPages = (rowsAfterP1>0) ? Math.ceil(rowsAfterP1/POOL_THRESH_CONT) : 0;
+    var rowsAfterP1 = nPoolRows - POOL_P1_FILL;
+    var contPages = (rowsAfterP1>0) ? Math.ceil(rowsAfterP1/POOL_CONT_FILL) : 0;
     var totalAssessPages = 1 + contPages + 1;
 
     var assessFooter='<div class="rpt-foot">'
@@ -2808,7 +2818,7 @@ function generateReport(){
         + '<div class="rpt-sec rpt-cols">'
           + '<div>'
             + '<div class="rpt-stitle">Pool Configuration'+pgLbl(1)+'</div>'
-            + poolRowsArr.slice(0, POOL_THRESH_P1).join('')
+            + poolRowsArr.slice(0, POOL_P1_FILL).join('')
           + '</div>'
           + '<div>'
             + '<div class="rpt-stitle">Device Selection</div>'
@@ -2823,8 +2833,8 @@ function generateReport(){
 
     // ── Continuation pages: Pool Config remainder in 2-col grid ──
     for (var cpi=0; cpi<contPages; cpi++) {
-      var startIdx = POOL_THRESH_P1 + cpi*POOL_THRESH_CONT;
-      var endIdx = Math.min(startIdx+POOL_THRESH_CONT, nPoolRows);
+      var startIdx = POOL_P1_FILL + cpi*POOL_CONT_FILL;
+      var endIdx = Math.min(startIdx+POOL_CONT_FILL, nPoolRows);
       var chunkRows = poolRowsArr.slice(startIdx, endIdx);
       var halfPt = Math.ceil(chunkRows.length/2);
       var leftColRows = chunkRows.slice(0, halfPt).join('');
