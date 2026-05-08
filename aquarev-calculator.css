@@ -453,11 +453,11 @@
   #ar2-report .rpt-ls-es-page .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:200px!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-hero img{height:110px!important;}
-  /* Ritz + video — let CSS aspect-ratio (16/10 + 16/9) drive size with
-     object-fit:cover so they fill the column. Removed previous 110px
-     max-height cap which prevented the image from filling. */
+  /* Ritz + video — natural aspect ratio in print too. Image fills col
+     width with height:auto so the source proportions are preserved
+     and nothing is cropped. */
   #ar2-report .rpt-ls-es-page .rpt-es-ritz img,
-  #ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%!important;height:100%!important;max-height:none!important;object-fit:cover!important;display:block!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%!important;height:auto!important;max-height:none!important;display:block!important;}
 }
 /* ── Mobile: results panel above form ── */
 @media(max-width:860px){
@@ -867,10 +867,9 @@
 #ar2-report .rpt-ls-p2c3-tile{width:100%;flex:1 1 0;min-height:0;border-radius:5px;overflow:hidden;background:#0a2540;}
 #ar2-report .rpt-ls-p2c3-tile img{width:100%;height:100%;display:block;object-fit:cover;}
 #ar2-report .rpt-ls-video-caption-pre{margin-bottom:4px;font-size:9.5px;color:#5a7388;}
-/* Video hero — fills its 16:9 aspect-ratio container fully (no max-height
-   cap that would prevent the thumbnail from filling the column). */
+/* Video hero — natural aspect, fills column width. */
 #ar2-report .rpt-ls-video-hero{display:block;width:100%;}
-#ar2-report .rpt-ls-video-hero img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block;}
+#ar2-report .rpt-ls-video-hero img{width:100%;height:auto;border-radius:5px;display:block;}
 /* ── Property Photos drawer (Step 4 export panel) ── */
 #ar2 .ar-p2c3-drawer{margin:4px 0 10px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:10px;}
 #ar2 .ar-p2c3-slots{display:flex;flex-direction:column;gap:8px;}
@@ -902,15 +901,17 @@
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-card{padding:8px 6px;}
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-pct{font-size:18px;}
 #ar2-report .rpt-ls-outcome-cards .rpt-es-out-lbl{font-size:9.5px;}
-/* Ritz hero photo — fixed 16:10 aspect with object-fit:cover, never distorts. */
-#ar2-report .rpt-ls-es-page .rpt-es-ritz{aspect-ratio:16/10;overflow:hidden;border-radius:4px;}
-#ar2-report .rpt-ls-es-page .rpt-es-ritz img{width:100%;height:100%;max-height:none;object-fit:cover;display:block;}
+/* Ritz hero photo — natural aspect ratio (no forced container ratio, no
+   object-fit cropping). Image fills col width and lets height adjust to
+   maintain its native proportions; surrounding content flows around it. */
+#ar2-report .rpt-ls-es-page .rpt-es-ritz{display:block;border-radius:4px;overflow:hidden;width:100%;margin:8px 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-ritz img{width:100%;height:auto;max-height:none;display:block;}
 #ar2-report .rpt-ls-es-page .rpt-es-quote{font-size:11px;line-height:1.5;}
 #ar2-report .rpt-ls-es-page .rpt-es-link a{font-size:11.5px;}
-/* Video thumbnail — fixed 16:9 aspect, fills width, no letterboxing of the
-   YouTube hqdefault thumbnail. */
-#ar2-report .rpt-ls-es-page .rpt-es-video{aspect-ratio:16/9;overflow:hidden;border-radius:5px;}
-#ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%;height:100%;max-height:none;object-fit:cover;display:block;}
+/* Video thumbnail — natural aspect ratio. width:100%; height:auto so the
+   image displays at its source proportions without cropping or stretching. */
+#ar2-report .rpt-ls-es-page .rpt-es-video{display:block;border-radius:5px;overflow:hidden;width:100%;margin:6px 0 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%;height:auto;max-height:none;display:block;}
 #ar2-report .rpt-ls-es-page .rpt-es-chart{margin:0 0 8px;}
 #ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:240px;}
 #ar2-report .rpt-ls-es-page .rpt-es-custom{padding:10px 14px;border-top:3px solid #00b4d8;background:#f0fbff;}

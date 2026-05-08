@@ -2445,6 +2445,7 @@ function generateReport(){
       return PIPES.reduce(function(sum,p){return sum+(dev[p.k]||0)*p.rate;},0);
     };
     var cards='';
+    var allCards=[];   // Array of card HTML strings — chunked across pages below
     var totG=0, totPurch=0, totMonthly=0, totDevQty=0, pageCount=0;
 
     if(S.manualVolume){
@@ -2476,6 +2477,7 @@ function generateReport(){
           +'</div>'
         +'</div>');
       }
+      allCards=cardArr;
       cards=cardArr.join('');
       totG=totalGal;
       totPurch=perPoolPurch*nPools;
@@ -2485,7 +2487,7 @@ function generateReport(){
     } else if(S.bodies.length>0){
       // ── Normal mode: one card per body ──
       var nBodies=S.bodies.length||1;
-      cards=S.bodies.map(function(b,idx){
+      allCards=S.bodies.map(function(b,idx){
         var G=bodyGallons(b);
         // Per-pool devices: if devicesByPool is on, use body fields; else distribute aggregate evenly
         var poolDev={};
@@ -2528,7 +2530,8 @@ function generateReport(){
             +'</div>'
           +'</div>'
         +'</div>';
-      }).join('');
+      });
+      cards=allCards.join('');
       PIPES.forEach(function(p){ totDevQty+=(S[p.k]||0); });
       pageCount=S.bodies.length;
     }
@@ -2547,9 +2550,22 @@ function generateReport(){
           +'<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified \u00b7 IAPMO</span>'
         +'</div>'
       +'</div>';
-      poolProfilesHtml='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
-        +ppHeader
-        +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(pageCount,10)+'">'+cards+'</div>'
+      // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
+      // Landscape: 12 cards/page (3 cols × 4 rows). Portrait: 8 cards/page (2 cols × 4 rows).
+      // Each page renders its own header band (with "Page X of Y" subtitle when paginated)
+      // and its own footer band. Cards listed in user-defined order.
+      var CARDS_PER_PAGE=(EX.layout==='landscape')?12:8;
+      var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
+      poolProfilesHtml='';
+      for(var ppPi=0; ppPi<totalPpPages; ppPi++){
+        var ppChunkCards=allCards.slice(ppPi*CARDS_PER_PAGE, (ppPi+1)*CARDS_PER_PAGE).join('');
+        var ppChunkCount=Math.min(CARDS_PER_PAGE, allCards.length-ppPi*CARDS_PER_PAGE);
+        var ppPageHeader=(totalPpPages>1)
+          ? ppHeader.replace(pageCount+' '+(pageCount===1?'pool':'pools'), pageCount+' '+(pageCount===1?'pool':'pools')+' · Page '+(ppPi+1)+' of '+totalPpPages)
+          : ppHeader;
+        poolProfilesHtml+='<div class="rpt-pp-page'+(EX.layout==='landscape'?' rpt-pp-page-landscape':'')+'">'
+        +ppPageHeader
+        +'<div class="rpt-pp-grid rpt-pp-grid-'+Math.min(ppChunkCount,12)+'">'+ppChunkCards+'</div>'
         // ── Footer band (spans full page width via negative margins) ──
         +'<div class="rpt-foot">'
           +'<div class="rpt-foot-logo">AQUAREV WATER</div>'
@@ -2559,6 +2575,7 @@ function generateReport(){
           +'</div>'
         +'</div>'
       +'</div>';
+      }  // close pp-page for loop
     }
   }
 
