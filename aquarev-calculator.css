@@ -458,6 +458,25 @@
      and nothing is cropped. */
   #ar2-report .rpt-ls-es-page .rpt-es-ritz img,
   #ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%!important;height:auto!important;max-height:none!important;display:block!important;}
+  /* ── ASSESSMENT LANDSCAPE — PDF ONLY compression ──
+     Screen preview renders the Assessment at 1120×866px, but the print
+     page (11×8.5 in @ 96dpi) is 1056×816px — 50px shorter. Without these
+     rules content that just fits the screen preview overflows onto a
+     phantom second page in the PDF. These rules apply to PRINT ONLY:
+     screen preview is unaffected. */
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:6px 20px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:5px 10px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:16px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:6.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:6px 20px 4px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:4px 20px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot{padding:4px 20px!important;font-size:7px!important;}
+  /* Cap Property Images / Video Resources stack heights so they don't push
+     the page past the 8.5in boundary. Image wrap aspect-ratio is overridden
+     to a fixed shorter height (preserves width:100% but limits vertical). */
+  #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack .rpt-img-wrap,
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-wrap,
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-yt-thumb{aspect-ratio:auto!important;height:90px!important;}
 }
 /* ── Mobile: results panel above form ── */
 @media(max-width:860px){
@@ -803,7 +822,7 @@
 #ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;}
 /* Position overlay so the left edge aligns with the 'A' in the AquaRevWater
    logo on the cover image — sits at ~7% from the left edge. */
-#ar2-report .rpt-ls-cover-overlay{position:absolute;left:7%;top:42%;max-width:48%;text-align:left;z-index:2;color:#fff;}
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:11%;top:42%;max-width:48%;text-align:left;z-index:2;color:#fff;}
 #ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;}
 #ar2-report .rpt-ls-cover-prop{margin-top:8px;font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:#fff;line-height:1.1;word-wrap:break-word;}
 #ar2-report .rpt-ls-cover-date{margin-top:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#7db8cc;}
