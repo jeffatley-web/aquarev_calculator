@@ -781,12 +781,28 @@
 #ar2-report .rpt-es-left-2{padding:10px 20px 14px;display:flex;flex-direction:column;}
 #ar2-report .rpt-es-right{background:#fff;color:#222;padding:12px 22px 14px;}
 #ar2-report .rpt-es-right-2{padding:10px 22px 14px;display:flex;flex-direction:column;}
-/* The .rpt-es-h2-tail marker class identifies the heading that should be
-   pinned to the bottom of its column (ESG block on left, Video Summary on
-   right). margin-top:auto in a flex column container distributes leftover
-   space above this heading, filling the column height. */
+/* Page 2 — proportionate stretch. Sections expand vertically so the col
+   fills the area between the hero image and the footer without bunching
+   at the top. Calibrated to fit cleanly within 1056px page boundary. */
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-h2,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-h2{margin:10px 0 4px;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 > .rpt-es-h2:first-child,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 > .rpt-es-h2:first-child{margin-top:0;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-statline{padding:3px 0;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-ritz{margin:4px 0 8px;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-quote{margin:6px 0;padding:6px 0 6px 10px;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-ul-dark li{margin-bottom:3px;line-height:1.45;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-p,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-p,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-p-light{margin-bottom:6px;line-height:1.45;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-ul li{margin-bottom:3px;line-height:1.45;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-outcome-cards{gap:6px;margin:6px 0 8px;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-out-card{padding:6px 5px;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-link{margin:4px 0;}
+/* Tail h2 still gets a tiny extra top push so the ESG / Video Summary
+   block sit just above the column footer when content is sparse. */
 #ar2-report .rpt-es-page-2 .rpt-es-left-2 > .rpt-es-h2-tail,
-#ar2-report .rpt-es-page-2 .rpt-es-right-2 > .rpt-es-h2-tail{margin-top:auto;padding-top:6px;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 > .rpt-es-h2-tail{margin-top:auto;padding-top:8px;}
 /* Custom user-supplied section (full-width above footer on Page 1) */
 #ar2-report .rpt-es-custom{background:#f0fbff;border-top:3px solid #00b4d8;padding:14px 32px 16px;flex-shrink:0;}
 #ar2-report .rpt-es-custom-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#0a2540;margin-bottom:6px;line-height:1.1;}
@@ -811,9 +827,13 @@
 #ar2-report .rpt-es-out-card{background:#f0fbff;border:1px solid #c8eaf5;border-top:3px solid #00b4d8;border-radius:0 0 5px 5px;padding:5px 4px;text-align:center;}
 #ar2-report .rpt-es-out-pct{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#00b4d8;line-height:1;margin-bottom:2px;}
 #ar2-report .rpt-es-out-lbl{font-size:8.5px;color:#444;letter-spacing:0.2px;line-height:1.2;}
-/* ── Investment Chart (lives in Page 1 right column) ── */
+/* ── Investment Chart (lives in Page 1 right column) ──
+   No max-height: with viewBox 540×300 and preserveAspectRatio='xMidYMid
+   meet', clamping height leaves horizontal margins (chart doesn't fill
+   the col). Letting it render at natural aspect (col-width / 1.8) means
+   the chart spans the full col width as the user expects. */
 #ar2-report .rpt-es-chart{margin:2px 0 4px;}
-#ar2-report .rpt-es-chart-svg{max-height:130px;}
+#ar2-report .rpt-es-chart-svg{width:100%;height:auto;display:block;}
 /* Chart title must stay on one line so the chart card aligns visually
    with the column. White-space:nowrap + smaller font keep the full string
    "Investment & Return Profile — 5-Year Outlook" within the col width. */
