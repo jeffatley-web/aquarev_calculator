@@ -1397,9 +1397,24 @@
 #ap2 .ap-progress b{font-family:'JetBrains Mono',monospace;color:var(--tx);font-size:11px;font-weight:600;letter-spacing:0;}
 #ap2 .ap-btn.merge-active{background:linear-gradient(135deg,var(--go),#d88b00) !important;color:#fff !important;}
 #ap2.merge-mode .maplibregl-canvas{cursor:copy !important;}
-.ap-pool-flag{width:28px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#00b4d8,#0077b6);border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.55);transition:transform .15s,box-shadow .15s;}
-.ap-pool-flag > span{transform:rotate(45deg);display:inline-block;padding-bottom:2px;}
-.ap-pool-flag:hover{transform:rotate(-45deg) scale(1.1);box-shadow:0 5px 14px rgba(0,0,0,.6);}
+/* ── Pool number flag — horizontal pill, screen-upright. ──
+   Marker is created with rotationAlignment:'viewport' + pitchAlignment:'viewport'
+   so the pill is always upright on screen regardless of map rotation/tilt.
+   Centred via polylabel (pole of inaccessibility) so L-shaped pools land their
+   flag inside the water rather than on a centroid that may sit on a wall. */
+.ap-pool-flag{
+  cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:28px;height:22px;padding:0 9px;
+  font-family:'Bebas Neue',sans-serif;font-size:13px;line-height:1;letter-spacing:1.5px;
+  color:#fff;
+  background:linear-gradient(135deg,#00b4d8,#0077b6);
+  border:1.5px solid #fff;border-radius:999px;
+  box-shadow:0 2px 6px rgba(0,0,0,.45);
+  transition:transform .15s,box-shadow .15s;
+  white-space:nowrap;
+}
+.ap-pool-flag:hover{transform:scale(1.08);box-shadow:0 4px 10px rgba(0,0,0,.55);}
 .ap-pool-flag.selected{background:linear-gradient(135deg,var(--go),#d88b00);}
 /* Property (big) flag — shown only when zoomed out beyond pool scale so the user can navigate back. */
 /* Google-Maps-style red teardrop pin. The :before is the teardrop body,

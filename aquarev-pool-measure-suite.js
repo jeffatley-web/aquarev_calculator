@@ -33,6 +33,17 @@ const S = {
   boundary: null,             // GeoJSON polygon or null
   selectedPoolId: null,
   nextId: 1,
+  // ─── Mode state machine ──────────────────────────────────────────────
+  // Exactly one tool mode is active at a time. Switching modes auto-discards
+  // partial work in the previous mode (per UX rework Phase 1). Allowed values:
+  //   'idle'      — no tool active, default
+  //   'tracing'   — manual polygon trace (draw_polygon)
+  //   'wand'      — magic wand click-to-trace
+  //   'merging'   — click two registered pools to merge
+  //   'boundary'  — drawing the property boundary polygon
+  // setMode(next) is the single entry point; flips the legacy boolean flags
+  // (magicWand / mergeMode / _awaitingDraw) for backward compat.
+  mode: 'idle',
   magicWand: false,
   mergeSelection: new Set(),  // pool ids selected for merge
   history: [],                // undo stack (max 30 entries)
@@ -613,6 +624,94 @@ function wireNameAutocomplete() {
 let _awaitingDraw = null;  // 'pool' | 'boundary' | null
 function _cancelAwaitingDraw() { _awaitingDraw = null; hint(''); }
 
+// ─── Single-mode state machine ───────────────────────────────────────────
+// One tool mode active at a time. Clicking another tool while a polygon
+// trace is in progress silently auto-discards the partial trace (per UX
+// rework Phase 1). Each tool's existing `on…Toggle()` is called from here
+// so legacy state (S.magicWand / S.mergeMode / _awaitingDraw) stays in
+// sync with S.mode.
+function setMode(next) {
+  if (S.mode === next) return;
+  // ── Tear down current mode ──
+  switch (S.mode) {
+    case 'tracing':
+    case 'boundary':
+      // Discard any in-flight polygon (vertices placed but not closed).
+      _cancelAwaitingDraw();
+      try { draw.changeMode('simple_select'); } catch (e) {}
+      // Sweep any unclosed/partial features the user started before switching.
+      try {
+        const all = draw.getAll().features;
+        for (const f of all) {
+          if (!f.properties || (!f.properties.role && !f.properties.registered)) {
+            // Feature has no role assigned yet → was an unfinished trace.
+            const onPool = S.pools.find(p => p.drawId === f.id);
+            if (!onPool) draw.delete(f.id);
+          }
+        }
+      } catch (e) {}
+      break;
+    case 'wand':
+      // Flip wand off without re-toggling on (the toggle fn flips state).
+      if (S.magicWand) {
+        S.magicWand = false;
+        document.getElementById('ap2')?.classList.remove('wand');
+        const btn = document.getElementById('ap-btn-wand');
+        if (btn) { btn.classList.remove('wand-active'); btn.textContent = 'Magic Wand'; }
+      }
+      break;
+    case 'merging':
+      if (S.mergeMode) {
+        S.mergeMode = false;
+        S.mergeModePicks = [];
+        document.getElementById('ap2')?.classList.remove('merge-mode');
+        const btn = document.getElementById('ap-btn-merge-mode');
+        if (btn) { btn.classList.remove('merge-active'); btn.textContent = 'Merge mode'; }
+      }
+      break;
+  }
+  // ── Set new mode ──
+  S.mode = next;
+  switch (next) {
+    case 'tracing':  onDrawPool();         break;
+    case 'wand':     onMagicWandToggle();  break;
+    case 'merging':  onMergeModeToggle();  break;
+    case 'boundary': onDrawBoundary();     break;
+    case 'idle':
+    default:
+      hint('');
+      try { draw.changeMode('simple_select'); } catch (e) {}
+      break;
+  }
+  updateModeButtonsUI();
+}
+
+// Reflects S.mode on the four tool buttons — exactly one shows the
+// "active" treatment at a time. Lets the existing toggles render their
+// own label/state but enforces the radio-group invariant centrally.
+// Also shows/hides the Cancel button.
+function updateModeButtonsUI() {
+  const ariaMap = {
+    'ap-btn-wand':       'wand',
+    'ap-btn-merge-mode': 'merging',
+  };
+  for (const [id, modeKey] of Object.entries(ariaMap)) {
+    const el = document.getElementById(id);
+    if (el) el.setAttribute('aria-pressed', S.mode === modeKey ? 'true' : 'false');
+  }
+  const cancel = document.getElementById('ap-btn-cancel-mode');
+  if (cancel) cancel.style.display = (S.mode === 'idle') ? 'none' : '';
+}
+
+// Esc key as a global "cancel current tool" — matches the Cancel button.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (S.mode && S.mode !== 'idle') {
+    setMode('idle');
+    e.preventDefault();
+  }
+});
+
 function onDrawBoundary() {
   _cancelAwaitingDraw();
   _awaitingDraw = 'boundary';
@@ -650,7 +749,8 @@ function onClearBoundary() {
 function onDrawPool() {
   _cancelAwaitingDraw();
   _awaitingDraw = 'pool';
-  // Turn wand off so the map click handler doesn't race against the trace flow.
+  // Wand off — defensive; setMode() already handles this when called via
+  // the data-action dispatcher, but onDrawPool is also called directly.
   if (S.magicWand) onMagicWandToggle();
   draw.changeMode('draw_polygon');
   hint('Click to trace a pool, <strong>double-click</strong> to finish.');
@@ -666,6 +766,10 @@ function onDrawPool() {
       enterReviewFor(pool);
       map.off('draw.create', handler);
       hint('');
+      // Polygon closed — return to idle so the review panel takes over.
+      // Without this, S.mode stays 'tracing' and the next tool click would
+      // run an unnecessary tear-down sweep.
+      if (S.mode === 'tracing') { S.mode = 'idle'; updateModeButtonsUI(); }
     }
   };
   map.on('draw.create', handler);
@@ -1528,23 +1632,106 @@ function poolCentroid(p) {
   return [xToLon(cx), yToLat(cy)];
 }
 
+// ─── Pole of inaccessibility (polylabel) ────────────────────────
+// Returns the [lon,lat] of the point inside the polygon that is *furthest*
+// from any edge — visually the most "interior" point. For L-shaped or
+// irregular pools this is far better than a centroid (which can land
+// outside the water). Adapted from Mapbox's polylabel algorithm.
+function _polyDistSq(x, y, a, b) {
+  let dx = b[0] - a[0], dy = b[1] - a[1];
+  if (dx !== 0 || dy !== 0) {
+    const t = ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy);
+    if (t > 1) { dx = x - b[0]; dy = y - b[1]; }
+    else if (t > 0) { dx = x - (a[0] + dx * t); dy = y - (a[1] + dy * t); }
+    else { dx = x - a[0]; dy = y - a[1]; }
+  } else { dx = x - a[0]; dy = y - a[1]; }
+  return dx * dx + dy * dy;
+}
+function _pointToPolyDist(x, y, rings) {
+  let inside = false, minDistSq = Infinity;
+  for (const ring of rings) {
+    for (let i = 0, len = ring.length, j = len - 1; i < len; j = i++) {
+      const a = ring[i], b = ring[j];
+      if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+      const d = _polyDistSq(x, y, a, b);
+      if (d < minDistSq) minDistSq = d;
+    }
+  }
+  return (inside ? 1 : -1) * Math.sqrt(minDistSq);
+}
+function poolFlagCenter(p) {
+  // Operate in projected meters (Web Mercator) so distance compares apples to apples.
+  const ring0 = p.polygon.geometry.coordinates[0];
+  if (!ring0 || ring0.length < 3) return poolCentroid(p);
+  const projRings = p.polygon.geometry.coordinates.map(r => r.map(c => [lonToX(c[0]), latToY(c[1])]));
+  const ring = projRings[0];
+  let minX = ring[0][0], minY = ring[0][1], maxX = ring[0][0], maxY = ring[0][1];
+  for (let i = 1; i < ring.length; i++) {
+    if (ring[i][0] < minX) minX = ring[i][0];
+    if (ring[i][1] < minY) minY = ring[i][1];
+    if (ring[i][0] > maxX) maxX = ring[i][0];
+    if (ring[i][1] > maxY) maxY = ring[i][1];
+  }
+  const width = maxX - minX, height = maxY - minY;
+  const cellSize = Math.min(width, height);
+  if (cellSize === 0) return [xToLon(minX), yToLat(minY)];
+  const precision = 1.0;
+  let h = cellSize / 2;
+  // Priority queue ordered by max possible distance
+  const queue = [];
+  const push = (c) => { let i = queue.length; queue.push(c); while (i > 0) { const pi = (i - 1) >> 1; if (queue[pi].max >= queue[i].max) break; [queue[pi], queue[i]] = [queue[i], queue[pi]]; i = pi; } };
+  const pop = () => { const top = queue[0], last = queue.pop(); if (queue.length) { queue[0] = last; let i = 0; for (;;) { const l = 2*i+1, r = 2*i+2; let best = i; if (l < queue.length && queue[l].max > queue[best].max) best = l; if (r < queue.length && queue[r].max > queue[best].max) best = r; if (best === i) break; [queue[i], queue[best]] = [queue[best], queue[i]]; i = best; } } return top; };
+  const cellOf = (x, y, hh) => ({ x, y, h: hh, d: _pointToPolyDist(x, y, projRings), max: 0 });
+  const finalize = (c) => { c.max = c.d + c.h * Math.SQRT2; return c; };
+  for (let x = minX; x < maxX; x += cellSize) {
+    for (let y = minY; y < maxY; y += cellSize) {
+      push(finalize(cellOf(x + h, y + h, h)));
+    }
+  }
+  // Best candidate: shape centroid in projected space
+  let bestCell = (() => {
+    const [lon, lat] = poolCentroid(p);
+    return finalize(cellOf(lonToX(lon), latToY(lat), 0));
+  })();
+  const bboxCell = finalize(cellOf(minX + width / 2, minY + height / 2, 0));
+  if (bboxCell.d > bestCell.d) bestCell = bboxCell;
+  while (queue.length) {
+    const cell = pop();
+    if (cell.d > bestCell.d) bestCell = cell;
+    if (cell.max - bestCell.d <= precision) continue;
+    h = cell.h / 2;
+    push(finalize(cellOf(cell.x - h, cell.y - h, h)));
+    push(finalize(cellOf(cell.x + h, cell.y - h, h)));
+    push(finalize(cellOf(cell.x - h, cell.y + h, h)));
+    push(finalize(cellOf(cell.x + h, cell.y + h, h)));
+  }
+  return [xToLon(bestCell.x), yToLat(bestCell.y)];
+}
+
 function ensurePoolMarker(p) {
   if (!p.registered || p.number == null) { removePoolMarker(p.id); return; }
-  const [lon, lat] = poolCentroid(p);
+  const [lon, lat] = poolFlagCenter(p);
   let marker = S.markers.get(p.id);
   if (!marker) {
     const el = document.createElement('div');
     el.className = 'ap-pool-flag';
-    el.innerHTML = `<span>${p.number}</span>`;
+    el.textContent = String(p.number);
     el.title = p.name;
     el.addEventListener('click', (ev) => { ev.stopPropagation(); selectPool(p.id); });
-    marker = new maplibregl.Marker({ element: el, anchor: 'bottom-left' }).setLngLat([lon, lat]).addTo(map);
+    // anchor:'center' centres the pill exactly on the polylabel point.
+    // rotation/pitch alignment 'viewport' keeps the pill always upright on screen.
+    marker = new maplibregl.Marker({
+      element: el,
+      anchor: 'center',
+      rotationAlignment: 'viewport',
+      pitchAlignment: 'viewport',
+    }).setLngLat([lon, lat]).addTo(map);
     S.markers.set(p.id, marker);
   } else {
     marker.setLngLat([lon, lat]);
     const el = marker.getElement();
-    const span = el.querySelector('span');
-    if (span && span.textContent !== String(p.number)) span.textContent = String(p.number);
+    const want = String(p.number);
+    if (el.textContent !== want) el.textContent = want;
     el.title = p.name;
     el.classList.toggle('selected', p.id === S.selectedPoolId);
   }
@@ -2347,11 +2534,11 @@ document.addEventListener('click', (ev) => {
   const paction = t.dataset.poolAction;
   if (action === 'locate') onLocate();
   else if (action === 'toggle-help') { const card = t.closest('.ap-card'); if (card) card.classList.toggle('show-help'); }
-  else if (action === 'draw-boundary') onDrawBoundary();
+  else if (action === 'draw-boundary') setMode(S.mode === 'boundary' ? 'idle' : 'boundary');
   else if (action === 'clear-boundary') onClearBoundary();
-  else if (action === 'detect') onDetect();
-  else if (action === 'draw-pool') onDrawPool();
-  else if (action === 'magic-wand') onMagicWandToggle();
+  else if (action === 'detect') { setMode('idle'); onDetect(); }
+  else if (action === 'draw-pool') setMode(S.mode === 'tracing' ? 'idle' : 'tracing');
+  else if (action === 'magic-wand') setMode(S.mode === 'wand' ? 'idle' : 'wand');
   else if (action === 'merge-selected') {
     const ids = Array.from(S.mergeSelection);
     if (ids.length < 2) { toast('Select at least 2 pools', 'err'); return; }
@@ -2387,7 +2574,8 @@ document.addEventListener('click', (ev) => {
   else if (action === 'review-register') onReviewRegister();
   else if (action === 'review-discard') onReviewDiscard();
   else if (action === 'review-recapture') onReviewRecapture();
-  else if (action === 'merge-mode') onMergeModeToggle();
+  else if (action === 'merge-mode') setMode(S.mode === 'merging' ? 'idle' : 'merging');
+  else if (action === 'cancel-mode') setMode('idle');
   else if (paction) {
     const id = t.dataset.pool;
     const p = S.pools.find(x => x.id === id);
