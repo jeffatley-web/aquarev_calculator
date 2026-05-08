@@ -689,7 +689,9 @@ function setMode(next) {
 // Reflects S.mode on the four tool buttons — exactly one shows the
 // "active" treatment at a time. Lets the existing toggles render their
 // own label/state but enforces the radio-group invariant centrally.
-// Also shows/hides the Cancel button.
+// Also shows/hides the Cancel button and disables tool buttons while a
+// draft is pending in the review panel (Phase 4B — prevents the same
+// collision class re-emerging through clicks instead of mode switching).
 function updateModeButtonsUI() {
   const ariaMap = {
     'ap-btn-wand':       'wand',
@@ -701,33 +703,77 @@ function updateModeButtonsUI() {
   }
   const cancel = document.getElementById('ap-btn-cancel-mode');
   if (cancel) cancel.style.display = (S.mode === 'idle') ? 'none' : '';
+  updateToolButtonsEnabled();
+}
+
+// Disable tool buttons whenever a draft is pending in the review panel.
+// Forces the rep to Register / Retry / Discard before starting a new tool
+// — matches the radio-group invariant from Phase 1 but at the click level.
+function updateToolButtonsEnabled() {
+  const pending = !!S.pendingPoolId;
+  const ids = [
+    'ap-btn-wand',
+    'ap-btn-detect',
+    'ap-btn-merge-mode',
+  ];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = pending;
+  }
+  const traceBtn = document.querySelector('[data-action="draw-pool"]');
+  if (traceBtn) traceBtn.disabled = pending;
+  const drawBoundaryBtn = document.querySelector('[data-action="draw-boundary"]');
+  if (drawBoundaryBtn) drawBoundaryBtn.disabled = pending;
 }
 
 // Keyboard shortcuts on the map step:
+//   T     — toggle Trace mode
+//   W     — toggle Wand mode
 //   Esc   — discard pending draft (if any), else cancel current tool mode
 //   Enter — register pending draft (when focus is in the review panel)
-// Skipped when typing in any non-review input so users can edit other fields.
+// T / W skipped while typing in inputs so reps can name pools without
+// triggering tool switches. Esc/Enter are scoped (Enter only fires when
+// focus is in the review card; Esc is global as per Phase 1).
+function _isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+function _onMapStep() {
+  // Only react to keys while the Map Pools step is the active step.
+  // The calculator host adds .map-step to #ar2 when on this step.
+  const ar2 = document.getElementById('ar2');
+  return !!(ar2 && ar2.classList.contains('map-step'));
+}
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    // Pending draft takes priority over mode cancel — matches the on-card hint.
     if (S.pendingPoolId) { onReviewDiscard(); e.preventDefault(); return; }
     if (S.mode && S.mode !== 'idle') { setMode('idle'); e.preventDefault(); }
     return;
   }
   if (e.key === 'Enter') {
     if (!S.pendingPoolId) return;
-    // Only fire when focus is inside the review panel — leaves other forms
-    // (property name, depth fields elsewhere) untouched.
     const reviewCard = document.getElementById('ap-review');
     if (!reviewCard) return;
     const focused = document.activeElement;
     if (!focused || !reviewCard.contains(focused)) return;
-    // Don't intercept Enter inside textareas or buttons that handle it themselves.
     if (focused.tagName === 'TEXTAREA') return;
     if (focused.tagName === 'BUTTON' && focused.dataset.action) return;
     onReviewRegister();
     e.preventDefault();
+    return;
   }
+  // T / W — only when not typing, no modifiers, and on the map step.
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (_isTypingTarget(document.activeElement)) return;
+  if (!_onMapStep()) return;
+  // Don't fire while a draft is pending — user must finish review first.
+  if (S.pendingPoolId) return;
+  const k = e.key.toLowerCase();
+  if (k === 't') { setMode(S.mode === 'tracing' ? 'idle' : 'tracing'); e.preventDefault(); }
+  else if (k === 'w') { setMode(S.mode === 'wand' ? 'idle' : 'wand'); e.preventDefault(); }
 });
 
 function onDrawBoundary() {
@@ -1766,6 +1812,13 @@ function ensurePoolMarker(p) {
     el.title = p.name;
     el.classList.toggle('selected', p.id === S.selectedPoolId);
   }
+  // Apply current zoom-based compact state to newly created or re-rendered markers.
+  try {
+    if (typeof POOL_FLAG_COMPACT_BELOW_ZOOM !== 'undefined') {
+      const m = S.markers.get(p.id);
+      if (m) m.getElement().classList.toggle('compact', map.getZoom() < POOL_FLAG_COMPACT_BELOW_ZOOM);
+    }
+  } catch (e) {}
 }
 function removePoolMarker(id) {
   const m = S.markers.get(id);
@@ -2061,6 +2114,7 @@ function openReviewFor(poolId) {
     const cycleWrap = document.getElementById('ap-review-cycle');
     if (cycleWrap) cycleWrap.style.display = 'none';
     S.pendingPoolId = null;
+    updateToolButtonsEnabled();
     return;
   }
   S.pendingPoolId = poolId;
@@ -2095,6 +2149,7 @@ function openReviewFor(poolId) {
   $('ap-review-kbd').style.display = '';
   renderReviewCounter();
   renderDraftCycle();
+  updateToolButtonsEnabled();
   setTimeout(() => $('ap-review-name').focus(), 50);
 }
 
@@ -2934,6 +2989,24 @@ map.on('load', () => {
 map.on('zoomend', updatePropertyMarkerVisibility);
 map.on('zoom', updatePropertyMarkerVisibility);
 
+// ─── Phase 4D: pill flag compact mode at low zoom ──────────────────
+// When the user zooms out far enough to see multiple pools at once,
+// shrink each pool flag pill to a tighter compact pill so the map
+// stays legible. Threshold of 16 matches the property-flag boundary
+// (PROPERTY_FLAG_MAX_ZOOM = 17 — at z=17 the property flag hides;
+// at z<16 the pool flags collapse to compact, leaving a dead band where
+// neither dominates).
+const POOL_FLAG_COMPACT_BELOW_ZOOM = 16;
+function updatePoolFlagCompact() {
+  const compact = map.getZoom() < POOL_FLAG_COMPACT_BELOW_ZOOM;
+  for (const m of S.markers.values()) {
+    const el = m.getElement && m.getElement();
+    if (el) el.classList.toggle('compact', compact);
+  }
+}
+map.on('zoom', updatePoolFlagCompact);
+map.on('zoomend', updatePoolFlagCompact);
+
 // ═══════════════════════════════════════════════════════════════════
 // AR2_MAP bridge — consumed by the ROI Calculator wrapper (Suite build).
 // Stays inert when this IIFE is deployed standalone (no calculator host).
@@ -3029,5 +3102,70 @@ window.AR2_MAP = {
   getPropertyName() { return ($('ap-name')?.value || '').trim(); },
   setPropertyName(n) { if ($('ap-name')) $('ap-name').value = n || ''; },
 };
+
+// ─── Phase 4C: First-run hint ────────────────────────────────────────
+// Shows a one-time overlay on first arrival at the Map Pools step that
+// points reps at the three primary actions: Trace polygon, Magic Wand,
+// or Skip. Dismisses on click of any of those buttons or the 'Got it'
+// button. Persisted via localStorage so it never shows twice.
+(function setupFirstRunHint() {
+  const KEY = 'ar_pool_first_run_done_v1';
+  let shown = false;
+  function isDone() {
+    try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+  }
+  function markDone() {
+    try { localStorage.setItem(KEY, '1'); } catch (e) {}
+  }
+  function dismiss() {
+    const overlay = document.getElementById('ap-first-run');
+    if (overlay) overlay.remove();
+    markDone();
+  }
+  function show() {
+    if (shown || isDone()) return;
+    shown = true;
+    const ap2 = document.getElementById('ap2');
+    if (!ap2) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'ap-first-run';
+    overlay.className = 'ap-first-run';
+    overlay.innerHTML = `
+      <div class="ap-first-run-card" role="dialog" aria-labelledby="ap-first-run-title">
+        <div class="ap-first-run-eyebrow">Get started</div>
+        <div id="ap-first-run-title" class="ap-first-run-title">Pick a tool to map pools</div>
+        <ul class="ap-first-run-list">
+          <li><b>Trace</b> — click pool edges yourself for full control. <kbd>T</kbd></li>
+          <li><b>Magic Wand</b> — click a pool; we auto-detect the boundary. <kbd>W</kbd></li>
+          <li><b>Skip Map Pools</b> — enter pools by hand on the next step.</li>
+        </ul>
+        <div class="ap-first-run-foot">
+          <span class="ap-first-run-tip">Tip: <kbd>Esc</kbd> cancels any tool. <kbd>Enter</kbd> registers a draft.</span>
+          <button class="ap-btn primary" data-action="first-run-dismiss">Got it</button>
+        </div>
+      </div>
+    `;
+    ap2.appendChild(overlay);
+    // Auto-dismiss when the rep clicks any of the highlighted actions.
+    const triggers = [
+      overlay.querySelector('[data-action="first-run-dismiss"]'),
+      document.querySelector('[data-action="draw-pool"]'),
+      document.getElementById('ap-btn-wand'),
+      document.getElementById('ap-btn-skip'),
+    ].filter(Boolean);
+    triggers.forEach((b) => b.addEventListener('click', dismiss, { once: true }));
+  }
+  // Watch #ar2 for the .map-step class — fire show() the first time it
+  // appears. Avoids racing the calculator host's render order.
+  function tryShow() {
+    const ar2 = document.getElementById('ar2');
+    if (ar2 && ar2.classList.contains('map-step')) show();
+  }
+  tryShow();
+  const ar2 = document.getElementById('ar2');
+  if (ar2) {
+    new MutationObserver(tryShow).observe(ar2, { attributes: true, attributeFilter: ['class'] });
+  }
+})();
 
 })();
