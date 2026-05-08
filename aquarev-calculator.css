@@ -400,6 +400,32 @@
   #ar2-report .rpt-stat{padding:8px 10px;}
   #ar2-report .rpt-stat-val{font-size:14px;}
   #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
+  /* ── PORTRAIT EXEC SUMMARY — PDF ONLY compression ──
+     Screen preview renders the ES pages at ~1113px tall, but the print
+     page (8.5x11in @ 96dpi) is 1056px tall. Without these rules the page-1
+     hero/lead and page-2 outcome-cards/Ritz block overflow off the bottom
+     of the PDF page (preview looks fine, print doesn't). These rules
+     apply to PRINT ONLY: screen preview is unaffected. */
+  #ar2-report .rpt-es-page .rpt-es-head{padding:8px 24px 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-foot{padding:5px 24px!important;font-size:7.5px!important;}
+  #ar2-report .rpt-es-page .rpt-es-foot .rpt-foot-logo{font-size:10px!important;}
+  #ar2-report .rpt-es-page .rpt-es-left,
+  #ar2-report .rpt-es-page .rpt-es-right{padding:10px 20px 12px!important;}
+  #ar2-report .rpt-es-page .rpt-es-left-2,
+  #ar2-report .rpt-es-page .rpt-es-right-2{padding:8px 20px 10px!important;}
+  #ar2-report .rpt-es-page .rpt-es-hero img{height:90px!important;}
+  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:130px!important;}
+  #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-statline{padding:3px 0!important;}
+  #ar2-report .rpt-es-page .rpt-es-bignum{font-size:20px!important;margin:2px 0 8px!important;}
+  #ar2-report .rpt-es-page .rpt-es-outcome-cards{gap:6px!important;margin:5px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-out-card{padding:5px 4px!important;}
+  #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:2px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-device-full{margin:0 0 4px!important;}
+  /* Trim Ritz + video container margins on page 2 so they don't push the
+     bottom off the print page. */
+  #ar2-report .rpt-es-page .rpt-es-ritz{margin:4px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-video{margin:4px 0 6px!important;}
 }
 @media print and (orientation:landscape){
   #ar2-report .rpt{font-size:10px;}
