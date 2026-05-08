@@ -2914,9 +2914,7 @@ function renderExportSection(){
             +'</details>'
             :''
           )
-          +'<div class="ar-toggle-row"><label>Include AquaRev Fact Sheet</label>'
-            +'<div class="ar-sw-track'+(EX.inclFactSheet?' on':'')+'" data-ex-sw="inclFactSheet"><div class="ar-sw-thumb"></div></div>'
-          +'</div>'
+          // Include AquaRev Fact Sheet toggle removed per request — feature deferred.
           +'<div class="ar-toggle-row"><label>Include Back Cover</label>'
             +'<div class="ar-sw-track'+(EX.inclBackCover?' on':'')+'" data-ex-sw="inclBackCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'

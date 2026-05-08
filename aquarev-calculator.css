@@ -291,8 +291,13 @@
   #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;margin:0!important;position:static!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
   /* Ensure Webflow wrapper ancestors of #ar2-report are visible */
   #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
-  #ar2-report .rpt .rpt-body{flex:1;padding:16px 28px 12px!important;}
-  #ar2-report .rpt-foot{margin-top:auto!important;}
+  /* Body MUST be flex:1 1 0 + min-height:0 + overflow:hidden so content
+     inside the body never pushes the CTA bar or footer past the page
+     boundary. flex:1 alone (without min-height:0) lets body grow to fit
+     content, which then bleeds CTA + foot off the page in landscape. */
+  #ar2-report .rpt .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;padding:16px 28px 12px!important;}
+  #ar2-report .rpt-foot{margin-top:auto!important;flex:0 0 auto!important;}
+  #ar2-report .rpt-cta-bar{flex:0 0 auto!important;}
   .no-print{display:none!important;}
   /* Hide chrome extensions and overlays */
   *[id*="hubspot"],*[class*="hubspot"],*[id*="HubSpot"],*[class*="HubSpot"],
@@ -312,7 +317,12 @@
   #ar2-report .rpt-cover-page{page-break-after:auto;break-after:auto;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
   #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:16px 28px 10px!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  /* Pool Profile page — full-bleed: padding:0 on the page so the header
+     band and footer span edge-to-edge. The grid wrapper has its own
+     internal padding (.rpt-pp-grid-wrap) so the cards still have
+     margin from the page edges. */
+  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 0!important;min-height:0!important;overflow:hidden!important;align-content:start;}
   #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
@@ -326,8 +336,18 @@
   #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
-  #ar2-report .rpt-es-body-1{flex:1!important;min-height:0!important;overflow:hidden;}
-  #ar2-report .rpt-es-page-2 .rpt-es-body-2{flex:0 1 auto!important;min-height:0!important;overflow:hidden;}
+  /* Portrait ES body containment — both body-1 (page 1) and body-2 (page 2)
+     must be flex:1 1 0 so they grow to fill remaining vertical space inside
+     the .rpt-es-page (height:100vh) and overflow:hidden clips any content
+     that exceeds that allotted body height. Previously body-2 used
+     flex:0 1 auto which let content push past the page boundary.
+     Children (left/right col) inherit this strict containment via overflow:hidden. */
+  #ar2-report .rpt-es-body-1,
+  #ar2-report .rpt-es-page-2 .rpt-es-body-2{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
+  #ar2-report .rpt-es-body-1 > *,
+  #ar2-report .rpt-es-page-2 .rpt-es-body-2 > *{min-height:0!important;overflow:hidden!important;}
+  /* Cap the chart SVG so it can't push the bottom of right col past the page. */
+  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:160px!important;}
   #ar2-report .rpt-es-device-full{margin:0 0 10px!important;}
   #ar2-report .rpt-es-feat-grid{margin:3px 0 10px!important;}
   #ar2-report .rpt-es-left,#ar2-report .rpt-es-right{padding:14px 24px 18px!important;}
@@ -421,7 +441,8 @@
   #ar2-report .rpt-pp-page .rpt-pp-name{font-size:12px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{font-size:9.5px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row .v{font-size:10.5px!important;min-width:64px!important;}
-  #ar2-report .rpt-pp-page{padding:12px 24px 8px!important;}
+  /* Landscape Pool Profile keeps full-bleed padding:0 from the base print
+     rule above; portrait override removed in favour of grid-internal padding. */
   #ar2-report .rpt-pp-page .rpt-pp-title{font-size:18px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-sub{font-size:9.5px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:6px!important;margin-bottom:8px!important;}
@@ -781,8 +802,8 @@
 #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;position:absolute!important;inset:0!important;z-index:1;}
 #ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;}
 /* Position overlay so the left edge aligns with the 'A' in the AquaRevWater
-   logo on the cover image. The logo's 'A' sits at ~12% from the left edge. */
-#ar2-report .rpt-ls-cover-overlay{position:absolute;left:12%;top:42%;max-width:44%;text-align:left;z-index:2;color:#fff;}
+   logo on the cover image — sits at ~7% from the left edge. */
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:7%;top:42%;max-width:48%;text-align:left;z-index:2;color:#fff;}
 #ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;}
 #ar2-report .rpt-ls-cover-prop{margin-top:8px;font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:#fff;line-height:1.1;word-wrap:break-word;}
 #ar2-report .rpt-ls-cover-date{margin-top:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#7db8cc;}
@@ -834,19 +855,22 @@
 #ar2-report .rpt-ls-chart-card .rpt-es-chart-stat-net{font-size:11px;}
 #ar2-report .rpt-ls-chart-card .rpt-es-chart-stat-pb{font-size:9px;}
 /* ── Page 2 Col 3 — NSF default image OR vertical photo stack ──
-   NSF image: width 100% + height 100% + object-fit:contain. The image
-   fills the col interior between header and footer; the col's own
-   padding (16px sides) gives the NSF logos breathing room from the
-   page edge without further max-width capping the image.
+   NSF image: object-fit:cover + object-position:right fills the entire
+   column between header and footer. The image is cropped from the LEFT
+   side as the column gets narrower, keeping the NSF logos and product
+   shot (right-side composition of the source image) visible.
+   Container has zero padding so the image goes truly edge-to-edge.
    Photo stack: flex:1 1 0 per tile so 4 photos share col height equally. */
-#ar2-report .rpt-ls-p2c3{padding:12px 16px 12px;display:flex;flex-direction:column;gap:0;}
-#ar2-report .rpt-ls-p2c3-default-img{display:block;width:100%;height:100%;flex:1 1 0;min-height:0;object-fit:contain;}
-#ar2-report .rpt-ls-p2c3-stack{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-height:0;width:100%;}
+#ar2-report .rpt-ls-p2c3{padding:0;display:flex;flex-direction:column;gap:0;}
+#ar2-report .rpt-ls-p2c3-default-img{display:block;width:100%;height:100%;flex:1 1 0;min-height:0;object-fit:cover;object-position:right center;}
+#ar2-report .rpt-ls-p2c3-stack{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-height:0;width:100%;padding:8px;}
 #ar2-report .rpt-ls-p2c3-tile{width:100%;flex:1 1 0;min-height:0;border-radius:5px;overflow:hidden;background:#0a2540;}
 #ar2-report .rpt-ls-p2c3-tile img{width:100%;height:100%;display:block;object-fit:cover;}
 #ar2-report .rpt-ls-video-caption-pre{margin-bottom:4px;font-size:9.5px;color:#5a7388;}
-#ar2-report .rpt-ls-video-hero{display:block;}
-#ar2-report .rpt-ls-video-hero img{width:100%;max-height:120px;object-fit:cover;border-radius:5px;display:block;}
+/* Video hero — fills its 16:9 aspect-ratio container fully (no max-height
+   cap that would prevent the thumbnail from filling the column). */
+#ar2-report .rpt-ls-video-hero{display:block;width:100%;}
+#ar2-report .rpt-ls-video-hero img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block;}
 /* ── Property Photos drawer (Step 4 export panel) ── */
 #ar2 .ar-p2c3-drawer{margin:4px 0 10px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:10px;}
 #ar2 .ar-p2c3-slots{display:flex;flex-direction:column;gap:8px;}
@@ -967,15 +991,16 @@
 /* Checkbox column */
 #ar2 .ar-bank-chk{display:flex;align-items:center;justify-content:center;width:32px;}
 #ar2 .ar-bank-chk input{width:15px;height:15px;accent-color:var(--t);cursor:pointer;margin:0;}
-/* Table header */
-#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 140px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
-#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 140px;}
+/* Table header — Actions column widened from 140px to 200px so icons
+   render with breathing room and never overlap adjacent metric columns. */
+#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
 #ar2 .ar-bank-thead>div:not(:first-child){text-align:right;}
 /* Row list */
 #ar2 .ar-bank-list{display:flex;flex-direction:column;gap:0;}
 /* Each record row */
-#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 140px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
-#ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 140px;}
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
 #ar2 .ar-bank-card.selected{background:rgba(0,180,216,.06);}
 #ar2 .ar-bank-card:hover{background:rgba(0,180,216,.04);}
 #ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}
@@ -990,9 +1015,10 @@
 #ar2 .ar-bank-cell-val.gold{color:#fbbf24;}
 #ar2 .ar-bank-cell-val.teal{color:var(--aq);}
 #ar2 .ar-bank-cell-sub{font-size:11px;color:var(--mu);font-weight:400;}
-/* Actions — visible on hover */
-#ar2 .ar-bank-actions{display:flex;gap:4px;justify-content:flex-end;align-items:center;opacity:0;transition:opacity .15s;}
-#ar2 .ar-bank-card:hover .ar-bank-actions{opacity:1;}
+/* Actions — always visible so users can see all available row actions
+   without having to hover; previously hover-only which hid them entirely
+   on touch devices and made the column purpose unclear. */
+#ar2 .ar-bank-actions{display:flex;gap:4px;justify-content:flex-end;align-items:center;opacity:1;}
 #ar2 .ar-bank-act{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:6px;border:none;background:rgba(255,255,255,.06);color:#ccc;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;}
 #ar2 .ar-bank-act:hover{background:rgba(0,180,216,.15);color:var(--t);}
 #ar2 .ar-bank-act.primary{background:rgba(0,180,216,.12);color:var(--t);}
