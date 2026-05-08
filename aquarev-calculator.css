@@ -107,6 +107,16 @@
 #ar2 .ar-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);box-shadow:0 4px 16px rgba(0,180,216,.22);}
 #ar2 .ar-btn.ghost{background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.25);color:var(--mu);}
 #ar2 .ar-btn.ghost:not(:disabled):hover{color:var(--tx);}
+/* ── Step navigation colour-coding ──
+   advance = forward/continue (green), retreat = back/return (orange).
+   Wins over .primary / .ghost via override ordering + same specificity. */
+#ar2 .ar-btn.advance{background:linear-gradient(135deg,var(--gr),#16a34a);color:#fff;box-shadow:0 4px 16px rgba(34,197,94,.28);border:none;}
+#ar2 .ar-btn.advance:not(:disabled):hover{filter:brightness(1.08);}
+#ar2 .ar-btn.retreat{background:linear-gradient(135deg,var(--go),#d88b00);color:#fff;border:1px solid rgba(240,165,0,.55);box-shadow:0 3px 10px rgba(240,165,0,.20);}
+#ar2 .ar-btn.retreat:not(:disabled):hover{filter:brightness(1.08);color:#fff;}
+/* Same colour-coding for the map step's Continue button (uses .ap-btn instead of .ar-btn). */
+#ap2 .ap-btn.advance{background:linear-gradient(135deg,var(--gr),#16a34a) !important;color:#fff !important;border:none !important;box-shadow:0 4px 16px rgba(34,197,94,.28);}
+#ap2 .ap-btn.advance:not(:disabled):hover{filter:brightness(1.08);}
 #ar2 .ar-nav{margin-bottom:12px;}
 #ar2 .ar-nav-stack{display:flex;flex-direction:column;gap:8px;}
 #ar2 .ar-nav-stack .ar-btn{padding:12px 16px;font-size:12px;}

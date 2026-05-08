@@ -1727,8 +1727,8 @@ function renderNav(){
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
   var html='<div class="ar-nav-stack">'
-    +(isLast?'':'<button class="ar-btn primary full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
-    +'<button class="ar-btn ghost full" data-nav="back">'+backLabel+'</button>'
+    +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
+    +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
     +(disableNext?'<div class="ar-nav-hint">Select a device above to continue</div>':'')
   +'</div>';
   el.innerHTML=html;
