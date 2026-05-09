@@ -2747,8 +2747,12 @@ function generateReport(){
   //    block and made it inaccessible at the call site. Moved here so both
   //    portrait and landscape Exec Summary builders can call it. ──
   function buildInvestmentChart(inv, totalMo, payback, net5){
-    var W=540, H=300;
-    var pad={top:38, right:24, bottom:36, left:96};
+    // viewBox aspect drives the chart's natural display height (col-width
+    // ÷ aspect). Aspect 540×210 ≈ 2.57:1 keeps the chart shorter so it
+    // fills the column width without overflowing into the footer when
+    // displayed at ~452px column width (renders at ~176px tall).
+    var W=540, H=210;
+    var pad={top:32, right:24, bottom:30, left:96};
     var plotW=W-pad.left-pad.right;
     var plotH=H-pad.top-pad.bottom;
     var pickStep=function(mag){
