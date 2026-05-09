@@ -859,7 +859,11 @@
    itself shrinks proportionally rather than letting the chart bleed below. */
 #ar2-report .rpt-es-right .rpt-es-right-bottom{margin-top:auto;width:100%;flex-shrink:0;}
 #ar2-report .rpt-es-right .rpt-es-right-bottom .rpt-es-chart{margin:0 0 4px;width:100%;}
-#ar2-report .rpt-es-right .rpt-es-right-bottom .rpt-es-chart-svg{width:100%;max-height:170px;}
+/* Don't cap the SVG height — preserveAspectRatio="xMidYMid meet" with a max-
+   height leaves horizontal margins (chart shrinks to fit smaller dim, leaving
+   blank space). Letting it render at its natural aspect (col-width / 1.8)
+   means the chart spans the full column width, matching the rest of the
+   right-column content. */
 #ar2-report .rpt-es-right-2{padding:10px 22px 14px;display:flex;flex-direction:column;}
 /* Page 2 — proportionate stretch. Sections expand vertically so the col
    fills the area between the hero image and the footer without bunching
