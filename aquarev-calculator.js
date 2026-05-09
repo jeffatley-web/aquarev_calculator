@@ -65,6 +65,11 @@ var EX={
   inclLsP2Col3Photos:false, // when true: ES Page 2 Col 3 shows uploaded property photos instead of NSF default image
   lsP2Col3Photos:[],        // [{id, data}] up to 4 photos
   inclLsBackCover:false,    // landscape Back Cover
+  // ── Quote / Order toggles (Step 3) — independent toggles for each of the 3
+  //    quote pages so the rep can include any subset in the unified PDF.
+  inclQuote:false,        // include the Quote / Order page
+  inclQuoteTerms:false,   // include the Purchase Terms page
+  inclQuotePayment:false, // include the Payment Form page
   images:[],              // [{id, data, comment}]
   ytEntries:[],           // [{id, url, videoId, comment}]
   showYtDrawer:false,
@@ -74,6 +79,77 @@ var EX={
   saving:false,           // true while save is in progress
   saveStatus:null,        // null | 'saved' | 'error'
   previewing:false,       // true while in-browser preview is active
+};
+
+/* ── Quote / Order Form state (Step 3) ──
+   Holds everything the rep configures on the Quote step. Pre-fills from
+   S.bodies + device qty + R.disc_amt at first entry. Persisted in archive
+   alongside the rest of S. */
+var QUOTE_DEFAULT_TERMS = (
+  '1. Deposit is non-refundable.\n'
+  + '2. Pilot period is 90 days from deposit payment.\n'
+  + '3. Payment terms as defined on the Payment Form.\n'
+  + '4. Title to the Goods shall pass to Buyer only upon Seller\'s receipt of the full purchase price and all other amounts due under this Agreement.\n'
+  + '5. 1.5% per month interest is applied on any outstanding amount until paid in full.\n'
+  + '6. If Buyer elects not to complete the purchase after the Pilot Period, Buyer may return the Goods, provided that all of the following conditions are met:\n'
+  + '   a. Buyer gives Seller written notice of election to return before the sooner of expiration of the Pilot Period or 60 days from delivery;\n'
+  + '   b. Buyer obtains Seller\'s written return instructions;\n'
+  + '   c. Buyer returns the Goods within fifteen (15) calendar days after giving Seller notice; and\n'
+  + '   d. The Goods are returned complete and in original packaging.\n'
+  + '7. Return Costs: Buyer shall bear all costs of deinstallation, packing, crating, freight, insurance, duties, return shipping, and risk of loss during return transit.\n'
+  + '8. Limitation of Liability:\n'
+  + '   a. Neither Seller or Buyer shall not be liable for any indirect, incidental, special, consequential, punitive, or exemplary damages.\n'
+  + '   b. Seller shall not be liable for lost profits, lost revenue, lost business opportunity, loss of goodwill, loss of use, business interruption, increased operating cost, guest claims, regulatory penalties, or damage arising from Buyer\'s operations.\n'
+  + '   c. Seller\'s aggregate liability arising out of or related to this Agreement shall not exceed the amount actually paid by Buyer to Seller for the specific Goods giving rise to the claim.\n'
+  + '9. The Parties shall keep confidential all non-public commercial terms, pricing, technical information, business methods, data, and proprietary materials exchanged in connection with this Agreement, except where disclosure is required by law, court order, lender requirements, auditor requirements or insurer requirements.\n'
+  + '10. Buyer shall not disclose Seller pricing, proprietary product information, or technical documentation to third parties for competitive bidding, reverse engineering, or replication purposes.'
+);
+
+var Q={
+  enabled:false,           // when true, Quote section is configured (toggled by Skip/Continue)
+  docKind:'quote',         // 'quote' | 'po' — switches the document title between QUOTE and PURCHASE ORDER
+  // Quote header fields
+  quoteId:'',              // auto-populated AQR-YYYY-#### or manual override
+  date:'',                 // ISO YYYY-MM-DD; '' means use today
+  daysValid:14,
+  customerId:'',
+  rep:'',
+  po:'',                   // optional buyer's PO# reference
+  // Buyer (manual entry)
+  buyerName:'',
+  buyerAddr:'',
+  buyerContact:'',
+  buyerPhone:'',
+  buyerEmail:'',
+  // Line items — auto-populated from S.bodies/devices on each render but
+  // editable; if rep edits an item we mark it dirty so we don't overwrite.
+  warrantyEnabled:true,
+  warrantyText:'Lifetime Warranty - Parts Registered',
+  warrantyAmount:'included',
+  servicesEnabled:true,
+  servicesText:'Engineer Installation Remote Support',
+  servicesRate:495,
+  servicesQty:1,
+  servicesTaxable:true,
+  shippingEnabled:true,
+  shippingText:'Cost of Freight',
+  shippingAmount:'included',
+  // Totals
+  // Per-line tax rates (0..1). Each Equipment row keys off the PIPES.k value
+  // (e.g. 'pipe_6in'). Warranty / Services / Shipping each key by section name.
+  // Total tax due = sum of (line.amount * line.taxRate) for each row.
+  lineTax:{},
+  otherFee:0,
+  discount:0,              // dollar amount; auto-pulls from R.disc_amt at first quote entry
+  depositPct:0,            // 0..100; default 0 per UX direction
+  depositDueDate:'',
+  balanceDueTerms:'30 days from delivery',
+  // Ship-to (multi-line)
+  shipTo:'',
+  // Terms & Conditions
+  termsText:QUOTE_DEFAULT_TERMS,
+  // Payment Form
+  paymentMethod:'',        // '' | 'cc' | 'wire' | 'check'
 };
 
 /* ── View state ('form' | 'bank') ── */
@@ -380,9 +456,14 @@ function bankSaveReportImpl(replaceIds){
       layout:EX.layout, inclWater:EX.inclWater, inclFactSheet:EX.inclFactSheet, inclBackCover:EX.inclBackCover, inclPoolProfiles:EX.inclPoolProfiles, inclExecSummary:EX.inclExecSummary,
       execCustomTitle:EX.execCustomTitle, execCustomCopy:EX.execCustomCopy,
       inclLsCover:EX.inclLsCover, inclLsExecSummary:EX.inclLsExecSummary, inclLsP2Col3Photos:EX.inclLsP2Col3Photos, lsP2Col3Photos:EX.lsP2Col3Photos, inclLsBackCover:EX.inclLsBackCover,
+      // Quote / Order Form toggles (Step 3)
+      inclQuote:EX.inclQuote, inclQuoteTerms:EX.inclQuoteTerms, inclQuotePayment:EX.inclQuotePayment,
       comments:EX.comments, ytEntries:EX.ytEntries,
       images:EX.images,
     },
+    // Quote / Order Form configuration — stored separately from EX so the
+    // toggles (in EX) and the quote content (in Q) are conceptually distinct.
+    quote: JSON.parse(JSON.stringify(Q)),
     // Map Pools step full snapshot — polygons, map view, property anchor.
     // Absent for non-map archives (e.g. records from pre-v4 calculator saves).
     mapping: (window.AR2_MAP && AR2_MAP.exportSnapshot) ? AR2_MAP.exportSnapshot() : null,
@@ -456,6 +537,15 @@ function bankRecall(snapshot){
   EX.inclLsP2Col3Photos=!!snapshot.ex.inclLsP2Col3Photos;
   EX.lsP2Col3Photos=Array.isArray(snapshot.ex.lsP2Col3Photos)?snapshot.ex.lsP2Col3Photos:[];
   EX.inclLsBackCover=!!snapshot.ex.inclLsBackCover;
+  // Quote / Order Form export toggles. Pre-v Quote snapshots won't have these.
+  EX.inclQuote=!!snapshot.ex.inclQuote;
+  EX.inclQuoteTerms=!!snapshot.ex.inclQuoteTerms;
+  EX.inclQuotePayment=!!snapshot.ex.inclQuotePayment;
+  // Quote configuration (S.quote-equivalent — held in module-level Q).
+  // Pre-v Quote snapshots won't have a quote field; default Q stays untouched.
+  if (snapshot.quote && typeof snapshot.quote === 'object') {
+    Object.keys(snapshot.quote).forEach(function(k){ Q[k] = snapshot.quote[k]; });
+  }
   EX.execCustomTitle=snapshot.ex.execCustomTitle||'';
   EX.execCustomCopy=snapshot.ex.execCustomCopy||'';
   EX.comments=snapshot.ex.comments;
@@ -830,8 +920,8 @@ var CHEMS=[
   {k:'clarifier', lbl:'Clarifier',      ck:'clarifier_cost',  rk:'clarifier_reduction', chlGal:false, isCo2:false},
 ];
 
-var STEPS=['map-pools','pool-system','settings','export'];
-var STEP_LBLS=['Map Pools','Pool & System','Pricing & Settings','Export'];
+var STEPS=['map-pools','pool-system','settings','quote','export'];
+var STEP_LBLS=['Map Pools','Pool & System','Pricing & Settings','Quote','Export'];
 
 /* ── State — DEFAULT_INPUTS from types.ts + bodies of water ── */
 var S={
@@ -1454,6 +1544,10 @@ function renderDevices(){
     +'</div>';
     el.innerHTML=html;
   } else if(S.step===3){
+    // Step 3 (Quote / Order): live preview of the quote pages in the middle col.
+    // Mirrors the Export step's preview pattern.
+    el.innerHTML=renderQuoteMiddle();
+  } else if(S.step===4){
     // Step 4 (Export): Export options in middle column
     el.innerHTML=renderExportSection();
     // Wire drag-and-drop for the P2 Col 3 photo upload drawer (if rendered)
@@ -1561,6 +1655,197 @@ function renderStep2(){
       +'<div class="ar-review-row"><span>Water Cost</span><span>$'+fd(S.water_cost_per_gal,4)+'/gal</span></div>'
     +'</div>'
     +'<div class="ar-note" style="margin-top:14px;text-align:center">Review complete. Use the panel to the right to generate or save your report.</div>'
+  +'</div>';
+}
+
+/* ── Quote helpers ─────────────────────────────────────────────
+   buildQuoteLineItems(): walks S.bodies + device qty to assemble equipment
+   line items, then adds optional Warranty / Services / Shipping rows.
+   Result is a flat array of { section, desc, rate, qty, taxable, amount,
+   isText } objects. amount may be a number or 'included' string.
+   buildQuoteTotals(): totals from line items + Q.taxRate + Q.discount +
+   Q.otherFee + Q.depositPct.
+*/
+function quoteToday(){return new Date().toISOString().slice(0,10);}
+function quoteAutoId(){
+  var yr=new Date().getFullYear();
+  var seed=Math.floor(Math.random()*9000+1000);
+  return 'AQR-'+yr+'-'+seed;
+}
+function buildQuoteLineItems(){
+  var items=[];
+  // Equipment — one row per device size with qty>0. Each row carries its own
+  // taxRate (0..1) keyed by PIPES.k via Q.lineTax so reps can charge mixed
+  // jurisdictions per line.
+  PIPES.forEach(function(p){
+    var qty=S[p.k]||0;
+    if(!qty) return;
+    var sizeIn=parseInt(p.sz,10);
+    var desc='KD'+sizeIn+'X'+(sizeIn*2)+'X'+sizeIn+'- AquaRev Water HDC Treatement System - '+sizeIn+' Inch';
+    items.push({section:'EQUIPMENT', key:p.k, desc:desc, rate:p.price, qty:qty, taxRate:Number(Q.lineTax[p.k])||0, amount:p.price*qty});
+  });
+  // Warranty / Services / Shipping. Each carries its own tax rate keyed by
+  // section name (e.g. Q.lineTax.warranty).
+  if(Q.warrantyEnabled){
+    items.push({section:'WARRANTY', key:'warranty', desc:Q.warrantyText, rate:0, qty:1, taxRate:Number(Q.lineTax.warranty)||0, amount:Q.warrantyAmount, isText:true});
+  }
+  if(Q.servicesEnabled){
+    items.push({section:'SERVICES', key:'services', desc:Q.servicesText, rate:Number(Q.servicesRate)||0, qty:Number(Q.servicesQty)||1, taxRate:Number(Q.lineTax.services)||0, amount:Number(Q.servicesRate)*Number(Q.servicesQty)||0});
+  }
+  if(Q.shippingEnabled){
+    items.push({section:'SHIPPING', key:'shipping', desc:Q.shippingText, rate:0, qty:1, taxRate:Number(Q.lineTax.shipping)||0, amount:Q.shippingAmount, isText:true});
+  }
+  return items;
+}
+function buildQuoteTotals(){
+  var R=calcROI();
+  var items=buildQuoteLineItems();
+  var subTotal=0;
+  var taxable=0;     // sum of amounts where taxRate > 0 (for display)
+  var taxDue=0;      // sum of (amount * lineTaxRate) per line
+  items.forEach(function(it){
+    if(typeof it.amount!=='number') return;
+    subTotal+=it.amount;
+    var rate=Number(it.taxRate)||0;
+    if(rate>0){ taxable+=it.amount; taxDue+=it.amount*rate; }
+  });
+  // Discount auto-pulls from the Pricing step's R.disc_amt unless the rep
+  // typed a manual override into the Quote form.
+  var discAmt = Number(Q.discount);
+  if(!Q.discount && Q.discount!==0) discAmt=Number(R.disc_amt)||0;
+  var taxableAfter=Math.max(0,taxable-discAmt);
+  var other=Number(Q.otherFee)||0;
+  var total=subTotal-discAmt+taxDue+other;
+  var depositPct=(Number(Q.depositPct)||0)/100;
+  var depositAmt=total*depositPct;
+  var balance=total-depositAmt;
+  return {subTotal:subTotal, taxable:taxable, taxableAfter:taxableAfter, taxDue:taxDue,
+    discount:discAmt, other:other, total:total, depositPct:Number(Q.depositPct)||0, deposit:depositAmt, balance:balance};
+}
+
+/* ── Step 3: Quote / Order Form (left col — configuration) ────── */
+function renderStepQuote(){
+  // Lazy-default the Quote ID, date, rep on first entry so the form has
+  // something to show without forcing the rep to fill everything.
+  if(!Q.quoteId) Q.quoteId=quoteAutoId();
+  if(!Q.date) Q.date=quoteToday();
+  // Doc-kind toggle (Quote vs PO)
+  var kindToggle='<div class="ar-card ar-fu" style="animation-delay:.04s">'
+    +'<div class="ar-card-title">Document Type</div>'
+    +'<div class="ar-btn-row" style="display:flex;gap:8px">'
+      +'<button class="ar-btn '+(Q.docKind==='quote'?'primary':'ghost')+'" data-q-kind="quote" style="flex:1">Quote</button>'
+      +'<button class="ar-btn '+(Q.docKind==='po'?'primary':'ghost')+'" data-q-kind="po" style="flex:1">Purchase Order</button>'
+    +'</div>'
+    +'<div class="ar-help" style="margin-top:8px;font-size:11px;color:var(--mu)">Toggles the document title between QUOTE and PURCHASE ORDER on the rendered page.</div>'
+  +'</div>';
+  // Form ordering per spec: Quote#, Date, Days Valid, Buyer PO#, Rep, Customer ID.
+  // PO# sits directly under Days Valid; Rep sits directly under PO#.
+  var hdr='<div class="ar-card ar-fu">'
+    +'<div class="ar-card-title">Header</div>'
+    +'<div class="ar-form-row"><label>'+(Q.docKind==='po'?'PO':'Quote')+' #</label><input class="ar-inp" data-q="quoteId" value="'+esc(Q.quoteId)+'"></div>'
+    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<div><label>Date</label><input type="date" class="ar-inp" data-q="date" value="'+esc(Q.date)+'"></div>'
+      +'<div><label>Days Valid</label><input type="number" class="ar-inp" data-q="daysValid" value="'+(Q.daysValid||14)+'"></div>'
+    +'</div>'
+    +'<div class="ar-form-row"><label>Buyer PO# <span style="font-size:10px;color:var(--mu);font-weight:400">(optional)</span></label><input class="ar-inp" data-q="po" value="'+esc(Q.po)+'"></div>'
+    +'<div class="ar-form-row"><label>Rep</label><input class="ar-inp" data-q="rep" value="'+esc(Q.rep)+'" placeholder="Initials"></div>'
+    +'<div class="ar-form-row"><label>Customer ID</label><input class="ar-inp" data-q="customerId" value="'+esc(Q.customerId)+'"></div>'
+  +'</div>';
+  var buyer='<div class="ar-card ar-fu" style="animation-delay:.06s">'
+    +'<div class="ar-card-title">Buyer</div>'
+    +'<div class="ar-form-row"><label>Buyer Name</label><input class="ar-inp" data-q="buyerName" value="'+esc(Q.buyerName)+'" placeholder="'+esc(S.propertyName||'Property name')+'"></div>'
+    +'<div class="ar-form-row"><label>Address</label><textarea class="ar-textarea" data-q="buyerAddr" rows="2" placeholder="Street\\nCity, State Zip, Country">'+esc(Q.buyerAddr)+'</textarea></div>'
+    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<div><label>Contact</label><input class="ar-inp" data-q="buyerContact" value="'+esc(Q.buyerContact)+'"></div>'
+      +'<div><label>Phone</label><input class="ar-inp" data-q="buyerPhone" value="'+esc(Q.buyerPhone)+'"></div>'
+    +'</div>'
+    +'<div class="ar-form-row"><label>Email</label><input class="ar-inp" data-q="buyerEmail" value="'+esc(Q.buyerEmail)+'"></div>'
+  +'</div>';
+  // Line Items card now exposes a tax % input next to each line.
+  // Equipment rows are auto-pulled from S device qty; rep enters a per-line
+  // tax rate so the sum of (amount × rate) becomes the Tax Due in totals.
+  var equipmentRows = PIPES.map(function(p){
+    var qty=S[p.k]||0; if(!qty) return '';
+    var sizeIn=parseInt(p.sz,10);
+    var rateVal = (Number(Q.lineTax[p.k])||0)*100;
+    return '<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 80px 70px;gap:8px;align-items:end;margin-top:6px">'
+      + '<div style="font-size:11px;color:var(--tx)"><span style="color:var(--mu);font-size:10px">'+sizeIn+'" Device × '+qty+'</span><br>'+fc(p.price*qty,0)+'</div>'
+      + '<div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="'+p.k+'" value="'+rateVal.toFixed(2)+'"></div>'
+      + '<div style="font-size:11px;color:var(--mu);text-align:right">'+fc(p.price*qty*(Number(Q.lineTax[p.k])||0),0)+'<br><span style="font-size:9px">tax due</span></div>'
+    + '</div>';
+  }).join('');
+  var lineItems='<div class="ar-card ar-fu" style="animation-delay:.08s">'
+    +'<div class="ar-card-title">Line Items <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:8px">Equipment auto-pulls from Step 1 device qty</span></div>'
+    +(equipmentRows ? '<div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px">Equipment</div>'+equipmentRows : '<div class="ar-help" style="font-size:11px;color:var(--mu)">Add devices on Step 1 to populate equipment lines.</div>')
+    +'<div class="ar-toggle-row" style="margin-top:14px"><label>Warranty (Lifetime - Parts Registered)</label><div class="ar-sw-track'+(Q.warrantyEnabled?' on':'')+'" data-q-sw="warrantyEnabled"><div class="ar-sw-thumb"></div></div></div>'
+    +(Q.warrantyEnabled?'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 80px;gap:8px;align-items:end"><div><label>Warranty Description</label><input class="ar-inp" data-q="warrantyText" value="'+esc(Q.warrantyText)+'"></div><div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="warranty" value="'+((Number(Q.lineTax.warranty)||0)*100).toFixed(2)+'"></div></div>':'')
+    +'<div class="ar-toggle-row"><label>Services (Engineer Installation Remote Support)</label><div class="ar-sw-track'+(Q.servicesEnabled?' on':'')+'" data-q-sw="servicesEnabled"><div class="ar-sw-thumb"></div></div></div>'
+    +(Q.servicesEnabled?'<div class="ar-form-row" style="display:grid;grid-template-columns:2fr 1fr 1fr 80px;gap:8px;align-items:end"><div><label>Services Description</label><input class="ar-inp" data-q="servicesText" value="'+esc(Q.servicesText)+'"></div><div><label>Rate</label><input type="number" class="ar-inp" data-q="servicesRate" value="'+Q.servicesRate+'"></div><div><label>Qty</label><input type="number" class="ar-inp" data-q="servicesQty" value="'+Q.servicesQty+'"></div><div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="services" value="'+((Number(Q.lineTax.services)||0)*100).toFixed(2)+'"></div></div>':'')
+    +'<div class="ar-toggle-row"><label>Shipping</label><div class="ar-sw-track'+(Q.shippingEnabled?' on':'')+'" data-q-sw="shippingEnabled"><div class="ar-sw-thumb"></div></div></div>'
+    +(Q.shippingEnabled?'<div class="ar-form-row" style="display:grid;grid-template-columns:2fr 1fr 80px;gap:8px;align-items:end"><div><label>Shipping Description</label><input class="ar-inp" data-q="shippingText" value="'+esc(Q.shippingText)+'"></div><div><label>Amount (or "included")</label><input class="ar-inp" data-q="shippingAmount" value="'+esc(Q.shippingAmount)+'"></div><div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="shipping" value="'+((Number(Q.lineTax.shipping)||0)*100).toFixed(2)+'"></div></div>':'')
+  +'</div>';
+  var R=calcROI();
+  var qTotals=buildQuoteTotals();
+  var totals='<div class="ar-card ar-fu" style="animation-delay:.10s">'
+    +'<div class="ar-card-title">Totals <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:8px">Tax % per line above</span></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx);padding:4px 0;border-bottom:1px solid rgba(0,180,216,.12)"><span>Sub-Total</span><b>'+fc(qTotals.subTotal,0)+'</b></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx);padding:4px 0;border-bottom:1px solid rgba(0,180,216,.12)"><span>Tax Due (sum of per-line)</span><b>'+fc(qTotals.taxDue,0)+'</b></div>'
+    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
+      +'<div><label>Other Fee ($)</label><input type="number" step="0.01" class="ar-inp" data-q="otherFee" value="'+(Number(Q.otherFee)||0)+'"></div>'
+      +'<div><label>Discount ($) <span style="font-size:10px;color:var(--mu);font-weight:400">'+(R.disc_amt>0?'auto: '+fc(R.disc_amt,0):'no discount in pricing')+'</span></label><input type="number" step="0.01" class="ar-inp" data-q="discount" value="'+(Q.discount||(R.disc_amt>0?R.disc_amt.toFixed(2):0))+'"></div>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--t);font-weight:700;padding:8px 0;border-top:2px solid var(--t);margin-top:8px"><span>TOTAL</span><span>'+fc(qTotals.total,0)+'</span></div>'
+    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<div><label>Deposit (%)</label><input type="number" step="1" min="0" max="100" class="ar-inp" data-q="depositPct" value="'+(Number(Q.depositPct)||0)+'"></div>'
+      +'<div><label>Deposit Due Date</label><input type="date" class="ar-inp" data-q="depositDueDate" value="'+esc(Q.depositDueDate)+'"></div>'
+    +'</div>'
+    +'<div class="ar-form-row"><label>Balance Due Terms</label><input class="ar-inp" data-q="balanceDueTerms" value="'+esc(Q.balanceDueTerms)+'"></div>'
+  +'</div>';
+  var ship='<div class="ar-card ar-fu" style="animation-delay:.12s">'
+    +'<div class="ar-card-title">Ship-To Addresses</div>'
+    +'<textarea class="ar-textarea" data-q="shipTo" rows="4" placeholder="One destination per line. e.g. 1x 6\\" unit to: ...">'+esc(Q.shipTo)+'</textarea>'
+  +'</div>';
+  var terms='<div class="ar-card ar-fu" style="animation-delay:.14s">'
+    +'<div class="ar-card-title">Terms &amp; Conditions <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">Edit to customise per quote</span></div>'
+    +'<textarea class="ar-textarea" data-q="termsText" rows="10" style="font-size:11px;line-height:1.45;font-family:inherit">'+esc(Q.termsText)+'</textarea>'
+  +'</div>';
+  var pay='<div class="ar-card ar-fu" style="animation-delay:.16s">'
+    +'<div class="ar-card-title">Payment Method</div>'
+    +'<div class="ar-btn-row" style="display:flex;gap:6px;flex-wrap:wrap">'
+      +'<button class="ar-btn '+(Q.paymentMethod==='cc'?'primary':'ghost')+'" data-q-pay="cc" style="flex:1;min-width:120px">Credit Card</button>'
+      +'<button class="ar-btn '+(Q.paymentMethod==='wire'?'primary':'ghost')+'" data-q-pay="wire" style="flex:1;min-width:120px">Bank Wire</button>'
+      +'<button class="ar-btn '+(Q.paymentMethod==='check'?'primary':'ghost')+'" data-q-pay="check" style="flex:1;min-width:120px">Check</button>'
+    +'</div>'
+    +'<div class="ar-help" style="margin-top:8px;font-size:11px;color:var(--mu)">The Payment Form page in the PDF renders all three options. Credit Card section shows blank fields for the buyer to fill in by hand and email back (per current workflow — electronic capture deferred until payment / e-sig integration).</div>'
+  +'</div>';
+  return kindToggle+hdr+buyer+lineItems+totals+ship+terms+pay;
+}
+
+/* ── Step 3 middle col: live preview of the Quote / Order page ── */
+function renderQuoteMiddle(){
+  var totals=buildQuoteTotals();
+  var items=buildQuoteLineItems();
+  var hasEquipment=items.some(function(it){return it.section==='EQUIPMENT';});
+  return '<div class="ar-card ar-fu">'
+    +'<div class="ar-card-title">Preview</div>'
+    +(!hasEquipment?'<div class="ar-empty"><div style="font-size:13px;color:var(--mu);text-align:center;padding:14px 0">Add at least one device on Step 1 (Pool &amp; System) to see the quote preview.</div></div>'
+      :'<div style="display:flex;flex-direction:column;gap:8px;font-size:11px;color:var(--tx)">'
+        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Doc Type</span><b>'+(Q.docKind==='po'?'Purchase Order':'Quote')+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">'+(Q.docKind==='po'?'PO':'Quote')+' #</span><b>'+esc(Q.quoteId||'—')+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Date</span><b>'+esc(Q.date||quoteToday())+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Buyer</span><b>'+esc(Q.buyerName||S.propertyName||'—')+'</b></div>'
+        +'<hr style="border:none;border-top:1px solid rgba(0,180,216,.18);margin:6px 0">'
+        +items.filter(function(it){return it.section==='EQUIPMENT';}).map(function(it){return '<div style="display:flex;justify-content:space-between;font-size:10.5px"><span>'+esc(it.desc.split(' - ')[1]||it.desc)+' &times;'+it.qty+'</span><span>'+fc(it.amount,0)+'</span></div>';}).join('')
+        +'<hr style="border:none;border-top:1px solid rgba(0,180,216,.18);margin:6px 0">'
+        +'<div style="display:flex;justify-content:space-between"><span>Sub-Total</span><span>'+fc(totals.subTotal,0)+'</span></div>'
+        +(totals.discount>0?'<div style="display:flex;justify-content:space-between;color:var(--gr)"><span>Discount</span><span>-'+fc(totals.discount,0)+'</span></div>':'')
+        +(totals.taxDue>0?'<div style="display:flex;justify-content:space-between"><span>Tax ('+(totals.taxRate*100).toFixed(2)+'%)</span><span>'+fc(totals.taxDue,0)+'</span></div>':'')
+        +(totals.other>0?'<div style="display:flex;justify-content:space-between"><span>Other</span><span>'+fc(totals.other,0)+'</span></div>':'')
+        +'<div style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;color:var(--t);margin-top:2px"><span>TOTAL</span><span>'+fc(totals.total,0)+'</span></div>'
+        +(totals.deposit>0?'<div style="display:flex;justify-content:space-between"><span>Deposit ('+totals.depositPct+'%)</span><span>'+fc(totals.deposit,0)+'</span></div>':'')
+        +(totals.deposit>0?'<div style="display:flex;justify-content:space-between"><span>Balance</span><span>'+fc(totals.balance,0)+'</span></div>':'')
+      +'</div>'
+    )
   +'</div>';
 }
 
@@ -1721,11 +2006,13 @@ function renderNav(){
   // Continue button is omitted on the final step — Export panel below is the action.
   var nextLabel='Continue \u2192';
   if(S.step===1) nextLabel='Continue \u2192 Pricing';
-  else if(S.step===2) nextLabel='Continue \u2192 Export';
+  else if(S.step===2) nextLabel='Continue \u2192 Quote';
+  else if(S.step===3) nextLabel='Continue \u2192 Export';
   var backLabel='\u2190 Back';
   if(S.step===1) backLabel='\u2190 Map Pools';
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
+  else if(S.step===4) backLabel='\u2190 Quote';
   var html='<div class="ar-nav-stack">'
     +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
@@ -1738,7 +2025,9 @@ function renderNav(){
 function renderForm(){
   var el=document.getElementById('ar2-form');
   if(!el)return;
-  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStep3][S.step];
+  // Step routing — order matches STEPS array:
+  //   0=Map Pools  1=Pool & System  2=Pricing & Settings  3=Quote  4=Export
+  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStepQuote,renderStep3][S.step];
   el.innerHTML=stepFn?stepFn():'';
   syncRangeStyles();
 }
@@ -1770,6 +2059,290 @@ function render(){
 }
 
 /* ── Generate printable PDF report ── */
+/* Render a plain-text Terms & Conditions string as a nested ordered list
+   so numbered items get proper hanging indent and lettered sub-items
+   (a. / b. / c.) render as a nested list under their parent. Top-level
+   items match `^\d+\.` (e.g. "1.", "2.") and sub-items match leading
+   whitespace + `^[a-z]\.`. Anything else becomes a paragraph. */
+function renderTermsHtml(text){
+  if(!text) return '';
+  var lines = String(text).split(/\r?\n/);
+  var html = '';
+  var inOl = false, inSubOl = false;
+  function closeSub(){ if(inSubOl){ html+='</ol>'; inSubOl=false; } }
+  function closeOl(){ closeSub(); if(inOl){ html+='</ol>'; inOl=false; } }
+  for (var i=0; i<lines.length; i++){
+    var line = lines[i];
+    var trimmed = line.replace(/^\s+/, '');
+    if(!trimmed){ continue; }
+    var topMatch = trimmed.match(/^(\d+)\.\s*(.*)$/);
+    var subMatch = (line.match(/^\s+([a-z])\.\s*(.*)$/) || trimmed.match(/^([a-z])\.\s*(.*)$/));
+    if(topMatch && !line.match(/^\s/)){
+      closeSub();
+      if(!inOl){ html += '<ol class="rpt-q-terms-ol">'; inOl=true; }
+      html += '<li>'+esc(topMatch[2])+'</li>';
+    } else if(subMatch){
+      if(!inOl){ html += '<ol class="rpt-q-terms-ol">'; inOl=true; }
+      // sub-list starts inside the most recent <li>
+      if(!inSubOl){
+        // backtrack the last </li> to splice the sub-list inside it
+        if(html.slice(-5)==='</li>'){ html = html.slice(0,-5); }
+        html += '<ol class="rpt-q-terms-sub-ol">';
+        inSubOl = true;
+      }
+      html += '<li>'+esc(subMatch[2])+'</li>';
+    } else {
+      closeOl();
+      html += '<p class="rpt-q-terms-p">'+esc(trimmed)+'</p>';
+    }
+    // close subOl when next iteration is a top-level
+    if(i+1<lines.length){
+      var nextLine = lines[i+1];
+      var nextTrim = nextLine.replace(/^\s+/,'');
+      var nextIsTop = nextTrim.match(/^\d+\./) && !nextLine.match(/^\s/);
+      if(inSubOl && nextIsTop) closeSub();
+    }
+  }
+  closeOl();
+  return html;
+}
+
+/* ── Build Quote / Order Form PDF pages ──────────────────────────────
+   Returns an HTML string containing zero, one, two, or three pages based
+   on the EX.inclQuote / EX.inclQuoteTerms / EX.inclQuotePayment toggles.
+   Each page reuses .rpt-es-page sizing + .rpt-es-head / .rpt-es-foot for
+   look-and-feel parity with the Executive Summary. */
+function buildQuoteHtml(){
+  if(!EX.inclQuote && !EX.inclQuoteTerms && !EX.inclQuotePayment) return '';
+  var prop = S.propertyName || 'Property Assessment';
+  var todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  var docKindLabel = (Q.docKind==='po') ? 'PURCHASE ORDER' : 'QUOTE';
+  var idLabel = (Q.docKind==='po') ? 'PO #' : 'QUOTE #';
+  var qDate = Q.date || quoteToday();
+  // Header band — matches Executive Summary look (.rpt-es-head). NSF/ANSI 50
+  // pill omitted on Quote pages (the certification belongs to the assessment,
+  // not to the commercial quote).
+  var qHeader = '<div class="rpt-es-head">'
+    + '<div class="rpt-es-head-left">'
+      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
+      + '<div class="rpt-es-logo-sub">' + docKindLabel + '</div>'
+    + '</div>'
+    + '<div class="rpt-es-head-right">'
+      + '<div class="rpt-es-prop-name">' + esc(Q.buyerName || prop) + '</div>'
+      + '<div class="rpt-es-prop-date">' + esc(qDate) + ' · ' + idLabel + ' ' + esc(Q.quoteId||'—') + '</div>'
+    + '</div>'
+  + '</div>';
+  // Footer band — matches Exec Summary footer EXACTLY (rpt-foot has the dark
+  // navy bg; rpt-es-foot adds margin-top:auto so the band pins to the page foot).
+  var qFooter = '<div class="rpt-foot rpt-es-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Seller block constant per spec: "KD Enterprises LLC, dba AquaRev Water"
+  var SELLER_NAME = 'KD Enterprises LLC, dba AquaRev Water';
+  var SELLER_BLOCK = SELLER_NAME + '\n4348 - Waialae Ave. #621\nHonolulu, HI, 96816, USA\nt. (832) 979-6758\ne. water@aquarevwater.us';
+  // ── Page 1: Order ──
+  var pageOrder = '';
+  if(EX.inclQuote){
+    var totals = buildQuoteTotals();
+    var items = buildQuoteLineItems();
+    // Group items by section so we can render section bands.
+    var sections = {};
+    items.forEach(function(it){ if(!sections[it.section]) sections[it.section]=[]; sections[it.section].push(it); });
+    var rowsHtml = '';
+    ['EQUIPMENT','WARRANTY','SERVICES','SHIPPING'].forEach(function(sec){
+      if(!sections[sec]) return;
+      rowsHtml += '<tr class="rpt-q-section-row"><td colspan="5">'+sec+'</td></tr>';
+      sections[sec].forEach(function(it){
+        var amt = (typeof it.amount==='number') ? fc(it.amount,0) : esc(it.amount);
+        var rate = it.rate ? fc(it.rate,0) : (it.amount==='included'?'—':'—');
+        var taxPct = (Number(it.taxRate)||0)*100;
+        var taxLabel = taxPct>0 ? taxPct.toFixed(2)+'%' : 'N';
+        rowsHtml += '<tr>'
+          + '<td>'+esc(it.desc)+'</td>'
+          + '<td class="rate">'+rate+'</td>'
+          + '<td class="qty">'+(it.qty||1)+'</td>'
+          + '<td class="tax">'+taxLabel+'</td>'
+          + '<td class="amt">'+amt+'</td>'
+        + '</tr>';
+      });
+    });
+    // Tax Rate row removed — tax % is per-line in the Tax column above; Tax
+    // Due is the sum of (line.amount × line.taxRate) for transparency.
+    var totalsBlock = '<dl class="rpt-q-totals-table">'
+      + '<dt>Sub-Total</dt><dd>'+fc(totals.subTotal,0)+'</dd>'
+      + (totals.discount>0 ? '<dt>Discount</dt><dd>-'+fc(totals.discount,0)+'</dd>' : '')
+      + '<dt>Taxable</dt><dd>'+fc(totals.taxableAfter,0)+'</dd>'
+      + '<dt>Tax Due</dt><dd>'+fc(totals.taxDue,0)+'</dd>'
+      + (totals.other>0 ? '<dt>Other</dt><dd>'+fc(totals.other,0)+'</dd>' : '')
+      + '<div class="strong" style="display:contents"><dt>TOTAL USD</dt><dd>'+fc(totals.total,0)+'</dd></div>'
+      + (totals.deposit>0 ? '<dt>Deposit Due</dt><dd>'+fc(totals.deposit,0)+(Q.depositDueDate?'<br><span style="font-size:9px;color:#7d8a96">'+esc(Q.depositDueDate)+'</span>':'')+'</dd>' : '')
+      + (totals.deposit>0 ? '<dt>Balance</dt><dd>'+fc(totals.balance,0)+'</dd>' : '')
+      + '<dt>Balance Due</dt><dd>'+esc(Q.balanceDueTerms)+'</dd>'
+    + '</dl>';
+    pageOrder = '<div class="rpt-es-page rpt-q-page rpt-q-page-order">'
+      + qHeader
+      + '<div class="rpt-q-body">'
+        + '<div class="rpt-q-meta-grid">'
+          + '<div>'
+            + '<div class="rpt-q-block-title">Seller</div>'
+            + '<div class="rpt-q-block-text">'+esc(SELLER_BLOCK)+'</div>'
+          + '</div>'
+          + '<div>'
+            + '<dl class="rpt-q-meta-rows">'
+              + '<dt>Date</dt><dd>'+esc(qDate)+'</dd>'
+              + '<dt>'+idLabel+'</dt><dd>'+esc(Q.quoteId||'—')+'</dd>'
+              + (Q.customerId?'<dt>Customer ID</dt><dd>'+esc(Q.customerId)+'</dd>':'')
+              + '<dt>Days Valid</dt><dd>'+(Q.daysValid||14)+'</dd>'
+              + (Q.rep?'<dt>Rep</dt><dd>'+esc(Q.rep)+'</dd>':'')
+              + (Q.po?'<dt>PO#</dt><dd>'+esc(Q.po)+'</dd>':'')
+            + '</dl>'
+          + '</div>'
+        + '</div>'
+        + '<div class="rpt-q-meta-grid">'
+          + '<div>'
+            + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
+            + '<div class="rpt-q-block-text">'+esc(Q.buyerName||prop)+(Q.buyerAddr?'\n'+esc(Q.buyerAddr):'')+'</div>'
+          + '</div>'
+          + '<div>'
+            + '<dl class="rpt-q-meta-rows">'
+              + (Q.buyerContact?'<dt>Contact</dt><dd>'+esc(Q.buyerContact)+'</dd>':'')
+              + (Q.buyerPhone?'<dt>Phone</dt><dd>'+esc(Q.buyerPhone)+'</dd>':'')
+              + (Q.buyerEmail?'<dt>Email</dt><dd>'+esc(Q.buyerEmail)+'</dd>':'')
+            + '</dl>'
+          + '</div>'
+        + '</div>'
+        + '<table class="rpt-q-table">'
+          + '<thead><tr><th>Description</th><th class="rate">Rate</th><th class="qty">Qty</th><th class="tax">Tax</th><th class="amt">Amount</th></tr></thead>'
+          + '<tbody>'+rowsHtml+'</tbody>'
+        + '</table>'
+        + '<div class="rpt-q-totals">'
+          + '<div>'
+            + '<div class="terms-title">Terms</div>'
+            + '<div class="terms">Based on the Terms and Conditions of the enclosed Order Form.\nSupporting Invoice will be supplied.\nDeposit is required prior to shipment of goods.\nAll prices are quoted in USD unless otherwise specified.\nAll prices are subject to applicable taxes.\nShipping terms are CIF (Cost, Insurance &amp; Freight). Buyer pays any duties/taxes.</div>'
+          + '</div>'
+          + '<div>'+totalsBlock+'</div>'
+        + '</div>'
+        + (Q.shipTo?'<div class="rpt-q-shipto-box"><div class="rpt-q-block-title">Ship To</div><div class="rpt-q-shipto">'+esc(Q.shipTo)+'</div></div>':'')
+        + '<div class="rpt-q-sigblock">'
+          + '<div>'
+            + '<div class="rpt-q-block-title">Authorized Buyer Representative</div>'
+            + '<div class="sigline" style="margin-top:6px"><label>Signature</label><div class="line"></div></div>'
+            + '<div class="sigline"><label>Print Name</label><div class="line"></div></div>'
+            + '<div class="sigline"><label>Title</label><div class="line"></div></div>'
+            + '<div class="sigline"><label>Date</label><div class="line"></div></div>'
+          + '</div>'
+          + '<div style="text-align:right;align-self:end;font-size:11px;color:#0a2540;font-weight:600">Thank you for your business.<br><span style="font-size:9.5px;color:#7d8a96">www.aquarevwater.us</span></div>'
+        + '</div>'
+      + '</div>'
+      + qFooter
+    + '</div>';
+  }
+  // ── Page 2: Purchase Terms ──
+  var pageTerms = '';
+  if(EX.inclQuoteTerms){
+    pageTerms = '<div class="rpt-es-page rpt-q-page rpt-q-page-terms">'
+      + qHeader
+      + '<div class="rpt-q-terms-body">'
+        + '<div class="rpt-q-terms-title">Purchase Terms</div>'
+        + '<div class="rpt-q-meta-grid">'
+          + '<div>'
+            + '<div class="rpt-q-block-title">Seller</div>'
+            + '<div class="rpt-q-block-text" style="font-size:9.5px">'+esc(SELLER_BLOCK)+'</div>'
+          + '</div>'
+          + '<div>'
+            + '<div class="rpt-q-block-title">Buyer'+(Q.buyerContact?' — Attn '+esc(Q.buyerContact):'')+'</div>'
+            + '<div class="rpt-q-block-text" style="font-size:9.5px">'+esc(Q.buyerName||prop)+(Q.buyerAddr?'\n'+esc(Q.buyerAddr):'')+(Q.buyerPhone?'\nt. '+esc(Q.buyerPhone):'')+(Q.buyerEmail?'\ne. '+esc(Q.buyerEmail):'')+'</div>'
+          + '</div>'
+        + '</div>'
+        + '<div class="rpt-q-block-title" style="margin-top:6px">Terms and Conditions</div>'
+        + '<div class="rpt-q-terms-text">'+renderTermsHtml(Q.termsText||'')+'</div>'
+      + '</div>'
+      + qFooter
+    + '</div>';
+  }
+  // ── Page 3: Payment Form ──
+  var pagePay = '';
+  if(EX.inclQuotePayment){
+    var ccChecked = (Q.paymentMethod==='cc') ? '☒' : '☐';
+    var wireChecked = (Q.paymentMethod==='wire') ? '☒' : '☐';
+    var checkChecked = (Q.paymentMethod==='check') ? '☒' : '☐';
+    pagePay = '<div class="rpt-es-page rpt-q-page rpt-q-page-pay">'
+      + qHeader.replace('<div class="rpt-es-logo-sub">' + docKindLabel + '</div>', '<div class="rpt-es-logo-sub">PAYMENT FORM</div>')
+      + '<div class="rpt-q-pay-body">'
+        + '<div class="rpt-q-meta-grid">'
+          + '<div>'
+            + '<div class="rpt-q-block-title">Selected Payment Method</div>'
+            + '<div class="rpt-q-pay-method" style="font-size:11px;line-height:1.7">'
+              + '<div>'+ccChecked+' Credit Card</div>'
+              + '<div>'+wireChecked+' Bank Wire</div>'
+              + '<div>'+checkChecked+' Check</div>'
+            + '</div>'
+          + '</div>'
+          + '<div>'
+            + '<dl class="rpt-q-meta-rows">'
+              + '<dt>Date</dt><dd>'+esc(qDate)+'</dd>'
+              + '<dt>'+idLabel+'</dt><dd>'+esc(Q.quoteId||'—')+'</dd>'
+              + (Q.customerId?'<dt>Customer ID</dt><dd>'+esc(Q.customerId)+'</dd>':'')
+              + '<dt>Days Valid</dt><dd>'+(Q.daysValid||14)+'</dd>'
+              + (Q.rep?'<dt>Rep</dt><dd>'+esc(Q.rep)+'</dd>':'')
+            + '</dl>'
+          + '</div>'
+        + '</div>'
+        + '<div class="rpt-q-pay-cols">'
+          + '<div class="rpt-q-pay-box">'
+            + '<div class="col-title">1. Credit Card Information</div>'
+            + '<div class="rpt-q-pay-field"><label>Cardholder Name</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>Billing Address</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>City</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>State / Prov.</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>ZIP / Postal</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>Phone</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>Email</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>Card Number</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>Expiration</label><span class="val"></span></div>'
+            + '<div class="rpt-q-pay-field"><label>CVV</label><span class="val"></span></div>'
+          + '</div>'
+          + '<div style="display:flex;flex-direction:column;gap:10px">'
+            + '<div class="rpt-q-pay-box">'
+              + '<div class="col-title">2. Bank Wire Instructions</div>'
+              + '<div class="rpt-q-pay-field"><label>Payee</label><span class="val">'+esc(SELLER_NAME)+'</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Bank</label><span class="val">Bank of Hawaii</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Routing</label><span class="val">121301028</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Account #</label><span class="val">86804468</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Bank Address</label><span class="val">PO Box 2900 Honolulu, HI 96846</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Federal Tax ID</label><span class="val">830804126</span></div>'
+              + '<div class="rpt-q-pay-field" style="border-bottom:none;font-size:9px"><label style="flex:0 0 60px">Note</label><span class="val">Note company name on the wire memo with quote or invoice ID#. Notify water@aquarevwater.us.</span></div>'
+            + '</div>'
+            + '<div class="rpt-q-pay-box">'
+              + '<div class="col-title">3. Check</div>'
+              + '<div class="rpt-q-pay-field"><label>Payable To</label><span class="val">KD Enterprises LLC</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Address</label><span class="val">4348 Waialae Ave. #621, Honolulu, HI 96816</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Attn</label><span class="val">Accounts Receivable</span></div>'
+              + '<div class="rpt-q-pay-field" style="border-bottom:none"><label>Ref</label><span class="val">'+esc(Q.quoteId||'—')+'</span></div>'
+            + '</div>'
+          + '</div>'
+        + '</div>'
+        + '<div class="rpt-q-pay-box rpt-q-pay-auth-box">'
+          + '<div class="col-title">Authorization</div>'
+          + '<div class="rpt-q-pay-auth">By completing and signing this Credit Card Authorization Form, the Cardholder acknowledges and expressly authorizes '+esc(SELLER_NAME)+' to use the credit card information provided herein to process charges for the products and services, and authorized usage described in this form. The Cardholder confirms that they are the lawful owner or an authorized user of the card and permits '+esc(SELLER_NAME)+' to initiate transactions in accordance with the specified amounts and terms outlined herein. This authorization is provided voluntarily and remains valid until revoked in writing by the Cardholder.</div>'
+          + '<div class="rpt-q-pay-sig-grid">'
+            + '<div class="rpt-q-pay-sig"><label>Cardholder Signature</label><div class="line"></div></div>'
+            + '<div class="rpt-q-pay-sig"><label>Print Name</label><div class="line"></div></div>'
+            + '<div class="rpt-q-pay-sig"><label>Date</label><div class="line"></div></div>'
+          + '</div>'
+        + '</div>'
+        + '<div style="font-size:9.5px;color:#7d8a96;margin-top:auto;text-align:center">Email completed form to: <b>water@AquaRevWater.us</b></div>'
+      + '</div>'
+      + qFooter
+    + '</div>';
+  }
+  return pageOrder + pageTerms + pagePay;
+}
+
 function generateReport(){
   var R=calcROI();
   var today=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
@@ -2917,10 +3490,14 @@ function generateReport(){
     + '</div>';
   }
 
+  // ── Quote / Order Form pages — independently togglable in Export step ──
+  var quoteHtml = buildQuoteHtml();
+
   var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml
     +assessmentHtml
     +poolProfilesHtml
-    +fsHtml;
+    +fsHtml
+    +quoteHtml;
 
   // ── Portrait Back Cover — independent of fact sheet since 2026-04-23.
   // Uses .rpt-back-cover-page so the image can full-bleed (object-fit:cover)
@@ -3197,6 +3774,26 @@ function renderExportSection(){
       )
     +'</div>'
 
+    // \u2500\u2500 Quote / Order Form pages \u2014 three independent toggles. Hidden until at
+    //    least one device is selected (otherwise there's nothing in the Quote).
+    +(function(){
+      var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
+      if(!hasDevices) return '';
+      return '<div class="ar-export-panel-label" style="margin-top:14px">Quote / Order Form</div>'
+        +'<div style="margin-top:8px">'
+          +'<div class="ar-toggle-row"><label>Include '+(Q.docKind==='po'?'Purchase Order':'Quote')+' / Order Page</label>'
+            +'<div class="ar-sw-track'+(EX.inclQuote?' on':'')+'" data-ex-sw="inclQuote"><div class="ar-sw-thumb"></div></div>'
+          +'</div>'
+          +'<div class="ar-toggle-row"><label>Include Purchase Terms Page</label>'
+            +'<div class="ar-sw-track'+(EX.inclQuoteTerms?' on':'')+'" data-ex-sw="inclQuoteTerms"><div class="ar-sw-thumb"></div></div>'
+          +'</div>'
+          +'<div class="ar-toggle-row"><label>Include Payment Form Page</label>'
+            +'<div class="ar-sw-track'+(EX.inclQuotePayment?' on':'')+'" data-ex-sw="inclQuotePayment"><div class="ar-sw-thumb"></div></div>'
+          +'</div>'
+          +'<p class="ar-export-note" style="margin-top:4px">Configure quote details on Step 4 (Quote). Each page is appended independently in the unified PDF.</p>'
+        +'</div>';
+    })()
+
     // Toggles
     +'<div class="ar-toggle-row"><label>Include Water Loss Reduction \u2014 5 Years</label>'
       +'<div class="ar-sw-track'+(EX.inclWater?' on':'')+'" data-ex-sw="inclWater"><div class="ar-sw-thumb"></div></div>'
@@ -3442,6 +4039,21 @@ function handleClick(e){
     }
     return;
   }
+  // Quote step — doc kind toggle (Quote vs Purchase Order)
+  var qKind=e.target.closest('[data-q-kind]');
+  if(qKind){ Q.docKind=qKind.dataset.qKind; renderForm(); renderDevices(); return; }
+  // Quote step — toggle switches (warrantyEnabled, servicesEnabled, shippingEnabled)
+  var qSw=e.target.closest('[data-q-sw]');
+  if(qSw){
+    var qKey=qSw.dataset.qSw;
+    Q[qKey]=!Q[qKey];
+    qSw.classList.toggle('on', Q[qKey]);
+    renderForm(); renderDevices();
+    return;
+  }
+  // Quote step — payment method radio
+  var qPay=e.target.closest('[data-q-pay]');
+  if(qPay){ Q.paymentMethod=(Q.paymentMethod===qPay.dataset.qPay?'':qPay.dataset.qPay); renderForm(); return; }
   // Export section toggles
   var exSw=e.target.closest('[data-ex-sw]');
   if(exSw){
@@ -3682,6 +4294,34 @@ function handleInput(e){
       S[key]=(parseFloat(raw)||0)/100;
     }
     patchResults();
+    return;
+  }
+  // Quote per-line tax % input. Stored as 0..1 fraction in Q.lineTax[key].
+  // We avoid re-rendering the form (which would steal input focus) — only the
+  // middle-col preview is refreshed. The per-line "tax due" cell on the form
+  // stays stale until the rep clicks elsewhere (next form re-render).
+  if(el.dataset.qLineTax){
+    var lineKey = el.dataset.qLineTax;
+    if(!Q.lineTax) Q.lineTax = {};
+    Q.lineTax[lineKey] = (parseFloat(el.value)||0)/100;
+    if(S.step===3) renderDevices();
+    return;
+  }
+  // Quote form fields — text/number/date/textarea inputs all funnel here.
+  // data-q-mul lets a percent-style input (e.g. 8 = 0.08) store a fractional value.
+  if(el.dataset.q){
+    var qkey=el.dataset.q;
+    var raw=el.value;
+    var qmul=parseFloat(el.dataset.qMul);
+    if(!isNaN(qmul)){
+      Q[qkey]=(parseFloat(raw)||0)*qmul;
+    } else if(['daysValid','servicesRate','servicesQty','otherFee','discount','depositPct'].indexOf(qkey)>-1){
+      Q[qkey]=parseFloat(raw)||0;
+    } else {
+      Q[qkey]=raw;
+    }
+    // Live-update the middle col preview as the rep types.
+    if(S.step===3) renderDevices();
     return;
   }
   // Slider field

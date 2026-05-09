@@ -889,6 +889,71 @@
 #ar2-report .rpt-es-link a:hover{color:#0a2540;}
 #ar2-report .rpt-es-link-ico{width:13px;height:13px;flex-shrink:0;color:#00b4d8;}
 #ar2-report .rpt-es-link a:hover .rpt-es-link-ico{color:#0a2540;}
+/* ── Quote / Order Form pages ──────────────────────────────────────
+   Each quote page reuses .rpt-es-page (sizing + flex column + overflow
+   containment) and .rpt-es-head / .rpt-es-foot (header / footer band)
+   so the look-and-feel matches the Executive Summary. The body content
+   between them lives under .rpt-q-body. */
+#ar2-report .rpt-q-page{padding:0;}
+#ar2-report .rpt-q-body{flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column;gap:10px;font-size:11px;color:#222;}
+#ar2-report .rpt-q-doc-kind{position:absolute;top:14px;right:32px;font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:4px;color:#fff;z-index:2;line-height:1;}
+#ar2-report .rpt-q-meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+#ar2-report .rpt-q-block-title{font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;margin-bottom:4px;}
+#ar2-report .rpt-q-block-text{font-size:10.5px;line-height:1.5;color:#222;white-space:pre-line;}
+#ar2-report .rpt-q-meta-rows{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:10.5px;color:#444;}
+#ar2-report .rpt-q-meta-rows dt{font-weight:600;color:#0a2540;letter-spacing:0.5px;text-transform:uppercase;font-size:9px;align-self:center;}
+#ar2-report .rpt-q-meta-rows dd{margin:0;color:#222;}
+#ar2-report .rpt-q-table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:4px;}
+#ar2-report .rpt-q-table thead th{background:#0a2540;color:#fff;padding:6px 8px;text-align:left;font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;font-weight:700;}
+#ar2-report .rpt-q-table thead th.amt,#ar2-report .rpt-q-table thead th.qty,#ar2-report .rpt-q-table thead th.tax,#ar2-report .rpt-q-table thead th.rate{text-align:right;}
+#ar2-report .rpt-q-table tbody td{padding:5px 8px;border-bottom:1px solid #e5eef3;vertical-align:top;}
+#ar2-report .rpt-q-table tbody td.amt,#ar2-report .rpt-q-table tbody td.qty,#ar2-report .rpt-q-table tbody td.tax,#ar2-report .rpt-q-table tbody td.rate{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2-report .rpt-q-section-row td{background:#f0fbff;font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;color:#0a2540;padding:5px 8px;font-weight:700;}
+#ar2-report .rpt-q-totals{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;margin-top:6px;}
+#ar2-report .rpt-q-totals .terms{font-size:9.5px;line-height:1.45;color:#444;}
+#ar2-report .rpt-q-totals .terms-title{font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;color:#48cae4;margin-bottom:3px;text-transform:uppercase;}
+#ar2-report .rpt-q-totals-table{display:grid;grid-template-columns:auto 110px;gap:3px 12px;font-size:11px;color:#222;min-width:240px;font-family:'JetBrains Mono',monospace;}
+#ar2-report .rpt-q-totals-table dt{color:#444;}
+#ar2-report .rpt-q-totals-table dd{margin:0;text-align:right;}
+#ar2-report .rpt-q-totals-table .strong dt,#ar2-report .rpt-q-totals-table .strong dd{font-weight:700;color:#0a2540;border-top:2px solid #0a2540;padding-top:4px;margin-top:3px;}
+#ar2-report .rpt-q-sigblock{margin-top:auto;padding-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:10px;color:#444;}
+#ar2-report .rpt-q-sigblock .sigline{display:flex;flex-direction:column;gap:4px;}
+#ar2-report .rpt-q-sigblock .sigline label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#0a2540;font-weight:700;}
+#ar2-report .rpt-q-sigblock .sigline .line{border-bottom:1px solid #0a2540;height:18px;}
+#ar2-report .rpt-q-shipto{font-size:10px;line-height:1.5;color:#222;white-space:pre-line;}
+/* Terms page — nested ordered list with hanging indent for numbered items
+   and lettered sub-items so the structure is visually unambiguous in the PDF. */
+#ar2-report .rpt-q-terms-body{flex:1 1 0;min-height:0;overflow:hidden;padding:24px 36px 18px;display:flex;flex-direction:column;gap:10px;}
+#ar2-report .rpt-q-terms-text{font-size:10.5px;line-height:1.55;color:#222;}
+#ar2-report .rpt-q-terms-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:#0a2540;margin-bottom:6px;}
+#ar2-report .rpt-q-terms-ol{list-style:none;counter-reset:tnum;padding-left:0;margin:0;}
+#ar2-report .rpt-q-terms-ol > li{counter-increment:tnum;position:relative;padding-left:28px;margin-bottom:6px;line-height:1.5;}
+#ar2-report .rpt-q-terms-ol > li::before{content:counter(tnum) ".";position:absolute;left:0;top:0;font-weight:700;color:#0a2540;width:22px;text-align:left;}
+#ar2-report .rpt-q-terms-sub-ol{list-style:none;counter-reset:tsub;padding-left:0;margin:4px 0 0 8px;}
+#ar2-report .rpt-q-terms-sub-ol > li{counter-increment:tsub;position:relative;padding-left:24px;margin-bottom:3px;line-height:1.45;color:#333;}
+#ar2-report .rpt-q-terms-sub-ol > li::before{content:counter(tsub, lower-alpha) ".";position:absolute;left:0;top:0;color:#0a2540;width:18px;text-align:left;}
+#ar2-report .rpt-q-terms-p{margin:6px 0;}
+/* Payment Form page — each section sits in its own bordered box for clear
+   visual hierarchy. Signature row at the bottom uses dedicated lines. */
+#ar2-report .rpt-q-pay-body{flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column;gap:10px;}
+#ar2-report .rpt-q-pay-method{display:flex;gap:14px;font-size:11px;color:#222;}
+#ar2-report .rpt-q-pay-method label{display:flex;align-items:center;gap:6px;}
+#ar2-report .rpt-q-pay-method input[type="checkbox"]{width:14px;height:14px;}
+#ar2-report .rpt-q-pay-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:10px;color:#222;}
+#ar2-report .rpt-q-pay-box{border:1px solid #c8d8e0;border-radius:6px;padding:10px 12px;background:#f7fbfd;}
+#ar2-report .rpt-q-pay-cols .col-title{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:2px;color:#0a2540;margin-bottom:6px;border-bottom:2px solid #00b4d8;padding-bottom:4px;}
+#ar2-report .rpt-q-pay-field{display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #d8e4eb;padding:3px 0;font-size:10px;}
+#ar2-report .rpt-q-pay-field label{flex:0 0 100px;color:#666;font-weight:600;}
+#ar2-report .rpt-q-pay-field .val{flex:1;color:#222;min-height:14px;}
+#ar2-report .rpt-q-pay-auth-box{margin-top:6px;}
+#ar2-report .rpt-q-pay-auth{font-size:9.5px;line-height:1.5;color:#444;padding:4px 0 10px;}
+#ar2-report .rpt-q-pay-sig-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;align-items:end;margin-top:8px;}
+#ar2-report .rpt-q-pay-sig{display:flex;flex-direction:column;gap:4px;}
+#ar2-report .rpt-q-pay-sig label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#0a2540;font-weight:700;}
+#ar2-report .rpt-q-pay-sig .line{border-bottom:1px solid #0a2540;height:22px;}
+/* Ship-To box on the Order page */
+#ar2-report .rpt-q-shipto-box{border:1px solid #c8eaf5;background:#f0fbff;border-radius:6px;padding:10px 14px;margin-top:6px;}
+#ar2-report .rpt-q-shipto-box .rpt-q-block-title{margin-bottom:4px;}
 #ar2-report .rpt-es-video{display:block;margin:4px 0 6px;border-radius:5px;overflow:hidden;border:1px solid #d5eaf5;}
 #ar2-report .rpt-es-video img{width:100%;height:auto;display:block;}
 #ar2-report .rpt-es-ritz{margin:4px 0 6px;border-radius:4px;overflow:hidden;}
