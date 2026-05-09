@@ -43,6 +43,11 @@
    by side with line items / totals. */
 #ar2.quote-step .ar-form-col{grid-column:1 / 3;}
 #ar2.quote-step .ar-dev-col{display:none;}
+/* Quote app page: card headers tinted teal-blue for visual consistency with
+   the rendered PDF's section accents. Scoped to .quote-step so other steps
+   keep the standard text-color titles. Catches both standalone titles and
+   titles inside the .ar-card-title-row layout (cards with help info button). */
+#ar2.quote-step .ar-card-title{color:var(--t);}
 #ar2 .ar-quote-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
 @media(max-width:1080px){#ar2 .ar-quote-form-grid{grid-template-columns:1fr;}}
 #ar2 .ar-quote-form-grid .ar-quote-col-a,
