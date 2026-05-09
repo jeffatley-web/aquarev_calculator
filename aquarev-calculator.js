@@ -2479,21 +2479,28 @@ function buildQuoteHtml(){
           + '<thead><tr><th>Description</th><th class="rate">Rate</th><th class="qty">Qty</th><th class="tax">Tax</th><th class="amt">Amount</th></tr></thead>'
           + '<tbody>'+rowsHtml+'</tbody>'
         + '</table>'
-        + '<div class="rpt-q-totals">'
-          + '<div>'
-            + '<div class="terms-title">Standard Terms</div>'
-            + '<div class="terms">'+esc(Q.standardTerms||'')+'</div>'
-          + '</div>'
-          + '<div>'+totalsBlock+'</div>'
-        + '</div>'
         + (function(){
+            // Ship-To block lives in the LEFT column under Standard Terms so
+            // it shares the column span with Standard Terms. Right column =
+            // totals only. This pulls the signature block up so it fits on
+            // the page without bleeding into the footer.
             var shipText = Q.shipToSameAsBuyer
               ? ((Q.buyerName || prop) + (Q.buyerAddr?'\n'+Q.buyerAddr:''))
               : Q.shipTo;
-            if(!shipText && !Q.shippingTerm) return '';
-            return '<div class="rpt-q-shipto-box"><div class="rpt-q-block-title">Ship To</div>'
-              + (shipText?'<div class="rpt-q-shipto">'+esc(shipText)+'</div>':'')
-              + (Q.shippingTerm?'<div class="rpt-q-shipterm"><span class="rpt-q-shipterm-label">Shipping Terms:</span> <b>'+esc(Q.shippingTerm)+'</b> — '+esc(shippingTermLabel(Q.shippingTerm))+'</div>':'')
+            var shipBlock = '';
+            if(shipText || Q.shippingTerm){
+              shipBlock = '<div class="rpt-q-shipto-box"><div class="rpt-q-block-title">Ship To</div>'
+                + (shipText?'<div class="rpt-q-shipto">'+esc(shipText)+'</div>':'')
+                + (Q.shippingTerm?'<div class="rpt-q-shipterm"><span class="rpt-q-shipterm-label">Shipping Terms:</span> <b>'+esc(Q.shippingTerm)+'</b> — '+esc(shippingTermLabel(Q.shippingTerm))+'</div>':'')
+              + '</div>';
+            }
+            return '<div class="rpt-q-totals">'
+              + '<div>'
+                + '<div class="terms-title">Standard Terms</div>'
+                + '<div class="terms">'+esc(Q.standardTerms||'')+'</div>'
+                + shipBlock
+              + '</div>'
+              + '<div>'+totalsBlock+'</div>'
             + '</div>';
           })()
         + '<div class="rpt-q-sigblock">'
@@ -2924,8 +2931,10 @@ function generateReport(){
             +'</ul>'
           +'</div>'
         +'</div>'
-        +esChartHtml
-        +esCustom
+        +'<div class="rpt-es-right-bottom">'
+          +esChartHtml
+          +esCustom
+        +'</div>'
       +'</div>'
       +'</div>'
       +esFooterBand
