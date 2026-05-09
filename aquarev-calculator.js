@@ -105,9 +105,38 @@ var QUOTE_DEFAULT_TERMS = (
   + '10. Buyer shall not disclose Seller pricing, proprietary product information, or technical documentation to third parties for competitive bidding, reverse engineering, or replication purposes.'
 );
 
+// Default Standard Terms — short legal disclaimer that prints on the Order
+// page (page 1) above the signature block. Editable per-quote in the form.
+var QUOTE_DEFAULT_STANDARD_TERMS = (
+  'Based on the Terms and Conditions of the enclosed Order Form. '
+  + 'Supporting Invoice will be supplied. '
+  + 'Deposit is required prior to shipment of goods. '
+  + 'All prices are quoted in USD unless otherwise specified. '
+  + 'All prices are subject to applicable taxes. '
+  + 'Shipping terms are CIF (Cost, Insurance & Freight). Buyer pays any duties/taxes.'
+);
+
+// Shared list of shipping / freight terms. Code is stored on Q.shippingTerm;
+// the form dropdown and the PDF Ship-To block both pull labels from here.
+var SHIPPING_TERMS = [
+  {code:'DHL', label:'Courier'},
+  {code:'CND', label:'Courier No Duties'},
+  {code:'EXW', label:'Ex Works'},
+  {code:'FCA', label:'Free Carrier'},
+  {code:'FOB', label:'Free on Board'},
+  {code:'CIF', label:'Cost, Insurance and Freight'},
+  {code:'DAP', label:'Delivered at Place'},
+  {code:'DDP', label:'Delivered Duty Paid'},
+  {code:'COD', label:'Cash on Delivery'}
+];
+function shippingTermLabel(code){
+  for(var i=0;i<SHIPPING_TERMS.length;i++){ if(SHIPPING_TERMS[i].code===code) return SHIPPING_TERMS[i].label; }
+  return '';
+}
+
 var Q={
   enabled:false,           // when true, Quote section is configured (toggled by Skip/Continue)
-  docKind:'quote',         // 'quote' | 'po' — switches the document title between QUOTE and PURCHASE ORDER
+  docKind:'quote',         // 'quote' | 'po' | 'invoice' — switches the document title across QUOTE / PURCHASE ORDER / INVOICE
   // Quote header fields
   quoteId:'',              // auto-populated AQR-YYYY-#### or manual override
   date:'',                 // ISO YYYY-MM-DD; '' means use today
@@ -125,20 +154,28 @@ var Q={
   // editable; if rep edits an item we mark it dirty so we don't overwrite.
   warrantyEnabled:true,
   warrantyText:'Lifetime Warranty - Parts Registered',
-  warrantyAmount:'included',
+  warrantyRate:0,
+  warrantyQty:1,
+  warrantyIncluded:true,    // when true, prints "INCLUDED" and excludes from totals
   servicesEnabled:true,
   servicesText:'Engineer Installation Remote Support',
   servicesRate:495,
   servicesQty:1,
+  servicesIncluded:false,
   servicesTaxable:true,
   shippingEnabled:true,
   shippingText:'Cost of Freight',
-  shippingAmount:'included',
+  shippingRate:0,
+  shippingQty:1,
+  shippingIncluded:true,
   // Totals
   // Per-line tax rates (0..1). Each Equipment row keys off the PIPES.k value
   // (e.g. 'pipe_6in'). Warranty / Services / Shipping each key by section name.
   // Total tax due = sum of (line.amount * line.taxRate) for each row.
   lineTax:{},
+  // Discount stored as a fraction 0..1. null/undefined means "inherit from
+  // the Pricing step slider (S.discount)" — rep can override per quote.
+  discountPct:null,
   otherFee:0,
   discount:0,              // dollar amount; auto-pulls from R.disc_amt at first quote entry
   depositPct:0,            // 0..100; default 0 per UX direction
@@ -146,7 +183,22 @@ var Q={
   balanceDueTerms:'30 days from delivery',
   // Ship-to (multi-line)
   shipTo:'',
-  // Terms & Conditions
+  // When true, the Ship-To block uses the Buyer's name + address verbatim and
+  // the manual textarea is disabled. PDF render also pulls from the buyer
+  // fields so the rendered doc stays in sync as buyer info edits.
+  shipToSameAsBuyer:false,
+  // Shipping term — Incoterms / freight code printed alongside the Ship-To
+  // block on the Order page. Stored as the short code (e.g. "FOB"); the
+  // dropdown options carry the full label.
+  shippingTerm:'',
+  // Standard Terms — short paragraph rendered on the Order page (page 1)
+  // above the signature block. Editable per-quote.
+  standardTerms: QUOTE_DEFAULT_STANDARD_TERMS,
+  // Purchase Terms and Conditions — long legal block rendered on page 2.
+  // Stored as HTML (output of the rich-text editor). termsText is kept as
+  // a one-time migration source for sessions saved with the previous
+  // plain-text schema.
+  termsHtml:'',
   termsText:QUOTE_DEFAULT_TERMS,
   // Payment Form
   paymentMethod:'',        // '' | 'cc' | 'wire' | 'check'
@@ -1544,9 +1596,10 @@ function renderDevices(){
     +'</div>';
     el.innerHTML=html;
   } else if(S.step===3){
-    // Step 3 (Quote / Order): live preview of the quote pages in the middle col.
-    // Mirrors the Export step's preview pattern.
-    el.innerHTML=renderQuoteMiddle();
+    // Step 3 (Quote / Order): the devices column is hidden by CSS
+    // (#ar2.quote-step .ar-dev-col{display:none}). Empty content is fine —
+    // the form occupies cols 1+2 and the preview lives in the results col.
+    el.innerHTML='';
   } else if(S.step===4){
     // Step 4 (Export): Export options in middle column
     el.innerHTML=renderExportSection();
@@ -1674,75 +1727,109 @@ function quoteAutoId(){
 }
 function buildQuoteLineItems(){
   var items=[];
-  // Equipment — one row per device size with qty>0. Each row carries its own
-  // taxRate (0..1) keyed by PIPES.k via Q.lineTax so reps can charge mixed
-  // jurisdictions per line.
+  // Equipment — one row per device size with qty>0. Equipment items never
+  // carry the `included` flag (they're the deal). Per-line tax rates keyed
+  // by PIPES.k via Q.lineTax so reps can charge mixed jurisdictions per line.
   PIPES.forEach(function(p){
     var qty=S[p.k]||0;
     if(!qty) return;
     var sizeIn=parseInt(p.sz,10);
     var desc='KD'+sizeIn+'X'+(sizeIn*2)+'X'+sizeIn+'- AquaRev Water HDC Treatement System - '+sizeIn+' Inch';
-    items.push({section:'EQUIPMENT', key:p.k, desc:desc, rate:p.price, qty:qty, taxRate:Number(Q.lineTax[p.k])||0, amount:p.price*qty});
+    items.push({section:'EQUIPMENT', key:p.k, desc:desc, rate:p.price, qty:qty, taxRate:Number(Q.lineTax[p.k])||0, amount:p.price*qty, included:false});
   });
-  // Warranty / Services / Shipping. Each carries its own tax rate keyed by
-  // section name (e.g. Q.lineTax.warranty).
+  // Add-on items (Warranty / Services / Shipping) — each can be flagged
+  // 'included' to print "INCLUDED" instead of $0 and exclude from totals.
   if(Q.warrantyEnabled){
-    items.push({section:'WARRANTY', key:'warranty', desc:Q.warrantyText, rate:0, qty:1, taxRate:Number(Q.lineTax.warranty)||0, amount:Q.warrantyAmount, isText:true});
+    var wRate=Number(Q.warrantyRate)||0; var wQty=Number(Q.warrantyQty)||1;
+    items.push({section:'WARRANTY', key:'warranty', desc:Q.warrantyText, rate:wRate, qty:wQty, taxRate:Number(Q.lineTax.warranty)||0, amount:wRate*wQty, included:!!Q.warrantyIncluded});
   }
   if(Q.servicesEnabled){
-    items.push({section:'SERVICES', key:'services', desc:Q.servicesText, rate:Number(Q.servicesRate)||0, qty:Number(Q.servicesQty)||1, taxRate:Number(Q.lineTax.services)||0, amount:Number(Q.servicesRate)*Number(Q.servicesQty)||0});
+    var sRate=Number(Q.servicesRate)||0; var sQty=Number(Q.servicesQty)||1;
+    items.push({section:'SERVICES', key:'services', desc:Q.servicesText, rate:sRate, qty:sQty, taxRate:Number(Q.lineTax.services)||0, amount:sRate*sQty, included:!!Q.servicesIncluded});
   }
   if(Q.shippingEnabled){
-    items.push({section:'SHIPPING', key:'shipping', desc:Q.shippingText, rate:0, qty:1, taxRate:Number(Q.lineTax.shipping)||0, amount:Q.shippingAmount, isText:true});
+    var spRate=Number(Q.shippingRate)||0; var spQty=Number(Q.shippingQty)||1;
+    items.push({section:'SHIPPING', key:'shipping', desc:Q.shippingText, rate:spRate, qty:spQty, taxRate:Number(Q.lineTax.shipping)||0, amount:spRate*spQty, included:!!Q.shippingIncluded});
   }
   return items;
 }
 function buildQuoteTotals(){
-  var R=calcROI();
   var items=buildQuoteLineItems();
-  var subTotal=0;
-  var taxable=0;     // sum of amounts where taxRate > 0 (for display)
-  var taxDue=0;      // sum of (amount * lineTaxRate) per line
+  // Equipment subtotal — discount applies only to this base.
+  var equipSubTotal=0;
+  // Non-equipment subtotal — only items NOT flagged included (those just
+  // print "INCLUDED" and don't add to the deal value).
+  var nonEquipSubTotal=0;
+  var taxable=0;     // sum of taxable amounts (for display)
+  var taxDue=0;      // sum of (amount * lineTaxRate) per non-included line
   items.forEach(function(it){
     if(typeof it.amount!=='number') return;
-    subTotal+=it.amount;
-    var rate=Number(it.taxRate)||0;
-    if(rate>0){ taxable+=it.amount; taxDue+=it.amount*rate; }
+    if(it.section==='EQUIPMENT'){
+      equipSubTotal+=it.amount;
+    } else if(!it.included){
+      nonEquipSubTotal+=it.amount;
+    }
+    if(!it.included){
+      var rate=Number(it.taxRate)||0;
+      if(rate>0){ taxable+=it.amount; taxDue+=it.amount*rate; }
+    }
   });
-  // Discount auto-pulls from the Pricing step's R.disc_amt unless the rep
-  // typed a manual override into the Quote form.
-  var discAmt = Number(Q.discount);
-  if(!Q.discount && Q.discount!==0) discAmt=Number(R.disc_amt)||0;
+  var subTotal=equipSubTotal+nonEquipSubTotal;
+  // Discount % inherits from the Pricing slider (S.discount) until the rep
+  // overrides it in the Quote form. Stored as a fraction (0..1). Applied
+  // ONLY to the equipment subtotal — add-ons / services / shipping never
+  // get discounted.
+  var discPct = (Q.discountPct === null || Q.discountPct === undefined)
+    ? (Number(S.discount)||0)
+    : (Number(Q.discountPct)||0);
+  var discAmt = equipSubTotal * discPct;
   var taxableAfter=Math.max(0,taxable-discAmt);
   var other=Number(Q.otherFee)||0;
   var total=subTotal-discAmt+taxDue+other;
   var depositPct=(Number(Q.depositPct)||0)/100;
   var depositAmt=total*depositPct;
   var balance=total-depositAmt;
-  return {subTotal:subTotal, taxable:taxable, taxableAfter:taxableAfter, taxDue:taxDue,
-    discount:discAmt, other:other, total:total, depositPct:Number(Q.depositPct)||0, deposit:depositAmt, balance:balance};
+  return {subTotal:subTotal, equipSubTotal:equipSubTotal, nonEquipSubTotal:nonEquipSubTotal,
+    taxable:taxable, taxableAfter:taxableAfter, taxDue:taxDue,
+    discountPct:discPct, discount:discAmt, other:other, total:total,
+    depositPct:Number(Q.depositPct)||0, deposit:depositAmt, balance:balance};
 }
 
 /* ── Step 3: Quote / Order Form (left col — configuration) ────── */
 function renderStepQuote(){
-  // Lazy-default the Quote ID, date, rep on first entry so the form has
-  // something to show without forcing the rep to fill everything.
+  // Lazy-default the Quote ID, date on first entry; column A holds identity
+  // + buyer + ship-to + payment, column B holds the deal (line items +
+  // totals + standard terms + Purchase Terms and Conditions).
   if(!Q.quoteId) Q.quoteId=quoteAutoId();
   if(!Q.date) Q.date=quoteToday();
+  // One-time migration: convert legacy plain-text Q.termsText → HTML for
+  // the new rich-text editor. Reuse the existing parser to preserve the
+  // numbered + sub-letter structure, then null the legacy field.
+  if(!Q.termsHtml && Q.termsText){
+    Q.termsHtml = renderTermsHtml(Q.termsText);
+    Q.termsText = '';
+  }
+  if(typeof Q.standardTerms === 'undefined') Q.standardTerms = QUOTE_DEFAULT_STANDARD_TERMS;
+  if(typeof Q.warrantyIncluded === 'undefined') Q.warrantyIncluded = true;
+  if(typeof Q.servicesIncluded === 'undefined') Q.servicesIncluded = false;
+  if(typeof Q.shippingIncluded === 'undefined') Q.shippingIncluded = true;
   // Doc-kind toggle (Quote vs PO)
   var kindToggle='<div class="ar-card ar-fu" style="animation-delay:.04s">'
-    +'<div class="ar-card-title">Document Type</div>'
-    +'<div class="ar-btn-row" style="display:flex;gap:8px">'
-      +'<button class="ar-btn '+(Q.docKind==='quote'?'primary':'ghost')+'" data-q-kind="quote" style="flex:1">Quote</button>'
-      +'<button class="ar-btn '+(Q.docKind==='po'?'primary':'ghost')+'" data-q-kind="po" style="flex:1">Purchase Order</button>'
+    +'<div class="ar-card-title-row"><div class="ar-card-title">Document Type</div>'
+      +'<button class="ar-card-info-btn" data-card-info aria-label="Show help" title="Show help">!</button>'
     +'</div>'
-    +'<div class="ar-help" style="margin-top:8px;font-size:11px;color:var(--mu)">Toggles the document title between QUOTE and PURCHASE ORDER on the rendered page.</div>'
+    +'<div class="ar-card-info-pop">Toggles the document title between QUOTE, PURCHASE ORDER, and INVOICE on the rendered page.</div>'
+    +'<div class="ar-btn-row" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+      +'<button class="ar-btn '+(Q.docKind==='quote'?'primary':'ghost')+'" data-q-kind="quote" style="flex:1;min-width:90px">Quote</button>'
+      +'<button class="ar-btn '+(Q.docKind==='po'?'primary':'ghost')+'" data-q-kind="po" style="flex:1;min-width:120px">Purchase Order</button>'
+      +'<button class="ar-btn '+(Q.docKind==='invoice'?'primary':'ghost')+'" data-q-kind="invoice" style="flex:1;min-width:90px">Invoice</button>'
+    +'</div>'
   +'</div>';
   // Form ordering per spec: Quote#, Date, Days Valid, Buyer PO#, Rep, Customer ID.
   // PO# sits directly under Days Valid; Rep sits directly under PO#.
   var hdr='<div class="ar-card ar-fu">'
     +'<div class="ar-card-title">Header</div>'
-    +'<div class="ar-form-row"><label>'+(Q.docKind==='po'?'PO':'Quote')+' #</label><input class="ar-inp" data-q="quoteId" value="'+esc(Q.quoteId)+'"></div>'
+    +'<div class="ar-form-row"><label>'+(Q.docKind==='po'?'PO':Q.docKind==='invoice'?'Invoice':'Quote')+' #</label><input class="ar-inp" data-q="quoteId" value="'+esc(Q.quoteId)+'"></div>'
     +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<div><label>Date</label><input type="date" class="ar-inp" data-q="date" value="'+esc(Q.date)+'"></div>'
       +'<div><label>Days Valid</label><input type="number" class="ar-inp" data-q="daysValid" value="'+(Q.daysValid||14)+'"></div>'
@@ -1761,64 +1848,163 @@ function renderStepQuote(){
     +'</div>'
     +'<div class="ar-form-row"><label>Email</label><input class="ar-inp" data-q="buyerEmail" value="'+esc(Q.buyerEmail)+'"></div>'
   +'</div>';
-  // Line Items card now exposes a tax % input next to each line.
-  // Equipment rows are auto-pulled from S device qty; rep enters a per-line
-  // tax rate so the sum of (amount × rate) becomes the Tax Due in totals.
+  // ── Line Items card ──
+  // Equipment rows (auto-pulled from S device qty) followed by the
+  // Equipment Sub-Total + Discount %. Discount lives here so the rep can
+  // see it adjust the equipment subtotal in real time. Add-on subsections
+  // (Warranty / Services / Shipping) each have an "Included" toggle that
+  // prints "INCLUDED" on the rendered Quote and excludes the row from the
+  // totals math.
+  var qTotals=buildQuoteTotals();
+  var discPctVal = (Q.discountPct === null || Q.discountPct === undefined)
+    ? (Number(S.discount)||0)*100
+    : (Number(Q.discountPct)||0)*100;
+  var discPctSourceLabel = (Q.discountPct === null || Q.discountPct === undefined)
+    ? 'auto from Pricing slider'
+    : 'manual override';
   var equipmentRows = PIPES.map(function(p){
     var qty=S[p.k]||0; if(!qty) return '';
     var sizeIn=parseInt(p.sz,10);
     var rateVal = (Number(Q.lineTax[p.k])||0)*100;
-    return '<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 80px 70px;gap:8px;align-items:end;margin-top:6px">'
-      + '<div style="font-size:11px;color:var(--tx)"><span style="color:var(--mu);font-size:10px">'+sizeIn+'" Device × '+qty+'</span><br>'+fc(p.price*qty,0)+'</div>'
-      + '<div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="'+p.k+'" value="'+rateVal.toFixed(2)+'"></div>'
-      + '<div style="font-size:11px;color:var(--mu);text-align:right">'+fc(p.price*qty*(Number(Q.lineTax[p.k])||0),0)+'<br><span style="font-size:9px">tax due</span></div>'
+    return '<div class="ar-q-line-row">'
+      + '<div class="ar-q-line-desc"><span class="ar-q-line-sub">'+sizeIn+'" Device × '+qty+'</span><span class="ar-q-line-amt">'+fc(p.price*qty,0)+'</span></div>'
+      + '<div class="ar-q-line-tax"><label>Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="'+p.k+'" value="'+rateVal.toFixed(2)+'"></div>'
     + '</div>';
   }).join('');
+  // Add-on subsection — single source of truth for the markup pattern.
+  // Layout:
+  //   [Section title + Included toggle]
+  //   [Description — full width, auto-grow textarea]
+  //   [Rate | Qty | Tax %  — 3-column row]
+  //   [Sub-total — right-aligned strip showing INCLUDED or rate × qty]
+  function addonRow(opts){
+    if(!opts.enabled) return '';
+    var rate = Number(opts.rateVal)||0;
+    var qty  = Number(opts.qtyVal)||1;
+    var subAmt = rate * qty;
+    var subDisplay = opts.included ? '<span style="color:var(--mu);font-style:italic;letter-spacing:1px">INCLUDED</span>' : fc(subAmt,0);
+    var rateInput = opts.rateKey
+      ? '<div class="ar-q-cell"><label>Rate</label><input type="number" class="ar-inp" data-q="'+opts.rateKey+'" value="'+rate+'"'+(opts.included?' disabled':'')+'></div>'
+      : '<div class="ar-q-cell"><label>Rate</label><div class="ar-q-readonly">—</div></div>';
+    var qtyInput = opts.qtyKey
+      ? '<div class="ar-q-cell"><label>Qty</label><input type="number" class="ar-inp" data-q="'+opts.qtyKey+'" value="'+qty+'"></div>'
+      : '<div class="ar-q-cell"><label>Qty</label><div class="ar-q-readonly">'+qty+'</div></div>';
+    return '<div class="ar-q-addon">'
+      + '<div class="ar-q-addon-head">'
+        + '<div class="ar-q-addon-section-label">'+opts.sectionLabel+'</div>'
+        + '<div class="ar-q-addon-incl" title="When on, prints \'INCLUDED\' and excludes from totals">'
+          + '<span class="ar-q-addon-incl-label">Included</span>'
+          + '<div class="ar-sw-track'+(opts.included?' on':'')+'" data-q-incl="'+opts.includedKey+'"><div class="ar-sw-thumb"></div></div>'
+        + '</div>'
+      + '</div>'
+      + '<div class="ar-q-addon-desc-row"><label>Description</label><textarea class="ar-textarea ar-grow" rows="1" data-q="'+opts.descKey+'">'+esc(opts.descVal||'')+'</textarea></div>'
+      + '<div class="ar-q-addon-numeric-row">'
+        + rateInput
+        + qtyInput
+        + '<div class="ar-q-cell ar-q-cell-tax"><label>Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="'+opts.key+'" value="'+(opts.taxRateVal||0).toFixed(2)+'"'+(opts.included?' disabled':'')+'></div>'
+      + '</div>'
+      + '<div class="ar-q-addon-subtotal"><span>Sub-total</span><b>'+subDisplay+'</b></div>'
+    + '</div>';
+  }
   var lineItems='<div class="ar-card ar-fu" style="animation-delay:.08s">'
-    +'<div class="ar-card-title">Line Items <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:8px">Equipment auto-pulls from Step 1 device qty</span></div>'
-    +(equipmentRows ? '<div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px">Equipment</div>'+equipmentRows : '<div class="ar-help" style="font-size:11px;color:var(--mu)">Add devices on Step 1 to populate equipment lines.</div>')
-    +'<div class="ar-toggle-row" style="margin-top:14px"><label>Warranty (Lifetime - Parts Registered)</label><div class="ar-sw-track'+(Q.warrantyEnabled?' on':'')+'" data-q-sw="warrantyEnabled"><div class="ar-sw-thumb"></div></div></div>'
-    +(Q.warrantyEnabled?'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 80px;gap:8px;align-items:end"><div><label>Warranty Description</label><input class="ar-inp" data-q="warrantyText" value="'+esc(Q.warrantyText)+'"></div><div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="warranty" value="'+((Number(Q.lineTax.warranty)||0)*100).toFixed(2)+'"></div></div>':'')
-    +'<div class="ar-toggle-row"><label>Services (Engineer Installation Remote Support)</label><div class="ar-sw-track'+(Q.servicesEnabled?' on':'')+'" data-q-sw="servicesEnabled"><div class="ar-sw-thumb"></div></div></div>'
-    +(Q.servicesEnabled?'<div class="ar-form-row" style="display:grid;grid-template-columns:2fr 1fr 1fr 80px;gap:8px;align-items:end"><div><label>Services Description</label><input class="ar-inp" data-q="servicesText" value="'+esc(Q.servicesText)+'"></div><div><label>Rate</label><input type="number" class="ar-inp" data-q="servicesRate" value="'+Q.servicesRate+'"></div><div><label>Qty</label><input type="number" class="ar-inp" data-q="servicesQty" value="'+Q.servicesQty+'"></div><div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="services" value="'+((Number(Q.lineTax.services)||0)*100).toFixed(2)+'"></div></div>':'')
-    +'<div class="ar-toggle-row"><label>Shipping</label><div class="ar-sw-track'+(Q.shippingEnabled?' on':'')+'" data-q-sw="shippingEnabled"><div class="ar-sw-thumb"></div></div></div>'
-    +(Q.shippingEnabled?'<div class="ar-form-row" style="display:grid;grid-template-columns:2fr 1fr 80px;gap:8px;align-items:end"><div><label>Shipping Description</label><input class="ar-inp" data-q="shippingText" value="'+esc(Q.shippingText)+'"></div><div><label>Amount (or "included")</label><input class="ar-inp" data-q="shippingAmount" value="'+esc(Q.shippingAmount)+'"></div><div><label style="font-size:10px">Tax %</label><input type="number" step="0.01" class="ar-inp" data-q-line-tax="shipping" value="'+((Number(Q.lineTax.shipping)||0)*100).toFixed(2)+'"></div></div>':'')
-  +'</div>';
-  var R=calcROI();
-  var qTotals=buildQuoteTotals();
-  var totals='<div class="ar-card ar-fu" style="animation-delay:.10s">'
-    +'<div class="ar-card-title">Totals <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:8px">Tax % per line above</span></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx);padding:4px 0;border-bottom:1px solid rgba(0,180,216,.12)"><span>Sub-Total</span><b>'+fc(qTotals.subTotal,0)+'</b></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tx);padding:4px 0;border-bottom:1px solid rgba(0,180,216,.12)"><span>Tax Due (sum of per-line)</span><b>'+fc(qTotals.taxDue,0)+'</b></div>'
-    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
-      +'<div><label>Other Fee ($)</label><input type="number" step="0.01" class="ar-inp" data-q="otherFee" value="'+(Number(Q.otherFee)||0)+'"></div>'
-      +'<div><label>Discount ($) <span style="font-size:10px;color:var(--mu);font-weight:400">'+(R.disc_amt>0?'auto: '+fc(R.disc_amt,0):'no discount in pricing')+'</span></label><input type="number" step="0.01" class="ar-inp" data-q="discount" value="'+(Q.discount||(R.disc_amt>0?R.disc_amt.toFixed(2):0))+'"></div>'
+    +'<div class="ar-card-title-row"><div class="ar-card-title">Line Items</div>'
+      +'<button class="ar-card-info-btn" data-card-info aria-label="Show help" title="Show help">!</button>'
     +'</div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--t);font-weight:700;padding:8px 0;border-top:2px solid var(--t);margin-top:8px"><span>TOTAL</span><span>'+fc(qTotals.total,0)+'</span></div>'
-    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    +'<div class="ar-card-info-pop">Equipment is auto-pulled from Step 1 device qty. Add-ons (Warranty / Services / Shipping) can be toggled "Included" to print on the Quote without adding to the total.</div>'
+    +(equipmentRows
+      ? '<div class="ar-q-subsection">Equipment</div>'+equipmentRows
+        // Discount strip — sits directly under the equipment block. Live total
+        // = equipment-only discount applied to equipment subtotal.
+        + '<div class="ar-q-disc-strip">'
+          + '<div class="ar-q-disc-row"><span>Equipment Sub-Total</span><b>'+fc(qTotals.equipSubTotal,0)+'</b></div>'
+          + '<div class="ar-q-disc-row"><span>Discount % <span style="font-size:10px;color:var(--mu);font-weight:400">('+discPctSourceLabel+')</span></span>'
+            + '<input type="number" step="0.01" min="0" max="100" class="ar-inp ar-inp-sm" data-q-disc-pct value="'+discPctVal.toFixed(2)+'">'
+          + '</div>'
+          + '<div class="ar-q-disc-row strong"><span>Discount</span><b style="color:var(--gr)">-'+fc(qTotals.discount,0)+'</b></div>'
+        + '</div>'
+      : '<div class="ar-help" style="font-size:11px;color:var(--mu)">Add devices on Step 1 to populate equipment lines.</div>')
+    +'<div class="ar-q-subsection" style="margin-top:14px">Add-ons</div>'
+    + addonRow({key:'warranty', sectionLabel:'Warranty', enabled:Q.warrantyEnabled, includedKey:'warrantyIncluded', included:!!Q.warrantyIncluded, descKey:'warrantyText', descVal:Q.warrantyText, rateKey:'warrantyRate', rateVal:Q.warrantyRate, qtyKey:'warrantyQty', qtyVal:Q.warrantyQty, taxRateVal:(Number(Q.lineTax.warranty)||0)*100})
+    + addonRow({key:'services', sectionLabel:'Services', enabled:Q.servicesEnabled, includedKey:'servicesIncluded', included:!!Q.servicesIncluded, descKey:'servicesText', descVal:Q.servicesText, rateKey:'servicesRate', rateVal:Q.servicesRate, qtyKey:'servicesQty', qtyVal:Q.servicesQty, taxRateVal:(Number(Q.lineTax.services)||0)*100})
+    + addonRow({key:'shipping', sectionLabel:'Shipping', enabled:Q.shippingEnabled, includedKey:'shippingIncluded', included:!!Q.shippingIncluded, descKey:'shippingText', descVal:Q.shippingText, rateKey:'shippingRate', rateVal:Q.shippingRate, qtyKey:'shippingQty', qtyVal:Q.shippingQty, taxRateVal:(Number(Q.lineTax.shipping)||0)*100})
+  +'</div>';
+  // Totals card (no longer holds the discount input — that lives in Line
+  // Items directly under Equipment). Just shows the math + deposit / balance.
+  var totals='<div class="ar-card ar-fu" style="animation-delay:.10s">'
+    +'<div class="ar-card-title">Totals</div>'
+    +'<div class="ar-q-tot-row"><span>Sub-Total</span><b>'+fc(qTotals.subTotal,0)+'</b></div>'
+    +(qTotals.discount>0?'<div class="ar-q-tot-row" style="color:var(--gr)"><span>Discount ('+(qTotals.discountPct*100).toFixed(2)+'% of Equipment)</span><b>-'+fc(qTotals.discount,0)+'</b></div>':'')
+    +'<div class="ar-q-tot-row"><span>Tax Due (sum of per-line)</span><b>'+fc(qTotals.taxDue,0)+'</b></div>'
+    +'<div class="ar-form-row" style="margin-top:8px"><label>Other Fee ($)</label><input type="number" step="0.01" class="ar-inp" data-q="otherFee" value="'+(Number(Q.otherFee)||0)+'"></div>'
+    +'<div class="ar-q-tot-row strong"><span>TOTAL</span><span>'+fc(qTotals.total,0)+'</span></div>'
+    +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
       +'<div><label>Deposit (%)</label><input type="number" step="1" min="0" max="100" class="ar-inp" data-q="depositPct" value="'+(Number(Q.depositPct)||0)+'"></div>'
       +'<div><label>Deposit Due Date</label><input type="date" class="ar-inp" data-q="depositDueDate" value="'+esc(Q.depositDueDate)+'"></div>'
     +'</div>'
     +'<div class="ar-form-row"><label>Balance Due Terms</label><input class="ar-inp" data-q="balanceDueTerms" value="'+esc(Q.balanceDueTerms)+'"></div>'
   +'</div>';
-  var ship='<div class="ar-card ar-fu" style="animation-delay:.12s">'
+  var shipOpts = SHIPPING_TERMS.map(function(t){
+    return '<option value="'+t.code+'"'+(Q.shippingTerm===t.code?' selected':'')+'>'+t.code+' — '+esc(t.label)+'</option>';
+  }).join('');
+  // When "Same as Buyer" is on, the textarea shows the derived buyer address
+  // (read-only) so the rep can see exactly what will print. The actual PDF
+  // pulls the same value via the toggle, not the textarea contents.
+  var shipToDisplay = Q.shipToSameAsBuyer
+    ? ((Q.buyerName || S.propertyName || '') + (Q.buyerAddr ? '\n'+Q.buyerAddr : ''))
+    : Q.shipTo;
+  var ship='<div class="ar-card ar-fu" style="animation-delay:.08s">'
     +'<div class="ar-card-title">Ship-To Addresses</div>'
-    +'<textarea class="ar-textarea" data-q="shipTo" rows="4" placeholder="One destination per line. e.g. 1x 6\\" unit to: ...">'+esc(Q.shipTo)+'</textarea>'
+    +'<div class="ar-toggle-row" style="margin:0 0 10px"><label>Same as Buyer Address</label>'
+      +'<div class="ar-sw-track'+(Q.shipToSameAsBuyer?' on':'')+'" data-q-sw="shipToSameAsBuyer"><div class="ar-sw-thumb"></div></div>'
+    +'</div>'
+    +'<textarea class="ar-textarea" data-q="shipTo" rows="4" placeholder="One destination per line. e.g. 1x 6\\" unit to: ..."'+(Q.shipToSameAsBuyer?' disabled':'')+'>'+esc(shipToDisplay)+'</textarea>'
+    +'<div class="ar-form-row" style="margin-top:10px"><label>Shipping Terms</label>'
+      +'<select class="ar-sel" data-q="shippingTerm">'
+        +'<option value=""'+(Q.shippingTerm?'':' selected')+'>— Select shipping term —</option>'
+        +shipOpts
+      +'</select>'
+    +'</div>'
   +'</div>';
-  var terms='<div class="ar-card ar-fu" style="animation-delay:.14s">'
-    +'<div class="ar-card-title">Terms &amp; Conditions <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">Edit to customise per quote</span></div>'
-    +'<textarea class="ar-textarea" data-q="termsText" rows="10" style="font-size:11px;line-height:1.45;font-family:inherit">'+esc(Q.termsText)+'</textarea>'
+  // Standard Terms — short paragraph, prints on the Order page above the
+  // signature block. Plain text textarea is enough; no rich formatting.
+  var stdTerms='<div class="ar-card ar-fu" style="animation-delay:.12s">'
+    +'<div class="ar-card-title">Standard Terms <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">Prints on the Order page</span></div>'
+    +'<textarea class="ar-textarea" data-q="standardTerms" rows="5" style="font-size:11px;line-height:1.5;font-family:inherit">'+esc(Q.standardTerms)+'</textarea>'
+  +'</div>';
+  // Purchase Terms and Conditions — long legal block, prints on the
+  // separate Terms page (page 2). Rich-text editor: contenteditable + a
+  // toolbar of B / I / UL / OL / clear-formatting commands.
+  var rte='<div class="ar-card ar-fu" style="animation-delay:.14s">'
+    +'<div class="ar-card-title">Purchase Terms and Conditions <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">Prints on the Terms page</span></div>'
+    +'<div class="ar-rte-toolbar">'
+      +'<button type="button" class="ar-rte-btn" data-rte-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>'
+      +'<button type="button" class="ar-rte-btn" data-rte-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button>'
+      +'<button type="button" class="ar-rte-btn" data-rte-cmd="insertUnorderedList" title="Bulleted list">• List</button>'
+      +'<button type="button" class="ar-rte-btn" data-rte-cmd="insertOrderedList" title="Numbered list">1. List</button>'
+      +'<button type="button" class="ar-rte-btn" data-rte-cmd="removeFormat" title="Clear formatting">Tx</button>'
+    +'</div>'
+    +'<div class="ar-rte" id="ar2-q-rte" contenteditable="true" data-placeholder="Click to edit Purchase Terms and Conditions...">'+(Q.termsHtml||'')+'</div>'
   +'</div>';
   var pay='<div class="ar-card ar-fu" style="animation-delay:.16s">'
-    +'<div class="ar-card-title">Payment Method</div>'
-    +'<div class="ar-btn-row" style="display:flex;gap:6px;flex-wrap:wrap">'
+    +'<div class="ar-card-title-row"><div class="ar-card-title">Payment Method</div>'
+      +'<button class="ar-card-info-btn" data-card-info aria-label="Show help" title="Show help">!</button>'
+    +'</div>'
+    +'<div class="ar-card-info-pop">The Payment Form page in the PDF renders all three options. Credit Card section shows blank fields for the buyer to fill in by hand and email back.</div>'
+    +'<div class="ar-btn-row" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
       +'<button class="ar-btn '+(Q.paymentMethod==='cc'?'primary':'ghost')+'" data-q-pay="cc" style="flex:1;min-width:120px">Credit Card</button>'
       +'<button class="ar-btn '+(Q.paymentMethod==='wire'?'primary':'ghost')+'" data-q-pay="wire" style="flex:1;min-width:120px">Bank Wire</button>'
       +'<button class="ar-btn '+(Q.paymentMethod==='check'?'primary':'ghost')+'" data-q-pay="check" style="flex:1;min-width:120px">Check</button>'
     +'</div>'
-    +'<div class="ar-help" style="margin-top:8px;font-size:11px;color:var(--mu)">The Payment Form page in the PDF renders all three options. Credit Card section shows blank fields for the buyer to fill in by hand and email back (per current workflow — electronic capture deferred until payment / e-sig integration).</div>'
   +'</div>';
-  return kindToggle+hdr+buyer+lineItems+totals+ship+terms+pay;
+  // Two-column form. Col A holds the identity/contact/fulfillment chain
+  // (Doc Type → Header → Buyer → Ship-To → Payment Method) — "who is this
+  // for?". Col B holds the deal stack (Line Items → Totals → Standard
+  // Terms → Purchase Terms and Conditions) which mirrors the rendered
+  // PDF order, so the form reads top-down like the document itself.
+  return '<div class="ar-quote-form-grid">'
+    + '<div class="ar-quote-col-a">' + kindToggle + hdr + buyer + ship + pay + '</div>'
+    + '<div class="ar-quote-col-b">' + lineItems + totals + stdTerms + rte + '</div>'
+  +'</div>';
 }
 
 /* ── Step 3 middle col: live preview of the Quote / Order page ── */
@@ -1830,8 +2016,8 @@ function renderQuoteMiddle(){
     +'<div class="ar-card-title">Preview</div>'
     +(!hasEquipment?'<div class="ar-empty"><div style="font-size:13px;color:var(--mu);text-align:center;padding:14px 0">Add at least one device on Step 1 (Pool &amp; System) to see the quote preview.</div></div>'
       :'<div style="display:flex;flex-direction:column;gap:8px;font-size:11px;color:var(--tx)">'
-        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Doc Type</span><b>'+(Q.docKind==='po'?'Purchase Order':'Quote')+'</b></div>'
-        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">'+(Q.docKind==='po'?'PO':'Quote')+' #</span><b>'+esc(Q.quoteId||'—')+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Doc Type</span><b>'+(Q.docKind==='po'?'Purchase Order':Q.docKind==='invoice'?'Invoice':'Quote')+'</b></div>'
+        +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">'+(Q.docKind==='po'?'PO':Q.docKind==='invoice'?'Invoice':'Quote')+' #</span><b>'+esc(Q.quoteId||'—')+'</b></div>'
         +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Date</span><b>'+esc(Q.date||quoteToday())+'</b></div>'
         +'<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Buyer</span><b>'+esc(Q.buyerName||S.propertyName||'—')+'</b></div>'
         +'<hr style="border:none;border-top:1px solid rgba(0,180,216,.18);margin:6px 0">'
@@ -1911,10 +2097,53 @@ function renderImagesAndVideos(){
   return imgCard+ytCard;
 }
 
+/* ── Step 3 results panel: live quote preview + Preview button. Replaces
+   the regular KPI / breakdown panel with a focused quote summary. */
+function renderQuoteResultsPanel(){
+  var totals=buildQuoteTotals();
+  var items=buildQuoteLineItems();
+  var equipmentItems=items.filter(function(it){return it.section==='EQUIPMENT';});
+  var hasEquipment=equipmentItems.length>0;
+  var docKindLabel=(Q.docKind==='po')?'Purchase Order':(Q.docKind==='invoice')?'Invoice':'Quote';
+  var idLabel=(Q.docKind==='po')?'PO #':(Q.docKind==='invoice')?'Invoice #':'Quote #';
+  var summaryHtml = !hasEquipment
+    ? '<div class="ar-empty"><div style="font-size:13px;color:var(--mu);text-align:center;padding:14px 0">Add at least one device on Step 1 to populate the quote.</div></div>'
+    : '<div style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--tx)">'
+        + '<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Doc Type</span><b>'+docKindLabel+'</b></div>'
+        + '<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">'+idLabel+'</span><b>'+esc(Q.quoteId||'—')+'</b></div>'
+        + '<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Date</span><b>'+esc(Q.date||quoteToday())+'</b></div>'
+        + '<div style="display:flex;justify-content:space-between"><span style="color:var(--mu)">Buyer</span><b>'+esc(Q.buyerName||S.propertyName||'—')+'</b></div>'
+        + '<hr style="border:none;border-top:1px solid rgba(0,180,216,.18);margin:6px 0">'
+        + equipmentItems.map(function(it){return '<div style="display:flex;justify-content:space-between;font-size:10.5px"><span>'+esc((it.desc.split(' - ')[1]||it.desc))+' &times;'+it.qty+'</span><span>'+fc(it.amount,0)+'</span></div>';}).join('')
+        + '<hr style="border:none;border-top:1px solid rgba(0,180,216,.18);margin:6px 0">'
+        + '<div style="display:flex;justify-content:space-between"><span>Sub-Total</span><span>'+fc(totals.subTotal,0)+'</span></div>'
+        + (totals.discount>0?'<div style="display:flex;justify-content:space-between;color:var(--gr)"><span>Discount ('+(totals.discountPct*100).toFixed(2)+'%)</span><span>-'+fc(totals.discount,0)+'</span></div>':'')
+        + (totals.taxDue>0?'<div style="display:flex;justify-content:space-between"><span>Tax Due</span><span>'+fc(totals.taxDue,0)+'</span></div>':'')
+        + (totals.other>0?'<div style="display:flex;justify-content:space-between"><span>Other</span><span>'+fc(totals.other,0)+'</span></div>':'')
+        + '<div style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;color:var(--t);margin-top:2px"><span>TOTAL</span><span>'+fc(totals.total,0)+'</span></div>'
+        + (totals.deposit>0?'<div style="display:flex;justify-content:space-between"><span>Deposit ('+totals.depositPct+'%)</span><span>'+fc(totals.deposit,0)+'</span></div>':'')
+        + (totals.deposit>0?'<div style="display:flex;justify-content:space-between"><span>Balance</span><span>'+fc(totals.balance,0)+'</span></div>':'')
+      +'</div>';
+  return '<div class="ar-card ar-fu">'
+    +'<div class="ar-card-title">Live Preview</div>'
+    + summaryHtml
+    +'</div>'
+    +'<div class="ar-card ar-fu" style="animation-delay:.04s">'
+    + '<button class="ar-card-info-btn" data-card-info aria-label="Show help" title="Show help">!</button>'
+    + '<button class="ar-btn primary full" data-action="preview-quote"'+(!hasEquipment?' disabled':'')+'>'
+        + 'Preview Quote PDF'
+      + '</button>'
+    + '<div class="ar-card-info-pop">Opens the full document in PDF preview. Click <b>Return to Calculator</b> to come back to this step.</div>'
+  +'</div>';
+}
+
 /* ── Results panel ── */
 function renderResults(){
   var el=document.getElementById('ar2-results');
   if(!el)return;
+  // Step 3 (Quote): replace the regular KPI / breakdown panel with the
+  // quote preview panel + Preview button so the rep gets a focused view.
+  if(S.step===3){ el.innerHTML = renderQuoteResultsPanel(); return; }
   var total_dev=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in;
   if(!total_dev){
     el.innerHTML='<div class="ar-card"><div class="ar-empty">'
@@ -2049,6 +2278,7 @@ function render(){
   // Toggle map-step class so CSS hides calc columns + shows #ap2
   var root=document.getElementById('ar2');
   if(root) root.classList.toggle('map-step', S.step===0);
+  if(root) root.classList.toggle('quote-step', S.step===3);
   renderStepper();
   renderForm();
   renderDevices();
@@ -2116,8 +2346,8 @@ function buildQuoteHtml(){
   if(!EX.inclQuote && !EX.inclQuoteTerms && !EX.inclQuotePayment) return '';
   var prop = S.propertyName || 'Property Assessment';
   var todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
-  var docKindLabel = (Q.docKind==='po') ? 'PURCHASE ORDER' : 'QUOTE';
-  var idLabel = (Q.docKind==='po') ? 'PO #' : 'QUOTE #';
+  var docKindLabel = (Q.docKind==='po') ? 'PURCHASE ORDER' : (Q.docKind==='invoice') ? 'INVOICE' : 'QUOTE';
+  var idLabel = (Q.docKind==='po') ? 'PO #' : (Q.docKind==='invoice') ? 'INVOICE #' : 'QUOTE #';
   var qDate = Q.date || quoteToday();
   // Header band — matches Executive Summary look (.rpt-es-head). NSF/ANSI 50
   // pill omitted on Quote pages (the certification belongs to the assessment,
@@ -2144,6 +2374,53 @@ function buildQuoteHtml(){
   // Seller block constant per spec: "KD Enterprises LLC, dba AquaRev Water"
   var SELLER_NAME = 'KD Enterprises LLC, dba AquaRev Water';
   var SELLER_BLOCK = SELLER_NAME + '\n4348 - Waialae Ave. #621\nHonolulu, HI, 96816, USA\nt. (832) 979-6758\ne. water@aquarevwater.us';
+  // Buyer block — name + address + contact info, packed into the standardized
+  // top row's middle column. Keeps each page's "Prepared For — Buyer" block
+  // identical regardless of which page it lives on.
+  var buyerLines = [];
+  buyerLines.push(Q.buyerName || prop);
+  if(Q.buyerAddr) buyerLines.push(Q.buyerAddr);
+  if(Q.buyerContact) buyerLines.push('Attn: ' + Q.buyerContact);
+  if(Q.buyerPhone)   buyerLines.push('t. ' + Q.buyerPhone);
+  if(Q.buyerEmail)   buyerLines.push('e. ' + Q.buyerEmail);
+  var BUYER_BLOCK = buyerLines.join('\n');
+  // Header info card — date / ID / customer / days / rep / PO. Rendered in the
+  // top row's right column on every page so the metadata stays consistent.
+  // Title text is page-specific (Quote / Purchase Order / Purchase Terms /
+  // Payment Form) so the card mirrors the page heading. Title sits OUTSIDE the
+  // tinted card body so it lines up horizontally with the Seller and Buyer
+  // titles in the other two columns.
+  function quoteHeaderCardHtml(cardTitle){
+    return '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">'+esc(cardTitle)+'</div>'
+      + '<div class="rpt-q-top-card-body">'
+        + '<dl class="rpt-q-meta-rows">'
+          + '<dt>Date</dt><dd>'+esc(qDate)+'</dd>'
+          + '<dt>'+idLabel+'</dt><dd>'+esc(Q.quoteId||'—')+'</dd>'
+          + '<dt>Days Valid</dt><dd>'+(Q.daysValid||14)+'</dd>'
+          + (Q.rep?'<dt>Rep</dt><dd>'+esc(Q.rep)+'</dd>':'')
+          + (Q.po?'<dt>PO#</dt><dd>'+esc(Q.po)+'</dd>':'')
+          + (Q.customerId?'<dt>Customer ID</dt><dd>'+esc(Q.customerId)+'</dd>':'')
+        + '</dl>'
+      + '</div>'
+    + '</div>';
+  }
+  // Standardized top row — Seller | Prepared For — Buyer | Header info card.
+  // cardTitle is the page-specific label (QUOTE / PURCHASE ORDER / Purchase
+  // Terms and Conditions / Payment Form).
+  function quoteTopRowHtml(cardTitle){
+    return '<div class="rpt-q-top-row">'
+      + '<div class="rpt-q-top-col">'
+        + '<div class="rpt-q-block-title">Seller</div>'
+        + '<div class="rpt-q-block-text">'+esc(SELLER_BLOCK)+'</div>'
+      + '</div>'
+      + '<div class="rpt-q-top-col">'
+        + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
+        + '<div class="rpt-q-block-text">'+esc(BUYER_BLOCK)+'</div>'
+      + '</div>'
+      + quoteHeaderCardHtml(cardTitle)
+    + '</div>';
+  }
   // ── Page 1: Order ──
   var pageOrder = '';
   if(EX.inclQuote){
@@ -2157,10 +2434,19 @@ function buildQuoteHtml(){
       if(!sections[sec]) return;
       rowsHtml += '<tr class="rpt-q-section-row"><td colspan="5">'+sec+'</td></tr>';
       sections[sec].forEach(function(it){
-        var amt = (typeof it.amount==='number') ? fc(it.amount,0) : esc(it.amount);
-        var rate = it.rate ? fc(it.rate,0) : (it.amount==='included'?'—':'—');
-        var taxPct = (Number(it.taxRate)||0)*100;
-        var taxLabel = taxPct>0 ? taxPct.toFixed(2)+'%' : 'N';
+        // Included items print "INCLUDED" instead of a dollar amount and
+        // their tax / rate cells dash out (already excluded from totals math).
+        var amt, rate, taxLabel;
+        if(it.included){
+          amt = '<span class="rpt-q-included">INCLUDED</span>';
+          rate = '—';
+          taxLabel = '—';
+        } else {
+          amt = (typeof it.amount==='number') ? fc(it.amount,0) : esc(it.amount);
+          rate = it.rate ? fc(it.rate,0) : '—';
+          var taxPct = (Number(it.taxRate)||0)*100;
+          taxLabel = taxPct>0 ? taxPct.toFixed(2)+'%' : 'N';
+        }
         rowsHtml += '<tr>'
           + '<td>'+esc(it.desc)+'</td>'
           + '<td class="rate">'+rate+'</td>'
@@ -2172,9 +2458,11 @@ function buildQuoteHtml(){
     });
     // Tax Rate row removed — tax % is per-line in the Tax column above; Tax
     // Due is the sum of (line.amount × line.taxRate) for transparency.
+    // Discount label now shows the % AND clarifies it's applied only to the
+    // equipment subtotal, matching the form-side math.
     var totalsBlock = '<dl class="rpt-q-totals-table">'
       + '<dt>Sub-Total</dt><dd>'+fc(totals.subTotal,0)+'</dd>'
-      + (totals.discount>0 ? '<dt>Discount</dt><dd>-'+fc(totals.discount,0)+'</dd>' : '')
+      + (totals.discount>0 ? '<dt>Discount ('+(totals.discountPct*100).toFixed(2)+'% of Equipment)</dt><dd>-'+fc(totals.discount,0)+'</dd>' : '')
       + '<dt>Taxable</dt><dd>'+fc(totals.taxableAfter,0)+'</dd>'
       + '<dt>Tax Due</dt><dd>'+fc(totals.taxDue,0)+'</dd>'
       + (totals.other>0 ? '<dt>Other</dt><dd>'+fc(totals.other,0)+'</dd>' : '')
@@ -2186,47 +2474,28 @@ function buildQuoteHtml(){
     pageOrder = '<div class="rpt-es-page rpt-q-page rpt-q-page-order">'
       + qHeader
       + '<div class="rpt-q-body">'
-        + '<div class="rpt-q-meta-grid">'
-          + '<div>'
-            + '<div class="rpt-q-block-title">Seller</div>'
-            + '<div class="rpt-q-block-text">'+esc(SELLER_BLOCK)+'</div>'
-          + '</div>'
-          + '<div>'
-            + '<dl class="rpt-q-meta-rows">'
-              + '<dt>Date</dt><dd>'+esc(qDate)+'</dd>'
-              + '<dt>'+idLabel+'</dt><dd>'+esc(Q.quoteId||'—')+'</dd>'
-              + (Q.customerId?'<dt>Customer ID</dt><dd>'+esc(Q.customerId)+'</dd>':'')
-              + '<dt>Days Valid</dt><dd>'+(Q.daysValid||14)+'</dd>'
-              + (Q.rep?'<dt>Rep</dt><dd>'+esc(Q.rep)+'</dd>':'')
-              + (Q.po?'<dt>PO#</dt><dd>'+esc(Q.po)+'</dd>':'')
-            + '</dl>'
-          + '</div>'
-        + '</div>'
-        + '<div class="rpt-q-meta-grid">'
-          + '<div>'
-            + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
-            + '<div class="rpt-q-block-text">'+esc(Q.buyerName||prop)+(Q.buyerAddr?'\n'+esc(Q.buyerAddr):'')+'</div>'
-          + '</div>'
-          + '<div>'
-            + '<dl class="rpt-q-meta-rows">'
-              + (Q.buyerContact?'<dt>Contact</dt><dd>'+esc(Q.buyerContact)+'</dd>':'')
-              + (Q.buyerPhone?'<dt>Phone</dt><dd>'+esc(Q.buyerPhone)+'</dd>':'')
-              + (Q.buyerEmail?'<dt>Email</dt><dd>'+esc(Q.buyerEmail)+'</dd>':'')
-            + '</dl>'
-          + '</div>'
-        + '</div>'
+        + quoteTopRowHtml(docKindLabel)
         + '<table class="rpt-q-table">'
           + '<thead><tr><th>Description</th><th class="rate">Rate</th><th class="qty">Qty</th><th class="tax">Tax</th><th class="amt">Amount</th></tr></thead>'
           + '<tbody>'+rowsHtml+'</tbody>'
         + '</table>'
         + '<div class="rpt-q-totals">'
           + '<div>'
-            + '<div class="terms-title">Terms</div>'
-            + '<div class="terms">Based on the Terms and Conditions of the enclosed Order Form.\nSupporting Invoice will be supplied.\nDeposit is required prior to shipment of goods.\nAll prices are quoted in USD unless otherwise specified.\nAll prices are subject to applicable taxes.\nShipping terms are CIF (Cost, Insurance &amp; Freight). Buyer pays any duties/taxes.</div>'
+            + '<div class="terms-title">Standard Terms</div>'
+            + '<div class="terms">'+esc(Q.standardTerms||'')+'</div>'
           + '</div>'
           + '<div>'+totalsBlock+'</div>'
         + '</div>'
-        + (Q.shipTo?'<div class="rpt-q-shipto-box"><div class="rpt-q-block-title">Ship To</div><div class="rpt-q-shipto">'+esc(Q.shipTo)+'</div></div>':'')
+        + (function(){
+            var shipText = Q.shipToSameAsBuyer
+              ? ((Q.buyerName || prop) + (Q.buyerAddr?'\n'+Q.buyerAddr:''))
+              : Q.shipTo;
+            if(!shipText && !Q.shippingTerm) return '';
+            return '<div class="rpt-q-shipto-box"><div class="rpt-q-block-title">Ship To</div>'
+              + (shipText?'<div class="rpt-q-shipto">'+esc(shipText)+'</div>':'')
+              + (Q.shippingTerm?'<div class="rpt-q-shipterm"><span class="rpt-q-shipterm-label">Shipping Terms:</span> <b>'+esc(Q.shippingTerm)+'</b> — '+esc(shippingTermLabel(Q.shippingTerm))+'</div>':'')
+            + '</div>';
+          })()
         + '<div class="rpt-q-sigblock">'
           + '<div>'
             + '<div class="rpt-q-block-title">Authorized Buyer Representative</div>'
@@ -2244,22 +2513,14 @@ function buildQuoteHtml(){
   // ── Page 2: Purchase Terms ──
   var pageTerms = '';
   if(EX.inclQuoteTerms){
+    // Body innerHTML is the rich-text editor's HTML (already structured
+    // with <p>/<ol>/<ul>/<li>/<b>/<i>/<u>/<br>). Sanitised on save.
     pageTerms = '<div class="rpt-es-page rpt-q-page rpt-q-page-terms">'
       + qHeader
       + '<div class="rpt-q-terms-body">'
-        + '<div class="rpt-q-terms-title">Purchase Terms</div>'
-        + '<div class="rpt-q-meta-grid">'
-          + '<div>'
-            + '<div class="rpt-q-block-title">Seller</div>'
-            + '<div class="rpt-q-block-text" style="font-size:9.5px">'+esc(SELLER_BLOCK)+'</div>'
-          + '</div>'
-          + '<div>'
-            + '<div class="rpt-q-block-title">Buyer'+(Q.buyerContact?' — Attn '+esc(Q.buyerContact):'')+'</div>'
-            + '<div class="rpt-q-block-text" style="font-size:9.5px">'+esc(Q.buyerName||prop)+(Q.buyerAddr?'\n'+esc(Q.buyerAddr):'')+(Q.buyerPhone?'\nt. '+esc(Q.buyerPhone):'')+(Q.buyerEmail?'\ne. '+esc(Q.buyerEmail):'')+'</div>'
-          + '</div>'
-        + '</div>'
-        + '<div class="rpt-q-block-title" style="margin-top:6px">Terms and Conditions</div>'
-        + '<div class="rpt-q-terms-text">'+renderTermsHtml(Q.termsText||'')+'</div>'
+        + quoteTopRowHtml('Purchase Terms and Conditions')
+        + '<div class="rpt-q-terms-title">Purchase Terms and Conditions</div>'
+        + '<div class="rpt-q-terms-text">'+(Q.termsHtml || '')+'</div>'
       + '</div>'
       + qFooter
     + '</div>';
@@ -2273,23 +2534,13 @@ function buildQuoteHtml(){
     pagePay = '<div class="rpt-es-page rpt-q-page rpt-q-page-pay">'
       + qHeader.replace('<div class="rpt-es-logo-sub">' + docKindLabel + '</div>', '<div class="rpt-es-logo-sub">PAYMENT FORM</div>')
       + '<div class="rpt-q-pay-body">'
-        + '<div class="rpt-q-meta-grid">'
-          + '<div>'
-            + '<div class="rpt-q-block-title">Selected Payment Method</div>'
-            + '<div class="rpt-q-pay-method" style="font-size:11px;line-height:1.7">'
-              + '<div>'+ccChecked+' Credit Card</div>'
-              + '<div>'+wireChecked+' Bank Wire</div>'
-              + '<div>'+checkChecked+' Check</div>'
-            + '</div>'
-          + '</div>'
-          + '<div>'
-            + '<dl class="rpt-q-meta-rows">'
-              + '<dt>Date</dt><dd>'+esc(qDate)+'</dd>'
-              + '<dt>'+idLabel+'</dt><dd>'+esc(Q.quoteId||'—')+'</dd>'
-              + (Q.customerId?'<dt>Customer ID</dt><dd>'+esc(Q.customerId)+'</dd>':'')
-              + '<dt>Days Valid</dt><dd>'+(Q.daysValid||14)+'</dd>'
-              + (Q.rep?'<dt>Rep</dt><dd>'+esc(Q.rep)+'</dd>':'')
-            + '</dl>'
+        + quoteTopRowHtml('Payment Form')
+        + '<div class="rpt-q-pay-method-strip">'
+          + '<div class="rpt-q-block-title">Selected Payment Method</div>'
+          + '<div class="rpt-q-pay-method" style="font-size:11px;line-height:1.7">'
+            + '<div>'+ccChecked+' Credit Card</div>'
+            + '<div>'+wireChecked+' Bank Wire</div>'
+            + '<div>'+checkChecked+' Check</div>'
           + '</div>'
         + '</div>'
         + '<div class="rpt-q-pay-cols">'
@@ -2309,7 +2560,7 @@ function buildQuoteHtml(){
           + '<div style="display:flex;flex-direction:column;gap:10px">'
             + '<div class="rpt-q-pay-box">'
               + '<div class="col-title">2. Bank Wire Instructions</div>'
-              + '<div class="rpt-q-pay-field"><label>Payee</label><span class="val">'+esc(SELLER_NAME)+'</span></div>'
+              + '<div class="rpt-q-pay-field"><label>Payee</label><span class="val">KD Enterprises LLC</span></div>'
               + '<div class="rpt-q-pay-field"><label>Bank</label><span class="val">Bank of Hawaii</span></div>'
               + '<div class="rpt-q-pay-field"><label>Routing</label><span class="val">121301028</span></div>'
               + '<div class="rpt-q-pay-field"><label>Account #</label><span class="val">86804468</span></div>'
@@ -3781,7 +4032,7 @@ function renderExportSection(){
       if(!hasDevices) return '';
       return '<div class="ar-export-panel-label" style="margin-top:14px">Quote / Order Form</div>'
         +'<div style="margin-top:8px">'
-          +'<div class="ar-toggle-row"><label>Include '+(Q.docKind==='po'?'Purchase Order':'Quote')+' / Order Page</label>'
+          +'<div class="ar-toggle-row"><label>Include '+(Q.docKind==='po'?'Purchase Order':Q.docKind==='invoice'?'Invoice':'Quote')+' / Order Page</label>'
             +'<div class="ar-sw-track'+(EX.inclQuote?' on':'')+'" data-ex-sw="inclQuote"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +'<div class="ar-toggle-row"><label>Include Purchase Terms Page</label>'
@@ -3972,6 +4223,19 @@ function handleClick(e){
   if(genBtn){ generateReport(); return; }
   var prevBtn=e.target.closest('[data-action="preview-report"]');
   if(prevBtn){ EX.previewing=true; generateReport(); return; }
+  // Quote step Preview button — auto-enables the 3 quote-page toggles so
+  // the rep doesn't have to bounce to Export and toggle each one. Other
+  // export toggles stay as-is so the preview shows whatever bundle is
+  // currently configured plus the quote pages.
+  var prevQuoteBtn=e.target.closest('[data-action="preview-quote"]');
+  if(prevQuoteBtn){
+    EX.inclQuote = true;
+    EX.inclQuoteTerms = true;
+    EX.inclQuotePayment = true;
+    EX.previewing = true;
+    generateReport();
+    return;
+  }
   // Save to Archive
   var saveBtn=e.target.closest('[data-action="save-report"]');
   if(saveBtn){ bankSaveReport(); return; }
@@ -4039,6 +4303,14 @@ function handleClick(e){
     }
     return;
   }
+  // Card help "!" button — toggles .show-info on the parent .ar-card. Stops
+  // propagation so it doesn't bubble to other handlers and re-render the form.
+  var cardInfo=e.target.closest('[data-card-info]');
+  if(cardInfo){
+    var card=cardInfo.closest('.ar-card');
+    if(card) card.classList.toggle('show-info');
+    return;
+  }
   // Quote step — doc kind toggle (Quote vs Purchase Order)
   var qKind=e.target.closest('[data-q-kind]');
   if(qKind){ Q.docKind=qKind.dataset.qKind; renderForm(); renderDevices(); return; }
@@ -4048,12 +4320,36 @@ function handleClick(e){
     var qKey=qSw.dataset.qSw;
     Q[qKey]=!Q[qKey];
     qSw.classList.toggle('on', Q[qKey]);
-    renderForm(); renderDevices();
+    renderForm(); renderDevices(); renderResults();
+    return;
+  }
+  // Quote step — "Included" toggle on add-on rows. When on, the line prints
+  // "INCLUDED" on the rendered Quote and is excluded from totals.
+  var qIncl=e.target.closest('[data-q-incl]');
+  if(qIncl){
+    var iKey=qIncl.dataset.qIncl;
+    Q[iKey]=!Q[iKey];
+    qIncl.classList.toggle('on', Q[iKey]);
+    renderForm(); renderResults();
     return;
   }
   // Quote step — payment method radio
   var qPay=e.target.closest('[data-q-pay]');
   if(qPay){ Q.paymentMethod=(Q.paymentMethod===qPay.dataset.qPay?'':qPay.dataset.qPay); renderForm(); return; }
+  // Quote step — Rich-text editor toolbar. The companion mousedown handler
+  // (registered separately) preventDefaults so the click doesn't move focus
+  // out of the contenteditable div, preserving the selection for execCommand.
+  var rteBtn=e.target.closest('.ar-rte-btn[data-rte-cmd]');
+  if(rteBtn){
+    var rteCmd=rteBtn.dataset.rteCmd;
+    var rteEl=document.getElementById('ar2-q-rte');
+    if(rteEl){
+      try { document.execCommand(rteCmd, false, null); } catch(_){}
+      Q.termsHtml = rteEl.innerHTML;
+      renderResults();
+    }
+    return;
+  }
   // Export section toggles
   var exSw=e.target.closest('[data-ex-sw]');
   if(exSw){
@@ -4304,7 +4600,15 @@ function handleInput(e){
     var lineKey = el.dataset.qLineTax;
     if(!Q.lineTax) Q.lineTax = {};
     Q.lineTax[lineKey] = (parseFloat(el.value)||0)/100;
-    if(S.step===3) renderDevices();
+    if(S.step===3){ renderDevices(); renderResults(); }
+    return;
+  }
+  // Quote discount % override. Stored as fraction 0..1 in Q.discountPct.
+  // Empty string falls back to S.discount (Pricing slider value).
+  if(el.hasAttribute('data-q-disc-pct')){
+    var v = el.value;
+    Q.discountPct = (v === '' || v === null) ? null : (parseFloat(v)||0)/100;
+    if(S.step===3) renderResults();
     return;
   }
   // Quote form fields — text/number/date/textarea inputs all funnel here.
@@ -4398,6 +4702,39 @@ function init(){
   root.addEventListener('click',handleClick);
   root.addEventListener('input',handleInput);
   root.addEventListener('change',handleChange);
+  // Quote rich-text editor — preventDefault on toolbar mousedown so the
+  // selection / focus inside the contenteditable div survives the click.
+  root.addEventListener('mousedown',function(e){
+    if(e.target.closest && e.target.closest('.ar-rte-btn')) e.preventDefault();
+  });
+  // Capture rich-text edits as the rep types; only update Q (no re-render
+  // — that would steal focus).
+  root.addEventListener('input',function(e){
+    if(e.target && e.target.id==='ar2-q-rte'){
+      Q.termsHtml = e.target.innerHTML;
+      // Live preview panel doesn't reflect HTML body, but a refresh is
+      // cheap and keeps Save/Archive in sync.
+      if(S.step===3) renderResults();
+    }
+  });
+  // Strip styles on paste into the rich-text editor — only allow plain text
+  // through, then re-apply formatting via the toolbar.
+  root.addEventListener('paste',function(e){
+    if(e.target && e.target.id==='ar2-q-rte'){
+      e.preventDefault();
+      var text = (e.clipboardData||window.clipboardData).getData('text/plain') || '';
+      try { document.execCommand('insertText', false, text); } catch(_){}
+    }
+  });
+  // Auto-grow the .ar-grow textareas inside the Quote step. Re-measure on
+  // each input event; cap at 160px, then scroll.
+  root.addEventListener('input',function(e){
+    var el=e.target;
+    if(el && el.tagName==='TEXTAREA' && el.classList && el.classList.contains('ar-grow')){
+      el.style.height='auto';
+      el.style.height=Math.min(el.scrollHeight, 160)+'px';
+    }
+  });
   // File upload — delegate via document since input is dynamically created
   root.addEventListener('change',function(e){
     if(e.target&&(e.target.id==='ar2-img-input'||e.target.classList.contains('ar2-img-upload'))){
