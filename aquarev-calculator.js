@@ -1700,6 +1700,7 @@ function populateAdminDashboard(){
     tableEl.innerHTML = '<table class="ar-admin-userstats-tbl">'
       + '<thead><tr>'
         + '<th>User</th>'
+        + '<th>Email</th>'
         + '<th>Role</th>'
         + '<th class="num" title="Records created in the last 30 days">Records (30d)</th>'
         + '<th class="num" title="Sessions in the last 30 days">Logins (30d)</th>'
@@ -1714,8 +1715,14 @@ function populateAdminDashboard(){
             : '—';
           var inactiveStyle = u.active ? '' : ' style="opacity:.55"';
           var toggleLabel = u.active ? 'Disable' : 'Enable';
+          // "Real" emails are anything that isn't the auto-generated
+          // placeholder (aqr-{hex}@aquarev.local). Those placeholders are
+          // never user-facing — used internally for Supabase auth only.
+          var hasRealEmail = u.email && u.email.indexOf('@') > 0 && !/@aquarev\.local$/i.test(u.email);
+          var emailCell = hasRealEmail ? esc(u.email) : '<span class="muted">—</span>';
           return '<tr'+inactiveStyle+'>'
             + '<td><b>'+esc(u.name)+'</b>'+(u.active?'':' <span class="ar-admin-disabled">disabled</span>')+'</td>'
+            + '<td class="muted email">'+emailCell+'</td>'
             + '<td><span class="ar-admin-role '+roleClass+'">'+esc(u.role)+'</span></td>'
             + '<td class="num">'+u.records_30d+'</td>'
             + '<td class="num">'+u.logins_30d+'</td>'

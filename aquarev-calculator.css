@@ -1366,6 +1366,8 @@
 #ar2 .ar-admin-userstats-tbl th.num,#ar2 .ar-admin-userstats-tbl td.num{text-align:right;font-family:'JetBrains Mono',monospace;}
 #ar2 .ar-admin-userstats-tbl td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);}
 #ar2 .ar-admin-userstats-tbl td.muted{color:var(--mu);font-size:10.5px;}
+#ar2 .ar-admin-userstats-tbl td.email{font-family:'JetBrains Mono',monospace;font-size:10.5px;word-break:break-all;}
+#ar2 .ar-admin-userstats-tbl td.email .muted{color:rgba(125,184,204,.5);}
 #ar2 .ar-admin-userstats-tbl tr:last-child td{border-bottom:none;}
 #ar2 .ar-admin-role{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:99px;font-weight:600;}
 #ar2 .ar-admin-role.role-admin{background:rgba(240,165,0,.14);color:var(--go);border:1px solid rgba(240,165,0,.3);}
