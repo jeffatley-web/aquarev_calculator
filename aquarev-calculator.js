@@ -4574,9 +4574,14 @@ function generateReport(){
   var singlePageAssessment='<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
 
     // ── Header band ──
+    // Client mode: replace the AQUAREV WATER wordmark with the client's
+    // uploaded logo on the Assessment page (which is what Clients actually
+    // see — Cover Page + Exec Summary toggles are hidden for them).
     +'<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +'<div class="rpt-logo">AQUAREV WATER</div>'
+        +(clientLogo
+          ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:42px;max-width:220px;display:block;margin-bottom:3px" />'
+          : '<div class="rpt-logo">AQUAREV WATER</div>')
         +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
       +'</div>'
       +'<div class="rpt-head-right">'
@@ -4738,9 +4743,13 @@ function generateReport(){
       +'<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
     +'</div>';
 
+    // Client mode: swap wordmark for uploaded logo on the multi-page Assessment header.
+    var assessHeaderLeftMark = clientLogo
+      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:42px;max-width:220px;display:block;margin-bottom:3px" />'
+      : '<div class="rpt-logo">AQUAREV WATER</div>';
     var assessHeader='<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +'<div class="rpt-logo">AQUAREV WATER</div>'
+        +assessHeaderLeftMark
         +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
       +'</div>'
       +'<div class="rpt-head-right">'
@@ -4752,7 +4761,7 @@ function generateReport(){
 
     var assessHeaderCont='<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +'<div class="rpt-logo">AQUAREV WATER</div>'
+        +assessHeaderLeftMark
         +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
       +'</div>'
       +'<div class="rpt-head-right">'
