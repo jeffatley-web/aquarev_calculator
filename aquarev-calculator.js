@@ -292,7 +292,7 @@ function showCalcPasswordModal(onUnlock){
     +'<div id="ar2-calc-email-row" style="display:none;text-align:left;margin-bottom:8px">'
       +'<div style="font-size:11.5px;color:#cfe2eb;margin-bottom:4px;letter-spacing:.4px">Your email</div>'
       +'<input id="ar2-calc-email-input" type="email" autocomplete="email" placeholder="you@company.com" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:11px 14px;border-radius:6px;font-size:14px;font-family:inherit;box-sizing:border-box;outline:none" />'
-      +'<div style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4">First time? We\'ll create a profile for you under this account so we know who\'s using the tool.</div>'
+      +'<div style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4">First time? We\'ll create a profile for you under this account.</div>'
     +'</div>'
     +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:8px"></div>'
     // Remember-code checkbox shown in BOTH modes now. In cloud mode the
