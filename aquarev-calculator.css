@@ -43,6 +43,12 @@
    by side with line items / totals. */
 #ar2.quote-step .ar-form-col{grid-column:1 / 3;}
 #ar2.quote-step .ar-dev-col{display:none;}
+/* Client-mode feature gating ─ when a Client signs in, the calculator JS
+   adds the .app-client class to #ar2. Any element marked with the
+   `data-client-hide` attribute is then visually + interactively hidden.
+   Used to gate the Quote step, Discount slider, Cover/Back Cover/Exec
+   Summary export toggles, and the Quote-page export toggles. */
+#ar2.app-client [data-client-hide]{display:none !important;}
 /* Quote app page: card headers tinted teal-blue for visual consistency with
    the rendered PDF's section accents. Scoped to .quote-step so other steps
    keep the standard text-color titles. Catches both standalone titles and
@@ -1349,6 +1355,33 @@
 #ar2 .ar-admin-userlist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
 #ar2 .ar-admin-userchip{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.22);border-radius:99px;padding:3px 10px;font-size:10.5px;color:var(--tx);}
 #ar2 .ar-admin-userchip b{color:#fff;font-family:'JetBrains Mono',monospace;margin-left:4px;}
+/* User-activity table inside the admin dashboard drawer. Lifetime + 30-day
+   record + 30-day login counts per user. Designed to read at a glance — small
+   monospaced numbers in right-aligned columns. */
+#ar2 .ar-admin-userstats-card{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+#ar2 .ar-admin-userstats-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:8px;}
+#ar2 .ar-admin-userstats-tbl{width:100%;border-collapse:collapse;font-size:11px;color:var(--tx);}
+#ar2 .ar-admin-userstats-tbl th{text-align:left;font-weight:500;color:var(--mu);font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-admin-userstats-tbl th.num,#ar2 .ar-admin-userstats-tbl td.num{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-admin-userstats-tbl td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);}
+#ar2 .ar-admin-userstats-tbl td.muted{color:var(--mu);font-size:10.5px;}
+#ar2 .ar-admin-userstats-tbl tr:last-child td{border-bottom:none;}
+#ar2 .ar-admin-role{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:99px;font-weight:600;}
+#ar2 .ar-admin-role.role-admin{background:rgba(240,165,0,.14);color:var(--go);border:1px solid rgba(240,165,0,.3);}
+#ar2 .ar-admin-role.role-user{background:rgba(0,180,216,.1);color:var(--t);border:1px solid rgba(0,180,216,.25);}
+#ar2 .ar-admin-role.role-client{background:rgba(168,85,247,.12);color:#c89aff;border:1px solid rgba(168,85,247,.3);}
+#ar2 .ar-admin-disabled{display:inline-block;font-size:9px;color:var(--re);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:1px 6px;border-radius:99px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase;}
+/* Add User button + row actions in the admin manager */
+#ar2 .ar-admin-userstats-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+#ar2 .ar-admin-add-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;letter-spacing:.4px;}
+#ar2 .ar-admin-add-btn:hover{filter:brightness(1.1);}
+#ar2 .ar-admin-userstats-tbl th.actions,#ar2 .ar-admin-userstats-tbl td.actions{text-align:right;white-space:nowrap;}
+#ar2 .ar-admin-row-act{background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.22);color:var(--t);font-size:10px;padding:3px 8px;border-radius:5px;cursor:pointer;font-family:inherit;font-weight:500;margin-left:4px;letter-spacing:.4px;transition:.15s;}
+#ar2 .ar-admin-row-act:hover{background:rgba(0,180,216,.16);border-color:rgba(0,180,216,.4);}
+#ar2 .ar-admin-row-act.danger{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.22);color:var(--re);}
+#ar2 .ar-admin-row-act.danger:hover{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.4);}
+#ar2 .ar-admin-row-act.enable{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.28);color:var(--gr);}
+#ar2 .ar-admin-row-act.enable:hover{background:rgba(34,197,94,.18);}
 #ar2 .ar-admin-chart{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;}
 #ar2 .ar-admin-chart-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:6px;}
 #ar2 .ar-admin-chart svg{width:100%;height:auto;display:block;}

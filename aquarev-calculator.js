@@ -53,7 +53,7 @@ var EX={
   layout:'portrait',      // 'portrait' | 'landscape'
   inclWater:true,         // include water loss 5yr section
   inclCover:false,        // include cover page
-  inclFactSheet:false,    // include fact sheet (pages 2 & 3 only)
+  inclFactSheet:false,    // DEPRECATED 2026-05-10: Fact Sheet removed from all versions; field kept for snapshot back-compat only
   inclBackCover:false,    // include back cover page (separate from fact sheet)
   inclPoolProfiles:false, // include pool profiles page
   inclExecSummary:false,  // include 2-page Executive Summary (portrait variant)
@@ -572,6 +572,8 @@ var Cloud = (function(){
           if(user && b.app) user.appRole = b.app.role;
           try { localStorage.setItem(ENABLED_KEY, '1'); } catch(_){}
           installStorageAdapter();
+          // Increment login count on every successful gate-login (counts as a "session load")
+          c.rpc('track_login').catch(function(){});
           return user;
         });
     });
@@ -589,6 +591,10 @@ var Cloud = (function(){
         if(!rs.data.active) { c.auth.signOut(); return null; }
         user = { id: rs.data.id, name: rs.data.name, email: rs.data.email, role: rs.data.role };
         installStorageAdapter();
+        // Count restored sessions too — per request, every page-load with a
+        // valid session counts toward the user's login_count, even when the
+        // password was remembered.
+        c.rpc('track_login').catch(function(){});
         return user;
       });
     }).catch(function(){ return null; });
@@ -729,6 +735,18 @@ var Cloud = (function(){
         byUser[n] = (byUser[n] || 0) + 1;
       });
       return { total: rows.length, byUser: byUser };
+    });
+  }
+
+  // Admin-only: returns a row per user with role, active flag, lifetime login
+  // count, last login timestamp, 30-day record count, and 30-day login count.
+  // Used to populate the admin dashboard's per-user table.
+  function adminUserStats(){
+    var c = getClient();
+    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    return c.rpc('admin_user_stats').then(function(r){
+      if(r.error) throw r.error;
+      return r.data || [];
     });
   }
 
@@ -880,6 +898,37 @@ var Cloud = (function(){
     listUsers: listUsers,
     statsLast30Days: statsLast30Days,
     stats90DailyByUser: stats90DailyByUser,
+    adminUserStats: adminUserStats,
+    isClient: function(){ return !!user && user.role === 'client'; },
+    adminCreateUser: function(name, code, role){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_create_user', { p_name: name, p_code: code, p_role: role }).then(function(r){
+        if(r.error) throw r.error;
+        return r.data;
+      });
+    },
+    adminSetUserActive: function(userId, active){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_set_user_active', { p_user_id: userId, p_active: active }).then(function(r){
+        if(r.error) throw r.error;
+      });
+    },
+    adminResetUserCode: function(userId, newCode){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_reset_user_code', { p_user_id: userId, p_new_code: newCode }).then(function(r){
+        if(r.error) throw r.error;
+      });
+    },
+    adminSetUserRole: function(userId, newRole){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_set_user_role', { p_user_id: userId, p_role: newRole }).then(function(r){
+        if(r.error) throw r.error;
+      });
+    },
     sniffLocalArchive: sniffLocalArchive,
     migrateLocalToCloud: migrateLocalToCloud,
     installStorageAdapter: installStorageAdapter,
@@ -1206,6 +1255,136 @@ function showReassignModal(assessmentId){
   };
 }
 
+/* ── Admin User Manager modals ──
+   Add user / Reset code / Change role / Toggle active. All call into
+   AR2_CLOUD admin RPCs which are admin-gated server-side. UI is local
+   to the calculator — no separate page. */
+function showAdminAddUserModal(){
+  var existing=document.getElementById('ar2-admuser-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-admuser-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:14px">ADD NEW USER</div>'
+    +'<div class="ar-form-row" style="margin-bottom:10px"><label>Name</label>'
+      +'<input id="ar2-au-name" class="ar-inp" placeholder="e.g. Sarah Johnson" autocomplete="off" />'
+    +'</div>'
+    +'<div class="ar-form-row" style="margin-bottom:10px"><label>Access Code (4 chars)</label>'
+      +'<input id="ar2-au-code" class="ar-inp" maxlength="4" placeholder="e.g. SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+    +'</div>'
+    +'<div class="ar-form-row" style="margin-bottom:14px"><label>Role</label>'
+      +'<select id="ar2-au-role" class="ar-sel">'
+        +'<option value="user">User — own records, standard features</option>'
+        +'<option value="admin">Admin — sees all records + this dashboard</option>'
+        +'<option value="client">Client — limited features (no quotes/exports)</option>'
+      +'</select>'
+    +'</div>'
+    +'<div id="ar2-au-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-au-cancel" class="ar-bank-act">Cancel</button>'
+      +'<button id="ar2-au-go" class="ar-bank-act primary">Create User</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-au-cancel').onclick=close;
+  m.addEventListener('click',function(e){ if(e.target===m) close(); });
+  var codeInp=document.getElementById('ar2-au-code');
+  codeInp.addEventListener('input',function(){ codeInp.value=(codeInp.value||'').toUpperCase(); });
+  document.getElementById('ar2-au-go').onclick=function(){
+    var name=(document.getElementById('ar2-au-name').value||'').trim();
+    var code=(document.getElementById('ar2-au-code').value||'').trim().toUpperCase();
+    var role=document.getElementById('ar2-au-role').value;
+    var err=document.getElementById('ar2-au-err');
+    if(!name){ err.textContent='Name is required.'; return; }
+    if(code.length<4){ err.textContent='Access code must be 4 characters.'; return; }
+    err.textContent='';
+    var go=document.getElementById('ar2-au-go');
+    go.disabled=true; go.textContent='Creating…';
+    AR2_CLOUD.adminCreateUser(name, code, role).then(function(){
+      close();
+      // Force the dashboard to refresh stats
+      var dashEl=document.getElementById('ar-admin-dash');
+      if(dashEl) dashEl.dataset.loaded='';
+      populateAdminDashboard();
+    }).catch(function(e){
+      err.textContent = (e && e.message) ? e.message : 'Failed to create user.';
+      go.disabled=false; go.textContent='Create User';
+    });
+  };
+  setTimeout(function(){ document.getElementById('ar2-au-name').focus(); }, 50);
+}
+
+function showAdminResetCodeModal(uid, uname){
+  var existing=document.getElementById('ar2-admrc-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-admrc-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">RESET ACCESS CODE</div>'
+    +'<div style="font-size:12px;color:#cfe2eb;margin-bottom:14px">For: <b>'+esc(uname)+'</b></div>'
+    +'<input id="ar2-rc-code" class="ar-inp" maxlength="4" placeholder="New 4-char code" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px" />'
+    +'<div id="ar2-rc-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-rc-cancel" class="ar-bank-act">Cancel</button>'
+      +'<button id="ar2-rc-go" class="ar-bank-act primary">Save</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-rc-cancel').onclick=close;
+  m.addEventListener('click',function(e){ if(e.target===m) close(); });
+  var inp=document.getElementById('ar2-rc-code');
+  inp.addEventListener('input',function(){ inp.value=(inp.value||'').toUpperCase(); });
+  document.getElementById('ar2-rc-go').onclick=function(){
+    var code=(inp.value||'').trim().toUpperCase();
+    var err=document.getElementById('ar2-rc-err');
+    if(code.length<4){ err.textContent='Code must be 4 characters.'; return; }
+    var go=document.getElementById('ar2-rc-go');
+    go.disabled=true; go.textContent='Saving…';
+    AR2_CLOUD.adminResetUserCode(uid, code).then(function(){
+      close(); populateAdminDashboard();
+    }).catch(function(e){
+      err.textContent = (e && e.message) ? e.message : 'Failed to reset code.';
+      go.disabled=false; go.textContent='Save';
+    });
+  };
+  setTimeout(function(){ inp.focus(); }, 50);
+}
+
+function showAdminChangeRoleModal(uid, uname, currentRole){
+  var existing=document.getElementById('ar2-admro-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-admro-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  function opt(v,l){ return '<option value="'+v+'"'+(v===currentRole?' selected':'')+'>'+l+'</option>'; }
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">CHANGE ROLE</div>'
+    +'<div style="font-size:12px;color:#cfe2eb;margin-bottom:14px">For: <b>'+esc(uname)+'</b></div>'
+    +'<select id="ar2-ro-sel" class="ar-sel" style="margin-bottom:14px">'
+      +opt('user','User')+opt('admin','Admin')+opt('client','Client')
+    +'</select>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-ro-cancel" class="ar-bank-act">Cancel</button>'
+      +'<button id="ar2-ro-go" class="ar-bank-act primary">Save</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-ro-cancel').onclick=close;
+  m.addEventListener('click',function(e){ if(e.target===m) close(); });
+  document.getElementById('ar2-ro-go').onclick=function(){
+    var newRole=document.getElementById('ar2-ro-sel').value;
+    if(newRole===currentRole){ close(); return; }
+    AR2_CLOUD.adminSetUserRole(uid, newRole).then(function(){
+      close(); populateAdminDashboard();
+    }).catch(function(e){ alert('Role change failed: '+(e.message||e)); });
+  };
+}
+
 /* Admin dashboard async populator — fills the placeholder after renderBank
    has injected the panel. Two requests in parallel: stats30Days + 90-day
    daily-by-user. The chart is drawn as a simple multi-line SVG (one polyline
@@ -1214,17 +1393,49 @@ function populateAdminDashboard(){
   if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())) return;
   AR2_CLOUD.statsLast30Days().then(function(s){
     var totalEl=document.getElementById('ar-admin-30d-total');
-    var listEl=document.getElementById('ar-admin-30d-users');
     if(totalEl) totalEl.textContent = s.total;
-    if(listEl){
-      var names = Object.keys(s.byUser).sort(function(a,b){ return s.byUser[b]-s.byUser[a]; });
-      if(!names.length){ listEl.innerHTML='<span style="color:var(--mu);font-size:11px">No records yet.</span>'; }
-      else {
-        listEl.innerHTML = names.map(function(n){
-          return '<span class="ar-admin-userchip">'+esc(n)+'<b>'+s.byUser[n]+'</b></span>';
-        }).join('');
-      }
+  }).catch(function(){});
+  // User-stats table — replaces the old chip list. Shows per-user lifetime
+  // login count + 30-day record count + 30-day login count.
+  AR2_CLOUD.adminUserStats().then(function(rows){
+    var tableEl = document.getElementById('ar-admin-userstats');
+    if(!tableEl) return;
+    if(!rows.length){
+      tableEl.innerHTML = '<div style="color:var(--mu);font-size:11px;padding:8px">No users yet.</div>';
+      return;
     }
+    tableEl.innerHTML = '<table class="ar-admin-userstats-tbl">'
+      + '<thead><tr>'
+        + '<th>User</th>'
+        + '<th>Role</th>'
+        + '<th class="num" title="Records created in the last 30 days">Records (30d)</th>'
+        + '<th class="num" title="Sessions in the last 30 days">Logins (30d)</th>'
+        + '<th class="num" title="Lifetime sessions since cloud cutover">Lifetime</th>'
+        + '<th>Last Login</th>'
+        + '<th class="actions">Actions</th>'
+      + '</tr></thead><tbody>'
+      + rows.map(function(u){
+          var roleClass = u.role === 'admin' ? 'role-admin' : (u.role === 'client' ? 'role-client' : 'role-user');
+          var lastLogin = u.last_login_at
+            ? new Date(u.last_login_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+            : '—';
+          var inactiveStyle = u.active ? '' : ' style="opacity:.55"';
+          var toggleLabel = u.active ? 'Disable' : 'Enable';
+          return '<tr'+inactiveStyle+'>'
+            + '<td><b>'+esc(u.name)+'</b>'+(u.active?'':' <span class="ar-admin-disabled">disabled</span>')+'</td>'
+            + '<td><span class="ar-admin-role '+roleClass+'">'+esc(u.role)+'</span></td>'
+            + '<td class="num">'+u.records_30d+'</td>'
+            + '<td class="num">'+u.logins_30d+'</td>'
+            + '<td class="num">'+u.login_count+'</td>'
+            + '<td class="muted">'+lastLogin+'</td>'
+            + '<td class="actions">'
+              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Reset access code">Reset</button>'
+              + '<button class="ar-admin-row-act" data-action="admin-change-role" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+u.role+'" title="Change role">Role</button>'
+              + '<button class="ar-admin-row-act'+(u.active?' danger':' enable')+'" data-action="admin-toggle-active" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uactive="'+u.active+'" title="'+toggleLabel+' user">'+toggleLabel+'</button>'
+            + '</td>'
+          + '</tr>';
+        }).join('')
+      + '</tbody></table>';
   }).catch(function(){});
   AR2_CLOUD.stats90DailyByUser().then(function(d){
     var mount=document.getElementById('ar-admin-chart-mount');
@@ -1474,21 +1685,22 @@ function renderBank(){
       ? '<div class="ar-admin-dash'+(dashOpen?' open':'')+'" id="ar-admin-dash">'
           +'<div class="ar-admin-dash-head" data-action="admin-dash-toggle">'
             +'<div class="ar-admin-dash-title">Admin Dashboard'
-              +'<span class="ar-admin-dash-title-sub">Activity stats &amp; per-user trends</span>'
+              +'<span class="ar-admin-dash-title-sub">Activity stats, sessions &amp; per-user trends</span>'
             +'</div>'
             +'<div class="ar-admin-dash-toggle" aria-label="Toggle dashboard">\u203a</div>'
           +'</div>'
           +'<div class="ar-admin-dash-body">'
-            +'<div class="ar-admin-kpis">'
-              +'<div class="ar-admin-kpi-card">'
-                +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
-                +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
-                +'<div class="ar-admin-kpi-sub">Across all users</div>'
+            +'<div class="ar-admin-kpi-card" style="margin-bottom:14px">'
+              +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
+              +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
+              +'<div class="ar-admin-kpi-sub">Across all users</div>'
+            +'</div>'
+            +'<div class="ar-admin-userstats-card">'
+              +'<div class="ar-admin-userstats-title-row">'
+                +'<div class="ar-admin-userstats-title">User Activity &amp; Management</div>'
+                +'<button class="ar-admin-add-btn" data-action="admin-add-user">+ New User</button>'
               +'</div>'
-              +'<div class="ar-admin-kpi-card">'
-                +'<div class="ar-admin-kpi-lbl">By User \u00b7 Last 30 Days</div>'
-                +'<div class="ar-admin-userlist" id="ar-admin-30d-users"><span style="color:var(--mu);font-size:11px">Loading\u2026</span></div>'
-              +'</div>'
+              +'<div id="ar-admin-userstats"><div style="color:var(--mu);font-size:11px;padding:8px">Loading\u2026</div></div>'
             +'</div>'
             +'<div class="ar-admin-chart">'
               +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
@@ -2035,11 +2247,15 @@ function renderStepper(){
   for(var i=0;i<STEP_LBLS.length;i++){
     var dc=i<S.step?'done':i===S.step?'active':'idle';
     var dot=i<S.step?I.check:String(i+1);
-    h+='<div class="ar-si">'
+    // Quote step (index 3) is hidden for Client users — add a marker so CSS
+    // can hide both the dot and its connector line via the .app-client class.
+    var stepId = STEPS[i];
+    var clientHide = (stepId === 'quote') ? ' data-client-hide' : '';
+    h+='<div class="ar-si"'+clientHide+'>'
       +'<div class="ar-dot '+dc+'">'+dot+'</div>'
       +'<span class="ar-sl '+dc+'">'+STEP_LBLS[i]+'</span>'
       +'</div>';
-    if(i<STEP_LBLS.length-1)h+='<div class="ar-sc '+(i<S.step?'done':'')+'"></div>';
+    if(i<STEP_LBLS.length-1)h+='<div class="ar-sc '+(i<S.step?'done':'')+'"'+clientHide+'></div>';
   }
   h+='<button class="ar-step-arrow" data-step-nav="next"'+(S.step>=STEPS.length-1?' disabled':'')+'>\u2192</button>';
   el.innerHTML=h;
@@ -2376,7 +2592,7 @@ function renderStep1(){
 
   return '<div class="ar-card ar-fu">'
     +'<div class="ar-card-title">Discount &amp; Savings Weight</div>'
-    +'<div class="ar-field">'
+    +'<div class="ar-field" data-client-hide>'
       +'<label class="ar-lbl">Purchase Discount</label>'
       +'<div class="ar-slider-row">'
         +'<input class="ar-range" type="range" min="0" max="100" step="5" data-sf="discount" data-m="0.01" value="'+discPct+'" />'
@@ -3000,6 +3216,21 @@ function render(){
   var root=document.getElementById('ar2');
   if(root) root.classList.toggle('map-step', S.step===0);
   if(root) root.classList.toggle('quote-step', S.step===3);
+  // Role-based feature flags — toggles .app-client / .app-admin on #ar2 so
+  // CSS rules can hide / show / restyle features per role. Reapplied on every
+  // render so role changes (e.g. after sign-in) take effect immediately.
+  if(root){
+    var isCloudClient = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
+    var isCloudAdmin  = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isAdmin());
+    root.classList.toggle('app-client', isCloudClient);
+    root.classList.toggle('app-admin',  isCloudAdmin);
+    // Defense-in-depth: if a Client somehow lands on the Quote step (index 3),
+    // auto-skip past it. Direction depends on which side they're coming from.
+    if(isCloudClient && S.step === 3){
+      S.step = 4; // forward to Export — most natural progression
+      try { setTimeout(render, 0); } catch(_){}
+    }
+  }
   renderStepper();
   renderForm();
   renderDevices();
@@ -3431,19 +3662,9 @@ function generateReport(){
       +'<div class="rpt-comments"><p>'+esc(EX.comments)+'</p></div></div>';
   }
 
-  // Fact sheet pages (full-page CDN images)
+  // Fact sheet — removed from all versions of the calculator (2026-05-10).
+  // Variable kept as empty string so the html assembly chain below stays valid.
   var fsHtml='';
-  if(EX.inclFactSheet&&EX.layout==='portrait'){
-    fsHtml=
-      // Page 2: Fact Sheet — The AquaRev Water Treatment Advantage
-      '<div class="rpt-fs-img-page">'
-        +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de66925a6052561678048b_AquaRev_Fact%20Sheet_v3_RDX_Page_2.jpg','',1100)
-      +'</div>'
-      // Page 3: Fact Sheet — Facts: Real World Results
-      +'<div class="rpt-fs-img-page">'
-        +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6691362723606ee841a2_AquaRev_Fact%20Sheet_v3_RDX_Page_3.jpg','',1100)
-      +'</div>';
-  }
 
   // ── Executive Summary pages (optional, portrait only) ──
   // Helper: format dollars as either full ($X,XXX) for under $10K or compact ($XX.XK / $XXXK)
@@ -4659,7 +4880,7 @@ function renderExportSection(){
         // ── PORTRAIT panel ──
         ?'<div class="ar-export-panel-label">Portrait Page Options</div>'
          +'<div style="margin-top:8px">'
-          +'<div class="ar-toggle-row"><label>Include Cover Page</label>'
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Cover Page</label>'
             +'<div class="ar-sw-track'+(EX.inclCover?' on':'')+'" data-ex-sw="inclCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +(function(){
@@ -4670,7 +4891,7 @@ function renderExportSection(){
               +'<div class="ar-sw-track'+(EX.inclPoolProfiles&&!needImage?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
             +'</div>';
           })()
-          +'<div class="ar-toggle-row"><label>Include Exec Summary</label>'
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Exec Summary</label>'
             +'<div class="ar-sw-track'+(EX.inclExecSummary?' on':'')+'" data-ex-sw="inclExecSummary"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +(EX.inclExecSummary
@@ -4687,7 +4908,7 @@ function renderExportSection(){
             :''
           )
           // Include AquaRev Fact Sheet toggle removed per request — feature deferred.
-          +'<div class="ar-toggle-row"><label>Include Back Cover</label>'
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Back Cover</label>'
             +'<div class="ar-sw-track'+(EX.inclBackCover?' on':'')+'" data-ex-sw="inclBackCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
          +'</div>'
@@ -4695,7 +4916,7 @@ function renderExportSection(){
         // ── LANDSCAPE panel — separate state keys, distinct identity ──
         :'<div class="ar-export-panel-label">Landscape Page Options</div>'
          +'<div style="margin-top:8px">'
-          +'<div class="ar-toggle-row"><label>Include Cover Page</label>'
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Cover Page</label>'
             +'<div class="ar-sw-track'+(EX.inclLsCover?' on':'')+'" data-ex-sw="inclLsCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +(function(){
@@ -4706,7 +4927,7 @@ function renderExportSection(){
               +'<div class="ar-sw-track'+(EX.inclPoolProfiles&&!needImage?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
             +'</div>';
           })()
-          +'<div class="ar-toggle-row"><label>Include Exec Summary</label>'
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Exec Summary</label>'
             +'<div class="ar-sw-track'+(EX.inclLsExecSummary?' on':'')+'" data-ex-sw="inclLsExecSummary"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +(EX.inclLsExecSummary
@@ -4752,7 +4973,7 @@ function renderExportSection(){
             })()
             : ''
           )
-          +'<div class="ar-toggle-row"><label>Include Back Cover</label>'
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Back Cover</label>'
             +'<div class="ar-sw-track'+(EX.inclLsBackCover?' on':'')+'" data-ex-sw="inclLsBackCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
          +'</div>'
@@ -4764,8 +4985,8 @@ function renderExportSection(){
     +(function(){
       var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
       if(!hasDevices) return '';
-      return '<div class="ar-export-panel-label" style="margin-top:14px">Quote / Order Form</div>'
-        +'<div style="margin-top:8px">'
+      return '<div class="ar-export-panel-label" style="margin-top:14px" data-client-hide>Quote / Order Form</div>'
+        +'<div style="margin-top:8px" data-client-hide>'
           +'<div class="ar-toggle-row"><label>Include '+(Q.docKind==='po'?'Purchase Order':Q.docKind==='invoice'?'Invoice':'Quote')+' / Order Page</label>'
             +'<div class="ar-sw-track'+(EX.inclQuote?' on':'')+'" data-ex-sw="inclQuote"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
@@ -5000,6 +5221,34 @@ function handleClick(e){
   // Toggle advanced rates
   var togAdv=e.target.closest('[data-action="toggle-adv-rates"]');
   if(togAdv){ S.showAdvRates=!S.showAdvRates; renderForm(); return; }
+  // Help button — step-aware tutorial overlay
+  var helpClick=e.target.closest('[data-action="show-help"]');
+  if(helpClick){ showHelpModal(); return; }
+  // Admin User Manager actions (admin-only)
+  var addUserClick=e.target.closest('[data-action="admin-add-user"]');
+  if(addUserClick){ showAdminAddUserModal(); return; }
+  var resetCodeClick=e.target.closest('[data-action="admin-reset-code"]');
+  if(resetCodeClick){
+    showAdminResetCodeModal(resetCodeClick.dataset.uid, resetCodeClick.dataset.uname);
+    return;
+  }
+  var changeRoleClick=e.target.closest('[data-action="admin-change-role"]');
+  if(changeRoleClick){
+    showAdminChangeRoleModal(changeRoleClick.dataset.uid, changeRoleClick.dataset.uname, changeRoleClick.dataset.urole);
+    return;
+  }
+  var toggleActiveClick=e.target.closest('[data-action="admin-toggle-active"]');
+  if(toggleActiveClick){
+    var uid=toggleActiveClick.dataset.uid;
+    var uname=toggleActiveClick.dataset.uname;
+    var wasActive=toggleActiveClick.dataset.uactive==='true';
+    var verb = wasActive ? 'Disable' : 'Enable';
+    if(!confirm(verb+' '+uname+'? '+(wasActive?'They won\'t be able to sign in. Their archive stays intact.':''))) return;
+    AR2_CLOUD.adminSetUserActive(uid, !wasActive).then(function(){
+      populateAdminDashboard();
+    }).catch(function(e){ alert(verb+' failed: '+(e.message||e)); });
+    return;
+  }
   // Quick-add 4" device from empty state
   var qaBtn=e.target.closest('[data-action="quick-add-4in"]');
   if(qaBtn){ S.pipe_4in=(S.pipe_4in||0)+1; render(); return; }
@@ -5423,10 +5672,153 @@ function handleChange(e){
   }
 }
 
+/* ── Help system ──
+   Step-aware tutorial overlay. Click the (?) Help button beside New →
+   modal opens with instructions tailored to the user's current step.
+   Content lives in HELP_CONTENT below; admins/users/clients all see it.
+   Keyboard: Esc closes the modal. */
+var HELP_CONTENT = {
+  'map-pools': {
+    title: 'Map Pools — Step 1 of 5',
+    body:
+      '<p>Use this step to identify and measure pools at the property.</p>'
+     +'<ol>'
+       +'<li><b>Property name</b> — type the hotel/resort name. Suggestions appear as you type.</li>'
+       +'<li><b>Locate on map</b> — searches by name, address, or Plus Code, then centers the satellite map on the property.</li>'
+       +'<li><b>Trace each pool</b> — click <b>Magic Wand</b> and click on a pool to auto-detect its outline, OR click <b>Trace polygon by hand</b> to draw it yourself.</li>'
+       +'<li><b>Confirm details</b> — give it a name, type, and depth, then click <b>Register pool</b>.</li>'
+       +'<li>Repeat for each pool, then click <b>Continue to Pool &amp; System</b>.</li>'
+     +'</ol>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: Click <b>Skip Map Pools</b> at the top to jump straight to manual data entry if you already have pool sizes.</p>'
+  },
+  'pool-system': {
+    title: 'Pool &amp; System — Step 2 of 5',
+    body:
+      '<p>Enter pool dimensions and pick the right AquaRev devices for each pool.</p>'
+     +'<ol>'
+       +'<li><b>Pool dimensions</b> — length, width, depth. Total volume calculates automatically.</li>'
+       +'<li><b>Device selection</b> — pick the pipe size of each AquaRev device that will be installed.</li>'
+       +'<li><b>Water Loss / Chemical Costs</b> — adjust expected reduction percentages and per-gallon costs to match the property\'s real numbers.</li>'
+     +'</ol>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: The Results panel on the right updates live as you type — use it to sanity-check the savings.</p>'
+  },
+  'pricing': {
+    title: 'Pricing &amp; Settings — Step 3 of 5',
+    body:
+      '<p>Apply discount, savings projection weight, and finalize the ROI numbers.</p>'
+     +'<ul>'
+       +'<li><b>Discount slider</b> — discount applied to the equipment subtotal.</li>'
+       +'<li><b>Savings Weight</b> — caps projected savings to a conservative percentage of the lab-validated maximum (default 100%).</li>'
+     +'</ul>'
+     +'<p>When the numbers look right, click <b>Continue → Quote</b> to build the proposal.</p>'
+  },
+  'quote': {
+    title: 'Quote — Step 4 of 5',
+    body:
+      '<p>Build the formal commercial document — Quote, Purchase Order, or Invoice.</p>'
+     +'<ol>'
+       +'<li><b>Document Type</b> — pick Quote, Purchase Order, or Invoice. The PDF header updates accordingly.</li>'
+       +'<li><b>Header / Buyer</b> — fill in the buyer\'s name, address, and contact. Use the <b>Same as Buyer</b> toggle to copy buyer info into Ship-To.</li>'
+       +'<li><b>Line Items</b> — equipment auto-pulls from Step 2. Add-ons (Warranty / Services / Shipping) can be toggled <b>Included</b> to print "INCLUDED" without adding to the total.</li>'
+       +'<li><b>Standard Terms / Purchase Terms &amp; Conditions</b> — boilerplate is pre-filled; edit per deal as needed.</li>'
+       +'<li><b>Payment Method</b> — pick CC / Wire / Check (the PDF shows all three options on the Payment Form page).</li>'
+       +'<li><b>Preview Quote PDF</b> — see exactly what the customer will receive.</li>'
+     +'</ol>'
+  },
+  'export': {
+    title: 'Export — Step 5 of 5',
+    body:
+      '<p>Pick which pages to include in the final PDF, add property images / videos, and download.</p>'
+     +'<ul>'
+       +'<li><b>Toggles on the left</b> — Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover. Toggle off any page you don\'t want.</li>'
+       +'<li><b>Property Images</b> — upload up to 4 photos to appear on the Pool Profiles page.</li>'
+       +'<li><b>YouTube Videos</b> — paste up to 4 video URLs to appear on the Exec Summary page.</li>'
+       +'<li><b>Preview</b> — see the entire PDF in browser. <b>Download</b> generates a print-ready PDF. <b>Archive</b> saves a copy for later.</li>'
+     +'</ul>'
+  },
+  'archive': {
+    title: 'Archive',
+    body:
+      '<p>Saved assessments live here. You can recall, duplicate, regenerate PDFs, or delete records.</p>'
+     +'<ul>'
+       +'<li><b>Recall</b> — load this assessment back into the calculator to edit it.</li>'
+       +'<li><b>Duplicate</b> — clone the record to start a new "Copy of" version (original stays untouched).</li>'
+       +'<li><b>Portrait / Landscape PDF</b> — instantly regenerate the PDF without recalling.</li>'
+       +'<li><b>Delete</b> — permanently remove. Cannot be undone.</li>'
+     +'</ul>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: Use <b>Select</b> at the top to bulk-delete multiple records at once.</p>'
+  },
+  'admin': {
+    title: 'Admin Dashboard',
+    body:
+      '<p>Admins (Jeff, Rob, Dinesh) see this drawer in the Archive view.</p>'
+     +'<ul>'
+       +'<li><b>Records · Last 30 Days</b> — total records created across all users in the last 30 days.</li>'
+       +'<li><b>User Activity table</b> — per-user lifetime login count, 30-day records, 30-day logins, and last login date.</li>'
+       +'<li><b>90-Day Chart</b> — daily records created, broken out per user, in EST.</li>'
+       +'<li><b>Created By column</b> — every record shows who saved it. Use the orange ⇒ button to reassign records between users.</li>'
+     +'</ul>'
+  }
+};
+
+function helpKeyForCurrentView(){
+  // Bank/Archive view trumps the calculator step
+  try { if(typeof VIEW !== 'undefined' && VIEW === 'bank') return 'archive'; } catch(_){}
+  try {
+    var step = (typeof S !== 'undefined' && S && typeof S.step === 'number') ? S.step : 0;
+    return ['map-pools','pool-system','pricing','quote','export'][step] || 'map-pools';
+  } catch(_){ return 'map-pools'; }
+}
+
+function showHelpModal(){
+  var existing=document.getElementById('ar2-help-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var key = helpKeyForCurrentView();
+  var c = HELP_CONTENT[key] || HELP_CONTENT['map-pools'];
+  var m=document.createElement('div');
+  m.id='ar2-help-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:28px 32px;max-width:560px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">'
+      +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase">'+c.title+'</div>'
+      +'<button id="ar2-help-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
+    +'</div>'
+    +'<div class="ar-help-body" style="font-size:13px;color:#cfe2eb;line-height:1.6">'+c.body+'</div>'
+    +'<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,180,216,.18);font-size:10.5px;color:#7db8cc;text-align:center">Need more help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); document.removeEventListener('keydown', onKey); }
+  function onKey(e){ if(e.key==='Escape') close(); }
+  document.getElementById('ar2-help-close').onclick=close;
+  m.addEventListener('click', function(e){ if(e.target===m) close(); });
+  document.addEventListener('keydown', onKey);
+}
+
+/* Inject the Help button beside New on every page load. Done in JS so the
+   live Webflow embed picks it up without a re-paste. */
+function injectHelpButton(){
+  if(document.getElementById('ar2-help-btn')) return;
+  var actions = document.getElementById('ar2-bar-actions');
+  if(!actions) return;
+  var helpBtn = document.createElement('button');
+  helpBtn.id = 'ar2-help-btn';
+  helpBtn.className = 'ar-reset-btn no-print';
+  helpBtn.dataset.action = 'show-help';
+  helpBtn.title = 'How to use this page';
+  helpBtn.innerHTML = '? <span style="margin-left:4px">Help</span>';
+  helpBtn.style.cssText = 'background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.4);color:var(--t);';
+  // Place Help button right BEFORE the Archive button so the order reads:
+  // Help · Archive · New
+  var firstBtn = actions.querySelector('button');
+  if(firstBtn) actions.insertBefore(helpBtn, firstBtn);
+  else actions.appendChild(helpBtn);
+}
+
 /* ── Init ── */
 function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
+  injectHelpButton();
   // Cloud-mode bootstrap — try to restore an existing Supabase session before
   // deciding whether to show the gate. If session is valid, skip the modal.
   // The Supabase SDK is loaded via <script src> in the HTML; if it's not yet
