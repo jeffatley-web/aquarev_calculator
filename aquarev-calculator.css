@@ -1464,6 +1464,30 @@
 }
 .ar2-modal-card button.ar2-mb.danger:hover:not(:disabled){background:rgba(239,68,68,.25);}
 .ar2-modal-card button.ar2-mb:disabled{opacity:.5;cursor:not-allowed;}
+/* ── User chip in the top bar ──────────────────────────────────────
+   Sits beside the New button. Shows the signed-in user's initial in a
+   circle + their name. Click → dropdown with full name, role, and a
+   Sign Out option. Hidden until cloud session is established. */
+#ar2 .ar-user-chip{display:inline-flex;align-items:center;gap:8px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.28);color:var(--tx);padding:4px 12px 4px 4px;border-radius:99px;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;letter-spacing:.2px;transition:.15s;line-height:1;}
+#ar2 .ar-user-chip:hover{background:rgba(0,180,216,.16);border-color:rgba(0,180,216,.5);}
+#ar2 .ar-user-chip.role-admin{border-color:rgba(240,165,0,.4);background:rgba(240,165,0,.08);}
+#ar2 .ar-user-chip.role-admin:hover{background:rgba(240,165,0,.16);}
+#ar2 .ar-user-chip.role-client{border-color:rgba(168,85,247,.45);background:rgba(168,85,247,.1);}
+#ar2 .ar-user-chip.role-client:hover{background:rgba(168,85,247,.18);}
+#ar2 .ar-user-chip-avatar{width:26px;height:26px;border-radius:50%;background:var(--t);color:#04101e;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;letter-spacing:0;flex-shrink:0;}
+#ar2 .ar-user-chip.role-admin .ar-user-chip-avatar{background:var(--go);}
+#ar2 .ar-user-chip.role-client .ar-user-chip-avatar{background:#a855f7;color:#fff;}
+#ar2 .ar-user-chip-name{font-size:12px;font-weight:600;}
+@media(max-width:780px){#ar2 .ar-user-chip-name{display:none;}}
+/* Sign-Out menu popped open from the chip */
+.ar-user-menu{position:fixed;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:14px;box-shadow:0 12px 36px rgba(0,0,0,.5);z-index:999997;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;min-width:220px;}
+.ar-user-menu-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:2px;}
+.ar-user-menu-role{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#48cae4;margin-bottom:12px;}
+.ar-user-menu-role.role-admin{color:#f0a500;}
+.ar-user-menu-role.role-client{color:#c89aff;}
+.ar-user-menu-divider{border-top:1px solid rgba(255,255,255,.08);margin:0 -14px 10px;}
+.ar-user-menu-btn{display:block;width:100%;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.32);color:#fca5a5;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;letter-spacing:.4px;text-align:center;transition:.15s;}
+.ar-user-menu-btn:hover{background:rgba(239,68,68,.22);}
 /* Add User button + row actions in the admin manager */
 #ar2 .ar-admin-userstats-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
 #ar2 .ar-admin-add-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;letter-spacing:.4px;}

@@ -3382,6 +3382,8 @@ function render(){
       S.step = 4; // forward to Export — most natural progression
       try { setTimeout(render, 0); } catch(_){}
     }
+    // Keep the user-chip (top-bar avatar) in sync with the current cloud user.
+    try { updateUserChip(); } catch(_){}
   }
   renderStepper();
   renderForm();
@@ -5392,6 +5394,9 @@ function handleClick(e){
   // Help button — step-aware tutorial overlay
   var helpClick=e.target.closest('[data-action="show-help"]');
   if(helpClick){ showHelpModal(); return; }
+  // User chip — opens Sign Out menu
+  var userMenuClick=e.target.closest('[data-action="user-menu"]');
+  if(userMenuClick){ showUserMenu(userMenuClick); return; }
   // Admin User Manager actions (admin-only)
   var addUserClick=e.target.closest('[data-action="admin-add-user"]');
   if(addUserClick){ showAdminAddUserModal(); return; }
@@ -5985,6 +5990,75 @@ function injectHelpButton(){
   var firstBtn = actions.querySelector('button');
   if(firstBtn) actions.insertBefore(helpBtn, firstBtn);
   else actions.appendChild(helpBtn);
+}
+
+/* User chip in the top bar — small avatar + name beside the New button.
+   Click opens a Sign Out menu. Auto-rebuilds on every render so it
+   reflects the current cloud user state (incl. immediately after login). */
+function updateUserChip(){
+  var actions = document.getElementById('ar2-bar-actions');
+  if(!actions) return;
+  var existing = document.getElementById('ar2-user-chip');
+  var u = (window.AR2_CLOUD && AR2_CLOUD.isReady()) ? AR2_CLOUD.user() : null;
+  // No signed-in cloud user → remove the chip if it exists.
+  if(!u){ if(existing && existing.parentNode) existing.parentNode.removeChild(existing); return; }
+  var initial = (u.name || '?').trim().charAt(0).toUpperCase();
+  var role = u.role || 'user';
+  if(existing){
+    // Update in place if the user changed (rare — usually login/logout reload).
+    existing.className = 'ar-user-chip no-print role-' + role;
+    existing.querySelector('.ar-user-chip-avatar').textContent = initial;
+    existing.querySelector('.ar-user-chip-name').textContent = u.name || 'User';
+    existing.dataset.uid = u.id;
+    return;
+  }
+  var chip = document.createElement('button');
+  chip.id = 'ar2-user-chip';
+  chip.className = 'ar-user-chip no-print role-' + role;
+  chip.dataset.action = 'user-menu';
+  chip.title = 'Account · Click to sign out';
+  chip.innerHTML = '<span class="ar-user-chip-avatar">'+esc(initial)+'</span>'
+    +'<span class="ar-user-chip-name">'+esc(u.name || 'User')+'</span>';
+  // Place AFTER the New button so reading order is: Help · Archive · New · UserChip
+  actions.appendChild(chip);
+}
+
+/* Pop a small menu under the chip with full name, role, and Sign Out button. */
+function showUserMenu(anchorEl){
+  var existing = document.querySelector('.ar-user-menu');
+  if(existing && existing.parentNode){ existing.parentNode.removeChild(existing); return; }
+  var u = (window.AR2_CLOUD && AR2_CLOUD.isReady()) ? AR2_CLOUD.user() : null;
+  if(!u) return;
+  var rect = anchorEl.getBoundingClientRect();
+  var role = u.role || 'user';
+  var menu = document.createElement('div');
+  menu.className = 'ar-user-menu';
+  // Position below the chip, right-aligned to it
+  menu.style.top = (rect.bottom + 8) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+  menu.innerHTML =
+    '<div class="ar-user-menu-name">'+esc(u.name)+'</div>'
+   +'<div class="ar-user-menu-role role-'+role+'">'+esc(role)+(u.email && u.email.indexOf('@aquarev.local') < 0 ? ' · '+esc(u.email) : '')+'</div>'
+   +'<div class="ar-user-menu-divider"></div>'
+   +'<button id="ar2-user-signout" class="ar-user-menu-btn">Sign Out</button>';
+  document.body.appendChild(menu);
+  // Close on outside click (defer one tick so the click that opened it doesn't immediately close it).
+  setTimeout(function(){
+    function onDoc(e){
+      if(menu.contains(e.target)) return;
+      if(anchorEl.contains(e.target)) return;
+      if(menu.parentNode) menu.parentNode.removeChild(menu);
+      document.removeEventListener('click', onDoc);
+    }
+    document.addEventListener('click', onDoc);
+  }, 0);
+  // Sign Out → clear cloud session + reload (gate appears on next load).
+  document.getElementById('ar2-user-signout').onclick = function(){
+    if(menu.parentNode) menu.parentNode.removeChild(menu);
+    try { AR2_CLOUD.signOut(); } catch(_){}
+    // Hard reload so init() runs fresh and shows the gate.
+    setTimeout(function(){ window.location.reload(); }, 80);
+  };
 }
 
 /* ── Init ── */
