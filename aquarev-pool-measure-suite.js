@@ -703,6 +703,10 @@ function updateModeButtonsUI() {
   }
   const cancel = document.getElementById('ap-btn-cancel-mode');
   if (cancel) cancel.style.display = (S.mode === 'idle') ? 'none' : '';
+  // Mirror S.mode onto a class on #ap2 so map-cursor CSS rules can swap.
+  // wand and merge-mode are already managed elsewhere; tracing is new.
+  const ap2 = document.getElementById('ap2');
+  if (ap2) ap2.classList.toggle('tracing', S.mode === 'tracing');
   updateToolButtonsEnabled();
 }
 

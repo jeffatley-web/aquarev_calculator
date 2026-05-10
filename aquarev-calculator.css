@@ -1726,7 +1726,17 @@
 #ap2 .ap-merge-bar-text{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--go);font-weight:600;}
 #ap2 .ap-merge-bar .ap-mini-btn{border-color:rgba(240,165,0,.4);color:var(--go);background:rgba(240,165,0,.1);}
 #ap2 .ap-merge-bar .ap-mini-btn:hover{background:rgba(240,165,0,.2);}
-#ap2.wand .maplibregl-canvas{cursor:crosshair !important;}
+/* Tool-mode map cursors. Inline SVG data URLs so no external requests
+   on tool entry. Hotspots are tuned to the visible tip of each glyph
+   (top-left for the arrow, top-right for the wand) so the click point
+   matches what the rep sees. Falls back to crosshair / pointer if the
+   browser can't load the SVG. */
+#ap2.tracing .maplibregl-canvas{
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cpath d='M3 2 L3 22 L9 17 L13 25 L16 24 L12 16 L20 16 Z' fill='%23dc2626' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, crosshair !important;
+}
+#ap2.wand .maplibregl-canvas{
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cpath d='M22 4 L26 8 L10 24 L6 20 Z' fill='%23f97316' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M21 2 L23 4 M27 6 L29 8 M19 6 L21 8' stroke='%23fde68a' stroke-width='1.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='6' r='1' fill='%23fff'/%3E%3C/svg%3E") 24 6, crosshair !important;
+}
 #ap2 .ap-btn.wand-active{background:linear-gradient(135deg,var(--go),#d88b00) !important;color:#fff !important;box-shadow:0 2px 10px rgba(240,165,0,.3) !important;}
 #ap2 .ap-pool-more-wrap{position:relative;}
 #ap2 .ap-pool-more-btn{width:28px;height:24px;padding:0;font-size:15px;line-height:1;border-radius:6px;flex:0 0 auto;letter-spacing:1px;}
