@@ -1464,6 +1464,11 @@
 }
 .ar2-modal-card button.ar2-mb.danger:hover:not(:disabled){background:rgba(239,68,68,.25);}
 .ar2-modal-card button.ar2-mb:disabled{opacity:.5;cursor:not-allowed;}
+/* ── Help icon in the top bar ────────────────────────────────────
+   A small `?` circle that opens the step-aware tutorial overlay.
+   Sits between New and the user chip. */
+#ar2 .ar-help-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;cursor:pointer;padding:0;line-height:1;transition:.15s;flex-shrink:0;}
+#ar2 .ar-help-icon:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.6);color:#fff;}
 /* ── User chip in the top bar ──────────────────────────────────────
    Sits beside the New button. Shows the signed-in user's initial in a
    circle + their name. Click → dropdown with full name, role, and a

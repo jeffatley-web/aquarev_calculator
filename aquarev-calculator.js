@@ -5996,23 +5996,24 @@ function showHelpModal(){
 }
 
 /* Inject the Help button beside New on every page load. Done in JS so the
-   live Webflow embed picks it up without a re-paste. */
+   live Webflow embed picks it up without a re-paste. Renders as a small
+   `?` icon circle (matches the user chip styling) and sits to the right
+   of the New button. Reading order in the top bar:
+     Archive · New · Help · UserChip */
 function injectHelpButton(){
   if(document.getElementById('ar2-help-btn')) return;
   var actions = document.getElementById('ar2-bar-actions');
   if(!actions) return;
   var helpBtn = document.createElement('button');
   helpBtn.id = 'ar2-help-btn';
-  helpBtn.className = 'ar-reset-btn no-print';
+  helpBtn.className = 'ar-help-icon no-print';
   helpBtn.dataset.action = 'show-help';
   helpBtn.title = 'How to use this page';
-  helpBtn.innerHTML = '? <span style="margin-left:4px">Help</span>';
-  helpBtn.style.cssText = 'background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.4);color:var(--t);';
-  // Place Help button right BEFORE the Archive button so the order reads:
-  // Help · Archive · New
-  var firstBtn = actions.querySelector('button');
-  if(firstBtn) actions.insertBefore(helpBtn, firstBtn);
-  else actions.appendChild(helpBtn);
+  helpBtn.setAttribute('aria-label','Help');
+  helpBtn.textContent = '?';
+  // Place AFTER the New button. updateUserChip appends the chip later, so
+  // the final reading order is: Archive · New · Help · UserChip.
+  actions.appendChild(helpBtn);
 }
 
 /* User chip in the top bar — small avatar + name beside the New button.
