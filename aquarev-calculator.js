@@ -515,11 +515,13 @@ var Cloud = (function(){
   var BANK_PFX_K  = 'ar2:report:';
 
   function isEnabled(){
+    // Cloud is the default mode for all users (per-user gate codes + cloud
+    // archive). Legacy single-passcode mode is opt-out via ?supa=0 — kept
+    // as an emergency rollback hatch only.
     try {
-      if(/[?&]supa=1\b/.test(location.search || '')) return true;
-      if(localStorage.getItem(ENABLED_KEY) === '1') return true;
+      if(/[?&]supa=0\b/.test(location.search || '')) return false;
     } catch(_) {}
-    return false;
+    return true;
   }
 
   function deviceId(){
