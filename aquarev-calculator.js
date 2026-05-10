@@ -589,16 +589,25 @@ var Cloud = (function(){
     return c.auth.getSession().then(function(r){
       var sess = r && r.data && r.data.session;
       if(!sess) return null;
-      // Look up app_user row to get role/name (RLS allows self-read)
-      return c.from('app_users').select('id,email,name,role,active').eq('id', sess.user.id).maybeSingle().then(function(rs){
+      // Look up app_user row to get role/name (RLS allows self-read).
+      // logo_data is fetched too so Client branding (header text + PDF logo)
+      // applies on the very first render after a restored session.
+      return c.from('app_users').select('id,email,name,role,active,logo_data').eq('id', sess.user.id).maybeSingle().then(function(rs){
         if(rs.error || !rs.data) return null;
         if(!rs.data.active) { c.auth.signOut(); return null; }
-        user = { id: rs.data.id, name: rs.data.name, email: rs.data.email, role: rs.data.role };
+        user = {
+          id: rs.data.id,
+          name: rs.data.name,
+          email: rs.data.email,
+          role: rs.data.role,
+          // Only Clients have logos. Other roles get null for consistency.
+          logo_data: rs.data.role === 'client' ? (rs.data.logo_data || null) : null
+        };
         installStorageAdapter();
         // Count restored sessions too — per request, every page-load with a
         // valid session counts toward the user's login_count, even when the
-        // password was remembered.
-        c.rpc('track_login').catch(function(){});
+        // password was remembered. .then(noop,noop) — see gateLogin note.
+        try { c.rpc('track_login').then(function(){}, function(){}); } catch(_){}
         return user;
       });
     }).catch(function(){ return null; });
@@ -904,12 +913,27 @@ var Cloud = (function(){
     stats90DailyByUser: stats90DailyByUser,
     adminUserStats: adminUserStats,
     isClient: function(){ return !!user && user.role === 'client'; },
-    adminCreateUser: function(name, code, role){
+    adminCreateUser: function(name, code, role, logoDataUrl){
       var c = getClient();
       if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
-      return c.rpc('admin_create_user', { p_name: name, p_code: code, p_role: role }).then(function(r){
+      return c.rpc('admin_create_user', {
+        p_name: name,
+        p_code: code,
+        p_role: role,
+        p_logo_data: logoDataUrl || null
+      }).then(function(r){
         if(r.error) throw r.error;
         return r.data;
+      });
+    },
+    adminSetUserLogo: function(userId, logoDataUrl){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_set_user_logo', {
+        p_user_id: userId,
+        p_logo_data: logoDataUrl || null
+      }).then(function(r){
+        if(r.error) throw r.error;
       });
     },
     adminSetUserActive: function(userId, active){
@@ -1269,10 +1293,10 @@ function showAdminAddUserModal(){
   var m=document.createElement('div');
   m.id='ar2-admuser-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:460px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:14px">ADD NEW USER</div>'
     +'<div class="ar-form-row" style="margin-bottom:10px"><label>Name</label>'
-      +'<input id="ar2-au-name" class="ar-inp" placeholder="e.g. Sarah Johnson" autocomplete="off" />'
+      +'<input id="ar2-au-name" class="ar-inp" placeholder="e.g. Sarah Johnson · or company name for Clients" autocomplete="off" />'
     +'</div>'
     +'<div class="ar-form-row" style="margin-bottom:10px"><label>Access Code (4 chars)</label>'
       +'<input id="ar2-au-code" class="ar-inp" maxlength="4" placeholder="e.g. SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
@@ -1283,6 +1307,12 @@ function showAdminAddUserModal(){
         +'<option value="admin">Admin — sees all records + this dashboard</option>'
         +'<option value="client">Client — limited features (no quotes/exports)</option>'
       +'</select>'
+    +'</div>'
+    // Logo upload — only meaningful when Role=Client. Hidden by JS for other roles.
+    +'<div class="ar-form-row" id="ar2-au-logo-row" style="margin-bottom:14px;display:none">'
+      +'<label>Client Logo <span style="font-size:10px;color:var(--mu);font-weight:400">(optional · PNG/JPG/SVG · max 500KB)</span></label>'
+      +'<input id="ar2-au-logo" type="file" accept="image/png,image/jpeg,image/svg+xml" style="font-size:12px;color:var(--mu);" />'
+      +'<div id="ar2-au-logo-preview" style="display:none;margin-top:8px;padding:8px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.2);border-radius:6px;text-align:center"></div>'
     +'</div>'
     +'<div id="ar2-au-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
@@ -1296,17 +1326,47 @@ function showAdminAddUserModal(){
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var codeInp=document.getElementById('ar2-au-code');
   codeInp.addEventListener('input',function(){ codeInp.value=(codeInp.value||'').toUpperCase(); });
+
+  // Show / hide the logo upload row based on role selection
+  var roleSel = document.getElementById('ar2-au-role');
+  var logoRow = document.getElementById('ar2-au-logo-row');
+  function syncLogoRow(){ logoRow.style.display = (roleSel.value === 'client') ? '' : 'none'; }
+  roleSel.addEventListener('change', syncLogoRow);
+  syncLogoRow();
+
+  // Capture chosen logo file as base64 dataURL on input change.
+  var logoInp = document.getElementById('ar2-au-logo');
+  var previewEl = document.getElementById('ar2-au-logo-preview');
+  var pendingLogoDataUrl = null;
+  logoInp.addEventListener('change', function(){
+    var file = logoInp.files && logoInp.files[0];
+    if(!file){ pendingLogoDataUrl = null; previewEl.style.display='none'; return; }
+    if(file.size > 500*1024){
+      document.getElementById('ar2-au-err').textContent = 'Logo file too large. Max 500KB.';
+      logoInp.value = ''; pendingLogoDataUrl = null; previewEl.style.display='none';
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(){
+      pendingLogoDataUrl = reader.result;
+      previewEl.innerHTML = '<img src="'+pendingLogoDataUrl+'" alt="Logo preview" style="max-height:60px;max-width:100%;display:inline-block" />';
+      previewEl.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  });
+
   document.getElementById('ar2-au-go').onclick=function(){
     var name=(document.getElementById('ar2-au-name').value||'').trim();
     var code=(document.getElementById('ar2-au-code').value||'').trim().toUpperCase();
-    var role=document.getElementById('ar2-au-role').value;
+    var role=roleSel.value;
     var err=document.getElementById('ar2-au-err');
     if(!name){ err.textContent='Name is required.'; return; }
     if(code.length<4){ err.textContent='Access code must be 4 characters.'; return; }
     err.textContent='';
     var go=document.getElementById('ar2-au-go');
     go.disabled=true; go.textContent='Creating…';
-    AR2_CLOUD.adminCreateUser(name, code, role).then(function(){
+    var logoArg = (role === 'client' && pendingLogoDataUrl) ? pendingLogoDataUrl : null;
+    AR2_CLOUD.adminCreateUser(name, code, role, logoArg).then(function(){
       close();
       // Force the dashboard to refresh stats
       var dashEl=document.getElementById('ar-admin-dash');
@@ -1318,6 +1378,70 @@ function showAdminAddUserModal(){
     });
   };
   setTimeout(function(){ document.getElementById('ar2-au-name').focus(); }, 50);
+}
+
+// Edit-logo modal — admin-only, used to set / replace / remove a Client's logo
+function showAdminEditLogoModal(uid, uname){
+  var existing=document.getElementById('ar2-admlogo-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-admlogo-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">EDIT CLIENT LOGO</div>'
+    +'<div style="font-size:12px;color:#cfe2eb;margin-bottom:14px">For: <b>'+esc(uname)+'</b></div>'
+    +'<input id="ar2-el-input" type="file" accept="image/png,image/jpeg,image/svg+xml" style="font-size:12px;color:var(--mu);margin-bottom:8px;width:100%" />'
+    +'<div id="ar2-el-preview" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.2);border-radius:6px;text-align:center"></div>'
+    +'<div id="ar2-el-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'
+      +'<button id="ar2-el-cancel" class="ar-bank-act">Cancel</button>'
+      +'<button id="ar2-el-clear" class="ar-bank-act danger">Remove Logo</button>'
+      +'<button id="ar2-el-go" class="ar-bank-act primary">Save</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-el-cancel').onclick=close;
+  m.addEventListener('click',function(e){ if(e.target===m) close(); });
+
+  var inp = document.getElementById('ar2-el-input');
+  var prev = document.getElementById('ar2-el-preview');
+  var err = document.getElementById('ar2-el-err');
+  var pending = null;
+  inp.addEventListener('change', function(){
+    var file = inp.files && inp.files[0];
+    if(!file){ pending = null; prev.style.display='none'; return; }
+    if(file.size > 500*1024){
+      err.textContent = 'Logo too large (max 500KB).';
+      inp.value=''; pending=null; prev.style.display='none';
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(){
+      pending = reader.result;
+      prev.innerHTML = '<img src="'+pending+'" alt="Logo preview" style="max-height:60px;max-width:100%;display:inline-block" />';
+      prev.style.display='block';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('ar2-el-go').onclick = function(){
+    if(!pending){ err.textContent='Pick a logo file first.'; return; }
+    err.textContent='';
+    var go=document.getElementById('ar2-el-go'); go.disabled=true; go.textContent='Saving…';
+    AR2_CLOUD.adminSetUserLogo(uid, pending).then(function(){
+      close(); populateAdminDashboard();
+    }).catch(function(e){
+      err.textContent = (e && e.message) ? e.message : 'Save failed.';
+      go.disabled=false; go.textContent='Save';
+    });
+  };
+  document.getElementById('ar2-el-clear').onclick = function(){
+    if(!confirm('Remove logo for '+uname+'?')) return;
+    AR2_CLOUD.adminSetUserLogo(uid, null).then(function(){
+      close(); populateAdminDashboard();
+    }).catch(function(e){ alert('Remove failed: '+(e.message||e)); });
+  };
 }
 
 function showAdminResetCodeModal(uid, uname){
@@ -1435,6 +1559,11 @@ function populateAdminDashboard(){
             + '<td class="actions">'
               + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Reset access code">Reset</button>'
               + '<button class="ar-admin-row-act" data-action="admin-change-role" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+u.role+'" title="Change role">Role</button>'
+              // Logo button — only Clients use logos. Show for any role so admin
+              // can upload one when promoting a user, but most useful on Clients.
+              + (u.role === 'client'
+                ? '<button class="ar-admin-row-act" data-action="admin-edit-logo" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Edit Client logo">Logo</button>'
+                : '')
               + '<button class="ar-admin-row-act'+(u.active?' danger':' enable')+'" data-action="admin-toggle-active" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uactive="'+u.active+'" title="'+toggleLabel+' user">'+toggleLabel+'</button>'
             + '</td>'
           + '</tr>';
@@ -3228,6 +3357,25 @@ function render(){
     var isCloudAdmin  = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isAdmin());
     root.classList.toggle('app-client', isCloudClient);
     root.classList.toggle('app-admin',  isCloudAdmin);
+    // Client header branding — replace "AQUAREV WATER" wordmark in the top
+    // bar with the Client's name (which the admin types as the company name
+    // when creating the user). Co-brand below with subtle "powered by"
+    // attribution on the existing "ROI Calculator" subtitle.
+    var brandEl = document.querySelector('#ar2 .ar-bn');
+    var subEl   = document.querySelector('#ar2 .ar-bs');
+    if(brandEl && subEl){
+      // Cache the originals on first render so we can restore on logout
+      if(brandEl.dataset.origText == null) brandEl.dataset.origText = brandEl.textContent;
+      if(subEl.dataset.origText   == null) subEl.dataset.origText   = subEl.textContent;
+      if(isCloudClient){
+        var clientName = (AR2_CLOUD.user() && AR2_CLOUD.user().name) || brandEl.dataset.origText;
+        brandEl.textContent = clientName;
+        subEl.innerHTML = 'ROI Calculator <span style="opacity:.55;font-size:9px;letter-spacing:1px;margin-left:6px">· powered by AquaRev Water</span>';
+      } else {
+        brandEl.textContent = brandEl.dataset.origText;
+        subEl.textContent   = subEl.dataset.origText;
+      }
+    }
     // Defense-in-depth: if a Client somehow lands on the Quote step (index 3),
     // auto-skip past it. Direction depends on which side they're coming from.
     if(isCloudClient && S.step === 3){
@@ -3798,9 +3946,14 @@ function generateReport(){
     +'</div>';
 
     // Page 1 header band (Assessment-style logo + property name)
+    // Client mode: replace the AQUAREV WATER wordmark with the Client's
+    // uploaded logo (max 36px tall to fit the existing header band).
+    var esHeaderLeftMark = clientLogo
+      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:36px;max-width:200px;display:block;margin-bottom:2px" />'
+      : '<div class="rpt-es-logo">AQUAREV WATER</div>';
     var esHeader='<div class="rpt-es-head">'
       +'<div class="rpt-es-head-left">'
-        +'<div class="rpt-es-logo">AQUAREV WATER</div>'
+        +esHeaderLeftMark
         +'<div class="rpt-es-logo-sub">Executive Summary</div>'
       +'</div>'
       +'<div class="rpt-es-head-right">'
@@ -4374,12 +4527,23 @@ function generateReport(){
     +'</div>';
   }
 
+  // Client logo (base64 dataURL) — only for signed-in Client users.
+  // Embedded into the Cover Page + Exec Summary header so PDFs are co-branded.
+  var clientLogo = (window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient() && AR2_CLOUD.user() && AR2_CLOUD.user().logo_data) || '';
+  var clientName = (window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient() && AR2_CLOUD.user() && AR2_CLOUD.user().name) || '';
+
   // ── Cover page — overlay text on CDN image ──
   var coverHtml='';
   if(EX.inclCover&&EX.layout==='portrait'){
+    // Client logo block — sits above the "Water Enhancement..." kicker line.
+    // Hidden when not in client mode. Max 80px tall, centered.
+    var coverLogoHtml = clientLogo
+      ? '<div style="margin-bottom:18px;text-align:center"><img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:80px;max-width:280px;display:inline-block" /></div>'
+      : '';
     coverHtml='<div class="rpt-cover-page">'
       +cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg','class="rpt-cover-bg"',1100)
       +'<div class="rpt-cover-overlay">'
+        +coverLogoHtml
         +'<div style="font-family:\'DM Sans\',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600">Water Enhancement &amp; Cost Saving Assessment</div>'
         +'<div style="margin-top:10px;font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:3px;color:#fff;line-height:1.1">'+esc(prop)+'</div>'
         +'<div style="margin-top:8px;font-family:\'DM Sans\',sans-serif;font-size:12px;color:#7db8cc">'+today+'</div>'
@@ -5239,6 +5403,11 @@ function handleClick(e){
   var changeRoleClick=e.target.closest('[data-action="admin-change-role"]');
   if(changeRoleClick){
     showAdminChangeRoleModal(changeRoleClick.dataset.uid, changeRoleClick.dataset.uname, changeRoleClick.dataset.urole);
+    return;
+  }
+  var editLogoClick=e.target.closest('[data-action="admin-edit-logo"]');
+  if(editLogoClick){
+    showAdminEditLogoModal(editLogoClick.dataset.uid, editLogoClick.dataset.uname);
     return;
   }
   var toggleActiveClick=e.target.closest('[data-action="admin-toggle-active"]');
