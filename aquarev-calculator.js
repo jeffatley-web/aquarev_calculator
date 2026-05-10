@@ -3370,17 +3370,28 @@ function render(){
       if(isCloudClient){
         var clientName = (AR2_CLOUD.user() && AR2_CLOUD.user().name) || brandEl.dataset.origText;
         brandEl.textContent = clientName;
-        subEl.innerHTML = 'ROI Calculator <span style="opacity:.55;font-size:9px;letter-spacing:1px;margin-left:6px">· powered by AquaRev Water</span>';
+        // Tighter single-line layout for client name — overrides the default
+        // .ar-bn styles that were causing two-word names to wrap.
+        brandEl.style.whiteSpace = 'nowrap';
+        brandEl.style.lineHeight = '1';
+        brandEl.style.maxWidth = 'none';
+        // Subtitle stays "ROI Calculator" — no co-brand text per request.
+        subEl.textContent = subEl.dataset.origText;
       } else {
         brandEl.textContent = brandEl.dataset.origText;
+        // Restore default styles for non-client users
+        brandEl.style.whiteSpace = '';
+        brandEl.style.lineHeight = '';
+        brandEl.style.maxWidth = '';
         subEl.textContent   = subEl.dataset.origText;
       }
     }
-    // Defense-in-depth: if a Client somehow lands on the Quote step (index 3),
-    // auto-skip past it. Direction depends on which side they're coming from.
+    // Defense-in-depth: if a Client somehow lands on the Quote step (index 3)
+    // via a non-arrow path (e.g. archived snapshot, deep link), bounce them
+    // forward to Export. The step-arrow handler skips Quote in either direction
+    // so this only fires for those edge cases — no infinite loop possible.
     if(isCloudClient && S.step === 3){
-      S.step = 4; // forward to Export — most natural progression
-      try { setTimeout(render, 0); } catch(_){}
+      S.step = 4;
     }
     // Keep the user-chip (top-bar avatar) in sync with the current cloud user.
     try { updateUserChip(); } catch(_){}
@@ -5583,20 +5594,29 @@ function handleClick(e){
     }
     return;
   }
+  // Helper — Clients don't see the Quote step (index 3). When their nav
+  // would land on it, skip in the same direction. Returns the resolved step.
+  function resolveStepForClient(target, direction){
+    var isClient = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
+    if(!isClient || target !== 3) return target;
+    if(direction === 'next') return Math.min(STEPS.length - 1, target + 1);
+    if(direction === 'back') return Math.max(0, target - 1);
+    return target;
+  }
   // Step arrow nav
   var stepNav=e.target.closest('[data-step-nav]');
   if(stepNav){
     var sdir=stepNav.dataset.stepNav;
-    if(sdir==='next'&&S.step<STEPS.length-1){S.step++;render();}
-    else if(sdir==='back'&&S.step>0){S.step--;render();}
+    if(sdir==='next'&&S.step<STEPS.length-1){S.step=resolveStepForClient(S.step+1,'next');render();}
+    else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
     return;
   }
   // Nav back/next
   var navBtn=e.target.closest('[data-nav]');
   if(navBtn){
     var dir=navBtn.dataset.nav;
-    if(dir==='next'&&S.step<STEPS.length-1){S.step++;render();}
-    else if(dir==='back'&&S.step>0){S.step--;render();}
+    if(dir==='next'&&S.step<STEPS.length-1){S.step=resolveStepForClient(S.step+1,'next');render();}
+    else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
     return;
   }
   // Step 0 (Map Pool) → Pool & System: pull registered pools from the bridge.
@@ -6006,19 +6026,21 @@ function updateUserChip(){
   var role = u.role || 'user';
   if(existing){
     // Update in place if the user changed (rare — usually login/logout reload).
-    existing.className = 'ar-user-chip no-print role-' + role;
+    existing.className = 'ar-user-chip ar-user-chip-icononly no-print role-' + role;
     existing.querySelector('.ar-user-chip-avatar').textContent = initial;
-    existing.querySelector('.ar-user-chip-name').textContent = u.name || 'User';
+    existing.title = 'Signed in as ' + (u.name || 'User') + ' · Click to sign out';
     existing.dataset.uid = u.id;
     return;
   }
   var chip = document.createElement('button');
   chip.id = 'ar2-user-chip';
-  chip.className = 'ar-user-chip no-print role-' + role;
+  // Icon-only chip. The user's name is surfaced in the dropdown menu instead
+  // of in the chip itself per UX request — keeps the header clean even when
+  // the client name takes up most of the brand area.
+  chip.className = 'ar-user-chip ar-user-chip-icononly no-print role-' + role;
   chip.dataset.action = 'user-menu';
-  chip.title = 'Account · Click to sign out';
-  chip.innerHTML = '<span class="ar-user-chip-avatar">'+esc(initial)+'</span>'
-    +'<span class="ar-user-chip-name">'+esc(u.name || 'User')+'</span>';
+  chip.title = 'Signed in as ' + (u.name || 'User') + ' · Click to sign out';
+  chip.innerHTML = '<span class="ar-user-chip-avatar">'+esc(initial)+'</span>';
   // Place AFTER the New button so reading order is: Help · Archive · New · UserChip
   actions.appendChild(chip);
 }

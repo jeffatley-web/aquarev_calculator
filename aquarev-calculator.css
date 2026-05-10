@@ -1479,6 +1479,9 @@
 #ar2 .ar-user-chip.role-client .ar-user-chip-avatar{background:#a855f7;color:#fff;}
 #ar2 .ar-user-chip-name{font-size:12px;font-weight:600;}
 @media(max-width:780px){#ar2 .ar-user-chip-name{display:none;}}
+/* Icon-only variant — renders as a clean circle without the name pill. */
+#ar2 .ar-user-chip.ar-user-chip-icononly{padding:3px;border-radius:50%;}
+#ar2 .ar-user-chip.ar-user-chip-icononly .ar-user-chip-name{display:none;}
 /* Sign-Out menu popped open from the chip */
 .ar-user-menu{position:fixed;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:14px;box-shadow:0 12px 36px rgba(0,0,0,.5);z-index:999997;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;min-width:220px;}
 .ar-user-menu-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:2px;}
