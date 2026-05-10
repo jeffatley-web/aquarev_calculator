@@ -287,12 +287,13 @@ function showCalcPasswordModal(onUnlock){
     // tight pin-style feel even though we accept alphanumerics now (HDC1).
     +'<input id="ar2-calc-pw-input" type="password" maxlength="4" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="••••" />'
     +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:8px"></div>'
-    +(cloudMode
-      ? ''
-      : '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cfe2eb;margin-bottom:14px;cursor:pointer;user-select:none">'
-          +'<input id="ar2-calc-pw-remember" type="checkbox" style="width:14px;height:14px;cursor:pointer;accent-color:#00b4d8" />'
-          +'<span>Remember password on this device</span>'
-        +'</label>')
+    // Remember-code checkbox shown in BOTH modes now. In cloud mode the
+    // checked code pre-fills the input on next page load — user still has
+    // to click Unlock so each session counts as a real login event.
+    +'<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cfe2eb;margin-bottom:14px;cursor:pointer;user-select:none">'
+      +'<input id="ar2-calc-pw-remember" type="checkbox" style="width:14px;height:14px;cursor:pointer;accent-color:#00b4d8" />'
+      +'<span>Remember code on this device</span>'
+    +'</label>'
     +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
     +(cloudMode
       ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.5">Locked out or forgot your code? Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b></div>'
@@ -303,6 +304,20 @@ function showCalcPasswordModal(onUnlock){
   var err=document.getElementById('ar2-calc-pw-err');
   var remember=document.getElementById('ar2-calc-pw-remember');
   var unlockBtn=document.getElementById('ar2-calc-pw-unlock');
+  // Cloud mode: pre-fill the access code if the user previously checked
+  // "Remember code on this device". Pre-fill defaults the checkbox to ON
+  // so the user can stay-checked-in. The Unlock button still has to be
+  // clicked — that's the explicit auth event we count toward login_count.
+  var REMEMBER_CODE_KEY = 'ar2:cloud-remembered-code';
+  if(cloudMode){
+    try {
+      var rcode = localStorage.getItem(REMEMBER_CODE_KEY);
+      if(rcode){
+        input.value = rcode;
+        if(remember) remember.checked = true;
+      }
+    } catch(_){}
+  }
 
   // Local-mode submit (legacy single-passcode flow)
   function submitLocal(){
@@ -332,6 +347,16 @@ function showCalcPasswordModal(onUnlock){
       if(m.parentNode) m.parentNode.removeChild(m);
       CALC_UNLOCKED=true;
       try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(e){}
+      // Save / clear the remembered access code based on the checkbox.
+      // The code is what shows up pre-filled in the gate input on the
+      // next page load — convenience without auto-login.
+      try {
+        if(remember && remember.checked){
+          localStorage.setItem(REMEMBER_CODE_KEY, code);
+        } else {
+          localStorage.removeItem(REMEMBER_CODE_KEY);
+        }
+      } catch(e){}
       // Auto-migrate any existing localStorage archive to the user's cloud account
       AR2_CLOUD.sniffLocalArchive().then(function(items){
         if(!items.length){ onUnlock(); return; }
@@ -604,10 +629,12 @@ var Cloud = (function(){
           logo_data: rs.data.role === 'client' ? (rs.data.logo_data || null) : null
         };
         installStorageAdapter();
-        // Count restored sessions too — per request, every page-load with a
-        // valid session counts toward the user's login_count, even when the
-        // password was remembered. .then(noop,noop) — see gateLogin note.
-        try { c.rpc('track_login').then(function(){}, function(){}); } catch(_){}
+        // NOTE: track_login is intentionally NOT called here. Cloud mode
+        // shows the gate on every page load — each Unlock click in
+        // gateLogin() is the explicit auth event we count as a login.
+        // restoreSession() is now only used internally as a fallback (e.g.
+        // for tabs that already have a live session); it doesn't represent
+        // a fresh user-initiated login.
         return user;
       });
     }).catch(function(){ return null; });
@@ -624,6 +651,9 @@ var Cloud = (function(){
       // Without this, CALC_UNLOCKED loads true from localStorage and the
       // gate is skipped even though no cloud session exists.
       localStorage.removeItem('ar2:calc-unlocked');
+      // Sign Out also forgets the remembered access code — next user on
+      // this device starts from a blank gate.
+      localStorage.removeItem('ar2:cloud-remembered-code');
     } catch(_){}
     if(localStore){ window.storage = localStore; localStore = null; }
   }
@@ -6112,22 +6142,13 @@ function init(){
   // The Supabase SDK is loaded via <script src> in the HTML; if it's not yet
   // ready (CDN race), we still fall back to the gate which calls the edge fn.
   if(window.AR2_CLOUD && AR2_CLOUD.isEnabled()){
-    AR2_CLOUD.restoreSession().then(function(u){
-      if(u){
-        CALC_UNLOCKED=true;
-        try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(_){}
-        // Re-render so role-aware UI (Created By column, admin dashboard) shows
-        try { render(); } catch(_){}
-      } else {
-        // Cloud mode: ALWAYS require sign-in if no live session, even if a
-        // legacy 'ar2:calc-unlocked' flag is in localStorage from pre-cloud
-        // usage. Without this, returning users would be silently locked out
-        // (gate skipped + no cloud user = empty calculator).
-        try { localStorage.removeItem(CALC_REMEMBER_KEY); } catch(_){}
-        CALC_UNLOCKED = false;
-        showCalcPasswordModal(function(){ try { render(); } catch(_){} });
-      }
-    });
+    // Cloud mode: ALWAYS show the gate on every page load. No silent
+    // auto-restore. Each Unlock click is the explicit auth event we count
+    // as a real login. The remembered access code (if any) pre-fills the
+    // input so the user just clicks Unlock instead of retyping.
+    try { localStorage.removeItem(CALC_REMEMBER_KEY); } catch(_){}
+    CALC_UNLOCKED = false;
+    showCalcPasswordModal(function(){ try { render(); } catch(_){} });
   } else if(!CALC_UNLOCKED){
     showCalcPasswordModal(function(){/* unlocked — calc already initialized below; modal removes itself */});
   }
