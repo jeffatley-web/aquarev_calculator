@@ -5406,7 +5406,13 @@ function init(){
         try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(_){}
         // Re-render so role-aware UI (Created By column, admin dashboard) shows
         try { render(); } catch(_){}
-      } else if(!CALC_UNLOCKED){
+      } else {
+        // Cloud mode: ALWAYS require sign-in if no live session, even if a
+        // legacy 'ar2:calc-unlocked' flag is in localStorage from pre-cloud
+        // usage. Without this, returning users would be silently locked out
+        // (gate skipped + no cloud user = empty calculator).
+        try { localStorage.removeItem(CALC_REMEMBER_KEY); } catch(_){}
+        CALC_UNLOCKED = false;
         showCalcPasswordModal(function(){ try { render(); } catch(_){} });
       }
     });
