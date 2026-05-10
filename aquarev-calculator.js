@@ -1464,24 +1464,35 @@ function renderBank(){
     // Admin dashboard panel \u2014 placeholder; populated async after first list.
     // Lives inside the bank wrap, ABOVE the search/thead, so admins see
     // top-line stats the moment the archive opens.
+    // Admin dashboard \u2014 collapsible drawer card. Default closed; click header
+    // to expand. Open/closed state is remembered per-device in localStorage.
+    var dashOpen = false;
+    try { dashOpen = localStorage.getItem('ar2:admin-dash-open') === '1'; } catch(_){}
     var adminPanel = isAdmin
-      ? '<div class="ar-admin-dash" id="ar-admin-dash">'
-          +'<div class="ar-admin-dash-title">Admin Dashboard</div>'
-          +'<div class="ar-admin-kpis">'
-            +'<div class="ar-admin-kpi-card">'
-              +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
-              +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
-              +'<div class="ar-admin-kpi-sub">Across all users</div>'
+      ? '<div class="ar-admin-dash'+(dashOpen?' open':'')+'" id="ar-admin-dash">'
+          +'<div class="ar-admin-dash-head" data-action="admin-dash-toggle">'
+            +'<div class="ar-admin-dash-title">Admin Dashboard'
+              +'<span class="ar-admin-dash-title-sub">Activity stats &amp; per-user trends</span>'
             +'</div>'
-            +'<div class="ar-admin-kpi-card">'
-              +'<div class="ar-admin-kpi-lbl">By User \u00b7 Last 30 Days</div>'
-              +'<div class="ar-admin-userlist" id="ar-admin-30d-users"><span style="color:var(--mu);font-size:11px">Loading\u2026</span></div>'
-            +'</div>'
+            +'<div class="ar-admin-dash-toggle" aria-label="Toggle dashboard">\u203a</div>'
           +'</div>'
-          +'<div class="ar-admin-chart">'
-            +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
-            +'<div id="ar-admin-chart-mount"></div>'
-            +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
+          +'<div class="ar-admin-dash-body">'
+            +'<div class="ar-admin-kpis">'
+              +'<div class="ar-admin-kpi-card">'
+                +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
+                +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
+                +'<div class="ar-admin-kpi-sub">Across all users</div>'
+              +'</div>'
+              +'<div class="ar-admin-kpi-card">'
+                +'<div class="ar-admin-kpi-lbl">By User \u00b7 Last 30 Days</div>'
+                +'<div class="ar-admin-userlist" id="ar-admin-30d-users"><span style="color:var(--mu);font-size:11px">Loading\u2026</span></div>'
+              +'</div>'
+            +'</div>'
+            +'<div class="ar-admin-chart">'
+              +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
+              +'<div id="ar-admin-chart-mount"></div>'
+              +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
+            +'</div>'
           +'</div>'
         +'</div>'
       : '';
@@ -1497,8 +1508,27 @@ function renderBank(){
     +'<div class="ar-bank-toolbar" id="ar-bank-toolbar" style="display:none"></div>'
     +thead
     +'<div class="ar-bank-list" id="'+listId+'">'+renderCards(idx)+'</div>';
-    // Async-populate admin dashboard now that the panel is in the DOM.
-    if(isAdmin) populateAdminDashboard();
+    // Populate admin dashboard contents only if it's already open. Otherwise
+    // we lazy-load when the admin clicks the header to expand it.
+    if(isAdmin && dashOpen) populateAdminDashboard();
+    // Wire up the dashboard drawer toggle (click header → open/close, persist).
+    if(isAdmin){
+      var dashEl = document.getElementById('ar-admin-dash');
+      var head = dashEl && dashEl.querySelector('.ar-admin-dash-head');
+      if(head){
+        head.addEventListener('click', function(){
+          var willOpen = !dashEl.classList.contains('open');
+          dashEl.classList.toggle('open', willOpen);
+          try { localStorage.setItem('ar2:admin-dash-open', willOpen ? '1' : '0'); } catch(_){}
+          // Lazy-load contents on first open
+          if(willOpen && !dashEl.dataset.loaded){
+            populateAdminDashboard();
+            dashEl.dataset.loaded = '1';
+          }
+        });
+        if(dashOpen) dashEl.dataset.loaded = '1';
+      }
+    }
 
     // Wire up live search
     var searchEl=document.getElementById('ar-bank-search');
