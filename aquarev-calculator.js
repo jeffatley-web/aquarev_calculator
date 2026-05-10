@@ -3303,15 +3303,18 @@ function renderNav(){
   // Step 1 gates Continue on at least one device selected.
   var disableNext=S.step===1 && !hasDevices;
   // Continue button is omitted on the final step — Export panel below is the action.
+  // Clients skip the Quote step (index 3) \u2014 labels swap accordingly so they
+  // see "Continue \u2192 Export" from Pricing and "\u2190 Pricing & Settings" from Export.
+  var isClientNav = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
   var nextLabel='Continue \u2192';
   if(S.step===1) nextLabel='Continue \u2192 Pricing';
-  else if(S.step===2) nextLabel='Continue \u2192 Quote';
+  else if(S.step===2) nextLabel = isClientNav ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
   else if(S.step===3) nextLabel='Continue \u2192 Export';
   var backLabel='\u2190 Back';
   if(S.step===1) backLabel='\u2190 Map Pools';
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
-  else if(S.step===4) backLabel='\u2190 Quote';
+  else if(S.step===4) backLabel = isClientNav ? '\u2190 Pricing & Settings' : '\u2190 Quote';
   var html='<div class="ar-nav-stack">'
     +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
