@@ -286,6 +286,14 @@ function showCalcPasswordModal(onUnlock){
     // 4-char access code: maxlength=4 + tracking-widened input keeps the
     // tight pin-style feel even though we accept alphanumerics now (HDC1).
     +'<input id="ar2-calc-pw-input" type="password" maxlength="4" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="••••" />'
+    // Email field — only revealed for Client codes after the server prompts
+    // for it (HTTP 422 needs_email). Hidden by default for Users/Admins so
+    // their flow stays one-field.
+    +'<div id="ar2-calc-email-row" style="display:none;text-align:left;margin-bottom:8px">'
+      +'<div style="font-size:11.5px;color:#cfe2eb;margin-bottom:4px;letter-spacing:.4px">Your email</div>'
+      +'<input id="ar2-calc-email-input" type="email" autocomplete="email" placeholder="you@company.com" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:11px 14px;border-radius:6px;font-size:14px;font-family:inherit;box-sizing:border-box;outline:none" />'
+      +'<div style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4">First time? We\'ll create a profile for you under this account so we know who\'s using the tool.</div>'
+    +'</div>'
     +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:8px"></div>'
     // Remember-code checkbox shown in BOTH modes now. In cloud mode the
     // checked code pre-fills the input on next page load — user still has
@@ -335,26 +343,48 @@ function showCalcPasswordModal(onUnlock){
     }
   }
 
-  // Cloud-mode submit — calls edge function via Cloud.gateLogin
+  // Email-row helpers — show/hide the email field for the Client two-step flow
+  var emailRow = document.getElementById('ar2-calc-email-row');
+  var emailInp = document.getElementById('ar2-calc-email-input');
+  var REMEMBER_EMAIL_KEY = 'ar2:cloud-remembered-email';
+  // Pre-fill remembered email if any
+  try {
+    var rEmail = localStorage.getItem(REMEMBER_EMAIL_KEY);
+    if(rEmail && emailInp) emailInp.value = rEmail;
+  } catch(_){}
+  function showEmailField(){
+    if(!emailRow) return;
+    emailRow.style.display='block';
+    setTimeout(function(){ try { emailInp.focus(); emailInp.select(); } catch(_){} }, 50);
+  }
+
+  // Cloud-mode submit — calls edge function via Cloud.gateLogin.
+  // Two-step flow for Clients: first call sends just the code; if the
+  // server responds with `email_required`, we reveal the email field and
+  // the next click sends both code + email.
   function submitCloud(){
     var code=(input.value||'').trim().toUpperCase();
     if(!code){ err.textContent='Please enter your access code'; return; }
+    var email = (emailInp && emailRow && emailRow.style.display !== 'none')
+      ? (emailInp.value || '').trim()
+      : '';
     err.textContent='';
     unlockBtn.disabled=true;
     unlockBtn.textContent='Signing in…';
-    AR2_CLOUD.gateLogin(code).then(function(u){
+    AR2_CLOUD.gateLogin(code, email).then(function(u){
       // Successful login — close gate, run migration prompt, then unlock app
       if(m.parentNode) m.parentNode.removeChild(m);
       CALC_UNLOCKED=true;
       try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(e){}
-      // Save / clear the remembered access code based on the checkbox.
-      // The code is what shows up pre-filled in the gate input on the
-      // next page load — convenience without auto-login.
+      // Save / clear the remembered access code + email based on the checkbox
       try {
         if(remember && remember.checked){
           localStorage.setItem(REMEMBER_CODE_KEY, code);
+          if(email) localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+          else localStorage.removeItem(REMEMBER_EMAIL_KEY);
         } else {
           localStorage.removeItem(REMEMBER_CODE_KEY);
+          localStorage.removeItem(REMEMBER_EMAIL_KEY);
         }
       } catch(e){}
       // Auto-migrate any existing localStorage archive to the user's cloud account
@@ -371,6 +401,18 @@ function showCalcPasswordModal(onUnlock){
         err.innerHTML = (b.message || 'Too many wrong attempts. Try again in 15 minutes.')
           + (phone ? '<br>Need help? Call <b style="color:#cfe2eb">'+phone+'</b>' : '');
         input.disabled = true; unlockBtn.disabled = true;
+      } else if(b.error === 'email_required'){
+        // Client code matched — reveal the email field on the same gate.
+        // Code stays pre-filled (so user knows what code they're using);
+        // they fill email + click Unlock again.
+        showEmailField();
+        err.textContent = 'This is a shared client account — please enter your email.';
+      } else if(b.error === 'invalid_email'){
+        showEmailField();
+        err.textContent = 'That email looks invalid. Please check and try again.';
+      } else if(b.error === 'email_in_use'){
+        showEmailField();
+        err.textContent = 'That email is already linked to another account. Try a different email.';
       } else if(b.error === 'invalid_code'){
         err.textContent='Incorrect access code';
         input.value=''; input.focus();
@@ -574,8 +616,10 @@ var Cloud = (function(){
     return sb;
   }
 
-  function gateLogin(code){
+  function gateLogin(code, email){
     var dev = deviceId();
+    var body = { code: code, app_id: APP_ID, device_id: dev };
+    if(email) body.email = email;
     return fetch(SUPA_URL + '/functions/v1/gate-login', {
       method: 'POST',
       headers: {
@@ -583,7 +627,7 @@ var Cloud = (function(){
         'apikey': SUPA_KEY,
         'Authorization': 'Bearer ' + SUPA_KEY
       },
-      body: JSON.stringify({ code: code, app_id: APP_ID, device_id: dev })
+      body: JSON.stringify(body)
     }).then(function(r){
       return r.json().catch(function(){ return {}; }).then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
     }).then(function(res){
@@ -651,9 +695,10 @@ var Cloud = (function(){
       // Without this, CALC_UNLOCKED loads true from localStorage and the
       // gate is skipped even though no cloud session exists.
       localStorage.removeItem('ar2:calc-unlocked');
-      // Sign Out also forgets the remembered access code — next user on
-      // this device starts from a blank gate.
+      // Sign Out also forgets the remembered access code + email — next
+      // user on this device starts from a blank gate.
       localStorage.removeItem('ar2:cloud-remembered-code');
+      localStorage.removeItem('ar2:cloud-remembered-email');
     } catch(_){}
     if(localStore){ window.storage = localStore; localStore = null; }
   }
