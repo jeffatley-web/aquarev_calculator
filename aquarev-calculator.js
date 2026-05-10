@@ -1240,14 +1240,14 @@ function showReassignModal(assessmentId){
   var m=document.createElement('div');
   m.id='ar2-reassign-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:26px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:26px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:10px">REASSIGN RECORD</div>'
-    +'<div style="font-size:12px;color:#cfe2eb;line-height:1.6;margin-bottom:14px">Move this record to another user. The new owner will see it in their archive.</div>'
-    +'<select id="ar2-reassign-sel" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;outline:none;font-family:inherit"><option value="">Loading users…</option></select>'
-    +'<div id="ar2-reassign-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:14px">Move this record to another user. The new owner will see it in their archive.</div>'
+    +'<select id="ar2-reassign-sel" style="margin-bottom:12px"><option value="">Loading users…</option></select>'
+    +'<div id="ar2-reassign-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-      +'<button id="ar2-reassign-cancel" style="background:rgba(255,255,255,.06);color:#cfe2eb;border:1px solid rgba(255,255,255,.18);padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Cancel</button>'
-      +'<button id="ar2-reassign-go" disabled style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;opacity:.6">Reassign</button>'
+      +'<button id="ar2-reassign-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-reassign-go" class="ar2-mb primary" disabled>Reassign</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);
@@ -1264,7 +1264,7 @@ function showReassignModal(assessmentId){
     sel.innerHTML = opts;
     sel.onchange=function(){
       go.disabled = !sel.value;
-      go.style.opacity = sel.value ? '1' : '.6';
+      // CSS .ar2-mb:disabled handles opacity now — no inline style needed.
     };
   }).catch(function(){
     err.textContent='Failed to load users.';
@@ -1293,31 +1293,31 @@ function showAdminAddUserModal(){
   var m=document.createElement('div');
   m.id='ar2-admuser-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:460px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:28px;max-width:460px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:14px">ADD NEW USER</div>'
-    +'<div class="ar-form-row" style="margin-bottom:10px"><label>Name</label>'
-      +'<input id="ar2-au-name" class="ar-inp" placeholder="e.g. Sarah Johnson · or company name for Clients" autocomplete="off" />'
+    +'<div style="margin-bottom:12px"><label>Name</label>'
+      +'<input id="ar2-au-name" type="text" placeholder="e.g. Sarah Johnson · or company name for Clients" autocomplete="off" />'
     +'</div>'
-    +'<div class="ar-form-row" style="margin-bottom:10px"><label>Access Code (4 chars)</label>'
-      +'<input id="ar2-au-code" class="ar-inp" maxlength="4" placeholder="e.g. SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+    +'<div style="margin-bottom:12px"><label>Access Code (4 chars)</label>'
+      +'<input id="ar2-au-code" type="text" maxlength="4" placeholder="SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
     +'</div>'
-    +'<div class="ar-form-row" style="margin-bottom:14px"><label>Role</label>'
-      +'<select id="ar2-au-role" class="ar-sel">'
+    +'<div style="margin-bottom:14px"><label>Role</label>'
+      +'<select id="ar2-au-role">'
         +'<option value="user">User — own records, standard features</option>'
         +'<option value="admin">Admin — sees all records + this dashboard</option>'
         +'<option value="client">Client — limited features (no quotes/exports)</option>'
       +'</select>'
     +'</div>'
     // Logo upload — only meaningful when Role=Client. Hidden by JS for other roles.
-    +'<div class="ar-form-row" id="ar2-au-logo-row" style="margin-bottom:14px;display:none">'
-      +'<label>Client Logo <span style="font-size:10px;color:var(--mu);font-weight:400">(optional · PNG/JPG/SVG · max 500KB)</span></label>'
-      +'<input id="ar2-au-logo" type="file" accept="image/png,image/jpeg,image/svg+xml" style="font-size:12px;color:var(--mu);" />'
-      +'<div id="ar2-au-logo-preview" style="display:none;margin-top:8px;padding:8px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.2);border-radius:6px;text-align:center"></div>'
+    +'<div id="ar2-au-logo-row" style="margin-bottom:14px;display:none">'
+      +'<label>Client Logo <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(optional · PNG/JPG/SVG · max 500KB)</span></label>'
+      +'<input id="ar2-au-logo" type="file" accept="image/png,image/jpeg,image/svg+xml" />'
+      +'<div id="ar2-au-logo-preview" style="display:none;margin-top:8px;padding:8px;background:rgba(0,180,216,.05);border:1px dashed rgba(0,180,216,.25);border-radius:6px;text-align:center"></div>'
     +'</div>'
-    +'<div id="ar2-au-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div id="ar2-au-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-      +'<button id="ar2-au-cancel" class="ar-bank-act">Cancel</button>'
-      +'<button id="ar2-au-go" class="ar-bank-act primary">Create User</button>'
+      +'<button id="ar2-au-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-au-go" class="ar2-mb primary">Create User</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);
@@ -1387,16 +1387,16 @@ function showAdminEditLogoModal(uid, uname){
   var m=document.createElement('div');
   m.id='ar2-admlogo-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">EDIT CLIENT LOGO</div>'
-    +'<div style="font-size:12px;color:#cfe2eb;margin-bottom:14px">For: <b>'+esc(uname)+'</b></div>'
-    +'<input id="ar2-el-input" type="file" accept="image/png,image/jpeg,image/svg+xml" style="font-size:12px;color:var(--mu);margin-bottom:8px;width:100%" />'
-    +'<div id="ar2-el-preview" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.2);border-radius:6px;text-align:center"></div>'
-    +'<div id="ar2-el-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
+    +'<input id="ar2-el-input" type="file" accept="image/png,image/jpeg,image/svg+xml" style="margin-bottom:10px" />'
+    +'<div id="ar2-el-preview" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,180,216,.05);border:1px dashed rgba(0,180,216,.25);border-radius:6px;text-align:center"></div>'
+    +'<div id="ar2-el-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'
-      +'<button id="ar2-el-cancel" class="ar-bank-act">Cancel</button>'
-      +'<button id="ar2-el-clear" class="ar-bank-act danger">Remove Logo</button>'
-      +'<button id="ar2-el-go" class="ar-bank-act primary">Save</button>'
+      +'<button id="ar2-el-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-el-clear" class="ar2-mb danger">Remove</button>'
+      +'<button id="ar2-el-go" class="ar2-mb primary">Save</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);
@@ -1450,14 +1450,14 @@ function showAdminResetCodeModal(uid, uname){
   var m=document.createElement('div');
   m.id='ar2-admrc-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">RESET ACCESS CODE</div>'
-    +'<div style="font-size:12px;color:#cfe2eb;margin-bottom:14px">For: <b>'+esc(uname)+'</b></div>'
-    +'<input id="ar2-rc-code" class="ar-inp" maxlength="4" placeholder="New 4-char code" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px" />'
-    +'<div id="ar2-rc-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
+    +'<input id="ar2-rc-code" type="text" maxlength="4" placeholder="New 4-char code" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:10px" />'
+    +'<div id="ar2-rc-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-      +'<button id="ar2-rc-cancel" class="ar-bank-act">Cancel</button>'
-      +'<button id="ar2-rc-go" class="ar-bank-act primary">Save</button>'
+      +'<button id="ar2-rc-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-rc-go" class="ar2-mb primary">Save</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);
@@ -1489,15 +1489,15 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
   m.id='ar2-admro-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
   function opt(v,l){ return '<option value="'+v+'"'+(v===currentRole?' selected':'')+'>'+l+'</option>'; }
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">CHANGE ROLE</div>'
-    +'<div style="font-size:12px;color:#cfe2eb;margin-bottom:14px">For: <b>'+esc(uname)+'</b></div>'
-    +'<select id="ar2-ro-sel" class="ar-sel" style="margin-bottom:14px">'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
+    +'<select id="ar2-ro-sel" style="margin-bottom:14px">'
       +opt('user','User')+opt('admin','Admin')+opt('client','Client')
     +'</select>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-      +'<button id="ar2-ro-cancel" class="ar-bank-act">Cancel</button>'
-      +'<button id="ar2-ro-go" class="ar-bank-act primary">Save</button>'
+      +'<button id="ar2-ro-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-ro-go" class="ar2-mb primary">Save</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);

@@ -1371,6 +1371,99 @@
 #ar2 .ar-admin-role.role-user{background:rgba(0,180,216,.1);color:var(--t);border:1px solid rgba(0,180,216,.25);}
 #ar2 .ar-admin-role.role-client{background:rgba(168,85,247,.12);color:#c89aff;border:1px solid rgba(168,85,247,.3);}
 #ar2 .ar-admin-disabled{display:inline-block;font-size:9px;color:var(--re);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:1px 6px;border-radius:99px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase;}
+/* ── Admin modal styling ────────────────────────────────────────────
+   Admin pop-up modals are appended to <body>, OUTSIDE the #ar2 root, so
+   the #ar2-scoped form/button styles don't reach them. These unscoped
+   rules guarantee modal inputs / selects / buttons render with proper
+   contrast on top of the dark gradient backdrop, regardless of the host
+   page's CSS (Webflow defaults, etc.). Apply via class="ar2-modal-card"
+   on the modal's inner card div. */
+.ar2-modal-card{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;}
+.ar2-modal-card label{display:block;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;margin-bottom:5px;}
+.ar2-modal-card input[type="text"],
+.ar2-modal-card input[type="password"],
+.ar2-modal-card input:not([type]),
+.ar2-modal-card select,
+.ar2-modal-card textarea{
+  width:100%;
+  background:rgba(0,0,0,.45);
+  border:1px solid rgba(0,180,216,.4);
+  color:#ffffff;
+  padding:10px 12px;
+  border-radius:6px;
+  font-size:14px;
+  font-family:'DM Sans',sans-serif;
+  outline:none;
+  box-sizing:border-box;
+  transition:border-color .15s,box-shadow .15s;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  appearance:none;
+}
+.ar2-modal-card input:focus,
+.ar2-modal-card select:focus,
+.ar2-modal-card textarea:focus{
+  border-color:rgba(0,180,216,.85);
+  box-shadow:0 0 0 3px rgba(0,180,216,.15);
+}
+.ar2-modal-card input::placeholder,
+.ar2-modal-card textarea::placeholder{color:rgba(255,255,255,.45);opacity:1;}
+.ar2-modal-card select{
+  cursor:pointer;
+  padding-right:32px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2300b4d8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 11px center;
+}
+.ar2-modal-card select option{background:#0a2540;color:#fff;}
+.ar2-modal-card input[type="file"]{
+  background:rgba(0,0,0,.3);
+  border:1px dashed rgba(0,180,216,.35);
+  color:#cfe2eb;
+  padding:10px 12px;
+  border-radius:6px;
+  font-size:12px;
+  width:100%;
+  cursor:pointer;
+}
+.ar2-modal-card input[type="file"]::-webkit-file-upload-button,
+.ar2-modal-card input[type="file"]::file-selector-button{
+  background:rgba(0,180,216,.18);
+  border:1px solid rgba(0,180,216,.4);
+  color:#cfe2eb;
+  padding:5px 10px;
+  border-radius:4px;
+  font-size:11px;
+  cursor:pointer;
+  margin-right:10px;
+}
+.ar2-modal-card button.ar2-mb{
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.18);
+  color:#cfe2eb;
+  padding:11px 14px;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:13px;
+  font-weight:600;
+  font-family:inherit;
+  letter-spacing:.4px;
+  transition:.15s;
+}
+.ar2-modal-card button.ar2-mb:hover:not(:disabled){background:rgba(255,255,255,.14);}
+.ar2-modal-card button.ar2-mb.primary{
+  background:linear-gradient(135deg,#00b4d8,#48cae4);
+  border-color:transparent;
+  color:#04101e;
+}
+.ar2-modal-card button.ar2-mb.primary:hover:not(:disabled){filter:brightness(1.08);}
+.ar2-modal-card button.ar2-mb.danger{
+  background:rgba(239,68,68,.15);
+  border-color:rgba(239,68,68,.4);
+  color:#fca5a5;
+}
+.ar2-modal-card button.ar2-mb.danger:hover:not(:disabled){background:rgba(239,68,68,.25);}
+.ar2-modal-card button.ar2-mb:disabled{opacity:.5;cursor:not-allowed;}
 /* Add User button + row actions in the admin manager */
 #ar2 .ar-admin-userstats-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
 #ar2 .ar-admin-add-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;letter-spacing:.4px;}
