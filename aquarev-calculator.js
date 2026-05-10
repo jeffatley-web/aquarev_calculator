@@ -987,6 +987,16 @@ var Cloud = (function(){
         if(r.error) throw r.error;
       });
     },
+    adminDeleteUser: function(userId, transferToUserId){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_delete_user', {
+        p_user_id: userId,
+        p_transfer_to_user_id: transferToUserId || null
+      }).then(function(r){
+        if(r.error) throw r.error;
+      });
+    },
     sniffLocalArchive: sniffLocalArchive,
     migrateLocalToCloud: migrateLocalToCloud,
     installStorageAdapter: installStorageAdapter,
@@ -1410,6 +1420,86 @@ function showAdminAddUserModal(){
   setTimeout(function(){ document.getElementById('ar2-au-name').focus(); }, 50);
 }
 
+// Delete-user modal — admin-only, hard delete with mandatory transfer
+// target if the user has any records. The user being deleted is removed
+// from auth.users which cascades through app_users → user_app_access →
+// user_auth_secrets. assessments owned by them are reassigned to the
+// transfer target first (RLS prevents losing data on accidental delete).
+function showAdminDeleteUserModal(uid, uname, totalRecords){
+  var existing=document.getElementById('ar2-admdel-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-admdel-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  var hasRecords = totalRecords > 0;
+  var transferRowHtml = hasRecords
+    ? '<div style="margin-bottom:12px"><label>Transfer their '+totalRecords+' record'+(totalRecords===1?'':'s')+' to</label>'
+        +'<select id="ar2-del-target"><option value="">Loading users…</option></select>'
+      +'</div>'
+    : '<div style="font-size:11.5px;color:#7db8cc;margin-bottom:14px">No records to transfer — this user can be deleted directly.</div>';
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:24px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#fca5a5;margin-bottom:6px">DELETE USER PERMANENTLY</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">Deleting: <b style="color:#fff">'+esc(uname)+'</b></div>'
+    +'<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:11.5px;line-height:1.5;color:#fca5a5">'
+      +'<b>This cannot be undone.</b> The user will be signed out and removed from the database. If you only want to revoke access, use <b>Disable</b> instead.'
+    +'</div>'
+    +transferRowHtml
+    +'<div id="ar2-del-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-del-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-del-go" class="ar2-mb danger"'+(hasRecords?' disabled':'')+'>Delete '+esc(uname)+'</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-del-cancel').onclick=close;
+  m.addEventListener('click',function(e){ if(e.target===m) close(); });
+
+  var go = document.getElementById('ar2-del-go');
+  var err = document.getElementById('ar2-del-err');
+
+  // Populate the transfer-target dropdown when records exist. Excludes
+  // the user being deleted + any disabled users (server-side rejects
+  // disabled targets anyway).
+  if(hasRecords){
+    AR2_CLOUD.listUsers().then(function(users){
+      var sel = document.getElementById('ar2-del-target');
+      var opts = '<option value="">Select user…</option>' + users.filter(function(u){
+        return u.active && u.id !== uid;
+      }).map(function(u){
+        return '<option value="'+u.id+'">'+esc(u.name)+' · '+esc(u.role)+'</option>';
+      }).join('');
+      sel.innerHTML = opts;
+      sel.onchange = function(){ go.disabled = !sel.value; };
+    }).catch(function(){
+      err.textContent = 'Failed to load users.';
+    });
+  }
+
+  go.onclick = function(){
+    var transferTo = null;
+    if(hasRecords){
+      var sel = document.getElementById('ar2-del-target');
+      if(!sel.value){ err.textContent='Pick a transfer target.'; return; }
+      transferTo = sel.value;
+    }
+    err.textContent='';
+    go.disabled=true; go.textContent='Deleting…';
+    AR2_CLOUD.adminDeleteUser(uid, transferTo).then(function(){
+      close();
+      // Refresh the dashboard so the deleted user disappears.
+      var dashEl = document.getElementById('ar-admin-dash');
+      if(dashEl) dashEl.dataset.loaded = '';
+      populateAdminDashboard();
+      // Also refresh archive list so reassigned records reflect new owners.
+      try { renderBank(); } catch(_){}
+    }).catch(function(e){
+      err.textContent = (e && e.message) ? e.message : 'Delete failed.';
+      go.disabled=false; go.textContent='Delete '+uname;
+    });
+  };
+}
+
 // Edit-logo modal — admin-only, used to set / replace / remove a Client's logo
 function showAdminEditLogoModal(uid, uname){
   var existing=document.getElementById('ar2-admlogo-modal');
@@ -1595,6 +1685,12 @@ function populateAdminDashboard(){
                 ? '<button class="ar-admin-row-act" data-action="admin-edit-logo" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Edit Client logo">Logo</button>'
                 : '')
               + '<button class="ar-admin-row-act'+(u.active?' danger':' enable')+'" data-action="admin-toggle-active" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uactive="'+u.active+'" title="'+toggleLabel+' user">'+toggleLabel+'</button>'
+              // Delete button — admin-only hard delete. Hidden on the
+              // current admin's own row (server-side check also prevents
+              // self-delete as a defense-in-depth).
+              + (u.user_id === AR2_CLOUD.user().id
+                ? ''
+                : '<button class="ar-admin-row-act danger" data-action="admin-delete-user" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-utotal="'+(u.records_total||0)+'" title="Permanently delete user">Delete</button>')
             + '</td>'
           + '</tr>';
         }).join('')
@@ -5472,6 +5568,15 @@ function handleClick(e){
   var editLogoClick=e.target.closest('[data-action="admin-edit-logo"]');
   if(editLogoClick){
     showAdminEditLogoModal(editLogoClick.dataset.uid, editLogoClick.dataset.uname);
+    return;
+  }
+  var deleteUserClick=e.target.closest('[data-action="admin-delete-user"]');
+  if(deleteUserClick){
+    showAdminDeleteUserModal(
+      deleteUserClick.dataset.uid,
+      deleteUserClick.dataset.uname,
+      parseInt(deleteUserClick.dataset.utotal, 10) || 0
+    );
     return;
   }
   var toggleActiveClick=e.target.closest('[data-action="admin-toggle-active"]');
