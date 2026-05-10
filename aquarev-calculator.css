@@ -1323,12 +1323,41 @@
    render with breathing room and never overlap adjacent metric columns. */
 #ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
 #ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
+/* Admin view adds a Created By column between the metrics and the actions strip. */
+#ar2 .ar-bank-thead.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-thead.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
 #ar2 .ar-bank-thead>div:not(:first-child){text-align:right;}
 /* Row list */
 #ar2 .ar-bank-list{display:flex;flex-direction:column;gap:0;}
+/* Admin dashboard panel — KPI cards + 90-day daily chart, shown above the
+   archive table when an admin is signed in. */
+#ar2 .ar-admin-dash{margin:18px 0 14px;padding:18px 20px;background:linear-gradient(145deg,rgba(0,180,216,.06),rgba(0,180,216,.02));border:1px solid rgba(0,180,216,.18);border-radius:12px;}
+#ar2 .ar-admin-dash-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:#48cae4;margin-bottom:12px;text-transform:uppercase;}
+#ar2 .ar-admin-kpis{display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:14px;}
+#ar2 .ar-admin-kpi-card{background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:14px 16px;}
+#ar2 .ar-admin-kpi-lbl{font-size:10px;letter-spacing:1.5px;color:var(--mu);text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-admin-kpi-val{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:#fff;line-height:1;}
+#ar2 .ar-admin-kpi-sub{font-size:10.5px;color:var(--mu);margin-top:6px;}
+#ar2 .ar-admin-userlist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+#ar2 .ar-admin-userchip{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.22);border-radius:99px;padding:3px 10px;font-size:10.5px;color:var(--tx);}
+#ar2 .ar-admin-userchip b{color:#fff;font-family:'JetBrains Mono',monospace;margin-left:4px;}
+#ar2 .ar-admin-chart{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;}
+#ar2 .ar-admin-chart-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-admin-chart svg{width:100%;height:auto;display:block;}
+#ar2 .ar-admin-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;color:var(--mu);}
+#ar2 .ar-admin-chart-legend i{display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;}
+/* Admin Created By cell + reassign menu */
+#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:10.5px;text-align:right;}
+#ar2 .ar-bank-createdby .name{color:var(--tx);font-weight:500;}
+#ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
+#ar2 .ar-bank-createdby .role.admin{color:var(--go);}
+#ar2 .ar-bank-act.reassign{background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.28);color:#f0a500;}
+#ar2 .ar-bank-act.reassign:hover{background:rgba(240,165,0,.22);}
 /* Each record row */
 #ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
 #ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
+#ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
 #ar2 .ar-bank-card.selected{background:rgba(0,180,216,.06);}
 #ar2 .ar-bank-card:hover{background:rgba(0,180,216,.04);}
 #ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}

@@ -261,35 +261,54 @@ var CALC_UNLOCKED=false;
 try { CALC_UNLOCKED=localStorage.getItem(CALC_REMEMBER_KEY)==='1'; } catch(e){}
 var CALC_PASSCODE='1717';
 
-/* ── Calculator full-page passcode gate ── */
+/* ── Calculator full-page passcode gate ──
+   Two modes:
+   • Cloud mode (Cloud.isEnabled() === true) — gate calls Supabase edge
+     function, validates against per-user code, mints a session, runs the
+     local-archive migration prompt on first cloud sign-in.
+   • Local mode (legacy) — single shared CALC_PASSCODE compared in-page.
+   ── */
 function showCalcPasswordModal(onUnlock){
   var existing=document.getElementById('ar2-calc-pw-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var cloudMode = !!(window.AR2_CLOUD && AR2_CLOUD.isEnabled());
   var m=document.createElement('div');
   m.id='ar2-calc-pw-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.95);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:999999;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  // Cloud-mode subtitle differs to signal multi-user gate
+  var subtitle = cloudMode
+    ? 'Enter your access code to sign in.'
+    : 'Enter the passcode to access the calculator.';
   m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:36px 32px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:30px;letter-spacing:5px;color:#fff;margin-bottom:4px">AQUAREV WATER</div>'
-    +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">ROI Calculator</div>'
-    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">Enter the passcode to access the calculator.</div>'
-    +'<input id="ar2-calc-pw-input" type="password" inputmode="numeric" autocomplete="off" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:18px;font-family:\'JetBrains Mono\',monospace;letter-spacing:6px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center" placeholder="••••" />'
+    +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">ROI Calculator'+(cloudMode?' · Cloud':'')+'</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">'+subtitle+'</div>'
+    // 4-char access code: maxlength=4 + tracking-widened input keeps the
+    // tight pin-style feel even though we accept alphanumerics now (HDC1).
+    +'<input id="ar2-calc-pw-input" type="password" maxlength="4" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="••••" />'
     +'<div id="ar2-calc-pw-err" style="font-size:11px;color:#ef4444;min-height:15px;margin-bottom:8px"></div>'
-    +'<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cfe2eb;margin-bottom:14px;cursor:pointer;user-select:none">'
-      +'<input id="ar2-calc-pw-remember" type="checkbox" style="width:14px;height:14px;cursor:pointer;accent-color:#00b4d8" />'
-      +'<span>Remember password on this device</span>'
-    +'</label>'
+    +(cloudMode
+      ? ''
+      : '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cfe2eb;margin-bottom:14px;cursor:pointer;user-select:none">'
+          +'<input id="ar2-calc-pw-remember" type="checkbox" style="width:14px;height:14px;cursor:pointer;accent-color:#00b4d8" />'
+          +'<span>Remember password on this device</span>'
+        +'</label>')
     +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
+    +(cloudMode
+      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.5">Locked out or forgot your code? Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b></div>'
+      : '')
   +'</div>';
   document.body.appendChild(m);
   var input=document.getElementById('ar2-calc-pw-input');
   var err=document.getElementById('ar2-calc-pw-err');
   var remember=document.getElementById('ar2-calc-pw-remember');
-  var submit=function(){
+  var unlockBtn=document.getElementById('ar2-calc-pw-unlock');
+
+  // Local-mode submit (legacy single-passcode flow)
+  function submitLocal(){
     if(input.value===CALC_PASSCODE){
       if(m.parentNode) m.parentNode.removeChild(m);
       CALC_UNLOCKED=true;
-      // Persist the unlock if the user opted in. localStorage write is
-      // wrapped in try/catch in case private-browsing storage is denied.
       if(remember && remember.checked){
         try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(e){}
       }
@@ -299,12 +318,94 @@ function showCalcPasswordModal(onUnlock){
       input.value='';
       input.focus();
     }
-  };
-  document.getElementById('ar2-calc-pw-unlock').onclick=submit;
+  }
+
+  // Cloud-mode submit — calls edge function via Cloud.gateLogin
+  function submitCloud(){
+    var code=(input.value||'').trim().toUpperCase();
+    if(!code){ err.textContent='Please enter your access code'; return; }
+    err.textContent='';
+    unlockBtn.disabled=true;
+    unlockBtn.textContent='Signing in…';
+    AR2_CLOUD.gateLogin(code).then(function(u){
+      // Successful login — close gate, run migration prompt, then unlock app
+      if(m.parentNode) m.parentNode.removeChild(m);
+      CALC_UNLOCKED=true;
+      try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(e){}
+      // Auto-migrate any existing localStorage archive to the user's cloud account
+      AR2_CLOUD.sniffLocalArchive().then(function(items){
+        if(!items.length){ onUnlock(); return; }
+        promptMigrateLocalArchive(items.length, function(){ onUnlock(); });
+      }).catch(function(){ onUnlock(); });
+    }).catch(function(res){
+      unlockBtn.disabled=false;
+      unlockBtn.textContent='Unlock';
+      var b = (res && res.body) || {};
+      var phone = b.phone || (window.AR2_CLOUD && AR2_CLOUD.SUPPORT_PHONE) || '';
+      if(b.error === 'locked_out'){
+        err.innerHTML = (b.message || 'Too many wrong attempts. Try again in 15 minutes.')
+          + (phone ? '<br>Need help? Call <b style="color:#cfe2eb">'+phone+'</b>' : '');
+        input.disabled = true; unlockBtn.disabled = true;
+      } else if(b.error === 'invalid_code'){
+        err.textContent='Incorrect access code';
+        input.value=''; input.focus();
+      } else if(b.error === 'no_app_access'){
+        err.textContent='No access to this calculator. Contact admin.';
+      } else if(b.error === 'account_disabled'){
+        err.textContent='Your account is disabled. Contact admin.';
+      } else {
+        err.textContent='Sign-in failed. Please try again.';
+      }
+    });
+  }
+
+  var submit = cloudMode ? submitCloud : submitLocal;
+  unlockBtn.onclick=submit;
   input.addEventListener('keydown',function(e){
     if(e.key==='Enter'){e.preventDefault();submit();}
   });
+  // Auto-uppercase as the user types (so 'hdc1' becomes 'HDC1' immediately)
+  if(cloudMode){
+    input.addEventListener('input',function(){
+      var v = (input.value||'').toUpperCase();
+      if(v !== input.value) input.value = v;
+    });
+  }
   setTimeout(function(){input.focus();},50);
+}
+
+/* Migration prompt — shown once on first cloud sign-in if local archive exists.
+   User clicks Upload → Cloud.migrateLocalToCloud uploads + deletes locals. */
+function promptMigrateLocalArchive(count, done){
+  var m=document.createElement('div');
+  m.id='ar2-mig-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:32px 28px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2.5px;color:#48cae4;margin-bottom:10px">IMPORT LOCAL ARCHIVE</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:14px">We found <b style="color:#fff">'+count+' saved assessment'+(count===1?'':'s')+'</b> on this device. Upload them to your cloud account?</div>'
+    +'<div style="font-size:11px;color:#7db8cc;line-height:1.5;margin-bottom:18px">After a successful upload the local copies will be removed from this device. The cloud becomes the only copy.</div>'
+    +'<div id="ar2-mig-status" style="font-size:11.5px;color:#48cae4;min-height:18px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-mig-skip" style="background:rgba(255,255,255,.06);color:#cfe2eb;border:1px solid rgba(255,255,255,.18);padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Skip for now</button>'
+      +'<button id="ar2-mig-go" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Upload Now</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-mig-skip').onclick=function(){ close(); done(); };
+  document.getElementById('ar2-mig-go').onclick=function(){
+    var st=document.getElementById('ar2-mig-status');
+    var go=document.getElementById('ar2-mig-go');
+    var sk=document.getElementById('ar2-mig-skip');
+    go.disabled=true; sk.disabled=true; st.textContent='Uploading…';
+    AR2_CLOUD.migrateLocalToCloud().then(function(res){
+      st.textContent='Uploaded '+res.uploaded+'. '+(res.failed?(res.failed+' failed.'):'');
+      setTimeout(function(){ close(); done(); }, 1100);
+    }).catch(function(){
+      st.textContent='Upload failed. You can retry from the Archive.';
+      go.disabled=false; sk.disabled=false;
+    });
+  };
 }
 
 /* ── Archive passcode modal ── */
@@ -391,6 +492,400 @@ if(!window.storage){
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   CLOUD MODULE — Supabase-backed archive + multi-user auth
+   ═══════════════════════════════════════════════════════════════════
+   Activates when:
+     - URL has ?supa=1, OR
+     - localStorage 'ar2:cloud-enabled' === '1' (sticky after first opt-in)
+   Once a user signs in via gate-login, this module installs itself as
+   window.storage so all archive reads/writes route to Supabase. Other
+   localStorage keys (calc-unlocked, pool-first-run, etc.) keep using
+   localStorage. Per-user RLS enforces isolation; admins see all rows.
+   ═══════════════════════════════════════════════════════════════════ */
+var Cloud = (function(){
+  var SUPA_URL    = 'https://rvumlookjbbettoqlrhi.supabase.co';
+  var SUPA_KEY    = 'sb_publishable_HtHLMVqB6hR1gWpUTQeEWg_dbR5TACd';
+  var APP_ID      = 'roi-internal';
+  var ENABLED_KEY = 'ar2:cloud-enabled';
+  var SESSION_KEY = 'ar2:cloud-session';
+  var DEVICE_KEY  = 'ar2:cloud-device';
+  var SUPPORT_PHONE = '(832) 979-6758';
+  var BANK_IDX_K  = 'ar2:index';
+  var BANK_PFX_K  = 'ar2:report:';
+
+  function isEnabled(){
+    try {
+      if(/[?&]supa=1\b/.test(location.search || '')) return true;
+      if(localStorage.getItem(ENABLED_KEY) === '1') return true;
+    } catch(_) {}
+    return false;
+  }
+
+  function deviceId(){
+    try {
+      var d = localStorage.getItem(DEVICE_KEY);
+      if(!d){
+        d = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+          : (Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+        localStorage.setItem(DEVICE_KEY, d);
+      }
+      return d;
+    } catch(_) { return ''; }
+  }
+
+  var sb = null;       // Supabase client
+  var user = null;     // {id, name, email, role, appRole}
+  var localStore = null;  // captured reference to original window.storage
+
+  function getClient(){
+    if(sb) return sb;
+    if(typeof window.supabase === 'undefined' || !window.supabase.createClient) return null;
+    sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+      auth: { persistSession: true, storageKey: SESSION_KEY, autoRefreshToken: true, detectSessionInUrl: false }
+    });
+    return sb;
+  }
+
+  function gateLogin(code){
+    var dev = deviceId();
+    return fetch(SUPA_URL + '/functions/v1/gate-login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPA_KEY,
+        'Authorization': 'Bearer ' + SUPA_KEY
+      },
+      body: JSON.stringify({ code: code, app_id: APP_ID, device_id: dev })
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+    }).then(function(res){
+      if(!res.ok) throw res;
+      var b = res.body;
+      var c = getClient();
+      if(!c) throw { ok:false, status: 500, body: { error: 'sdk_unavailable', phone: SUPPORT_PHONE } };
+      return c.auth.setSession({ access_token: b.access_token, refresh_token: b.refresh_token })
+        .then(function(){
+          user = b.user || null;
+          if(user && b.app) user.appRole = b.app.role;
+          try { localStorage.setItem(ENABLED_KEY, '1'); } catch(_){}
+          installStorageAdapter();
+          return user;
+        });
+    });
+  }
+
+  function restoreSession(){
+    var c = getClient();
+    if(!c) return Promise.resolve(null);
+    return c.auth.getSession().then(function(r){
+      var sess = r && r.data && r.data.session;
+      if(!sess) return null;
+      // Look up app_user row to get role/name (RLS allows self-read)
+      return c.from('app_users').select('id,email,name,role,active').eq('id', sess.user.id).maybeSingle().then(function(rs){
+        if(rs.error || !rs.data) return null;
+        if(!rs.data.active) { c.auth.signOut(); return null; }
+        user = { id: rs.data.id, name: rs.data.name, email: rs.data.email, role: rs.data.role };
+        installStorageAdapter();
+        return user;
+      });
+    }).catch(function(){ return null; });
+  }
+
+  function signOut(){
+    user = null;
+    var c = getClient();
+    if(c) c.auth.signOut();
+    try {
+      localStorage.removeItem(ENABLED_KEY);
+      localStorage.removeItem(SESSION_KEY);
+      // Clear the calc-unlocked flag so the next visit re-shows the gate.
+      // Without this, CALC_UNLOCKED loads true from localStorage and the
+      // gate is skipped even though no cloud session exists.
+      localStorage.removeItem('ar2:calc-unlocked');
+    } catch(_){}
+    if(localStore){ window.storage = localStore; localStore = null; }
+  }
+
+  // Map an app key → { kind:'index'|'snapshot', id? } or null for non-archive keys
+  function parseKey(k){
+    if(k === BANK_IDX_K) return { kind: 'index' };
+    if(typeof k === 'string' && k.indexOf(BANK_PFX_K) === 0) return { kind: 'snapshot', id: k.slice(BANK_PFX_K.length) };
+    return null;
+  }
+
+  function rowToIndexEntry(row, includeCreatedBy){
+    var e = {
+      id: row.id,
+      propertyName: row.property_name,
+      savedAt: row.created_at,
+      summary: row.summary || {}
+    };
+    if(includeCreatedBy && row.app_users){
+      e.createdById   = row.app_users.id;
+      e.createdByName = row.app_users.name;
+      e.createdByRole = row.app_users.role;
+    }
+    return e;
+  }
+
+  function listAssessments(){
+    var c = getClient();
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+    var isAdmin = user.role === 'admin';
+    var sel = 'id,property_name,summary,created_at,user_id' + (isAdmin ? ',app_users!assessments_user_id_fkey(id,name,role)' : '');
+    return c.from('assessments').select(sel).eq('app_id', APP_ID).order('created_at', { ascending: false }).then(function(r){
+      if(r.error) throw r.error;
+      return (r.data || []).map(function(row){ return rowToIndexEntry(row, isAdmin); });
+    });
+  }
+
+  function getAssessment(id){
+    var c = getClient();
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+    return c.from('assessments').select('snapshot,property_name,created_at').eq('id', id).maybeSingle().then(function(r){
+      if(r.error) throw r.error;
+      if(!r.data) return null;
+      var snap = r.data.snapshot || {};
+      snap.id = id;
+      snap.propertyName = r.data.property_name;
+      snap.savedAt = r.data.created_at;
+      return snap;
+    });
+  }
+
+  function saveAssessment(snap){
+    var c = getClient();
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+    var id = snap.id;
+    var summary = snap.summary || {};
+    var row = {
+      id: id,
+      user_id: user.id,
+      app_id: APP_ID,
+      property_name: snap.propertyName || 'Unnamed Property',
+      summary: summary,
+      snapshot: snap,
+      app_version: window.AR2_VERSION || null
+    };
+    return c.from('assessments').upsert(row, { onConflict: 'id' }).then(function(r){
+      if(r.error) throw r.error;
+      // Best-effort denormalized quote row for reporting
+      if(snap.quote && (snap.quote.quoteId || snap.quote.docKind)){
+        var q = snap.quote;
+        var totalUsd = (snap.summary && (snap.summary.total || snap.summary.quoteTotal)) || null;
+        c.from('quotes').upsert({
+          id: id,
+          assessment_id: id,
+          user_id: user.id,
+          app_id: APP_ID,
+          quote_id: q.quoteId || null,
+          doc_kind: q.docKind || null,
+          buyer_name: q.buyerName || null,
+          shipping_term: q.shippingTerm || null,
+          rep_initials: q.rep || null,
+          customer_id: q.customerId || null,
+          total_usd: totalUsd
+        }, { onConflict: 'id' });
+      }
+    });
+  }
+
+  function deleteAssessment(id){
+    var c = getClient();
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+    return c.from('assessments').delete().eq('id', id).then(function(r){ if(r.error) throw r.error; });
+  }
+
+  function reassignAssessment(id, toUserId){
+    var c = getClient();
+    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    return c.from('assessments').update({ user_id: toUserId }).eq('id', id).then(function(r){ if(r.error) throw r.error; });
+  }
+
+  function listUsers(){
+    var c = getClient();
+    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    return c.from('app_users').select('id,name,email,role,active').order('name').then(function(r){
+      if(r.error) throw r.error;
+      return r.data || [];
+    });
+  }
+
+  function statsLast30Days(){
+    var c = getClient();
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+    var since = new Date(Date.now() - 30*86400000).toISOString();
+    var isAdmin = user.role === 'admin';
+    var sel = 'id,user_id,created_at' + (isAdmin ? ',app_users!assessments_user_id_fkey(name)' : '');
+    return c.from('assessments').select(sel).gte('created_at', since).eq('app_id', APP_ID).then(function(r){
+      if(r.error) throw r.error;
+      var rows = r.data || [];
+      var byUser = {};
+      rows.forEach(function(x){
+        var n = (x.app_users && x.app_users.name) || (x.user_id === user.id ? user.name : 'Other');
+        byUser[n] = (byUser[n] || 0) + 1;
+      });
+      return { total: rows.length, byUser: byUser };
+    });
+  }
+
+  // 90-day daily series, bucketed by EST day, grouped by user.
+  // Returns { users:[name...], days:[YYYY-MM-DD...], series:{name:[count per day]} }
+  function stats90DailyByUser(){
+    var c = getClient();
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+    var since = new Date(Date.now() - 90*86400000).toISOString();
+    var isAdmin = user.role === 'admin';
+    var sel = 'id,user_id,created_at' + (isAdmin ? ',app_users!assessments_user_id_fkey(name)' : '');
+    return c.from('assessments').select(sel).gte('created_at', since).eq('app_id', APP_ID).order('created_at').then(function(r){
+      if(r.error) throw r.error;
+      var rows = r.data || [];
+      // Build day axis (90 days ending today, EST)
+      var EST_OFFSET_MIN = -300; // -5h. Approx — does not honour DST; close enough for daily buckets.
+      function ymdEst(iso){
+        var d = new Date(iso);
+        var t = d.getTime() + (EST_OFFSET_MIN - d.getTimezoneOffset()) * 60000;
+        var z = new Date(t);
+        return z.getUTCFullYear() + '-' + String(z.getUTCMonth()+1).padStart(2,'0') + '-' + String(z.getUTCDate()).padStart(2,'0');
+      }
+      var days = [];
+      var todayEst = new Date(Date.now() + (EST_OFFSET_MIN - new Date().getTimezoneOffset())*60000);
+      for(var i=89; i>=0; i--){
+        var dd = new Date(todayEst.getTime() - i*86400000);
+        days.push(dd.getUTCFullYear() + '-' + String(dd.getUTCMonth()+1).padStart(2,'0') + '-' + String(dd.getUTCDate()).padStart(2,'0'));
+      }
+      var byUserDay = {};
+      var userNames = [];
+      rows.forEach(function(x){
+        var n = (x.app_users && x.app_users.name) || (x.user_id === user.id ? user.name : 'Other');
+        if(!byUserDay[n]){ byUserDay[n] = {}; userNames.push(n); }
+        var k = ymdEst(x.created_at);
+        byUserDay[n][k] = (byUserDay[n][k] || 0) + 1;
+      });
+      var series = {};
+      userNames.forEach(function(n){
+        series[n] = days.map(function(d){ return byUserDay[n][d] || 0; });
+      });
+      return { users: userNames, days: days, series: series };
+    });
+  }
+
+  function installStorageAdapter(){
+    if(localStore) return; // already installed
+    localStore = {
+      get: window.storage.get.bind(window.storage),
+      set: window.storage.set.bind(window.storage),
+      delete: window.storage.delete.bind(window.storage)
+    };
+    window.storage = {
+      get: function(k){
+        if(!user) return localStore.get(k);
+        var p = parseKey(k);
+        if(!p) return localStore.get(k);
+        if(p.kind === 'index'){
+          return listAssessments().then(function(arr){ return JSON.stringify(arr); });
+        }
+        return getAssessment(p.id).then(function(snap){ return snap ? JSON.stringify(snap) : null; });
+      },
+      set: function(k, v){
+        if(!user) return localStore.set(k, v);
+        var p = parseKey(k);
+        if(!p) return localStore.set(k, v);
+        if(p.kind === 'index') return Promise.resolve(); // cloud derives index on read
+        var snap;
+        try { snap = (typeof v === 'string') ? JSON.parse(v) : v; } catch(_) { return Promise.reject(new Error('bad_snapshot')); }
+        snap.id = p.id; // ensure snapshot id matches the URL key
+        return saveAssessment(snap);
+      },
+      delete: function(k){
+        if(!user) return localStore.delete(k);
+        var p = parseKey(k);
+        if(!p) return localStore.delete(k);
+        if(p.kind === 'index') return Promise.resolve();
+        return deleteAssessment(p.id);
+      }
+    };
+  }
+
+  // Local archive sniff — used by the post-login migration prompt.
+  // Returns array of {key, snapshotJson} for every ar2:report:* key currently
+  // in the user's localStorage (skipped for keys that resemble Supabase UUIDs).
+  function sniffLocalArchive(){
+    if(!localStore) return Promise.resolve([]);
+    return localStore.get(BANK_IDX_K).then(function(r){
+      var idx = [];
+      try { idx = (typeof r === 'string') ? JSON.parse(r) : (r && r.value ? JSON.parse(r.value) : []); } catch(_){ idx = []; }
+      if(!Array.isArray(idx) || !idx.length) return [];
+      return Promise.all(idx.map(function(e){
+        return localStore.get(BANK_PFX_K + e.id).then(function(rs){
+          if(!rs) return null;
+          try {
+            var s = (typeof rs === 'string') ? JSON.parse(rs) : (rs.value ? JSON.parse(rs.value) : null);
+            if(!s) return null;
+            return { localId: e.id, snap: s };
+          } catch(_){ return null; }
+        });
+      })).then(function(arr){ return arr.filter(Boolean); });
+    });
+  }
+
+  // Migrate every local archive entry → cloud, then delete the local copies.
+  // Returns { uploaded:N, failed:N, idMap:{oldId:newId} }
+  function migrateLocalToCloud(){
+    if(!user) return Promise.reject(new Error('not_signed_in'));
+    return sniffLocalArchive().then(function(items){
+      if(!items.length) return { uploaded: 0, failed: 0, idMap: {} };
+      var idMap = {};
+      var failed = 0;
+      var chain = Promise.resolve();
+      items.forEach(function(it){
+        chain = chain.then(function(){
+          var newId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null;
+          if(!newId){ failed++; return; }
+          var snap = it.snap;
+          snap.id = newId;
+          return saveAssessment(snap).then(function(){
+            idMap[it.localId] = newId;
+            return localStore.delete(BANK_PFX_K + it.localId).catch(function(){});
+          }).catch(function(){ failed++; });
+        });
+      });
+      // After all uploaded, wipe the local index
+      return chain.then(function(){
+        return localStore.delete(BANK_IDX_K).catch(function(){});
+      }).then(function(){
+        return { uploaded: items.length - failed, failed: failed, idMap: idMap };
+      });
+    });
+  }
+
+  return {
+    isEnabled: isEnabled,
+    isReady: function(){ return !!user; },
+    user: function(){ return user; },
+    isAdmin: function(){ return !!user && user.role === 'admin'; },
+    deviceId: deviceId,
+    getClient: getClient,
+    gateLogin: gateLogin,
+    restoreSession: restoreSession,
+    signOut: signOut,
+    listAssessments: listAssessments,
+    getAssessment: getAssessment,
+    saveAssessment: saveAssessment,
+    deleteAssessment: deleteAssessment,
+    reassignAssessment: reassignAssessment,
+    listUsers: listUsers,
+    statsLast30Days: statsLast30Days,
+    stats90DailyByUser: stats90DailyByUser,
+    sniffLocalArchive: sniffLocalArchive,
+    migrateLocalToCloud: migrateLocalToCloud,
+    installStorageAdapter: installStorageAdapter,
+    SUPPORT_PHONE: SUPPORT_PHONE
+  };
+})();
+window.AR2_CLOUD = Cloud;
+
 function bankGetIndex(){
   return window.storage.get(BANK_IDX)
     .then(function(r){if(!r)return[];var s=typeof r==='string'?r:r.value;return s?JSON.parse(s):[];})
@@ -471,7 +966,10 @@ function bankSaveReportImpl(replaceIds){
   // Safety timeout — reset saving state if Promise never resolves
   setTimeout(function(){if(EX.saving){EX.saving=false;EX.saveStatus='error';renderDevices();}},10000);
   var R=calcROI();
-  var id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  // UUID required when saving to the cloud (assessments.id is uuid). Falls
+  // back to the legacy short id only if crypto.randomUUID is unavailable.
+  var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+         : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
   var snapshot={
     id:id,
     propertyName:S.propertyName||'Unnamed Property',
@@ -636,6 +1134,12 @@ function bankDownloadPdf(snapshot, layout){
 
 /* ── Bank: load snapshot by id then trigger action ── */
 function bankAction(id, action){
+  // Reassign — admin-only, no snapshot fetch needed; opens user picker.
+  if(action === 'reassign'){
+    if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())){ alert('Admin only.'); return; }
+    showReassignModal(id);
+    return;
+  }
   window.storage.get(BANK_PFX+id)
     .then(function(r){
       if(!r){alert('Report not found. It may have been deleted.');renderBank();return;}
@@ -649,6 +1153,139 @@ function bankAction(id, action){
     .catch(function(){alert('Could not load report.');});
 }
 
+/* Reassign modal — admin-only. Loads the user list, lets admin pick a new
+   owner for the record, then calls Cloud.reassignAssessment. */
+function showReassignModal(assessmentId){
+  var existing=document.getElementById('ar2-reassign-modal');
+  if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-reassign-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:26px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:10px">REASSIGN RECORD</div>'
+    +'<div style="font-size:12px;color:#cfe2eb;line-height:1.6;margin-bottom:14px">Move this record to another user. The new owner will see it in their archive.</div>'
+    +'<select id="ar2-reassign-sel" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:10px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;outline:none;font-family:inherit"><option value="">Loading users…</option></select>'
+    +'<div id="ar2-reassign-err" style="font-size:11px;color:#ef4444;min-height:14px;margin-bottom:8px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-reassign-cancel" style="background:rgba(255,255,255,.06);color:#cfe2eb;border:1px solid rgba(255,255,255,.18);padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Cancel</button>'
+      +'<button id="ar2-reassign-go" disabled style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;opacity:.6">Reassign</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  var sel=document.getElementById('ar2-reassign-sel');
+  var go=document.getElementById('ar2-reassign-go');
+  var err=document.getElementById('ar2-reassign-err');
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-reassign-cancel').onclick=close;
+  m.addEventListener('click',function(e){ if(e.target===m) close(); });
+  AR2_CLOUD.listUsers().then(function(users){
+    var opts = '<option value="">Select user…</option>' + users.filter(function(u){return u.active;}).map(function(u){
+      return '<option value="'+u.id+'">'+esc(u.name)+' · '+esc(u.role)+'</option>';
+    }).join('');
+    sel.innerHTML = opts;
+    sel.onchange=function(){
+      go.disabled = !sel.value;
+      go.style.opacity = sel.value ? '1' : '.6';
+    };
+  }).catch(function(){
+    err.textContent='Failed to load users.';
+  });
+  go.onclick=function(){
+    var toUid = sel.value;
+    if(!toUid) return;
+    go.disabled=true; go.textContent='Reassigning…';
+    AR2_CLOUD.reassignAssessment(assessmentId, toUid).then(function(){
+      close();
+      renderBank();
+    }).catch(function(){
+      err.textContent='Reassign failed.';
+      go.disabled=false; go.textContent='Reassign';
+    });
+  };
+}
+
+/* Admin dashboard async populator — fills the placeholder after renderBank
+   has injected the panel. Two requests in parallel: stats30Days + 90-day
+   daily-by-user. The chart is drawn as a simple multi-line SVG (one polyline
+   per user) using EST-bucketed daily counts. */
+function populateAdminDashboard(){
+  if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())) return;
+  AR2_CLOUD.statsLast30Days().then(function(s){
+    var totalEl=document.getElementById('ar-admin-30d-total');
+    var listEl=document.getElementById('ar-admin-30d-users');
+    if(totalEl) totalEl.textContent = s.total;
+    if(listEl){
+      var names = Object.keys(s.byUser).sort(function(a,b){ return s.byUser[b]-s.byUser[a]; });
+      if(!names.length){ listEl.innerHTML='<span style="color:var(--mu);font-size:11px">No records yet.</span>'; }
+      else {
+        listEl.innerHTML = names.map(function(n){
+          return '<span class="ar-admin-userchip">'+esc(n)+'<b>'+s.byUser[n]+'</b></span>';
+        }).join('');
+      }
+    }
+  }).catch(function(){});
+  AR2_CLOUD.stats90DailyByUser().then(function(d){
+    var mount=document.getElementById('ar-admin-chart-mount');
+    var legendEl=document.getElementById('ar-admin-chart-legend');
+    if(!mount) return;
+    mount.innerHTML = drawAdminChart(d);
+    if(legendEl){
+      legendEl.innerHTML = d.users.map(function(n,i){
+        var c = ADMIN_CHART_COLORS[i % ADMIN_CHART_COLORS.length];
+        return '<span><i style="background:'+c+'"></i>'+esc(n)+'</span>';
+      }).join('');
+    }
+  }).catch(function(){});
+}
+
+var ADMIN_CHART_COLORS = ['#00b4d8','#f0a500','#22c55e','#a855f7','#ec4899','#ef4444','#3b82f6','#eab308'];
+
+function drawAdminChart(d){
+  if(!d || !d.users.length) return '<div style="color:var(--mu);font-size:11px;padding:10px">No activity in the last 90 days.</div>';
+  var W = 720, H = 180, pad = { top: 8, right: 12, bottom: 22, left: 28 };
+  var plotW = W - pad.left - pad.right;
+  var plotH = H - pad.top - pad.bottom;
+  var nDays = d.days.length;
+  // Find ymax across all series
+  var yMax = 1;
+  d.users.forEach(function(n){
+    d.series[n].forEach(function(v){ if(v > yMax) yMax = v; });
+  });
+  yMax = Math.ceil(yMax * 1.15);
+  function x(i){ return pad.left + (i / Math.max(1,nDays-1)) * plotW; }
+  function y(v){ return pad.top + plotH - (v / yMax) * plotH; }
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">';
+  // Grid lines (4 horizontal)
+  for(var g=1; g<=4; g++){
+    var gy = pad.top + (g/4) * plotH;
+    svg += '<line x1="'+pad.left+'" y1="'+gy+'" x2="'+(pad.left+plotW)+'" y2="'+gy+'" stroke="rgba(255,255,255,.06)" stroke-width="1"/>';
+  }
+  // Axis baseline
+  svg += '<line x1="'+pad.left+'" y1="'+(pad.top+plotH)+'" x2="'+(pad.left+plotW)+'" y2="'+(pad.top+plotH)+'" stroke="rgba(255,255,255,.18)" stroke-width="1"/>';
+  // Y axis ticks
+  for(var t=0; t<=4; t++){
+    var v = Math.round(yMax * (4-t)/4);
+    var ty = pad.top + (t/4)*plotH;
+    svg += '<text x="'+(pad.left-4)+'" y="'+(ty+3)+'" text-anchor="end" font-size="9" fill="#7db8cc" font-family="JetBrains Mono,monospace">'+v+'</text>';
+  }
+  // X axis labels — start, midpoint, end
+  function fmt(d0){
+    var z = new Date(d0+'T00:00:00Z');
+    return (z.getUTCMonth()+1)+'/'+z.getUTCDate();
+  }
+  svg += '<text x="'+pad.left+'" y="'+(H-6)+'" text-anchor="start" font-size="9" fill="#7db8cc" font-family="JetBrains Mono,monospace">'+fmt(d.days[0])+'</text>';
+  svg += '<text x="'+(pad.left+plotW/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="9" fill="#7db8cc" font-family="JetBrains Mono,monospace">'+fmt(d.days[Math.floor(nDays/2)])+'</text>';
+  svg += '<text x="'+(pad.left+plotW)+'" y="'+(H-6)+'" text-anchor="end" font-size="9" fill="#7db8cc" font-family="JetBrains Mono,monospace">'+fmt(d.days[nDays-1])+'</text>';
+  // Series polylines
+  d.users.forEach(function(n, ui){
+    var c = ADMIN_CHART_COLORS[ui % ADMIN_CHART_COLORS.length];
+    var pts = d.series[n].map(function(v, i){ return x(i)+','+y(v); }).join(' ');
+    svg += '<polyline points="'+pts+'" fill="none" stroke="'+c+'" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+  svg += '</svg>';
+  return svg;
+}
+
 /* ── Bank: duplicate an existing snapshot as a new editable record ──
    Shows a confirmation prompt (matching the Save-as-New flow style) and
    on confirm clones the snapshot with a new id, fresh savedAt, and a
@@ -656,7 +1293,8 @@ function bankAction(id, action){
 function bankDuplicate(snap){
   var origName=snap.propertyName||'Unnamed Property';
   showDuplicateConfirmModal(origName, function(){
-    var newId=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    var newId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+              : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
     var newName='Copy of '+origName;
     // Deep-clone via JSON round-trip (safe — snapshot is plain data)
     var copy=JSON.parse(JSON.stringify(snap));
@@ -702,8 +1340,11 @@ function showDuplicateConfirmModal(propName, onConfirm){
 function renderBank(){
   var el=document.getElementById('ar2-bank');
   if(!el)return;
+  // Cloud-mode flags drive the admin dashboard + Created By column.
+  var isCloudReady = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
+  var isAdmin      = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin());
   el.innerHTML='<div class="ar-bank-wrap"><div class="ar-bank-hero">'
-    +'<div class="ar-bank-title">Saved Assessments</div>'
+    +'<div class="ar-bank-title">Saved Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+'</div>'
     +'<button class="ar-bank-act primary no-print" data-action="view-form">'
       +I.back+' Back to Calculator'
     +'</button>'
@@ -738,7 +1379,22 @@ function renderBank(){
         var mo=s.monthly||0;
         var clr=mo>2000?'green':mo>500?'gold':'teal';
         var isSel=!!selected[entry.id];
-        return '<div class="ar-bank-card'+(selectMode?' selmode':'')+(isSel?' selected':'')+'" data-row-id="'+entry.id+'">'
+        // Created By cell \u2014 admin-only. Highlights the row owner's name + role.
+        var createdByCell = '';
+        if(isAdmin){
+          var nm = entry.createdByName || '\u2014';
+          var rl = entry.createdByRole || '';
+          createdByCell = '<div class="ar-bank-createdby">'
+            + '<div class="name">'+esc(nm)+'</div>'
+            + (rl?'<div class="role'+(rl==='admin'?' admin':'')+'">'+esc(rl)+'</div>':'')
+          + '</div>';
+        }
+        // Reassign button \u2014 admin-only, shown alongside the existing actions.
+        var reassignBtn = isAdmin
+          ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">\u2192</button>'
+          : '';
+        var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'');
+        return '<div class="'+classes+'" data-row-id="'+entry.id+'">'
           +(selectMode?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':'')
           +'<div class="ar-bank-name">'
             +'<div class="ar-bank-prop">'+esc(entry.propertyName)+'</div>'
@@ -751,11 +1407,13 @@ function renderBank(){
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.devices||'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.poolGallons?fn(s.poolGallons):'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
+          +createdByCell
           +'<div class="ar-bank-actions">'
             +'<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
             +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
             +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
+            +reassignBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>'
           +'</div>'
         +'</div>';
@@ -796,20 +1454,51 @@ function renderBank(){
     };
 
     var listId='ar-bank-list-'+Date.now();
-    var thead='<div class="ar-bank-thead" id="ar-bank-thead">'
-      +'<div>Property</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div><div></div>'
+    // Admin gets an extra "Created By" header column. Class .admin-cols
+    // shifts the grid template (CSS) to fit it.
+    var thead='<div class="ar-bank-thead'+(isAdmin?' admin-cols':'')+'" id="ar-bank-thead">'
+      +'<div>Property</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div>'
+      +(isAdmin?'<div>Created By</div>':'')
+      +'<div></div>'
     +'</div>';
+    // Admin dashboard panel \u2014 placeholder; populated async after first list.
+    // Lives inside the bank wrap, ABOVE the search/thead, so admins see
+    // top-line stats the moment the archive opens.
+    var adminPanel = isAdmin
+      ? '<div class="ar-admin-dash" id="ar-admin-dash">'
+          +'<div class="ar-admin-dash-title">Admin Dashboard</div>'
+          +'<div class="ar-admin-kpis">'
+            +'<div class="ar-admin-kpi-card">'
+              +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
+              +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
+              +'<div class="ar-admin-kpi-sub">Across all users</div>'
+            +'</div>'
+            +'<div class="ar-admin-kpi-card">'
+              +'<div class="ar-admin-kpi-lbl">By User \u00b7 Last 30 Days</div>'
+              +'<div class="ar-admin-userlist" id="ar-admin-30d-users"><span style="color:var(--mu);font-size:11px">Loading\u2026</span></div>'
+            +'</div>'
+          +'</div>'
+          +'<div class="ar-admin-chart">'
+            +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
+            +'<div id="ar-admin-chart-mount"></div>'
+            +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
+          +'</div>'
+        +'</div>'
+      : '';
     wrap.innerHTML='<div class="ar-bank-hero">'
-      +'<div class="ar-bank-title">Saved Assessments <span>\u00b7 '+idx.length+'</span></div>'
+      +'<div class="ar-bank-title">Saved Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+' <span>\u00b7 '+idx.length+'</span></div>'
       +'<div style="display:flex;align-items:center;gap:8px">'
         +'<button class="ar-bank-act" data-action="bank-toggle-select" title="Select multiple">'+I.check+' Select</button>'
         +'<button class="ar-bank-act primary no-print" data-action="view-form">'+I.back+' Back to Calculator</button>'
       +'</div>'
     +'</div>'
+    +adminPanel
     +(idx.length>3?'<input class="ar-bank-search" id="ar-bank-search" placeholder="Search by property name\u2026" type="search" />':'')
     +'<div class="ar-bank-toolbar" id="ar-bank-toolbar" style="display:none"></div>'
     +thead
     +'<div class="ar-bank-list" id="'+listId+'">'+renderCards(idx)+'</div>';
+    // Async-populate admin dashboard now that the panel is in the DOM.
+    if(isAdmin) populateAdminDashboard();
 
     // Wire up live search
     var searchEl=document.getElementById('ar-bank-search');
@@ -4282,11 +4971,15 @@ function handleClick(e){
   // Quick-add 4" device from empty state
   var qaBtn=e.target.closest('[data-action="quick-add-4in"]');
   if(qaBtn){ S.pipe_4in=(S.pipe_4in||0)+1; render(); return; }
-  // Toggle view: form ↔ bank (password-gated first time per session)
+  // Toggle view: form ↔ bank (password-gated first time per session).
+  // In cloud mode the user is already authenticated by the calculator gate,
+  // so the legacy archive passcode is skipped — single sign-in to the cloud
+  // account opens both the calculator and the archive.
   var viewBank=e.target.closest('[data-action="view-bank"]');
   if(viewBank){
+    var inCloud = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
     if(VIEW==='bank'){ showView('form'); }
-    else if(ARCHIVE_UNLOCKED){ showView('bank'); }
+    else if(inCloud || ARCHIVE_UNLOCKED){ if(inCloud) ARCHIVE_UNLOCKED=true; showView('bank'); }
     else { showArchivePasswordModal(function(){ ARCHIVE_UNLOCKED=true; showView('bank'); }); }
     return;
   }
@@ -4702,9 +5395,22 @@ function handleChange(e){
 function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
-  // Calculator passcode gate — show modal on first load (in-memory, resets on reload).
-  // The modal overlays the full viewport at z-index 999999 so the calc behind is unreachable.
-  if(!CALC_UNLOCKED){
+  // Cloud-mode bootstrap — try to restore an existing Supabase session before
+  // deciding whether to show the gate. If session is valid, skip the modal.
+  // The Supabase SDK is loaded via <script src> in the HTML; if it's not yet
+  // ready (CDN race), we still fall back to the gate which calls the edge fn.
+  if(window.AR2_CLOUD && AR2_CLOUD.isEnabled()){
+    AR2_CLOUD.restoreSession().then(function(u){
+      if(u){
+        CALC_UNLOCKED=true;
+        try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(_){}
+        // Re-render so role-aware UI (Created By column, admin dashboard) shows
+        try { render(); } catch(_){}
+      } else if(!CALC_UNLOCKED){
+        showCalcPasswordModal(function(){ try { render(); } catch(_){} });
+      }
+    });
+  } else if(!CALC_UNLOCKED){
     showCalcPasswordModal(function(){/* unlocked — calc already initialized below; modal removes itself */});
   }
   initDefaultYt();
