@@ -4415,7 +4415,7 @@ function generateReport(){
       for(var mi=0;mi<nPools;mi++){
         cardArr.push(
           '<div class="rpt-pp-card">'
-          +'<div class="rpt-pp-img rpt-pp-img-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 15l-5-5-8 8"/></svg><div class="rpt-pp-img-empty-lbl">No image</div></div>'
+          +'<div class="rpt-pp-img rpt-pp-img-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14c1.5 0 1.5 1 3 1s1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1"/><path d="M3 18c1.5 0 1.5 1 3 1s1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1"/><path d="M7 14V6a2 2 0 014 0"/><path d="M13 14V6a2 2 0 014 0v8"/></svg><div class="rpt-pp-img-empty-lbl">Pool</div></div>'
           +'<div class="rpt-pp-info">'
             +'<div class="rpt-pp-head">'
               +'<div class="rpt-pp-name">Pool '+(mi+1)+'</div>'
@@ -4462,7 +4462,7 @@ function generateReport(){
           : '';
         var imgSlot=b.image
           ? '<div class="rpt-pp-img"><img src="'+b.image+'" alt="" /></div>'
-          : '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 15l-5-5-8 8"/></svg><div class="rpt-pp-img-empty-lbl">No image</div></div>';
+          : '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14c1.5 0 1.5 1 3 1s1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1"/><path d="M3 18c1.5 0 1.5 1 3 1s1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1"/><path d="M7 14V6a2 2 0 014 0"/><path d="M13 14V6a2 2 0 014 0v8"/></svg><div class="rpt-pp-img-empty-lbl">Pool</div></div>';
         totG+=G;
         totPurch+=poolPurch;
         totMonthly+=poolMonthly;
@@ -5077,11 +5077,14 @@ function renderExportSection(){
             +'<div class="ar-sw-track'+(EX.inclCover?' on':'')+'" data-ex-sw="inclCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +(function(){
+            // Pool Profiles is now always toggleable. When no pool photos
+            // are uploaded, the Profile page renders a grey placeholder
+            // card with a pool icon for each registered pool. Hint helps
+            // the user know they CAN upload images for richer output.
             var hasImg=S.bodies.some(function(b){return !!b.image;});
-            var needImage=!S.manualVolume && !hasImg;
-            var hint=needImage?' <span style="font-size:10px;color:var(--mu)">(Upload at least one pool image)</span>':'';
-            return '<div class="ar-toggle-row"'+(needImage?' style="opacity:.5;pointer-events:none"':'')+'><label>Include Pool Profiles'+hint+'</label>'
-              +'<div class="ar-sw-track'+(EX.inclPoolProfiles&&!needImage?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
+            var hint=hasImg?'':' <span style="font-size:10px;color:var(--mu)">(Photos optional — placeholders used if none)</span>';
+            return '<div class="ar-toggle-row"><label>Include Pool Profiles'+hint+'</label>'
+              +'<div class="ar-sw-track'+(EX.inclPoolProfiles?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
             +'</div>';
           })()
           +'<div class="ar-toggle-row" data-client-hide><label>Include Exec Summary</label>'
@@ -5113,11 +5116,14 @@ function renderExportSection(){
             +'<div class="ar-sw-track'+(EX.inclLsCover?' on':'')+'" data-ex-sw="inclLsCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
           +(function(){
+            // Pool Profiles is now always toggleable. When no pool photos
+            // are uploaded, the Profile page renders a grey placeholder
+            // card with a pool icon for each registered pool. Hint helps
+            // the user know they CAN upload images for richer output.
             var hasImg=S.bodies.some(function(b){return !!b.image;});
-            var needImage=!S.manualVolume && !hasImg;
-            var hint=needImage?' <span style="font-size:10px;color:var(--mu)">(Upload at least one pool image)</span>':'';
-            return '<div class="ar-toggle-row"'+(needImage?' style="opacity:.5;pointer-events:none"':'')+'><label>Include Pool Profiles'+hint+'</label>'
-              +'<div class="ar-sw-track'+(EX.inclPoolProfiles&&!needImage?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
+            var hint=hasImg?'':' <span style="font-size:10px;color:var(--mu)">(Photos optional — placeholders used if none)</span>';
+            return '<div class="ar-toggle-row"><label>Include Pool Profiles'+hint+'</label>'
+              +'<div class="ar-sw-track'+(EX.inclPoolProfiles?' on':'')+'" data-ex-sw="inclPoolProfiles"><div class="ar-sw-thumb"></div></div>'
             +'</div>';
           })()
           +'<div class="ar-toggle-row" data-client-hide><label>Include Exec Summary</label>'
