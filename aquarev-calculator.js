@@ -573,7 +573,11 @@ var Cloud = (function(){
           try { localStorage.setItem(ENABLED_KEY, '1'); } catch(_){}
           installStorageAdapter();
           // Increment login count on every successful gate-login (counts as a "session load")
-          c.rpc('track_login').catch(function(){});
+          // Use .then(noop,noop) instead of .catch — Supabase's PostgrestBuilder
+          // is thenable but doesn't expose .catch directly; calling .catch on
+          // it throws "is not a function". This pattern guarantees the chain
+          // resolves regardless of RPC success/failure.
+          try { c.rpc('track_login').then(function(){}, function(){}); } catch(_){}
           return user;
         });
     });
