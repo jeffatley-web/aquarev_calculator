@@ -531,10 +531,30 @@
      Selector `.rpt:not(.rpt-landscape)` targets ONLY the bare Assessment
      wrapper — Cover / ES / Pool Profile / Back Cover all use their own
      `.rpt-*-page` classes and aren't affected. */
-  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-grid{gap:8px!important;margin-top:4px!important;}
-  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-wrap{max-height:96px!important;}
-  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-cap{font-size:9px!important;margin-top:3px!important;line-height:1.35!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-grid{gap:6px!important;margin-top:3px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-wrap{max-height:72px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-cap{font-size:8px!important;margin-top:2px!important;line-height:1.25!important;}
   #ar2-report .rpt:not(.rpt-landscape) .rpt-head-left img{max-height:34px!important;margin-bottom:2px!important;}
+  /* ── Portrait Assessment body: belt-and-suspenders containment ──
+     The body is flex-column with its 3 children (Row A pool+devices,
+     Row B purchase+breakdown+water+images+videos, disclaimer) as flex
+     items. Mark the row that holds Property Images + Video Resources
+     (`.rpt-pt-media-row`, added by the JS builder below) as flex:0 0 auto
+     and pin it just above the disclaimer with margin-top:auto so the
+     images CANNOT be pushed past the body's overflow:hidden boundary —
+     if upper content runs tall, the Purchase/Breakdown row gets clipped
+     before the media row does. */
+  #ar2-report .rpt:not(.rpt-landscape) > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-pt-media-row{margin-top:auto!important;flex:0 0 auto!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-disc{flex:0 0 auto!important;}
+  /* Compress all sections except the bottom-pinned media row so dense
+     properties (7+ pools + water + images + videos) still fit on a single
+     portrait page. */
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-row{padding:1.5px 0!important;font-size:10px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-sec{margin-bottom:6px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-sbox{padding:7px 10px!important;margin-bottom:4px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-tbl td,
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-tbl th{padding:3px 6px!important;font-size:10px!important;}
 }
 @media print and (orientation:landscape){
   #ar2-report .rpt{font-size:10px;}

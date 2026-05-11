@@ -4857,7 +4857,13 @@ function generateReport(){
             +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
           +'</div>'
         +'</div>'
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols">'+imgHtml+ytHtml+'</div>':'')
+        // .rpt-pt-media-row hooks into the @media print rule that pins
+        // this row to the bottom of the body slot (margin-top:auto +
+        // flex:0 0 auto). Guarantees Property Images / Video Resources
+        // stay fully visible even when upper content (Pool Config +
+        // Purchase + Breakdown + Water) runs tall — overflow clips the
+        // upper rows first, never the media row.
+        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+imgHtml+ytHtml+'</div>':'')
         +commHtml
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
       )
@@ -5064,7 +5070,10 @@ function generateReport(){
               + (EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
             + '</div>'
           + '</div>'
-          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols">'+imgHtml+ytHtml+'</div>':'')
+          // Cascade last-page portrait — same .rpt-pt-media-row hook so
+          // the multi-page Assessment final page pins Property Images +
+          // Video Resources to the bottom of the body slot.
+          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+imgHtml+ytHtml+'</div>':'')
           + commHtml
           + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
         )
