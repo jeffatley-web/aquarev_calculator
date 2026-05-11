@@ -2137,6 +2137,13 @@ function renderBank(){
 
 /* ── Reset app to fresh state ── */
 function resetApp(){
+  // Wipe the Map Pools step state too — without this, the "New" button only
+  // clears the calculator's S/EX but leaves the pool-measure suite (#ap2)
+  // showing the previous session's polygons, boundary, and incrementing
+  // pool numbers. The bridge to the suite exposes a reset() helper.
+  if(window.AR2_MAP && AR2_MAP.reset){
+    try { AR2_MAP.reset(); } catch(e){}
+  }
   S.step=0; S.activeTab='advantage';
   S.propertyName='';
   S.bodies=[{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];

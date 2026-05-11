@@ -3105,6 +3105,24 @@ window.AR2_MAP = {
   // Property name input exposed so the calculator can sync it both ways.
   getPropertyName() { return ($('ap-name')?.value || '').trim(); },
   setPropertyName(n) { if ($('ap-name')) $('ap-name').value = n || ''; },
+  // Full reset — called by the calculator's "New" button to release map
+  // state when starting a fresh assessment. Without this, pools / boundary
+  // / pool numbers stay on the map and continue numbering from the last
+  // session (pool 7, 8, … instead of restarting at 1).
+  reset() {
+    try { resetAll(false); } catch (e) {}
+    // Reset monotonic counters so the next pool starts at 1 again.
+    S.nextId = 1;
+    S.nextPoolNumber = 1;
+    S.history = []; S.future = [];
+    // Clear the property + address inputs so they don't show stale text.
+    if ($('ap-name'))  $('ap-name').value  = '';
+    if ($('ap-query')) $('ap-query').value = '';
+    // Clear any in-flight tool mode and the review card.
+    try { setMode('idle'); } catch (e) {}
+    try { renumberPools(); } catch (e) {}
+    try { renderCatalog(); } catch (e) {}
+  },
 };
 
 // ─── Phase 4C: First-run hint ────────────────────────────────────────
