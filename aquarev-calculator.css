@@ -606,12 +606,33 @@
   #ar2-report .rpt.rpt-landscape .rpt-body{padding:6px 20px 4px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:4px 20px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-foot{padding:4px 20px!important;font-size:7px!important;}
-  /* Cap Property Images / Video Resources stack heights so they don't push
-     the page past the 8.5in boundary. Image wrap aspect-ratio is overridden
-     to a fixed shorter height (preserves width:100% but limits vertical). */
-  #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack .rpt-img-wrap,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-img-wrap,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack .rpt-yt-thumb{aspect-ratio:auto!important;height:90px!important;}
+  /* ── Landscape Assessment: mirror screen-mode flex/grid containment ──
+     The screen preview wraps these landscape grid rules inside @media
+     screen (see line ~683), so PRINT was falling back to default block
+     layout — .rpt-ls-row-b sized to its natural content height instead
+     of stretching to fill the body, and the bottom-pinned .rpt-ls-img-stack
+     / .rpt-ls-media-stack (margin-top:auto) had no flex parent to pin
+     against. Result: Property Images + Video Resources rendered straight
+     below Purchase Options / Breakdown, and once those overflowed the
+     body's overflow:hidden boundary the image and video sections vanished
+     past the CTA / footer. Re-apply the same flex containment in print
+     and force the bottom stacks to flex:0 0 auto so they always claim
+     their natural height (top content gets clipped first, not the media). */
+  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-row-b{flex:1 1 0!important;min-height:0!important;display:grid!important;grid-template-columns:1fr 1fr!important;gap:14px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-lcol,
+  #ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex!important;flex-direction:column!important;min-height:0!important;overflow:hidden!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack,
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:auto!important;padding-top:6px!important;flex:0 0 auto!important;}
+  /* Image / video tiles — keep aspect-ratio 16/9 in both PDF and preview
+     so the property images aren't vertically compressed. Earlier rule
+     forced height:90px + aspect-ratio:auto which produced inconsistent
+     framing between preview (16/9) and PDF (90px-tall). Width is grid-
+     constrained to ~233px per tile, giving ~131px natural height which
+     fits comfortably in the bottom-pinned stack on a 8.5in-tall page. */
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:130px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:8.5px!important;margin-top:3px!important;line-height:1.3!important;}
 }
 /* ── Mobile: results panel above form ── */
 @media(max-width:860px){
@@ -696,8 +717,20 @@
   #ar2-report .rpt.rpt-landscape .rpt-ls-row-b{flex:1 1 0;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:18px;}
   #ar2-report .rpt.rpt-landscape .rpt-ls-lcol,
   #ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  /* flex:0 0 auto lets the bottom-pinned stacks claim their natural
+     height (image grid + caption) without being flex-shrunk by the
+     parent column. Default flex-shrink:1 compressed the stacks when
+     the upper content (Purchase Options + Advantage Box / Breakdown)
+     ran tall, which collapsed the 16/9 image-wrap aspect ratio and
+     made the property images look vertically squished in preview. */
   #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:auto;padding-top:8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:auto;padding-top:8px;flex:0 0 auto;}
+  /* Tile cap mirrors the @media print rule so screen preview and PDF render
+     Property Images / Video Resources at the same 16/9 aspect and same
+     ~130px max-height. Without it, the preview tiles ran taller than the
+     print tiles whenever the col had spare room, breaking PDF-vs-preview
+     parity that the user wants. */
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9;max-height:130px;}
   /* Landscape Assessment compression — fits 5-KPI strip + 2-col body + CTA + footer in 866px */
   #ar2-report .rpt.rpt-landscape{font-size:11px;}
   #ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 22px 8px;}
