@@ -434,8 +434,12 @@
   #ar2-report .rpt-es-page-2 .rpt-es-body-2{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
   #ar2-report .rpt-es-body-1 > *,
   #ar2-report .rpt-es-page-2 .rpt-es-body-2 > *{min-height:0!important;overflow:hidden!important;}
-  /* Cap the chart SVG so it can't push the bottom of right col past the page. */
-  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:160px!important;}
+  /* Chart SVG cap kept loose so the print render matches the screen preview.
+     Earlier we'd hard-clamped to 160px which made the chart shrink and
+     introduce horizontal margins — preview and PDF then diverged. The
+     viewBox aspect (540×210) already keeps the natural height ≈ col-width
+     ÷ 2.57 ≈ 176px, which fits comfortably without bleeding the footer. */
+  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:200px!important;}
   #ar2-report .rpt-es-device-full{margin:0 0 10px!important;}
   #ar2-report .rpt-es-feat-grid{margin:3px 0 10px!important;}
   #ar2-report .rpt-es-left,#ar2-report .rpt-es-right{padding:14px 24px 18px!important;}
@@ -514,6 +518,23 @@
      bottom off the print page. */
   #ar2-report .rpt-es-page .rpt-es-ritz{margin:4px 0 6px!important;}
   #ar2-report .rpt-es-page .rpt-es-video{margin:4px 0 6px!important;}
+  /* ── PORTRAIT ASSESSMENT — cap image/video grids + client-logo header ──
+     The single-page Assessment fits Pool Config + Devices + Purchase +
+     Breakdown + Water + Property Images + Video Resources + CTA + Foot
+     into one 8.5×11 page. When a Client uploads a logo, the rpt-head
+     grows from ~70px (wordmark+sub) to ~83px (42px logo+sub), eating into
+     the body slot. Combined with the natural ~120px-tall 16/9 image
+     tiles, the imgHtml + ytHtml row could overflow the body's
+     overflow:hidden clip — content vanished or visually crowded the
+     footer. Caps below trim the tile height and tighten the header logo
+     so PDF and preview stay aligned even with a tall client mark.
+     Selector `.rpt:not(.rpt-landscape)` targets ONLY the bare Assessment
+     wrapper — Cover / ES / Pool Profile / Back Cover all use their own
+     `.rpt-*-page` classes and aren't affected. */
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-grid{gap:8px!important;margin-top:4px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-wrap{max-height:96px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-cap{font-size:9px!important;margin-top:3px!important;line-height:1.35!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-head-left img{max-height:34px!important;margin-bottom:2px!important;}
 }
 @media print and (orientation:landscape){
   #ar2-report .rpt{font-size:10px;}
