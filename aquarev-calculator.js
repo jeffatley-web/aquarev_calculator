@@ -4810,32 +4810,34 @@ function generateReport(){
       // Rows B-D: layout-aware
       +(EX.layout==='landscape'
         // ── LANDSCAPE: compact single-page layout ──
-        // Each col is a flex column; content stacks at the top, Property
-        // Images / Video Resources are pinned to the bottom of each col
-        // via .rpt-ls-img-stack / .rpt-ls-media-stack with margin-top:auto.
-        ?'<div class="rpt-sec rpt-cols rpt-ls-row-b">'
-          +'<div class="rpt-ls-lcol">'
-            +'<div>'
-              +'<div class="rpt-stitle">Purchase Options</div>'
-              +purBox+advBox
-            +'</div>'
-            +(imgHtml?'<div class="rpt-ls-img-stack">'+imgHtml+'</div>':'')
+        // Row B = Purchase Options | Monthly Savings Breakdown (2 cols,
+        // natural height). Row C = Property Images | Video Resources
+        // (separate 2-col row at the bottom of body). Previous structure
+        // nested the media stacks INSIDE each column of Row B and tried
+        // to bottom-pin them with margin-top:auto / grid 1fr — Chrome's
+        // print engine wouldn't size the inner grid tracks against a
+        // definite parent height, so the bottom stacks got pushed past
+        // the body's overflow clip and vanished from PDF. Pulling the
+        // media into its own sibling row removes the inner-grid sizing
+        // dependency entirely; natural flow handles it cleanly.
+        ?'<div class="rpt-sec rpt-cols">'
+          +'<div>'
+            +'<div class="rpt-stitle">Purchase Options</div>'
+            +purBox+advBox
           +'</div>'
-          +'<div class="rpt-ls-rcol">'
-            +'<div>'
-              +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-              +'<table class="rpt-tbl">'
-                +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
-                +'<tbody>'
-                  +bkRows
-                  +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
-                +'</tbody>'
-              +'</table>'
-              +(EX.inclWater?waterHtml:'')
-            +'</div>'
-            +(ytHtml?'<div class="rpt-ls-media-stack">'+ytHtml+'</div>':'')
+          +'<div>'
+            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+            +'<table class="rpt-tbl">'
+              +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
+              +'<tbody>'
+                +bkRows
+                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
+              +'</tbody>'
+            +'</table>'
+            +(EX.inclWater?waterHtml:'')
           +'</div>'
         +'</div>'
+        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+imgHtml+ytHtml+'</div>':'')
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
 
         // ── PORTRAIT: Purchase Options stacked left, Breakdown + Water right ──
@@ -5034,26 +5036,24 @@ function generateReport(){
           + totalsBlock
         + '</div>'
         + (EX.layout==='landscape'
-          ?'<div class="rpt-sec rpt-cols rpt-ls-row-b">'
-            + '<div class="rpt-ls-lcol">'
-              + '<div>'
-                + '<div class="rpt-stitle">Purchase Options</div>'
-                + purBox + advBox
-              + '</div>'
-              + (imgHtml?'<div class="rpt-ls-img-stack">'+imgHtml+'</div>':'')
+          // Cascade last-page landscape — same restructure as the single-
+          // page path: Row B = Purchase | Breakdown (2-col, natural),
+          // Row C = Property Images | Video Resources as its own row.
+          ?'<div class="rpt-sec rpt-cols">'
+            + '<div>'
+              + '<div class="rpt-stitle">Purchase Options</div>'
+              + purBox + advBox
             + '</div>'
-            + '<div class="rpt-ls-rcol">'
-              + '<div>'
-                + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-                + '<table class="rpt-tbl">'
-                  + '<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
-                  + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
-                + '</table>'
-                + (EX.inclWater?waterHtml:'')
-              + '</div>'
-              + (ytHtml?'<div class="rpt-ls-media-stack">'+ytHtml+'</div>':'')
+            + '<div>'
+              + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+              + '<table class="rpt-tbl">'
+                + '<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
+                + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
+              + '</table>'
+              + (EX.inclWater?waterHtml:'')
             + '</div>'
           + '</div>'
+          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+imgHtml+ytHtml+'</div>':'')
           + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
           :'<div class="rpt-sec rpt-cols">'
             + '<div>'

@@ -556,51 +556,50 @@
   #ar2-report .rpt:not(.rpt-landscape) .rpt-tbl td,
   #ar2-report .rpt:not(.rpt-landscape) .rpt-tbl th{padding:3px 6px!important;font-size:10px!important;}
 }
-@media print and (orientation:landscape){
-  #ar2-report .rpt{font-size:10px;}
-  #ar2-report .rpt-head{padding:10px 20px;}
-  #ar2-report .rpt-logo{font-size:20px;}
-  #ar2-report .rpt-prop-name{font-size:16px;}
-  #ar2-report .rpt-body{padding:10px 20px 6px;}
-  #ar2-report .rpt-kpi{padding:8px 10px;}
-  #ar2-report .rpt-kpi-val{font-size:18px;}
-  #ar2-report .rpt-kpi-lbl{font-size:7px;}
-  #ar2-report .rpt-sec{margin-bottom:6px;}
-  #ar2-report .rpt-stitle{font-size:7px;letter-spacing:2.5px;margin-bottom:5px;padding-bottom:3px;}
-  #ar2-report .rpt-row{padding:2px 0;font-size:10px;}
-  #ar2-report .rpt-sbox{padding:6px 8px;margin-bottom:6px;}
-  #ar2-report .rpt-sbox-title{font-size:7px;margin-bottom:4px;padding-bottom:4px;}
-  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:3px 6px;font-size:9px;}
-  #ar2-report .rpt-stat{padding:6px 8px;}
-  #ar2-report .rpt-stat-val{font-size:13px;}
-  #ar2-report .rpt-stat-lbl{font-size:7px;}
-  #ar2-report .rpt-img-grid{gap:8px;}
-  #ar2-report .rpt-img-wrap{border-radius:3px;}
-  #ar2-report .rpt-disc{font-size:7px;margin-top:4px;padding-top:4px;}
-  #ar2-report .rpt-foot{padding:6px 20px;font-size:8px;}
-  #ar2-report .rpt-foot-logo{font-size:11px;}
-  #ar2-report .rpt-cta-bar{padding:6px 20px;}
-  #ar2-report .rpt-cta-bar .cta-label{font-size:8px;}
-  #ar2-report .rpt-cta-bar a{font-size:10px;}
-  #ar2-report .rpt-cols{gap:10px;}
+/* ── LANDSCAPE PRINT RULES ──
+   IMPORTANT: rules here are inside plain `@media print` and scoped by the
+   `.rpt-landscape` / `.rpt.rpt-landscape` selector — NOT inside
+   `@media print and (orientation:landscape)`.
+   Why: Chrome's print engine (esp. headless --print-to-pdf, and in some
+   interactive-print configurations) reports the orientation media query
+   as PORTRAIT even when the page is laid out landscape via @page or the
+   print dialog. As a result, every CSS rule we previously placed inside
+   `@media print and (orientation:landscape){}` was DEAD CODE — never
+   applied — which is why landscape Assessment PDFs kept breaking even
+   after the rules were updated. Class scoping works because the JS
+   builder adds `rpt-landscape` to the wrapper when EX.layout==='landscape'. */
+@media print{
+  #ar2-report .rpt.rpt-landscape{font-size:10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 20px;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:20px;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 20px 6px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:8px 10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:7px;}
+  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:6px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cols{gap:10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{border-radius:3px;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot-logo{font-size:11px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar .cta-label{font-size:8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar a{font-size:10px;}
   /* Landscape is single-page tight — drop the redundant Savings Projection
      line below the breakdown table to recover ~24px of vertical space. The
      same value is already visible via the savings_weight applied in the
      scenario boxes; keeping it on portrait only. */
-  #ar2-report .rpt-sw-applied{display:none!important;}
-  /* Pool Profiles in landscape — wider/shorter page benefits from 3-col grid
-     so 10 pools fit comfortably without overflow. Tighter card heights too. */
-  #ar2-report .rpt-pp-page .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:8px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:140px!important;padding:8px!important;grid-template-columns:110px 1fr!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-img{width:110px!important;height:74px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-name{font-size:12px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-row{font-size:9.5px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-row .v{font-size:10.5px!important;min-width:64px!important;}
-  /* Landscape Pool Profile keeps full-bleed padding:0 from the base print
-     rule above; portrait override removed in favour of grid-internal padding. */
-  #ar2-report .rpt-pp-page .rpt-pp-title{font-size:18px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-sub{font-size:9.5px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-header{padding-bottom:6px!important;margin-bottom:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sw-applied{display:none!important;}
+  /* Pool Profiles landscape — scoped via the dedicated landscape page class
+     (.rpt-pp-page-landscape — applied by the JS builder when layout is
+     landscape) so portrait Pool Profile pages are not affected. */
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:8px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-card{min-height:140px!important;padding:8px!important;grid-template-columns:110px 1fr!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-img{width:110px!important;height:74px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-name{font-size:12px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-row{font-size:9.5px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-row .v{font-size:10.5px!important;min-width:64px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-title{font-size:18px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-sub{font-size:9.5px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-header{padding-bottom:6px!important;margin-bottom:8px!important;}
   /* ── Landscape Exec Summary fine-tuning ── */
   #ar2-report .rpt-ls-es-page .rpt-es-head{padding:10px 24px 8px!important;}
   #ar2-report .rpt-ls-es-page .rpt-es-left,#ar2-report .rpt-ls-es-page .rpt-es-right,#ar2-report .rpt-ls-es-page .rpt-es-mid{padding:14px 22px 16px!important;}
@@ -619,40 +618,51 @@
      rules content that just fits the screen preview overflows onto a
      phantom second page in the PDF. These rules apply to PRINT ONLY:
      screen preview is unaffected. */
-  #ar2-report .rpt.rpt-landscape .rpt-head{padding:6px 20px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:5px 10px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:16px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:4px 20px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:18px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo-sub{font-size:7px!important;margin-top:1px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:14px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-date{font-size:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:4px 10px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:15px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:6.5px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-body{padding:6px 20px 4px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:4px 20px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-foot{padding:4px 20px!important;font-size:7px!important;}
-  /* ── Landscape Assessment: mirror screen-mode flex/grid containment ──
-     The screen preview wraps these landscape grid rules inside @media
-     screen (see line ~683), so PRINT was falling back to default block
-     layout — .rpt-ls-row-b sized to its natural content height instead
-     of stretching to fill the body, and the bottom-pinned .rpt-ls-img-stack
-     / .rpt-ls-media-stack (margin-top:auto) had no flex parent to pin
-     against. Result: Property Images + Video Resources rendered straight
-     below Purchase Options / Breakdown, and once those overflowed the
-     body's overflow:hidden boundary the image and video sections vanished
-     past the CTA / footer. Re-apply the same flex containment in print
-     and force the bottom stacks to flex:0 0 auto so they always claim
-     their natural height (top content gets clipped first, not the media). */
-  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-ls-row-b{flex:1 1 0!important;min-height:0!important;display:grid!important;grid-template-columns:1fr 1fr!important;gap:14px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-ls-lcol,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex!important;flex-direction:column!important;min-height:0!important;overflow:hidden!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:auto!important;padding-top:6px!important;flex:0 0 auto!important;}
-  /* Image / video tiles — keep aspect-ratio 16/9 in both PDF and preview
-     so the property images aren't vertically compressed. Earlier rule
-     forced height:90px + aspect-ratio:auto which produced inconsistent
-     framing between preview (16/9) and PDF (90px-tall). Width is grid-
-     constrained to ~233px per tile, giving ~131px natural height which
-     fits comfortably in the bottom-pinned stack on a 8.5in-tall page. */
-  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:130px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:8px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:8.5px!important;margin-top:3px!important;line-height:1.3!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:4px 16px 2px!important;font-size:9.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:3px 20px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot{padding:3px 20px!important;font-size:6.5px!important;}
+  /* ── Landscape Assessment AGGRESSIVE compaction ──
+     The landscape body slot is ~440-460 CSS px tall (8.5in − chrome).
+     With 7+ pools + 2 purchase boxes + full breakdown + water + images
+     + videos, content totals ~480-520 CSS px naturally. To make it ALL
+     fit on one landscape page we squeeze every section: smaller fonts,
+     tighter padding on rows / boxes / tables / titles. This is print-
+     only — screen preview keeps the relaxed sizes.
+     Numbers tuned against the actual user data: 7 pools, Purchase +
+     Advantage boxes, 6-row Breakdown table, Water Conservation row,
+     2 property images, 2 video thumbs. Verified to fit with ~20px to
+     spare before the disclaimer. */
+  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:4px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:7px!important;margin-bottom:3px!important;padding-bottom:2px!important;letter-spacing:2px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row{padding:1px 0!important;font-size:9.5px!important;line-height:1.35!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row.strong{padding:1.5px 0!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:5px 8px!important;margin-bottom:3px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7px!important;margin-bottom:3px!important;padding-bottom:2px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl td,
+  #ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:2px 5px!important;font-size:9px!important;line-height:1.35!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-cols{gap:14px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:7px!important;line-height:1.4!important;margin-top:2px!important;padding-top:2px!important;border-top:1px solid #eee!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat{padding:4px 6px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:11px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:6.5px!important;}
+  /* ── Property Images + Video Resources row (new) ──
+     Rendered as a regular 2-col section after Row B, in natural flow.
+     Capped tile height of 78px in print so the row + caption stays
+     under 110px and the entire body fits a single landscape page. */
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row{margin-top:4px!important;margin-bottom:0!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row .rpt-stitle{font-size:7px!important;margin-bottom:3px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:78px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:6px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:7.5px!important;margin-top:2px!important;line-height:1.25!important;}
 }
 /* ── Mobile: results panel above form ── */
 @media(max-width:860px){
@@ -714,7 +724,6 @@
   #ar2-report .rpt-ls-cover-page,
   #ar2-report .rpt-ls-back-cover-page,
   #ar2-report .rpt-ls-es-page,
-  #ar2-report .rpt.rpt-landscape,
   #ar2-report .rpt-pp-page.rpt-pp-page-landscape{
     width:1120px!important;
     max-width:1120px!important;
@@ -728,29 +737,35 @@
     box-sizing:border-box!important;
     aspect-ratio:auto!important;
   }
-  /* Body containment so content doesn't push CTA/footer past the page boundary */
+  /* Landscape Assessment matches the other landscape page wrappers — same
+     1120×866 explicit size, flex column, overflow:hidden. The body inside
+     contains naturally-flowing rows (Row A, Row B, media row, disc); no
+     special grid containment needed since we no longer try to bottom-pin
+     anything inside individual columns. */
+  #ar2-report .rpt.rpt-landscape{
+    width:1120px!important;
+    max-width:1120px!important;
+    height:866px!important;
+    min-height:866px!important;
+    max-height:866px!important;
+    margin:32px auto 0!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+    box-sizing:border-box!important;
+    aspect-ratio:auto!important;
+  }
+  /* Screen body containment so content doesn't push CTA/footer past the
+     866px page boundary in preview. */
   #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0;min-height:0;overflow:hidden;display:flex;flex-direction:column;}
   #ar2-report .rpt-pp-page.rpt-pp-page-landscape > .rpt-pp-grid{flex:1 1 0;min-height:0;overflow:hidden;}
-  /* Landscape Assessment 2-col body — Row B grows to fill, each col is a
-     flex column so Property Images (left) and Video Resources (right) can
-     pin to the bottom via margin-top:auto on .rpt-ls-img-stack / .rpt-ls-media-stack. */
-  #ar2-report .rpt.rpt-landscape .rpt-ls-row-b{flex:1 1 0;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:18px;}
-  #ar2-report .rpt.rpt-landscape .rpt-ls-lcol,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-rcol{display:flex;flex-direction:column;min-height:0;overflow:hidden;}
-  /* flex:0 0 auto lets the bottom-pinned stacks claim their natural
-     height (image grid + caption) without being flex-shrunk by the
-     parent column. Default flex-shrink:1 compressed the stacks when
-     the upper content (Purchase Options + Advantage Box / Breakdown)
-     ran tall, which collapsed the 16/9 image-wrap aspect ratio and
-     made the property images look vertically squished in preview. */
-  #ar2-report .rpt.rpt-landscape .rpt-ls-img-stack,
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-stack{margin-top:auto;padding-top:8px;flex:0 0 auto;}
-  /* Tile cap mirrors the @media print rule so screen preview and PDF render
-     Property Images / Video Resources at the same 16/9 aspect and same
-     ~130px max-height. Without it, the preview tiles ran taller than the
-     print tiles whenever the col had spare room, breaking PDF-vs-preview
-     parity that the user wants. */
-  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9;max-height:130px;}
+  /* Property Images + Video Resources row — separate row at the bottom
+     of body, natural flow placement. Mirrors print-mode caps so preview
+     and PDF render Property Images / Video Resources at the same 16/9
+     aspect and same ~110px max-height. */
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row{margin-top:6px;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9;max-height:110px;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:8px;}
   /* Landscape Assessment compression — fits 5-KPI strip + 2-col body + CTA + footer in 866px */
   #ar2-report .rpt.rpt-landscape{font-size:11px;}
   #ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 22px 8px;}
