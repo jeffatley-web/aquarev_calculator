@@ -1078,7 +1078,15 @@ window.AR2_PF = (function(){
     viewMode: 'list',            // 'list' | 'overview'
     selectedPortfolioId: null,   // when viewMode === 'overview'
     properties: {},              // { [portfolioId]: { rows, loading, error } }
-    rollup: {}                   // { [portfolioId]: { data, loading, error } }
+    rollup: {},                  // { [portfolioId]: { data, loading, error } }
+    // Phase 1c — Property mode (calculator scoped to one portfolio property)
+    propertyMode: false,
+    loadedProperty: null,        // full portfolio_properties row currently open
+    savedSnapshot: null,         // { S, EX } captured before entering property mode
+    saveStatus: 'idle',          // 'idle' | 'saving' | 'saved' | 'error'
+    saveError: null,
+    saveTimer: null,             // debounce handle for autosave
+    AUTOSAVE_DEBOUNCE_MS: 1500
   };
 
   // AR2_CLOUD's public API exposes `getClient` (not `client`). Using the
@@ -1618,6 +1626,292 @@ window.AR2_PF = (function(){
     });
   }
 
+  // ════════════════════════════════════════════════════════════════
+  // Phase 1c — Property mode (calculator scoped to a portfolio property)
+  // ════════════════════════════════════════════════════════════════
+
+  // Deep-clone via JSON round-trip. Adequate for S/EX which hold plain
+  // data only (no functions, DOM nodes, dates). Used for snapshots and
+  // state hydration when entering/exiting property mode.
+  function cloneJson(v){
+    try { return JSON.parse(JSON.stringify(v)); }
+    catch(e){ return v; }
+  }
+
+  function inPropertyMode(){ return pfState.propertyMode === true; }
+  function loadedProperty(){ return pfState.loadedProperty; }
+  function saveStatus(){ return pfState.saveStatus; }
+
+  // Fetch the full portfolio_properties row including the heavy fields
+  // (state_json, ex_json, pool_measure_json) that the roster query omits
+  // for list-view performance.
+  function fetchPropertyFull(propertyId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    return c.from('portfolio_properties')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,state_json,ex_json,pool_measure_json,image_urls,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .eq('id', propertyId)
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return rs.data;
+      });
+  }
+
+  // Reset the calculator's global S / EX to fresh-default state WITHOUT
+  // calling render(). Mirrors the body of resetApp() but skips the
+  // render trigger so we can apply property state on top before the
+  // first paint.
+  function _resetCalcStateSilent(){
+    if (window.AR2_MAP && AR2_MAP.reset){ try { AR2_MAP.reset(); } catch(e){} }
+    S.step = 0; S.activeTab = 'advantage';
+    S.propertyName = '';
+    S.bodies = [{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];
+    S.devicesByPool = false;
+    S.pool_gallons = 0; S.chlorine_pool_gallons = 0; S.co2_pool_gallons = 0;
+    S.manualVolume = false; S.manualTotalGallons = ''; S.manualChlorineGallons = ''; S.manualCo2 = false; S.manualPoolCount = 1;
+    S.propertiesCount = 1;
+    S.pipe_2in = 0; S.pipe_3in = 0; S.pipe_4in = 0; S.pipe_6in = 0; S.pipe_8in = 0; S.pipe_10in = 0;
+    S.discount = 0; S.savings_weight = 1;
+    EX.images = []; EX.ytEntries = []; EX.comments = '';
+    EX.scenario = 'advantage'; EX.bothScenarios = true; EX.layout = 'portrait';
+    EX.inclCover = false; EX.inclWater = true; EX.inclFactSheet = false; EX.inclBackCover = false; EX.inclPoolProfiles = false; EX.inclExecSummary = false;
+    EX.execCustomTitle = ''; EX.execCustomCopy = '';
+    EX.inclLsCover = false; EX.inclLsExecSummary = false; EX.inclLsP2Col3Photos = false; EX.lsP2Col3Photos = []; EX.inclLsBackCover = false;
+    EX.saving = false; EX.saveStatus = null; EX.exporting = false;
+    if (typeof initDefaultYt === 'function') initDefaultYt();
+  }
+
+  // Shallow-assign object fields. Used to hydrate S from state_json
+  // without losing any keys that S has and state_json doesn't.
+  function _assignFields(target, src){
+    if (!src || typeof src !== 'object') return;
+    for (var k in src){
+      if (Object.prototype.hasOwnProperty.call(src, k)){
+        target[k] = src[k];
+      }
+    }
+  }
+
+  // Enter property mode. Loads the property row, snapshots the user's
+  // current single-property state, hydrates S/EX from state_json/ex_json,
+  // shows the breadcrumb subbar, and re-renders the calculator.
+  function enterProperty(propertyId){
+    if (!propertyId) return Promise.reject(new Error('property id required'));
+    return fetchPropertyFull(propertyId).then(function(prop){
+      // Snapshot the user's current single-property session so we can
+      // restore it when they exit property mode.
+      pfState.savedSnapshot = {
+        S: cloneJson(S),
+        EX: cloneJson(EX)
+      };
+      // Reset calculator to clean defaults so any field the property's
+      // state_json doesn't carry falls back to its default value.
+      _resetCalcStateSilent();
+      // Hydrate from property state. property_name overrides S.propertyName
+      // so the calculator UI shows the property's name as the property name.
+      if (prop.state_json && typeof prop.state_json === 'object'){
+        _assignFields(S, prop.state_json);
+      }
+      if (prop.ex_json && typeof prop.ex_json === 'object'){
+        _assignFields(EX, prop.ex_json);
+      }
+      // Force-set the property name to match the portfolio_properties.name
+      // (source of truth for the property's identity).
+      if (prop.property_name) S.propertyName = prop.property_name;
+      // Restore to Step 1 (Pool & System) on each entry. Step 0 is Map
+      // Pool which is great for new properties; once they've configured
+      // pools, landing on Step 1 saves a click. They can navigate to
+      // Step 0 if they need to redraw.
+      S.step = Math.max(1, Math.min(5, Number(S.step) || 1));
+      pfState.propertyMode = true;
+      pfState.loadedProperty = prop;
+      pfState.saveStatus = 'idle';
+      pfState.saveError = null;
+      _renderSubbar();
+      _toggleSubbar(true);
+      // Show calculator (hide archive), then re-render with new S.
+      if (typeof showView === 'function') showView('form');
+      if (typeof render === 'function') render();
+    });
+  }
+
+  // Exit property mode. Saves any pending changes, restores the original
+  // single-property snapshot, navigates back to the Portfolio Overview.
+  function exitProperty(opts){
+    var skipSave = opts && opts.skipSave;
+    var done = function(){
+      // Restore the user's prior single-property session
+      if (pfState.savedSnapshot){
+        _resetCalcStateSilent();
+        _assignFields(S, pfState.savedSnapshot.S);
+        _assignFields(EX, pfState.savedSnapshot.EX);
+      }
+      pfState.savedSnapshot = null;
+      pfState.propertyMode = false;
+      pfState.loadedProperty = null;
+      pfState.saveStatus = 'idle';
+      pfState.saveError = null;
+      if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
+      _toggleSubbar(false);
+      // Navigate back to Portfolio Overview (Portfolios tab, overview view)
+      pfState.activeTab = 'portfolios';
+      pfState.viewMode  = 'overview';
+      // selectedPortfolioId stays set so Overview reopens to the same portfolio
+      if (typeof showView === 'function') showView('bank');
+      if (typeof renderArchive === 'function') renderArchive();
+    };
+    if (skipSave || !pfState.loadedProperty){ done(); return Promise.resolve(); }
+    return saveCurrentProperty().then(done, function(err){
+      // Save failed — surface it but still allow exit so the user can
+      // navigate away. They'll see the error indicator next time they
+      // open this property.
+      try { console.warn('[AR2_PF] save before exit failed:', err); } catch(_){}
+      done();
+    });
+  }
+
+  // Compute the computed_kpis blob from the current S/EX/R. Field names
+  // match what portfolio_rollup(uuid) expects to aggregate.
+  function _buildKpisFromState(){
+    var R = (typeof calcROI === 'function') ? calcROI() : null;
+    if (!R) return {};
+    return {
+      total_dev:      Number(R.total_dev) || 0,
+      total_pool_gal: Number(S.pool_gallons) || 0,
+      total_mo:       Number(R.total_mo) || 0,
+      total_yr:       Number(R.total_yr) || 0,
+      inv:            Number(R.inv) || 0,
+      payback:        Number(R.payback) || 0,
+      roi5:           Number(R.roi5) || 0,
+      water_5yr:      Number(R.gal_saved_5yr) || 0,
+      disc_amt:       Number(R.disc_amt) || 0
+    };
+  }
+
+  // Persist current S/EX + freshly-computed KPIs to portfolio_properties.
+  // Returns a promise resolving when the UPDATE completes.
+  function saveCurrentProperty(){
+    if (!pfState.propertyMode || !pfState.loadedProperty){
+      return Promise.reject(new Error('not in property mode'));
+    }
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    var prop = pfState.loadedProperty;
+    var kpis = _buildKpisFromState();
+    // state_json mirrors single-property assessments.snapshot shape so
+    // hydration on next open is symmetric. ex_json saves images + export
+    // toggles. Both could grow large (images); Phase 2 migrates images
+    // to Supabase Storage. For Phase 1c we save inline.
+    var stateJson = cloneJson(S);
+    var exJson    = cloneJson(EX);
+    pfState.saveStatus = 'saving';
+    pfState.saveError  = null;
+    _renderSubbar();
+    return c.from('portfolio_properties')
+      .update({
+        state_json: stateJson,
+        ex_json:    exJson,
+        computed_kpis: kpis,
+        // Persist a normalized property_name only if user has entered one
+        // in the calculator (S.propertyName); otherwise keep the existing.
+        property_name: (S.propertyName && String(S.propertyName).trim()) || prop.property_name
+      })
+      .eq('id', prop.id)
+      .select('id,property_name,computed_kpis,updated_at')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        // Update local caches so the Portfolio Overview reflects new
+        // KPIs without a refetch.
+        pfState.loadedProperty.property_name = rs.data.property_name;
+        pfState.loadedProperty.computed_kpis = rs.data.computed_kpis;
+        pfState.loadedProperty.updated_at    = rs.data.updated_at;
+        var portfolioId = prop.portfolio_id;
+        var slot = pfState.properties[portfolioId];
+        if (slot && slot.rows){
+          for (var i = 0; i < slot.rows.length; i++){
+            if (slot.rows[i].id === prop.id){
+              slot.rows[i].property_name  = rs.data.property_name;
+              slot.rows[i].computed_kpis  = rs.data.computed_kpis;
+              slot.rows[i].updated_at     = rs.data.updated_at;
+              break;
+            }
+          }
+        }
+        // Invalidate the cached rollup so the Overview KPI strip
+        // refetches with the new aggregates next time it renders.
+        if (pfState.rollup[portfolioId]) pfState.rollup[portfolioId] = null;
+        pfState.saveStatus = 'saved';
+        _renderSubbar();
+        // Reset to idle after a short success window so the UI doesn't
+        // pin to "Saved" indefinitely.
+        setTimeout(function(){
+          if (pfState.saveStatus === 'saved') { pfState.saveStatus = 'idle'; _renderSubbar(); }
+        }, 2500);
+        return rs.data;
+      }, function(err){
+        pfState.saveStatus = 'error';
+        pfState.saveError  = (err && err.message) || 'Save failed';
+        _renderSubbar();
+        throw err;
+      });
+  }
+
+  // Debounced autosave — call from render() and on field changes. The
+  // debounce window collapses bursts of edits (typing, slider drag) into
+  // a single save once activity quiets down.
+  function scheduleAutosave(){
+    if (!pfState.propertyMode) return;
+    if (pfState.saveTimer) clearTimeout(pfState.saveTimer);
+    pfState.saveTimer = setTimeout(function(){
+      pfState.saveTimer = null;
+      saveCurrentProperty().catch(function(){ /* error surfaced via saveStatus */ });
+    }, pfState.AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  // ── Subbar (in-property breadcrumb + Save & Close) ────────────
+  function _renderSubbar(){
+    var bar = document.getElementById('ar2-pf-subbar');
+    if (!bar) return;
+    if (!pfState.propertyMode || !pfState.loadedProperty){ bar.innerHTML = ''; return; }
+    var prop  = pfState.loadedProperty;
+    var pfRec = getPortfolio(prop.portfolio_id);
+    var pfName = pfRec ? (pfRec.name || 'Portfolio') : 'Portfolio';
+    var propName = (S.propertyName && S.propertyName.trim()) || prop.property_name || 'Property';
+    var status = pfState.saveStatus;
+    var statusHtml = '';
+    if (status === 'saving'){
+      statusHtml = '<span class="ar-pf-sub-status saving">Saving…</span>';
+    } else if (status === 'saved'){
+      statusHtml = '<span class="ar-pf-sub-status saved">Saved</span>';
+    } else if (status === 'error'){
+      statusHtml = '<span class="ar-pf-sub-status error" title="' + esc(pfState.saveError||'') + '">Save failed</span>';
+    }
+    bar.innerHTML = '<div class="ar-pf-sub-inner">'
+      + '<button class="ar-pf-sub-back" data-pf-action="exit-property" type="button" aria-label="Back to portfolio">'
+      +   '&#x2190; ' + esc(pfName)
+      + '</button>'
+      + '<span class="ar-pf-sub-sep">/</span>'
+      + '<span class="ar-pf-sub-prop">' + esc(propName) + '</span>'
+      + statusHtml
+      + '<div class="ar-pf-sub-actions">'
+      +   '<button class="ar-pf-sub-act" data-pf-action="save-property" type="button">Save</button>'
+      +   '<button class="ar-pf-sub-act primary" data-pf-action="save-and-close" type="button">Save &amp; Close</button>'
+      + '</div>'
+      + '</div>';
+  }
+  function _toggleSubbar(show){
+    var bar = document.getElementById('ar2-pf-subbar');
+    var bodyEl = document.body;
+    if (!bar) return;
+    bar.style.display = show ? '' : 'none';
+    // body-level class lets CSS hide bar-actions and other single-mode
+    // chrome while in property mode without touching the DOM.
+    if (show) bodyEl.classList.add('pf-property-mode');
+    else      bodyEl.classList.remove('pf-property-mode');
+  }
+
   // Helper: simple HTML escape (mirrors esc() used in single-property code)
   function esc(s){
     return String(s == null ? '' : s)
@@ -1654,6 +1948,15 @@ window.AR2_PF = (function(){
     openAddPropertyModal: openAddPropertyModal,
     closeAddPropertyModal: closeAddPropertyModal,
     submitNewProperty: submitNewProperty,
+    // Phase 1c — property mode
+    inPropertyMode: inPropertyMode,
+    loadedProperty: loadedProperty,
+    saveStatus: saveStatus,
+    enterProperty: enterProperty,
+    exitProperty: exitProperty,
+    saveCurrentProperty: saveCurrentProperty,
+    scheduleAutosave: scheduleAutosave,
+    _renderSubbar: _renderSubbar,
     _state: pfState  // exposed for debug only
   };
 })();
@@ -4241,6 +4544,15 @@ function render(){
   renderResults();
   // Re-initialize map canvas dimensions after visibility toggles
   if(S.step===0 && window.AR2_MAP && AR2_MAP.resize){ setTimeout(function(){ AR2_MAP.resize(); },60); }
+  // Portfolio property mode (sandbox): every render() means state may
+  // have changed — debounced autosave to portfolio_properties. No-op
+  // when AR2_PF isn't loaded or the user isn't in property mode.
+  if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+    try { AR2_PF.scheduleAutosave(); } catch(_){}
+    // Re-render the subbar so the breadcrumb picks up live edits to
+    // S.propertyName the moment the user types in the name field.
+    try { AR2_PF._renderSubbar(); } catch(_){}
+  }
 }
 
 /* ── Generate printable PDF report ── */
@@ -6255,6 +6567,14 @@ function handleClick(e){
   // Reset / New Assessment
   var resetBtn=e.target.closest('[data-action="reset-app"]');
   if(resetBtn){
+    // In portfolio property mode, "New" doesn't make sense — there's no
+    // new-assessment workflow inside a property. Exit property mode first,
+    // saving the current property's state, and return to the Portfolio
+    // Overview where the user can pick "Add Property" instead.
+    if (window.AR2_PF && AR2_PF.inPropertyMode()){
+      AR2_PF.exitProperty();
+      return;
+    }
     if(confirm('Start a new assessment? Unsaved data will be cleared.')) resetApp();
     return;
   }
@@ -6331,6 +6651,13 @@ function handleClick(e){
       if (act === 'new-property')     { AR2_PF.openAddPropertyModal();     return; }
       if (act === 'add-prop-cancel')  { AR2_PF.closeAddPropertyModal();    return; }
       if (act === 'add-prop-create')  { AR2_PF.submitNewProperty();        return; }
+      // Property mode subbar (Phase 1c)
+      if (act === 'exit-property')    { AR2_PF.exitProperty();             return; }
+      if (act === 'save-and-close')   { AR2_PF.exitProperty();             return; }
+      if (act === 'save-property')    {
+        AR2_PF.saveCurrentProperty().catch(function(){ /* error surfaced in subbar */ });
+        return;
+      }
     }
     var pfRow = e.target.closest('[data-pf-portfolio]');
     if (pfRow) {
@@ -6339,9 +6666,12 @@ function handleClick(e){
     }
     var pfProp = e.target.closest('[data-pf-property]');
     if (pfProp) {
-      // Phase 1c will open the Property Detail (calculator scoped to this
-      // property). For Phase 1b the row click is informational only.
-      try { console.log('[AR2_PF] property row clicked:', pfProp.getAttribute('data-pf-property')); } catch(_) {}
+      // Phase 1c — open the property in the existing calculator step flow.
+      // AR2_PF.enterProperty loads state_json/ex_json into S/EX, shows the
+      // breadcrumb subbar, and routes the user to the calculator.
+      AR2_PF.enterProperty(pfProp.getAttribute('data-pf-property')).catch(function(err){
+        alert('Could not open property: ' + (err && err.message || err));
+      });
       return;
     }
   }
@@ -6352,6 +6682,14 @@ function handleClick(e){
   var viewBank=e.target.closest('[data-action="view-bank"]');
   if(viewBank){
     var inCloud = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
+    // In portfolio property mode, the Archive button doubles as a "back
+    // to portfolio" shortcut — saves the property and exits to the
+    // Portfolio Overview. Without this branch, clicking Archive while
+    // in property mode would leave the property state half-loaded.
+    if (window.AR2_PF && AR2_PF.inPropertyMode()){
+      AR2_PF.exitProperty();
+      return;
+    }
     // Lazy-init the Portfolio Tool the moment the archive is opened.
     // Idempotent — safe to call every time. Becomes enabled iff Cloud
     // is ready AND the signed-in user role is NOT 'client'.
