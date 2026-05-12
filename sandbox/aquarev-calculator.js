@@ -1219,7 +1219,12 @@ window.AR2_PF = (function(){
       mount.innerHTML = '<div class="ar-pf-panel">' + hero
         + '<div class="ar-pf-empty" style="opacity:.7">Loading portfolios…</div>'
         + '</div>';
-      loadPortfolios().then(function(){ renderPortfoliosPanel(mount); });
+      loadPortfolios().then(function(){
+        // Re-look up by ID — see comment in renderPortfolioOverview for
+        // why we don't capture `mount` in closure.
+        var live = document.getElementById('ar2-bank-portfolios');
+        if (live) renderPortfoliosPanel(live);
+      });
       return;
     }
 
@@ -1562,12 +1567,22 @@ window.AR2_PF = (function(){
     mount.innerHTML = '<div class="ar-pf-panel">' + hero + kpis + roster + '</div>';
 
     // Kick off any pending fetches (idempotent — they short-circuit if
-    // a fresh entry is already cached).
+    // a fresh entry is already cached). The .then handlers re-look up
+    // the mount element by ID rather than capturing the current `mount`
+    // in closure — this way a re-render of the archive shell (which
+    // replaces the #ar2-bank-portfolios container with a fresh DOM node)
+    // doesn't strand the fetch result on a detached element.
     if (!slot || (!slot.rows && !slot.loading)){
-      loadProperties(pid).then(function(){ renderPortfolioOverview(mount); });
+      loadProperties(pid).then(function(){
+        var live = document.getElementById('ar2-bank-portfolios');
+        if (live) renderPortfolioOverview(live);
+      });
     }
     if (!rollupSlot || (!rollupSlot.data && !rollupSlot.loading && !rollupSlot.error)){
-      getRollup(pid).then(function(){ renderPortfolioOverview(mount); });
+      getRollup(pid).then(function(){
+        var live = document.getElementById('ar2-bank-portfolios');
+        if (live) renderPortfolioOverview(live);
+      });
     }
   }
 
@@ -1789,8 +1804,14 @@ window.AR2_PF = (function(){
       // Make sure selectedPortfolioId points at the portfolio we just
       // exited from, even if it was somehow cleared elsewhere.
       if (returnPortfolioId) pfState.selectedPortfolioId = returnPortfolioId;
+      // showView('bank') already calls renderArchive() internally, so
+      // calling renderArchive() again here would race: the first render
+      // captures a mount reference, the second wipes that mount and
+      // creates a new one, but the pending fetch from the first render
+      // writes its result to the detached old mount. Result: visible UI
+      // stuck on "Loading properties…" forever. Single renderArchive
+      // call only.
       if (typeof showView === 'function') showView('bank');
-      if (typeof renderArchive === 'function') renderArchive();
     };
     if (skipSave || !pfState.loadedProperty){ done(); return Promise.resolve(); }
     return saveCurrentProperty().then(done, function(err){
