@@ -1696,15 +1696,22 @@ window.AR2_PF = (function(){
   // Enter property mode. Loads the property row, snapshots the user's
   // current single-property state, hydrates S/EX from state_json/ex_json,
   // shows the breadcrumb subbar, and re-renders the calculator.
-  function enterProperty(propertyId){
+  // Internal flag `_navWithinPortfolio` (set by prev/next nav) preserves
+  // the existing snapshot so exiting after multi-property navigation
+  // still restores the original single-property session.
+  function enterProperty(propertyId, _navWithinPortfolio){
     if (!propertyId) return Promise.reject(new Error('property id required'));
     return fetchPropertyFull(propertyId).then(function(prop){
-      // Snapshot the user's current single-property session so we can
-      // restore it when they exit property mode.
-      pfState.savedSnapshot = {
-        S: cloneJson(S),
-        EX: cloneJson(EX)
-      };
+      // Snapshot the user's current single-property session — only on the
+      // INITIAL entry. Prev/Next navigation within property mode keeps
+      // the original snapshot so a multi-property session still restores
+      // back to the original single-property work on exit.
+      if (!_navWithinPortfolio || !pfState.savedSnapshot){
+        pfState.savedSnapshot = {
+          S: cloneJson(S),
+          EX: cloneJson(EX)
+        };
+      }
       // Reset calculator to clean defaults so any field the property's
       // state_json doesn't carry falls back to its default value.
       _resetCalcStateSilent();
@@ -1719,11 +1726,20 @@ window.AR2_PF = (function(){
       // Force-set the property name to match the portfolio_properties.name
       // (source of truth for the property's identity).
       if (prop.property_name) S.propertyName = prop.property_name;
-      // Restore to Step 1 (Pool & System) on each entry. Step 0 is Map
-      // Pool which is great for new properties; once they've configured
-      // pools, landing on Step 1 saves a click. They can navigate to
-      // Step 0 if they need to redraw.
-      S.step = Math.max(1, Math.min(5, Number(S.step) || 1));
+      // Step index mapping (existing calculator, 0-indexed S.step):
+      //   0 → Map Pools          (UI label "Step 1")
+      //   1 → Pool & System      (UI label "Step 2")
+      //   2 → Pricing & Settings (UI label "Step 3")
+      //   3 → Quote              (UI label "Step 4")
+      //   4 → Export             (UI label "Step 5")
+      // A brand-new property has empty state_json, so S.step inherits
+      // the _resetCalcStateSilent default of 0 (Map Pools) — that's
+      // where the rep starts when adding a new property. Returning to
+      // an existing property restores whatever step they last saved.
+      // Just clamp to the valid range; never force a minimum.
+      var stepN = Number(S.step);
+      if (!(stepN >= 0 && stepN <= 4)) stepN = 0;
+      S.step = stepN;
       pfState.propertyMode = true;
       pfState.loadedProperty = prop;
       pfState.saveStatus = 'idle';
@@ -1870,6 +1886,47 @@ window.AR2_PF = (function(){
     }, pfState.AUTOSAVE_DEBOUNCE_MS);
   }
 
+  // ── Prev/Next property navigation within a portfolio ────────────
+  // Returns { idx, total } for the currently-loaded property within the
+  // ordered roster of its portfolio. Returns null if either no property
+  // is loaded or the roster hasn't been fetched yet.
+  function _propertyPosition(){
+    var prop = pfState.loadedProperty;
+    if (!prop) return null;
+    var rows = (pfState.properties[prop.portfolio_id] && pfState.properties[prop.portfolio_id].rows) || null;
+    if (!rows) return null;
+    for (var i = 0; i < rows.length; i++){
+      if (rows[i].id === prop.id) return { idx: i, total: rows.length };
+    }
+    return null;
+  }
+
+  // Navigate to the previous / next property in the portfolio. Saves the
+  // current property's state first, then loads the adjacent property via
+  // enterProperty(..., true) — the second arg preserves the original
+  // single-property snapshot so exiting still restores the user's pre-
+  // portfolio session correctly even after multi-property navigation.
+  function _navigateAdjacent(direction){
+    var pos = _propertyPosition();
+    if (!pos) return Promise.resolve(null);
+    var prop = pfState.loadedProperty;
+    var rows = pfState.properties[prop.portfolio_id].rows;
+    var targetIdx = pos.idx + direction;
+    if (targetIdx < 0 || targetIdx >= rows.length) return Promise.resolve(null);
+    var targetId = rows[targetIdx].id;
+    if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
+    return saveCurrentProperty().then(function(){
+      return enterProperty(targetId, true);
+    }, function(err){
+      // If save fails, still allow navigation but warn — the property
+      // state isn't lost (it's in S/EX), but the cloud copy is stale.
+      try { console.warn('[AR2_PF] save before nav failed:', err); } catch(_){}
+      return enterProperty(targetId, true);
+    });
+  }
+  function prevProperty(){ return _navigateAdjacent(-1); }
+  function nextProperty(){ return _navigateAdjacent(+1); }
+
   // ── Subbar (in-property breadcrumb + Save & Close) ────────────
   function _renderSubbar(){
     var bar = document.getElementById('ar2-pf-subbar');
@@ -1888,12 +1945,30 @@ window.AR2_PF = (function(){
     } else if (status === 'error'){
       statusHtml = '<span class="ar-pf-sub-status error" title="' + esc(pfState.saveError||'') + '">Save failed</span>';
     }
+    // Property position within the portfolio's roster — drives Prev/Next
+    // enable state and the "(2 of 7)" indicator. _propertyPosition returns
+    // null if the roster hasn't been fetched yet; we hide the nav block
+    // in that case rather than render broken arrows.
+    var pos = _propertyPosition();
+    var navHtml = '';
+    if (pos && pos.total > 1){
+      var prevDisabled = pos.idx === 0;
+      var nextDisabled = pos.idx === pos.total - 1;
+      navHtml = '<div class="ar-pf-sub-nav">'
+        + '<button class="ar-pf-sub-navbtn" data-pf-action="prev-property" type="button" aria-label="Previous property"'
+        +   (prevDisabled ? ' disabled' : '') + '>&#x2190;</button>'
+        + '<span class="ar-pf-sub-navpos">' + (pos.idx + 1) + ' of ' + pos.total + '</span>'
+        + '<button class="ar-pf-sub-navbtn" data-pf-action="next-property" type="button" aria-label="Next property"'
+        +   (nextDisabled ? ' disabled' : '') + '>&#x2192;</button>'
+        + '</div>';
+    }
     bar.innerHTML = '<div class="ar-pf-sub-inner">'
       + '<button class="ar-pf-sub-back" data-pf-action="exit-property" type="button" aria-label="Back to portfolio">'
       +   '&#x2190; ' + esc(pfName)
       + '</button>'
       + '<span class="ar-pf-sub-sep">/</span>'
       + '<span class="ar-pf-sub-prop">' + esc(propName) + '</span>'
+      + navHtml
       + statusHtml
       + '<div class="ar-pf-sub-actions">'
       +   '<button class="ar-pf-sub-act" data-pf-action="save-property" type="button">Save</button>'
@@ -1957,6 +2032,9 @@ window.AR2_PF = (function(){
     saveCurrentProperty: saveCurrentProperty,
     scheduleAutosave: scheduleAutosave,
     _renderSubbar: _renderSubbar,
+    // Phase 1d — Prev/Next property navigation
+    prevProperty: prevProperty,
+    nextProperty: nextProperty,
     _state: pfState  // exposed for debug only
   };
 })();
@@ -6658,6 +6736,9 @@ function handleClick(e){
         AR2_PF.saveCurrentProperty().catch(function(){ /* error surfaced in subbar */ });
         return;
       }
+      // Prev/Next property navigation (Phase 1d)
+      if (act === 'prev-property')    { AR2_PF.prevProperty(); return; }
+      if (act === 'next-property')    { AR2_PF.nextProperty(); return; }
     }
     var pfRow = e.target.closest('[data-pf-portfolio]');
     if (pfRow) {

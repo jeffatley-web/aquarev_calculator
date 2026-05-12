@@ -2135,6 +2135,13 @@
 .ar-pf-sub-status.saving{background:rgba(125,184,204,.18);color:#7db8cc;}
 .ar-pf-sub-status.saved {background:rgba(34,197,94,.18);color:var(--gr);}
 .ar-pf-sub-status.error {background:rgba(239,68,68,.18);color:#f87171;cursor:help;}
+/* Prev/Next property navigation (Phase 1d) — sits between the property
+   name and the save status. Disabled at the boundaries (first / last). */
+.ar-pf-sub-nav{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:7px;}
+.ar-pf-sub-navbtn{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--t);font-size:14px;cursor:pointer;border-radius:4px;transition:background .12s,color .12s;font-family:inherit;}
+.ar-pf-sub-navbtn:hover:not(:disabled){background:rgba(0,180,216,.16);}
+.ar-pf-sub-navbtn:disabled{color:#3a5b6a;cursor:not-allowed;opacity:.5;}
+.ar-pf-sub-navpos{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;min-width:48px;text-align:center;}
 .ar-pf-sub-actions{display:flex;gap:6px;}
 .ar-pf-sub-act{background:transparent;border:1px solid rgba(0,180,216,.22);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 12px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
 .ar-pf-sub-act:hover{background:rgba(0,180,216,.10);border-color:rgba(0,180,216,.4);color:var(--t);}
