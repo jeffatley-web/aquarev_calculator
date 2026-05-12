@@ -2004,3 +2004,66 @@
 /* Invert + and - icons so they render bright white on dark background */
 .mapboxgl-ctrl-group button .mapboxgl-ctrl-icon,
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1) brightness(2) contrast(1.1);}
+
+/* ════════════════════════════════════════════════════════════════════
+   PORTFOLIO TOOL (sandbox build) — namespaced ar-pf-* so nothing here
+   can collide with existing single-assessment styles. Every rule lives
+   under .ar-pf-* and stays inside #ar2 / #ar2-bank scope.
+   ════════════════════════════════════════════════════════════════════ */
+/* Tab strip — sits at the top of #ar2-bank when AR2_PF is enabled */
+#ar2 .ar-pf-tabstrip{display:flex;gap:2px;padding:0 22px;background:linear-gradient(180deg,rgba(13,45,74,.5),rgba(7,22,40,.3));border-bottom:1px solid rgba(0,180,216,.18);}
+#ar2 .ar-pf-tab{position:relative;background:transparent;border:none;color:#7db8cc;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;padding:14px 18px 12px;cursor:pointer;transition:color .15s;border-radius:0;}
+#ar2 .ar-pf-tab:hover{color:#cfe2eb;}
+#ar2 .ar-pf-tab.active{color:var(--t);}
+#ar2 .ar-pf-tab.active::after{content:"";position:absolute;left:14px;right:14px;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));border-radius:1px;}
+#ar2 .ar-pf-tab-count{display:inline-block;margin-left:6px;padding:1px 7px;background:rgba(0,180,216,.16);color:var(--t);border-radius:9px;font-size:10px;letter-spacing:.5px;font-weight:700;}
+#ar2 .ar-pf-tab.active .ar-pf-tab-count{background:rgba(0,180,216,.28);color:#fff;}
+
+/* Portfolio panel container — holds either the empty state or the roster */
+#ar2 .ar-pf-panel{padding:18px 22px 22px;}
+#ar2 .ar-pf-panel-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:14px;flex-wrap:wrap;}
+#ar2 .ar-pf-panel-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#fff;}
+#ar2 .ar-pf-panel-sub{font-size:11.5px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:2px;}
+
+/* CTA: New Portfolio */
+#ar2 .ar-pf-newbtn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.32);background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.12));color:var(--t);font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .18s,background .18s;}
+#ar2 .ar-pf-newbtn:hover{filter:brightness(1.15);background:linear-gradient(135deg,rgba(0,180,216,.28),rgba(72,202,228,.18));}
+#ar2 .ar-pf-newbtn::before{content:"+";font-size:18px;line-height:1;font-weight:400;}
+
+/* Empty state — shown when user has no portfolios yet */
+#ar2 .ar-pf-empty{padding:48px 24px;text-align:center;border:1px dashed rgba(0,180,216,.22);border-radius:14px;background:rgba(13,45,74,.32);}
+#ar2 .ar-pf-empty-icon{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.1));display:inline-flex;align-items:center;justify-content:center;color:var(--t);font-size:26px;margin-bottom:16px;border:1px solid rgba(0,180,216,.28);}
+#ar2 .ar-pf-empty-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2.5px;color:#fff;margin-bottom:8px;}
+#ar2 .ar-pf-empty-body{font-size:13px;color:var(--mu);line-height:1.65;max-width:480px;margin:0 auto 22px;}
+
+/* Portfolio list row (Phase 1 — simple list; Phase 2 = full roster grid) */
+#ar2 .ar-pf-list{display:flex;flex-direction:column;gap:10px;}
+#ar2 .ar-pf-row{display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:14px 18px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:11px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
+#ar2 .ar-pf-row-name{font-family:'DM Sans',sans-serif;font-size:14.5px;font-weight:600;color:#e0f4fa;}
+#ar2 .ar-pf-row-meta{font-size:11px;color:var(--mu);letter-spacing:.5px;margin-top:3px;}
+#ar2 .ar-pf-row-status{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 9px;border-radius:9px;font-weight:700;}
+#ar2 .ar-pf-row-status.draft{background:rgba(125,184,204,.16);color:#8fb8c8;}
+#ar2 .ar-pf-row-status.in_review{background:rgba(240,165,0,.16);color:#f0a500;}
+#ar2 .ar-pf-row-status.sent{background:rgba(0,180,216,.18);color:var(--t);}
+#ar2 .ar-pf-row-status.won{background:rgba(34,197,94,.18);color:var(--gr);}
+#ar2 .ar-pf-row-status.lost{background:rgba(239,68,68,.16);color:#f87171;}
+#ar2 .ar-pf-row-status.archived{background:rgba(125,184,204,.08);color:#7db8cc;}
+#ar2 .ar-pf-row-kpi{display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
+#ar2 .ar-pf-row-kpi .v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#cfe2eb;}
+#ar2 .ar-pf-row-kpi .l{font-size:9.5px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;}
+
+/* New Portfolio modal — lightweight create form */
+.ar-pf-modal-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.75);z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;}
+.ar-pf-modal{width:100%;max-width:440px;background:linear-gradient(145deg,#0d2d4a,#071628);border:1px solid rgba(0,180,216,.32);border-radius:14px;padding:22px 24px 18px;box-shadow:0 14px 40px rgba(0,0,0,.55);color:#e0f4fa;font-family:'DM Sans',sans-serif;}
+.ar-pf-modal-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:3px;color:#fff;margin-bottom:14px;}
+.ar-pf-modal-lbl{display:block;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;}
+.ar-pf-modal-input{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:10px 12px;color:#e0f4fa;font-size:14px;font-family:inherit;outline:none;transition:border-color .15s;}
+.ar-pf-modal-input:focus{border-color:var(--t);}
+.ar-pf-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+.ar-pf-modal-btn{padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.2);background:transparent;color:#cfe2eb;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
+.ar-pf-modal-btn:hover{background:rgba(0,180,216,.1);}
+.ar-pf-modal-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));border-color:transparent;color:var(--nv);}
+.ar-pf-modal-btn.primary:hover{filter:brightness(1.1);}
+.ar-pf-modal-btn:disabled{opacity:.45;cursor:not-allowed;}
+.ar-pf-modal-err{font-size:12px;color:#f87171;margin-top:8px;min-height:16px;}

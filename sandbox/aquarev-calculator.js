@@ -1050,6 +1050,285 @@ var Cloud = (function(){
 })();
 window.AR2_CLOUD = Cloud;
 
+/* ════════════════════════════════════════════════════════════════════
+   AR2_PF — Portfolio Tool namespace (SANDBOX BUILD, Phase 1)
+   Production calculator does not include this code path; this lives only
+   in the sandbox master HTML at /calculator-sandbox.
+   Strict isolation contract:
+     - Uses its OWN state object (pfState). Never reads or writes AR2_CLOUD
+       internals or single-property state (S, Q, EX).
+     - All UI selectors are .ar-pf-* prefixed. No collisions with existing
+       .ar-* classes.
+     - Database calls only against the new portfolios / portfolio_properties
+       / portfolio_quotes tables. Existing assessments / quotes tables are
+       never touched by this code.
+     - When user is Client role (or AR2_CLOUD not ready), isEnabled() is
+       false and the entire feature is dormant — archive renders exactly
+       as it does on production.
+   ════════════════════════════════════════════════════════════════════ */
+window.AR2_PF = (function(){
+  var pfState = {
+    initialized: false,
+    enabled: false,
+    activeTab: 'single',         // 'single' | 'portfolios'
+    portfolios: null,            // null = not loaded yet; array once loaded
+    loading: false,
+    loadError: null
+  };
+
+  function client(){
+    return window.AR2_CLOUD && AR2_CLOUD.client && AR2_CLOUD.client();
+  }
+  function user(){
+    return window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user();
+  }
+
+  // Called once when AR2_CLOUD signals it's ready (or on first archive open
+  // if AR2_CLOUD was already ready). Decides whether the portfolio feature
+  // is available for this user.
+  function init(){
+    if (pfState.initialized) return;
+    pfState.initialized = true;
+    if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
+    var u = user();
+    // Clients are explicitly excluded per Phase 1 product decision.
+    if (!u || u.role === 'client') { pfState.enabled = false; return; }
+    pfState.enabled = true;
+  }
+
+  function isEnabled(){ return pfState.enabled === true; }
+  function activeTab(){ return pfState.activeTab; }
+
+  function setActiveTab(tab){
+    if (tab !== 'single' && tab !== 'portfolios') return;
+    if (pfState.activeTab === tab) return;
+    pfState.activeTab = tab;
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+
+  // Fetch portfolio list for the current user. Idempotent — pfState.portfolios
+  // caches the result. Call refreshPortfolios() to force a reload.
+  function loadPortfolios(){
+    if (pfState.loading) return Promise.resolve(pfState.portfolios);
+    if (pfState.portfolios !== null) return Promise.resolve(pfState.portfolios);
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    pfState.loading = true;
+    pfState.loadError = null;
+    return c.from('portfolios')
+      .select('id,name,status,default_currency,client_contact_name,last_modified_at,created_at,user_id')
+      .order('last_modified_at', { ascending: false })
+      .then(function(rs){
+        pfState.loading = false;
+        if (rs.error) { pfState.loadError = rs.error.message || 'load failed'; pfState.portfolios = []; }
+        else { pfState.portfolios = rs.data || []; }
+        return pfState.portfolios;
+      }, function(err){
+        pfState.loading = false;
+        pfState.loadError = (err && err.message) || 'load failed';
+        pfState.portfolios = [];
+        return pfState.portfolios;
+      });
+  }
+
+  function refreshPortfolios(){
+    pfState.portfolios = null;
+    return loadPortfolios();
+  }
+
+  // Create a new portfolio. Returns the inserted row.
+  function createPortfolio(name){
+    var c = client();
+    var u = user();
+    if (!c || !u) return Promise.reject(new Error('cloud not ready'));
+    var trimmed = String(name || '').trim();
+    if (!trimmed) return Promise.reject(new Error('Name required'));
+    return c.from('portfolios')
+      .insert({ user_id: u.id, name: trimmed, status: 'draft' })
+      .select('id,name,status,default_currency,client_contact_name,last_modified_at,created_at,user_id')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        // Prepend to local cache so the UI updates without a full refetch
+        if (pfState.portfolios === null) pfState.portfolios = [];
+        pfState.portfolios = [rs.data].concat(pfState.portfolios);
+        return rs.data;
+      });
+  }
+
+  // Roll-up RPC — server-side aggregation over portfolio_properties.
+  // Returns the JSONB result documented in the SQL migration.
+  function rollup(portfolioId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    return c.rpc('portfolio_rollup', { p_portfolio_id: portfolioId })
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return rs.data;
+      });
+  }
+
+  // ─── UI: Tab strip + Portfolio panel ──────────────────────────────
+  function tabStripHtml(){
+    var single = pfState.activeTab === 'single';
+    return '<div class="ar-pf-tabstrip" role="tablist">'
+      + '<button class="ar-pf-tab' + (single?' active':'') + '" data-pf-tab="single" role="tab" type="button">Single Assessments</button>'
+      + '<button class="ar-pf-tab' + (!single?' active':'') + '" data-pf-tab="portfolios" role="tab" type="button">Portfolios'
+      +   (Array.isArray(pfState.portfolios) && pfState.portfolios.length
+            ? ' <span class="ar-pf-tab-count">'+pfState.portfolios.length+'</span>'
+            : '')
+      + '</button>'
+      + '</div>';
+  }
+
+  // Render the Portfolios panel into the given mount element. Phase 1:
+  // empty state OR simple row list. Phase 2 will replace with the full
+  // Portfolio Overview (roster grid + roll-up KPIs).
+  function renderPortfoliosPanel(mount){
+    if (!mount) return;
+    // Hero header (always shown)
+    var hero = '<div class="ar-pf-panel-hero">'
+      +   '<div>'
+      +     '<div class="ar-pf-panel-title">Portfolios</div>'
+      +     '<div class="ar-pf-panel-sub">Multi-property proposals · sandbox preview</div>'
+      +   '</div>'
+      +   '<button class="ar-pf-newbtn" data-pf-action="new-portfolio" type="button">New Portfolio</button>'
+      + '</div>';
+
+    // Loading state — only on first fetch
+    if (pfState.portfolios === null) {
+      mount.innerHTML = '<div class="ar-pf-panel">' + hero
+        + '<div class="ar-pf-empty" style="opacity:.7">Loading portfolios…</div>'
+        + '</div>';
+      loadPortfolios().then(function(){ renderPortfoliosPanel(mount); });
+      return;
+    }
+
+    // Error state
+    if (pfState.loadError) {
+      mount.innerHTML = '<div class="ar-pf-panel">' + hero
+        + '<div class="ar-pf-empty">'
+        +   '<div class="ar-pf-empty-icon" style="color:#f87171;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.12)">!</div>'
+        +   '<div class="ar-pf-empty-title">Couldn\'t load portfolios</div>'
+        +   '<div class="ar-pf-empty-body">' + esc(pfState.loadError) + '</div>'
+        + '</div></div>';
+      return;
+    }
+
+    // Empty state
+    if (!pfState.portfolios.length) {
+      mount.innerHTML = '<div class="ar-pf-panel">' + hero
+        + '<div class="ar-pf-empty">'
+        +   '<div class="ar-pf-empty-icon">P</div>'
+        +   '<div class="ar-pf-empty-title">No portfolios yet</div>'
+        +   '<div class="ar-pf-empty-body">'
+        +     'Build a multi-property proposal by creating a portfolio, then add each property\'s pool profile, devices and savings. Portfolio totals roll up automatically.'
+        +   '</div>'
+        +   '<button class="ar-pf-newbtn" data-pf-action="new-portfolio" type="button">Create your first portfolio</button>'
+        + '</div></div>';
+      return;
+    }
+
+    // Populated list (Phase 1: simple rows; Phase 2 = full roster grid)
+    var rows = pfState.portfolios.map(function(p){
+      var dateStr = p.last_modified_at
+        ? new Date(p.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+        : '—';
+      var statusClass = (p.status || 'draft').toLowerCase();
+      return '<div class="ar-pf-row" data-pf-portfolio="' + p.id + '" role="button" tabindex="0">'
+        +   '<div>'
+        +     '<div class="ar-pf-row-name">' + esc(p.name || 'Untitled portfolio') + '</div>'
+        +     '<div class="ar-pf-row-meta">' + (p.client_contact_name ? esc(p.client_contact_name) + ' · ' : '') + dateStr + '</div>'
+        +   '</div>'
+        +   '<span class="ar-pf-row-status ' + statusClass + '">' + esc(p.status || 'draft').replace('_',' ') + '</span>'
+        +   '<div class="ar-pf-row-kpi"><div class="v">—</div><div class="l">Properties</div></div>'
+        +   '<div class="ar-pf-row-kpi"><div class="v">—</div><div class="l">Investment</div></div>'
+        + '</div>';
+    }).join('');
+
+    mount.innerHTML = '<div class="ar-pf-panel">' + hero
+      + '<div class="ar-pf-list">' + rows + '</div>'
+      + '</div>';
+  }
+
+  // ─── New Portfolio modal ──────────────────────────────────────────
+  function openNewPortfolioModal(){
+    if (document.getElementById('ar-pf-new-modal')) return;
+    var backdrop = document.createElement('div');
+    backdrop.id = 'ar-pf-new-modal';
+    backdrop.className = 'ar-pf-modal-backdrop';
+    backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-new-title">'
+      + '<div class="ar-pf-modal-title" id="ar-pf-new-title">New portfolio</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-pf-new-name">Portfolio name</label>'
+      + '<input class="ar-pf-modal-input" id="ar-pf-new-name" type="text" maxlength="120" placeholder="e.g. Marriott LATAM Phase 1" autocomplete="off" />'
+      + '<div class="ar-pf-modal-err" id="ar-pf-new-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+      +   '<button class="ar-pf-modal-btn" data-pf-action="modal-cancel" type="button">Cancel</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-pf-action="modal-create" type="button">Create</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(backdrop);
+    setTimeout(function(){ var i = document.getElementById('ar-pf-new-name'); if (i) i.focus(); }, 30);
+    // Close on backdrop click
+    backdrop.addEventListener('click', function(e){
+      if (e.target === backdrop) closeNewPortfolioModal();
+    });
+    // Submit on Enter
+    backdrop.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeNewPortfolioModal();
+      if (e.key === 'Enter' && e.target.id === 'ar-pf-new-name') submitNewPortfolio();
+    });
+  }
+  function closeNewPortfolioModal(){
+    var el = document.getElementById('ar-pf-new-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function submitNewPortfolio(){
+    var input = document.getElementById('ar-pf-new-name');
+    var err = document.getElementById('ar-pf-new-err');
+    var btn = document.querySelector('[data-pf-action="modal-create"]');
+    if (!input) return;
+    var name = input.value.trim();
+    if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+    createPortfolio(name).then(function(){
+      closeNewPortfolioModal();
+      // Stay on Portfolios tab, re-render to show the new row
+      pfState.activeTab = 'portfolios';
+      if (typeof renderArchive === 'function') renderArchive();
+    }).catch(function(e){
+      if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+      if (err) err.textContent = (e && e.message) || 'Create failed.';
+    });
+  }
+
+  // Helper: simple HTML escape (mirrors esc() used in single-property code)
+  function esc(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Public API
+  return {
+    init: init,
+    isEnabled: isEnabled,
+    activeTab: activeTab,
+    setActiveTab: setActiveTab,
+    portfolios: function(){ return pfState.portfolios ? pfState.portfolios.slice() : []; },
+    tabStripHtml: tabStripHtml,
+    renderPortfoliosPanel: renderPortfoliosPanel,
+    loadPortfolios: loadPortfolios,
+    refreshPortfolios: refreshPortfolios,
+    createPortfolio: createPortfolio,
+    rollup: rollup,
+    openNewPortfolioModal: openNewPortfolioModal,
+    closeNewPortfolioModal: closeNewPortfolioModal,
+    submitNewPortfolio: submitNewPortfolio,
+    _state: pfState  // exposed for debug only
+  };
+})();
+
 function bankGetIndex(){
   return window.storage.get(BANK_IDX)
     .then(function(r){if(!r)return[];var s=typeof r==='string'?r:r.value;return s?JSON.parse(s):[];})
@@ -1861,8 +2140,42 @@ function showDuplicateConfirmModal(propName, onConfirm){
 }
 
 /* ── Render Archive view ── */
-function renderBank(){
-  var el=document.getElementById('ar2-bank');
+/* ── renderArchive — Phase 1 entry point for the Archive view ─────
+   When AR2_PF is enabled (User + Admin roles in sandbox builds), this
+   wraps renderBank's output with a tab strip and provides a Portfolios
+   tab alongside the existing Single Assessments view. When AR2_PF is
+   disabled (Client role, or production calculator without AR2_PF code
+   loaded), it falls through to renderBank() directly — identical UX to
+   production. Important: showView('bank') calls renderArchive(), but
+   every OTHER caller of renderBank() across the codebase (admin actions
+   that refresh the archive after delete/restore/reassign, etc.) still
+   calls renderBank() directly. Those callers usually want to refresh
+   only the singles list; when AR2_PF is active we route them through
+   renderArchive so the tabs/state stay correct.                       */
+function renderArchive(){
+  var el = document.getElementById('ar2-bank');
+  if (!el) return;
+  if (!window.AR2_PF || !AR2_PF.isEnabled()) {
+    // Feature disabled: identical to production behavior.
+    return renderBank();
+  }
+  // Tabs mode: wrap singles + portfolios in sibling mount points.
+  var tab = AR2_PF.activeTab();
+  el.innerHTML = AR2_PF.tabStripHtml()
+    + '<div id="ar2-bank-singles"' + (tab==='single'?'':' style="display:none"') + '></div>'
+    + '<div id="ar2-bank-portfolios"' + (tab==='portfolios'?'':' style="display:none"') + '></div>';
+  if (tab === 'single') {
+    renderBank('ar2-bank-singles');
+  } else {
+    AR2_PF.renderPortfoliosPanel(document.getElementById('ar2-bank-portfolios'));
+  }
+}
+
+// Accepts optional `targetId` (string) so the Portfolio tabs wrapper can
+// redirect renderBank's output into a sub-container (#ar2-bank-singles).
+// Defaults to '#ar2-bank' so every existing caller works unchanged.
+function renderBank(targetId){
+  var el=document.getElementById(targetId || 'ar2-bank');
   if(!el)return;
   // Cloud-mode flags drive the admin dashboard + Created By column.
   var isCloudReady = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
@@ -2177,7 +2490,9 @@ function showView(v){
   var barActs=document.getElementById('ar2-bar-actions');
   if(v==='bank'){
     if(mainLayout)mainLayout.style.display='none';
-    if(bankEl){bankEl.style.display='block';renderBank();}
+    // renderArchive() routes through AR2_PF tab UI when enabled; otherwise
+    // identical to a direct renderBank() call. Defaults preserve prod UX.
+    if(bankEl){bankEl.style.display='block';renderArchive();}
     // Force-hide Map Pools panel and clear the map-step class so the calculator's
     // CSS rules (#ar2.map-step #ap2{display:block}) don't surface the map below
     // the Archive list when the user is on Step 0 (Map Pools).
@@ -5662,6 +5977,29 @@ function handleClick(e){
   // Quick-add 4" device from empty state
   var qaBtn=e.target.closest('[data-action="quick-add-4in"]');
   if(qaBtn){ S.pipe_4in=(S.pipe_4in||0)+1; render(); return; }
+  // ── Portfolio tool (sandbox) — tab switch + actions ────────────
+  // All AR2_PF interactions route through this branch. Production
+  // calculator doesn't load AR2_PF code, so these early-returns are
+  // dead code paths there.
+  if (window.AR2_PF) {
+    var pfTabBtn = e.target.closest('[data-pf-tab]');
+    if (pfTabBtn) { AR2_PF.setActiveTab(pfTabBtn.getAttribute('data-pf-tab')); return; }
+    var pfAct = e.target.closest('[data-pf-action]');
+    if (pfAct) {
+      var act = pfAct.getAttribute('data-pf-action');
+      if (act === 'new-portfolio')    { AR2_PF.openNewPortfolioModal(); return; }
+      if (act === 'modal-cancel')     { AR2_PF.closeNewPortfolioModal();  return; }
+      if (act === 'modal-create')     { AR2_PF.submitNewPortfolio();      return; }
+    }
+    var pfRow = e.target.closest('[data-pf-portfolio]');
+    if (pfRow) {
+      // Phase 2 will open the Portfolio Overview page. For now the row
+      // click is a no-op so we can ship Phase 1 without the overview UI.
+      // Console log helps confirm the click pipeline is wired correctly.
+      try { console.log('[AR2_PF] portfolio row clicked:', pfRow.getAttribute('data-pf-portfolio')); } catch(_) {}
+      return;
+    }
+  }
   // Toggle view: form ↔ bank (password-gated first time per session).
   // In cloud mode the user is already authenticated by the calculator gate,
   // so the legacy archive passcode is skipped — single sign-in to the cloud
@@ -5669,6 +6007,10 @@ function handleClick(e){
   var viewBank=e.target.closest('[data-action="view-bank"]');
   if(viewBank){
     var inCloud = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
+    // Lazy-init the Portfolio Tool the moment the archive is opened.
+    // Idempotent — safe to call every time. Becomes enabled iff Cloud
+    // is ready AND the signed-in user role is NOT 'client'.
+    if (inCloud && window.AR2_PF) { try { AR2_PF.init(); } catch(_){} }
     if(VIEW==='bank'){ showView('form'); }
     else if(inCloud || ARCHIVE_UNLOCKED){ if(inCloud) ARCHIVE_UNLOCKED=true; showView('bank'); }
     else { showArchivePasswordModal(function(){ ARCHIVE_UNLOCKED=true; showView('bank'); }); }
