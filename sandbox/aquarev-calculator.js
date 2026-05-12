@@ -1756,6 +1756,10 @@ window.AR2_PF = (function(){
   // single-property snapshot, navigates back to the Portfolio Overview.
   function exitProperty(opts){
     var skipSave = opts && opts.skipSave;
+    // Capture which portfolio we're returning to BEFORE we clear
+    // loadedProperty (which is the source of truth for portfolio_id).
+    var returnPortfolioId = (pfState.loadedProperty && pfState.loadedProperty.portfolio_id)
+                          || pfState.selectedPortfolioId;
     var done = function(){
       // Restore the user's prior single-property session
       if (pfState.savedSnapshot){
@@ -1770,10 +1774,21 @@ window.AR2_PF = (function(){
       pfState.saveError = null;
       if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
       _toggleSubbar(false);
+      // Belt-and-suspenders cache invalidation. saveCurrentProperty already
+      // null'd these, but if the save failed (or was skipped) the caches
+      // could still be stale. Clear both so the Overview re-fetches fresh
+      // numbers when it renders below.
+      if (returnPortfolioId){
+        pfState.rollup[returnPortfolioId] = null;
+        var slot = pfState.properties[returnPortfolioId];
+        if (slot) slot.rows = null;
+      }
       // Navigate back to Portfolio Overview (Portfolios tab, overview view)
       pfState.activeTab = 'portfolios';
       pfState.viewMode  = 'overview';
-      // selectedPortfolioId stays set so Overview reopens to the same portfolio
+      // Make sure selectedPortfolioId points at the portfolio we just
+      // exited from, even if it was somehow cleared elsewhere.
+      if (returnPortfolioId) pfState.selectedPortfolioId = returnPortfolioId;
       if (typeof showView === 'function') showView('bank');
       if (typeof renderArchive === 'function') renderArchive();
     };
@@ -1811,6 +1826,9 @@ window.AR2_PF = (function(){
     if (!pfState.propertyMode || !pfState.loadedProperty){
       return Promise.reject(new Error('not in property mode'));
     }
+    // Cancel any pending debounced autosave — we're saving now, so the
+    // pending one is redundant and would risk double-fire after exit.
+    if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
     var c = client();
     if (!c) return Promise.reject(new Error('cloud not ready'));
     var prop = pfState.loadedProperty;
@@ -1857,7 +1875,9 @@ window.AR2_PF = (function(){
         }
         // Invalidate the cached rollup so the Overview KPI strip
         // refetches with the new aggregates next time it renders.
-        if (pfState.rollup[portfolioId]) pfState.rollup[portfolioId] = null;
+        // Use direct assignment (not the truthy-guarded variant) so any
+        // shape — null, undefined, or stale object — gets cleared.
+        pfState.rollup[portfolioId] = null;
         pfState.saveStatus = 'saved';
         _renderSubbar();
         // Reset to idle after a short success window so the UI doesn't
@@ -1980,7 +2000,17 @@ window.AR2_PF = (function(){
     var bar = document.getElementById('ar2-pf-subbar');
     var bodyEl = document.body;
     if (!bar) return;
-    bar.style.display = show ? '' : 'none';
+    // Use CSS class for visibility — more robust than inline style toggles
+    // which can be lost if anything else writes to bar.style.
+    if (show){
+      bar.classList.add('is-active');
+      // Defensive: clear any legacy inline display value from previous
+      // sandbox builds that used the inline-style approach.
+      bar.style.display = '';
+    } else {
+      bar.classList.remove('is-active');
+      bar.style.display = '';
+    }
     // body-level class lets CSS hide bar-actions and other single-mode
     // chrome while in property mode without touching the DOM.
     if (show) bodyEl.classList.add('pf-property-mode');
