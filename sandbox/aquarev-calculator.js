@@ -2170,11 +2170,17 @@ function renderArchive(){
     // Feature disabled: identical to production behavior.
     return renderBank();
   }
-  // Tabs mode: wrap singles + portfolios in sibling mount points.
+  // Tabs mode: wrap tabstrip + sub-containers in `.ar-pf-archive-wrap`
+  // which mirrors the existing `.ar-bank-wrap` width (max-width:1320px,
+  // centered). This makes the Portfolio panel and the tab strip span
+  // the same horizontal extent as Single Assessments and the other
+  // calculator pages, instead of going full-bleed.
   var tab = AR2_PF.activeTab();
-  el.innerHTML = AR2_PF.tabStripHtml()
+  el.innerHTML = '<div class="ar-pf-archive-wrap">'
+    + AR2_PF.tabStripHtml()
     + '<div id="ar2-bank-singles"' + (tab==='single'?'':' style="display:none"') + '></div>'
-    + '<div id="ar2-bank-portfolios"' + (tab==='portfolios'?'':' style="display:none"') + '></div>';
+    + '<div id="ar2-bank-portfolios"' + (tab==='portfolios'?'':' style="display:none"') + '></div>'
+    + '</div>';
   if (tab === 'single') {
     renderBank('ar2-bank-singles');
   } else {
