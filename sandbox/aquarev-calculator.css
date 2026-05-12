@@ -1,0 +1,2006 @@
+#ar2,#ar2 *,#ar2 *::before,#ar2 *::after{box-sizing:border-box;margin:0;padding:0}
+#ar2{
+  --t:#00b4d8;--aq:#48cae4;--ic:#90e0ef;--go:#f0a500;--gr:#22c55e;
+  --re:#ef4444;--tx:#e0f4fa;--mu:#7db8cc;--nv:#040f1e;--dp:#071628;
+  --pa:#0d2d4a;--bd:rgba(0,180,216,.2);--cd:linear-gradient(145deg,rgba(13,45,74,.92),rgba(7,22,40,.96));
+  font-family:'DM Sans',sans-serif;font-size:14px;line-height:1.5;
+  background:radial-gradient(ellipse 90% 55% at 50% 0%,rgba(0,40,70,.65) 0%,#040f1e 58%);
+  color:var(--tx);overflow-x:hidden;
+}
+/* ── Bar ── */
+#ar2 .ar-bar{background:rgba(4,15,30,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd);padding:0 20px;}
+#ar2 .ar-bar-inner{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;gap:0;height:58px;max-width:1320px;margin:0 auto;width:100%;box-sizing:border-box;}
+#ar2 .ar-stepper{justify-self:center;}
+#ar2 .ar-brand{display:flex;align-items:center;gap:10px;}
+#ar2 .ar-bn{font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:3px;background:linear-gradient(135deg,#fff,var(--aq),var(--t));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+#ar2 .ar-bd{width:1px;height:18px;background:rgba(0,180,216,.3);}
+#ar2 .ar-bs{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#3a6a80;}
+/* ── Stepper ── */
+#ar2 .ar-stepper{display:flex;align-items:center;gap:4px;}
+#ar2 .ar-si{display:flex;align-items:center;gap:5px;}
+#ar2 .ar-dot{width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;transition:background .2s,border-color .2s;}
+#ar2 .ar-dot.done{background:var(--gr);border:1px solid var(--gr);color:var(--nv);}
+#ar2 .ar-dot.active{background:var(--t);border:1px solid var(--t);color:var(--nv);}
+#ar2 .ar-dot.idle{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.2);color:#3a6a80;}
+#ar2 .ar-sl{font-size:11px;white-space:nowrap;}
+#ar2 .ar-sl.done{color:var(--gr);}
+#ar2 .ar-sl.active{color:var(--tx);}
+@media(max-width:900px){#ar2 .ar-sl{display:none;}}
+#ar2 .ar-sc{width:18px;height:1px;background:rgba(0,180,216,.28);margin:0 2px;flex-shrink:0;}
+#ar2 .ar-sc.done{background:rgba(34,197,94,.55);}
+#ar2 .ar-step-arrow{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.2);color:var(--t);cursor:pointer;transition:.2s;flex-shrink:0;font-family:inherit;margin:0 14px;}
+#ar2 .ar-step-arrow:hover:not(:disabled){background:rgba(0,180,216,.2);border-color:var(--t);}
+#ar2 .ar-step-arrow:disabled{opacity:.3;cursor:not-allowed;}
+/* ── Layout ── */
+#ar2 .ar-layout{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;max-width:1320px;margin:0 auto;padding:0 20px 60px;align-items:start;}
+#ar2 .ar-form-col{padding:28px 20px 0 0;}
+#ar2 .ar-dev-col{padding:28px 16px 0 0;}
+@media(max-width:860px){#ar2 .ar-form-col{padding:0;}#ar2 .ar-dev-col{padding-right:0;}}
+#ar2 .ar-res-col{padding-top:28px;position:sticky;top:20px;}
+/* ── Quote step layout — form occupies cols 1+2, devices col hidden, results
+   col holds the live preview + Preview button. Wider form area allows the
+   internal 2-column grid (renderStepQuote) so reps can see header/buyer side
+   by side with line items / totals. */
+#ar2.quote-step .ar-form-col{grid-column:1 / 3;}
+#ar2.quote-step .ar-dev-col{display:none;}
+/* Client-mode feature gating ─ when a Client signs in, the calculator JS
+   adds the .app-client class to #ar2. Any element marked with the
+   `data-client-hide` attribute is then visually + interactively hidden.
+   Used to gate the Quote step, Discount slider, Cover/Back Cover/Exec
+   Summary export toggles, and the Quote-page export toggles. */
+#ar2.app-client [data-client-hide]{display:none !important;}
+/* Quote app page: card headers tinted teal-blue for visual consistency with
+   the rendered PDF's section accents. Scoped to .quote-step so other steps
+   keep the standard text-color titles. Catches both standalone titles and
+   titles inside the .ar-card-title-row layout (cards with help info button). */
+#ar2.quote-step .ar-card-title{color:var(--t);}
+#ar2 .ar-quote-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
+@media(max-width:1080px){#ar2 .ar-quote-form-grid{grid-template-columns:1fr;}}
+#ar2 .ar-quote-form-grid .ar-quote-col-a,
+#ar2 .ar-quote-form-grid .ar-quote-col-b{display:flex;flex-direction:column;gap:14px;}
+/* ── Quote step internal components ── */
+#ar2 .ar-q-subsection{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);margin:6px 0 4px;font-weight:700;}
+#ar2 .ar-q-line-row{display:grid;grid-template-columns:1fr 90px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed rgba(0,180,216,.12);}
+#ar2 .ar-q-line-row:last-of-type{border-bottom:none;}
+#ar2 .ar-q-line-desc{display:flex;flex-direction:column;gap:2px;}
+#ar2 .ar-q-line-sub{font-size:10px;color:var(--mu);}
+#ar2 .ar-q-line-amt{font-size:12px;color:var(--tx);font-family:'JetBrains Mono',monospace;font-weight:600;}
+#ar2 .ar-q-line-tax label{display:block;font-size:10px;color:var(--mu);}
+#ar2 .ar-q-disc-strip{margin-top:8px;padding:8px 10px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px;display:flex;flex-direction:column;gap:4px;}
+#ar2 .ar-q-disc-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:11px;color:var(--tx);}
+#ar2 .ar-q-disc-row.strong{border-top:1px dashed rgba(0,180,216,.25);padding-top:4px;margin-top:2px;}
+#ar2 .ar-inp.ar-inp-sm{width:100px;text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-q-addon{margin-top:10px;padding:10px 12px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.14);border-radius:8px;display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-q-addon-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+#ar2 .ar-q-addon-section-label{font-size:13px;font-weight:600;color:var(--t);letter-spacing:.4px;}
+#ar2 .ar-q-addon-incl{display:flex;align-items:center;gap:8px;cursor:pointer;}
+#ar2 .ar-q-addon-incl-label{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--mu);}
+/* Description gets its own full-width row above the numeric inputs so the
+   field can wrap freely without competing for horizontal space. */
+#ar2 .ar-q-addon-desc-row{display:flex;flex-direction:column;gap:3px;}
+#ar2 .ar-q-addon-desc-row > label{font-size:10px;color:var(--mu);}
+#ar2 .ar-q-addon-numeric-row{display:grid;grid-template-columns:1fr 80px 80px;gap:8px;align-items:end;}
+#ar2 .ar-q-cell label{display:block;font-size:10px;color:var(--mu);margin-bottom:2px;}
+#ar2 .ar-q-readonly{font-size:11px;padding:8px 10px;color:var(--mu);background:rgba(0,0,0,.18);border:1px solid rgba(0,180,216,.12);border-radius:6px;}
+#ar2 .ar-q-addon-subtotal{display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px dashed rgba(0,180,216,.18);font-size:11px;color:var(--tx);}
+#ar2 .ar-q-addon-subtotal span{color:var(--mu);text-transform:uppercase;letter-spacing:1.2px;font-size:10px;}
+#ar2 .ar-q-addon-subtotal b{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--tx);}
+#ar2 .ar-q-tot-row{display:flex;justify-content:space-between;font-size:11px;color:var(--tx);padding:4px 0;border-bottom:1px solid rgba(0,180,216,.12);}
+#ar2 .ar-q-tot-row.strong{font-size:13px;color:var(--t);font-weight:700;padding:8px 0;border-top:2px solid var(--t);border-bottom:none;margin-top:4px;}
+/* Auto-grow textarea — reps type a long description and the field expands
+   up to ~160px before scrolling. JS sets style.height; line-height + padding
+   match the .ar-inp single-line look. */
+#ar2 textarea.ar-textarea.ar-grow{min-height:38px;resize:none;overflow:hidden;line-height:1.4;font-family:inherit;}
+/* Rich text editor — toolbar + contenteditable. Caret-preserving toolbar
+   (mousedown preventDefault) so clicking B / I / List doesn't lose focus. */
+#ar2 .ar-rte-toolbar{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.2);border-bottom:none;border-radius:8px 8px 0 0;}
+#ar2 .ar-rte-btn{background:rgba(0,0,0,.25);border:1px solid rgba(0,180,216,.18);color:var(--tx);font-family:inherit;font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer;min-width:32px;transition:background .15s,color .15s;}
+#ar2 .ar-rte-btn:hover{background:rgba(0,180,216,.18);color:var(--aq);}
+#ar2 .ar-rte{min-height:200px;max-height:360px;overflow:auto;padding:10px 12px;background:rgba(0,0,0,.25);border:1px solid rgba(0,180,216,.2);border-radius:0 0 8px 8px;color:var(--tx);font-size:11.5px;line-height:1.5;font-family:inherit;outline:none;}
+#ar2 .ar-rte:focus{border-color:rgba(0,180,216,.45);}
+#ar2 .ar-rte:empty:before{content:attr(data-placeholder);color:var(--mu);font-style:italic;}
+#ar2 .ar-rte ol,#ar2 .ar-rte ul{padding-left:22px;margin:6px 0;}
+#ar2 .ar-rte li{margin-bottom:4px;}
+#ar2 .ar-rte p{margin:4px 0;}
+/* PDF — included pill + generic ol/ul/p in the rich-text page-2 body */
+#ar2-report .rpt-q-included{font-style:italic;color:#7d8a96;font-weight:600;font-size:9.5px;letter-spacing:1px;}
+#ar2-report .rpt-q-terms-text ol,#ar2-report .rpt-q-terms-text ul{padding-left:22px;margin:6px 0;}
+#ar2-report .rpt-q-terms-text li{margin-bottom:4px;line-height:1.5;}
+#ar2-report .rpt-q-terms-text p{margin:6px 0;line-height:1.5;}
+@media(max-width:860px){#ar2 .ar-res-col{position:static;}}
+/* ── Cards ── */
+#ar2 .ar-card{background:var(--cd);border:1px solid var(--bd);border-radius:14px;padding:20px 18px;position:relative;overflow:hidden;margin-bottom:14px;}
+#ar2 .ar-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));}
+#ar2 .ar-card.ac-go::before{background:linear-gradient(90deg,var(--go),#f7c948);}
+#ar2 .ar-card.ac-gr::before{background:linear-gradient(90deg,var(--gr),#4ade80);}
+#ar2 .ar-card-title{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:14px;}
+#ar2 .ar-card-info-btn{position:absolute;top:14px;right:14px;width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,180,216,.5);background:rgba(0,180,216,.08);color:var(--t);font-weight:700;font-family:inherit;font-size:12px;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;transition:.18s;z-index:3;}
+#ar2 .ar-card-info-btn:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.8);}
+#ar2 .ar-card.show-info .ar-card-info-btn{background:var(--t);border-color:var(--t);color:#04101e;}
+#ar2 .ar-card-info-pop{display:none;margin-top:10px;padding:10px 12px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-left:2px solid var(--t);border-radius:6px;font-size:11px;line-height:1.5;color:var(--mu);}
+#ar2 .ar-card.show-info .ar-card-info-pop{display:block;}
+#ar2 .ar-card-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+#ar2 .ar-card-title-row .ar-card-title{margin-bottom:0;}
+#ar2 .ar-card-title-row .ar-card-info-btn{position:static;}
+/* ── Labels / inputs ── */
+#ar2 .ar-lbl{display:block;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--mu);font-weight:600;margin-bottom:6px;}
+#ar2 .ar-inp,#ar2 .ar-sel{width:100%;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.22);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .16s,box-shadow .16s;}
+#ar2 .ar-inp:focus,#ar2 .ar-sel:focus{border-color:rgba(0,180,216,.6);box-shadow:0 0 0 3px rgba(0,180,216,.1);}
+#ar2 .ar-inp::placeholder{color:rgba(125,184,204,.4);}
+#ar2 .ar-inp.sm{padding:7px 10px;font-size:13px;}
+#ar2 .ar-sel{cursor:pointer;appearance:none;-webkit-appearance:none;padding-right:32px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2300b4d8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;}
+#ar2 .ar-sel option{background:#071628;}
+#ar2 .ar-frow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+#ar2 .ar-field{margin-bottom:14px;}
+#ar2 .ar-field:last-child{margin-bottom:0;}
+/* ── Pool type toggle ── */
+#ar2 .ar-toggle{display:grid;grid-template-columns:1fr 1fr;gap:0;border-radius:10px;border:1px solid rgba(0,180,216,.22);overflow:hidden;}
+#ar2 .ar-tog-btn{padding:10px 14px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--mu);transition:background .18s,color .18s;}
+#ar2 .ar-tog-btn.on{background:rgba(0,180,216,.18);color:var(--t);}
+#ar2 .ar-tog-btn:hover:not(.on){background:rgba(0,180,216,.08);color:var(--tx);}
+/* ── Pipe grid ── */
+#ar2 .ar-pipe-grid{display:flex;flex-direction:column;gap:9px;}
+#ar2 .ar-pipe-row{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;align-items:center;background:rgba(0,0,0,.18);border:1px solid rgba(0,180,216,.12);border-radius:10px;padding:12px 14px;}
+#ar2 .ar-pipe-sz{font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;letter-spacing:1px;min-width:32px;}
+#ar2 .ar-pipe-info{min-width:0;}
+#ar2 .ar-pipe-price{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--t);white-space:nowrap;}
+#ar2 .ar-pipe-rate{font-size:10px;color:#3a6a80;white-space:nowrap;margin-top:2px;}
+#ar2 .ar-pipe-row.selected{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.3);}
+#ar2 .ar-qty{display:flex;align-items:center;gap:0;border:1px solid rgba(0,180,216,.25);border-radius:8px;overflow:hidden;}
+#ar2 .ar-qty-btn{width:30px;height:30px;background:rgba(0,180,216,.08);border:none;color:var(--t);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;}
+#ar2 .ar-qty-btn:hover{background:rgba(0,180,216,.2);}
+#ar2 .ar-qty-n{width:30px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:#fff;background:transparent;}
+/* ── Slider ── */
+#ar2 .ar-slider-wrap{position:relative;padding-bottom:20px;}
+#ar2 .ar-range{width:100%;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;outline:none;cursor:pointer;}
+#ar2 .ar-range::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--t);cursor:pointer;box-shadow:0 0 6px rgba(0,180,216,.5);}
+#ar2 .ar-range::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--t);cursor:pointer;border:none;}
+#ar2 .ar-slider-val{position:absolute;bottom:0;right:0;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--t);}
+#ar2 .ar-slider-row{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
+#ar2 .ar-slider-row .ar-range{flex:1;}
+#ar2 .ar-slider-row .ar-slider-val-inline{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--t);min-width:36px;text-align:right;}
+#ar2 .ar-slider-ticks{display:flex;justify-content:space-between;font-size:9px;color:#3a6a80;padding:0 2px;margin-right:46px;margin-bottom:10px;}
+/* ── CO2 toggle ── */
+#ar2 .ar-sw{display:flex;align-items:center;justify-content:space-between;padding:12px 0;}
+#ar2 .ar-sw-label{font-size:13px;color:var(--tx);}
+#ar2 .ar-sw-sub{font-size:11px;color:#3a6a80;margin-top:2px;}
+#ar2 .ar-sw-track{width:42px;height:24px;border-radius:12px;background:rgba(0,180,216,.15);border:1px solid rgba(0,180,216,.25);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;}
+#ar2 .ar-sw-track.on{background:rgba(0,180,216,.5);border-color:var(--t);}
+#ar2 .ar-sw-thumb{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .2s;box-shadow:0 1px 4px rgba(0,0,0,.3);}
+#ar2 .ar-sw-track.on .ar-sw-thumb{left:20px;}
+/* ── Chem table ── */
+#ar2 .ar-chem-table{width:100%;border-collapse:collapse;}
+#ar2 .ar-chem-table th{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;font-weight:500;}
+#ar2 .ar-chem-table th:not(:first-child){text-align:right;}
+#ar2 .ar-chem-table td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle;}
+#ar2 .ar-chem-table tr:last-child td{border-bottom:none;}
+#ar2 .ar-chem-table .chem-name{font-size:12px;color:#99c5d8;}
+#ar2 .ar-chem-table .ar-inp.sm{text-align:right;}
+#ar2 .ar-chem-table .co2-row td{opacity:.45;pointer-events:none;}
+#ar2 .ar-chem-table .co2-row.active td{opacity:1;pointer-events:auto;}
+/* ── Buttons ── */
+#ar2 .ar-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 20px;border-radius:9px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;font-size:14px;transition:filter .18s,transform .18s;}
+#ar2 .ar-btn:disabled{opacity:.4;cursor:not-allowed;}
+#ar2 .ar-btn:not(:disabled):hover{filter:brightness(1.1);transform:translateY(-1px);}
+#ar2 .ar-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);box-shadow:0 4px 16px rgba(0,180,216,.22);}
+#ar2 .ar-btn.ghost{background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.25);color:var(--mu);}
+#ar2 .ar-btn.ghost:not(:disabled):hover{color:var(--tx);}
+/* ── Step navigation colour-coding ──
+   advance = forward/continue (green), retreat = back/return (orange).
+   Wins over .primary / .ghost via override ordering + same specificity. */
+#ar2 .ar-btn.advance{background:linear-gradient(135deg,var(--gr),#16a34a);color:#fff;box-shadow:0 4px 16px rgba(34,197,94,.28);border:none;}
+#ar2 .ar-btn.advance:not(:disabled):hover{filter:brightness(1.08);}
+#ar2 .ar-btn.retreat{background:linear-gradient(135deg,var(--go),#d88b00);color:#fff;border:1px solid rgba(240,165,0,.55);box-shadow:0 3px 10px rgba(240,165,0,.20);}
+#ar2 .ar-btn.retreat:not(:disabled):hover{filter:brightness(1.08);color:#fff;}
+/* Same colour-coding for the map step's Continue button (uses .ap-btn instead of .ar-btn). */
+#ap2 .ap-btn.advance{background:linear-gradient(135deg,var(--gr),#16a34a) !important;color:#fff !important;border:none !important;box-shadow:0 4px 16px rgba(34,197,94,.28);}
+#ap2 .ap-btn.advance:not(:disabled):hover{filter:brightness(1.08);}
+#ar2 .ar-nav{margin-bottom:12px;}
+#ar2 .ar-nav-stack{display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-nav-stack .ar-btn{padding:12px 16px;font-size:12px;}
+#ar2 .ar-nav-stack .ar-btn.primary{font-weight:600;}
+/* ── Results ── */
+#ar2 .ar-kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+#ar2 .ar-kpi{background:rgba(13,45,74,.9);border:1px solid var(--bd);border-radius:12px;padding:14px 12px;text-align:center;}
+#ar2 .ar-kpi-lbl{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin-bottom:5px;}
+#ar2 .ar-kpi-val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}
+/* ── Tabs ── */
+#ar2 .ar-tabs{display:grid;grid-template-columns:1fr 1fr;gap:0;border-radius:10px;border:1px solid rgba(0,180,216,.2);overflow:hidden;margin-bottom:12px;}
+#ar2 .ar-tab{padding:10px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--mu);transition:background .18s,color .18s;}
+#ar2 .ar-tab.on{background:rgba(0,180,216,.15);color:var(--t);}
+#ar2 .ar-tab:hover:not(.on){background:rgba(0,180,216,.07);color:var(--tx);}
+#ar2 .ar-tab-panel{display:none;}
+#ar2 .ar-tab-panel.on{display:block;}
+#ar2 .ar-metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+#ar2 .ar-metric{border-radius:9px;padding:11px 12px;}
+#ar2 .ar-metric.pos{background:rgba(34,197,94,.08);}
+#ar2 .ar-metric.neg{background:rgba(239,68,68,.08);}
+#ar2 .ar-metric.neu{background:rgba(255,255,255,.05);}
+#ar2 .ar-metric.acc{background:rgba(0,180,216,.08);}
+#ar2 .ar-metric dt{font-size:11px;color:var(--mu);margin-bottom:3px;}
+#ar2 .ar-metric dd{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;}
+#ar2 .ar-metric.pos dd{color:var(--gr);}
+#ar2 .ar-metric.neg dd{color:var(--re);}
+#ar2 .ar-metric.neu dd{color:var(--tx);}
+#ar2 .ar-metric.acc dd{color:var(--t);}
+/* ── Breakdown table ── */
+#ar2 .ar-bk-table{width:100%;border-collapse:collapse;font-size:12px;}
+#ar2 .ar-bk-table th{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;font-weight:500;}
+#ar2 .ar-bk-table th:not(:first-child){text-align:right;}
+#ar2 .ar-bk-table td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:#c8e6f0;}
+#ar2 .ar-bk-table td:not(:first-child){text-align:right;color:#e0f4fa;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-bk-table tr.total-row{font-weight:700;background:rgba(255,255,255,.04);}
+#ar2 .ar-bk-table tr.total-row td{border-bottom:none;color:#fff;}
+#ar2 .ar-bk-table tr.total-row td:not(:first-child){color:var(--t);}
+/* ── Water tile ── */
+#ar2 .ar-water{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;}
+#ar2 .ar-water-ico{width:36px;height:36px;border-radius:9px;background:rgba(0,180,216,.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+/* ── Empty state ── */
+#ar2 .ar-empty{display:flex;align-items:center;justify-content:center;min-height:300px;text-align:center;padding:30px;}
+/* ── Review ── */
+#ar2 .ar-review-section{margin-bottom:18px;}
+#ar2 .ar-review-hd{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--t);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
+#ar2 .ar-review-edit{font-size:11px;color:var(--mu);cursor:pointer;text-decoration:underline;}
+#ar2 .ar-review-edit:hover{color:var(--t);}
+#ar2 .ar-review-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;}
+#ar2 .ar-review-row:last-child{border-bottom:none;}
+#ar2 .ar-review-row span:first-child{color:var(--mu);}
+#ar2 .ar-review-row span:last-child{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--tx);}
+/* ── Disc / Saving weight note ── */
+#ar2 .ar-note{font-size:11px;color:#3a6a80;line-height:1.6;padding:10px 12px;background:rgba(0,0,0,.15);border-radius:8px;margin-top:8px;}
+/* ── Badge row ── */
+#ar2 .ar-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+#ar2 .ar-badge{padding:3px 9px;border-radius:20px;background:rgba(0,180,216,.07);border:1px solid rgba(0,180,216,.18);font-size:10px;color:var(--mu);}
+/* ── Disc ── */
+#ar2 .ar-disc{font-size:10px;color:#2d4e5e;line-height:1.7;text-align:center;margin-top:12px;padding:0 4px;}
+/* ── Animations ── */
+@keyframes ar2-fu{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+#ar2 .ar-fu{animation:ar2-fu .4s cubic-bezier(.22,.68,0,1.2) both;}
+@keyframes ar2-sh{from{background-position:-200% center;}to{background-position:200% center;}}
+#ar2 .ar-sh{background:linear-gradient(90deg,var(--t) 0%,var(--ic) 40%,var(--t) 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:ar2-sh 3s linear infinite;}
+@media print{#ar2 .ar-bar,#ar2 .ar-nav,.no-print{display:none!important;}}
+/* ── Bodies of water ── */
+#ar2 .ar-body-card{background:rgba(0,0,0,.2);border:1px solid rgba(0,180,216,.12);border-radius:10px;padding:13px 13px;margin-bottom:10px;transition:border-color .2s,background .2s;}
+#ar2 .ar-body-card.has-gal{background:rgba(0,180,216,.05);border-color:rgba(0,180,216,.25);}
+#ar2 .ar-body-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:11px;flex-wrap:wrap;}
+#ar2 .ar-body-type{display:grid;grid-template-columns:1fr 1fr;border-radius:7px;border:1px solid rgba(0,180,216,.2);overflow:hidden;flex-shrink:0;}
+#ar2 .ar-btype-btn{padding:6px 12px;text-align:center;font-size:11px;font-weight:600;cursor:pointer;border:none;background:rgba(72,202,228,.12);color:var(--aq);transition:background .15s,color .15s;white-space:nowrap;}
+#ar2 .ar-btype-btn.on{background:var(--aq);color:#fff;}
+#ar2 .ar-btype-btn:hover:not(.on){background:rgba(0,180,216,.08);color:var(--tx);}
+#ar2 .ar-body-dims{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:10px;}
+#ar2 .ar-body-surf{display:grid;grid-template-columns:1.6fr 1fr;gap:9px;margin-bottom:10px;}
+#ar2 .ar-body-gal{display:flex;align-items:center;justify-content:space-between;padding-top:9px;border-top:1px solid rgba(255,255,255,.05);}
+#ar2 .ar-body-gal-lbl{font-size:11px;color:#3a6a80;}
+#ar2 .ar-body-gal-val{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--t);}
+#ar2 .ar-total-row{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:rgba(0,180,216,.07);border:1px solid rgba(0,180,216,.18);border-radius:9px;margin-top:4px;}
+#ar2 .ar-add-body{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:9px;margin-top:4px;border-radius:8px;border:1px dashed var(--aq);background:rgba(72,202,228,.06);color:var(--aq);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;}
+#ar2 .ar-add-body:hover{background:rgba(0,180,216,.08);color:var(--t);}
+#ar2 .ar-rm-body{padding:4px 8px;border-radius:6px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;}
+#ar2 .ar-rm-body:hover{background:rgba(239,68,68,.18);}
+/* ── Input mode toggle (Dimensions / Gallons / Manual) ── */
+#ar2 .ar-imode{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid rgba(0,180,216,.25);border-radius:7px;overflow:hidden;flex-shrink:0;}
+#ar2 .ar-imode-btn{padding:7px 11px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:rgba(72,202,228,.12);color:var(--aq);transition:background .15s,color .15s;white-space:nowrap;line-height:1.4;}
+#ar2 .ar-imode-btn.on{background:var(--aq);color:#fff;}
+#ar2 .ar-imode-btn:hover:not(.on){background:rgba(0,180,216,.07);color:var(--tx);}
+/* Divergence badge — shown on body cards whose input drifted >15% from the map */
+#ar2 .ar-diverge-badge{display:flex;align-items:center;gap:6px;margin:8px 0 0;padding:7px 10px;border-radius:7px;background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.35);color:#f7c948;font-size:11px;line-height:1.3;cursor:help;}
+#ar2 .ar-diverge-badge u{cursor:pointer;color:#fff;text-decoration-color:rgba(255,255,255,.4);font-weight:600;}
+#ar2 .ar-diverge-badge u:hover{text-decoration-color:#fff;}
+#ar2 .ar-diverge-badge svg{flex-shrink:0;}
+/* Map-origin provenance tag on body card header */
+#ar2 .ar-body-map-tag{display:inline-flex;align-items:center;gap:3px;font-size:9px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;padding:2px 6px;border-radius:8px;color:var(--aq);background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.28);}
+#ar2 .ar-img-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid rgba(0,180,216,.3);background:rgba(0,180,216,.08);color:var(--aq);border-radius:5px;transition:background .15s,color .15s,border-color .15s;white-space:nowrap;line-height:1.3;font-family:inherit;}
+#ar2 .ar-img-btn:hover{background:rgba(0,180,216,.18);color:#fff;border-color:var(--aq);}
+#ar2 .ar-img-btn.danger{padding:6px 9px;border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#fca5a5;}
+#ar2 .ar-img-btn.danger:hover{background:rgba(239,68,68,.2);color:#fff;border-color:#ef4444;}
+#ar2 .ar-bpipe-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;}
+#ar2 .ar-bpipe-cell{display:flex;flex-direction:column;align-items:center;}
+#ar2 .ar-bpipe-lbl{font-size:10px;color:var(--mu);font-weight:600;margin-bottom:3px;letter-spacing:0.5px;}
+#ar2 .ar-bpipe-inp{width:100%;max-width:52px;padding:5px 4px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;background:rgba(0,0,0,.25);color:var(--t);border:1px solid rgba(0,180,216,.2);border-radius:4px;outline:none;transition:border-color .15s,background .15s;}
+#ar2 .ar-bpipe-inp:focus{border-color:var(--t);background:rgba(0,0,0,.35);}
+#ar2 .ar-bpipe-inp::-webkit-outer-spin-button,#ar2 .ar-bpipe-inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+#ar2 .ar-bpipe-inp[type=number]{-moz-appearance:textfield;}
+#ar2 .ar-qty-btn.locked{opacity:.35;pointer-events:none;cursor:not-allowed;}
+#ar2 .ar-pipe-row.locked .ar-pipe-info{opacity:.85;}
+#ar2 .ar-manual-override{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);}
+#ar2 .ar-manual-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}
+#ar2 .ar-manual-row label{font-size:13px;color:var(--tx);}
+@media(max-width:480px){#ar2 .ar-body-dims{grid-template-columns:1fr 1fr;}}
+/* ── Export section ── */
+#ar2 .ar-export{}
+#ar2 .ar-export-title{font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--t);font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px;}
+#ar2 .ar-export-field{margin-bottom:16px;}
+#ar2 .ar-export-field-lbl{display:block;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);font-weight:600;margin-bottom:8px;}
+#ar2 .ar-export-note{font-size:11px;color:#3a6a80;margin-top:6px;line-height:1.6;}
+/* ── Comments input (UX-polished) ── */
+#ar2 .ar-comm-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+#ar2 .ar-comm-counter{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:var(--mu);letter-spacing:0.5px;padding:2px 8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.15);border-radius:10px;transition:color .2s,background .2s,border-color .2s;}
+#ar2 .ar-comm-counter-sep{opacity:.45;margin:0 2px;}
+#ar2 .ar-comm-counter.warn{color:#f0a500;background:rgba(240,165,0,.1);border-color:rgba(240,165,0,.35);}
+#ar2 .ar-comm-counter.full{color:#ef4444;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.4);}
+#ar2 .ar-comm-wrap{position:relative;display:flex;align-items:center;background:rgba(0,0,0,.25);border:1px solid rgba(0,180,216,.2);border-radius:8px;transition:border-color .15s,background .15s,box-shadow .15s;}
+#ar2 .ar-comm-wrap:hover{border-color:rgba(0,180,216,.35);}
+#ar2 .ar-comm-wrap:focus-within{border-color:var(--t);background:rgba(0,0,0,.35);box-shadow:0 0 0 3px rgba(0,180,216,.12);}
+#ar2 .ar-comm-wrap.filled{border-color:rgba(0,180,216,.3);}
+#ar2 .ar-comm-icon{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:34px;height:38px;color:var(--mu);transition:color .15s;}
+#ar2 .ar-comm-wrap:focus-within .ar-comm-icon,#ar2 .ar-comm-wrap.filled .ar-comm-icon{color:var(--t);}
+#ar2 .ar-comm-input{flex:1;background:transparent;border:none;outline:none;color:var(--tx);font-family:'DM Sans',sans-serif;font-size:13px;padding:10px 4px;min-width:0;}
+#ar2 .ar-comm-input::placeholder{color:#486b7a;font-style:italic;}
+#ar2 .ar-comm-clear{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:28px;height:28px;margin-right:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:50%;color:var(--mu);cursor:pointer;transition:background .15s,color .15s,transform .1s;padding:0;}
+#ar2 .ar-comm-clear:hover{background:rgba(239,68,68,.15);color:#fca5a5;border-color:rgba(239,68,68,.3);transform:rotate(90deg);}
+#ar2 .ar-comm-clear:active{transform:rotate(90deg) scale(.9);}
+/* Radio / checkbox rows */
+#ar2 .ar-radio-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;}
+#ar2 .ar-radio-row label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx);cursor:pointer;}
+#ar2 .ar-radio-row input[type=radio],
+#ar2 .ar-radio-row input[type=checkbox]{accent-color:var(--t);width:14px;height:14px;cursor:pointer;}
+#ar2 .ar-radio-divider{width:1px;height:18px;background:rgba(0,180,216,.2);margin:0 4px;}
+/* Toggle row */
+#ar2 .ar-toggle-row{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border:1px solid rgba(0,180,216,.15);border-radius:9px;margin-bottom:9px;}
+#ar2 .ar-toggle-row label{font-size:13px;color:var(--tx);cursor:pointer;}
+/* Textarea */
+#ar2 .ar-textarea{width:100%;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.22);border-radius:8px;color:var(--tx);padding:10px 12px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;min-height:50px;transition:border-color .16s;}
+#ar2 .ar-textarea:focus{border-color:rgba(0,180,216,.6);box-shadow:0 0 0 3px rgba(0,180,216,.1);}
+#ar2 .ar-textarea::placeholder{color:rgba(125,184,204,.4);}
+/* Media items */
+#ar2 .ar-media-item{background:rgba(0,0,0,.15);border:1px solid rgba(255,255,255,.06);border-radius:9px;padding:11px;margin-bottom:10px;}
+#ar2 .ar-media-preview{position:relative;display:inline-block;margin-bottom:7px;}
+#ar2 .ar-media-thumb{width:180px;height:auto;border-radius:6px;border:1px solid rgba(255,255,255,.1);display:block;}
+#ar2 .ar-yt-wrap{position:relative;display:inline-block;}
+#ar2 .ar-yt-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+#ar2 .ar-yt-play-icon{background:rgba(0,0,0,.6);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;}
+#ar2 .ar-rm-media{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:var(--re);border:none;color:#fff;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+#ar2 .ar-yt-url{font-size:10px;color:#3a6a80;margin-bottom:6px;word-break:break-all;}
+/* ── Image slots ── */
+#ar2 .ar-img-slots{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+#ar2 .ar-img-slot{aspect-ratio:4/3;border:1px dashed rgba(0,180,216,.3);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:background .15s;overflow:hidden;position:relative;}
+#ar2 .ar-img-slot:hover{background:rgba(0,180,216,.05);}
+#ar2 .ar-img-slot.filled{border-style:solid;border-color:rgba(0,180,216,.2);}
+#ar2 .ar-img-slot img{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2 .ar-img-slot .ar-img-cap-input{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);border:none;color:#fff;font-size:11px;padding:6px 8px;font-family:inherit;outline:none;}
+/* ── YouTube drawer ── */
+#ar2 .ar-yt-drawer{max-height:0;overflow:hidden;transition:max-height .3s ease;}
+#ar2 .ar-yt-drawer.open{max-height:2000px;}
+/* File upload button */
+#ar2 .ar-file-btn{display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;width:100%;border:1px dashed rgba(0,180,216,.3);border-radius:8px;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;}
+#ar2 .ar-file-btn:hover{background:rgba(0,180,216,.07);color:var(--t);}
+/* Gen button */
+#ar2 .ar-gen-btn{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);border:none;border-radius:9px;padding:13px;width:100%;font-family:'DM Sans',sans-serif;font-weight:700;font-size:14px;cursor:pointer;transition:filter .18s;margin-top:4px;}
+#ar2 .ar-gen-btn:hover{filter:brightness(1.1);}
+#ar2 .ar-gen-btn:disabled{opacity:.5;cursor:not-allowed;}
+/* ── Print: hide app, show report ── */
+#ar2-report{display:none;}
+@media print{
+  html,body{margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important;height:auto!important;width:auto!important;}
+  /* Hide everything by default */
+  body>*{display:none!important;}
+  /* Show #ar2-report by moving it to be a direct child of body via JS,
+     OR reveal the ancestor chain if it's nested in Webflow wrappers */
+  #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;margin:0!important;position:static!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
+  /* Ensure Webflow wrapper ancestors of #ar2-report are visible */
+  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
+  /* Body MUST be flex:1 1 0 + min-height:0 + overflow:hidden so content
+     inside the body never pushes the CTA bar or footer past the page
+     boundary. flex:1 alone (without min-height:0) lets body grow to fit
+     content, which then bleeds CTA + foot off the page in landscape. */
+  #ar2-report .rpt .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;padding:16px 28px 12px!important;}
+  #ar2-report .rpt-foot{margin-top:auto!important;flex:0 0 auto!important;}
+  #ar2-report .rpt-cta-bar{flex:0 0 auto!important;}
+  .no-print{display:none!important;}
+  /* Hide chrome extensions and overlays */
+  *[id*="hubspot"],*[class*="hubspot"],*[id*="HubSpot"],*[class*="HubSpot"],
+  iframe:not(#ar2-report iframe),object,embed,
+  div[style*="position: fixed"],div[style*="position:fixed"],
+  [style*="z-index: 2147483647"],[style*="z-index:2147483647"]{display:none!important;}
+  #ar2-report .rpt,#ar2-report .rpt *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  #ar2-report .rpt-head,#ar2-report .rpt-kpis,#ar2-report .rpt-foot,#ar2-report .rpt-sbox,#ar2-report .rpt-stat,#ar2-report .rpt-tbl thead tr{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-sec{page-break-inside:avoid;}
+  #ar2-report .rpt-body{page-break-before:avoid;}
+  #ar2-report .rpt-factsheet-page{page-break-before:always;break-before:page;min-height:100vh;display:flex;flex-direction:column;max-width:none!important;width:100%!important;margin:0!important;}
+  #ar2-report .rpt-factsheet-page .rpt-body{flex:1;}
+  #ar2-report .rpt-factsheet-page .rpt-foot{margin-top:auto;}
+  #ar2-report .rpt-factsheet-page,#ar2-report .rpt-factsheet-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  #ar2-report .rpt-fs-kpi,#ar2-report .rpt-cert,#ar2-report .rpt-fs-cell{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-back-cover{page-break-before:always;break-before:page;}
+  #ar2-report .rpt-cover-page{page-break-after:auto;break-after:auto;page-break-inside:avoid;break-inside:avoid;width:100vw!important;height:100vh!important;max-height:100vh!important;max-width:none!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-cover-header{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  /* Pool Profile page — full-bleed: padding:0 on the page so the header
+     band and footer span edge-to-edge. The grid wrapper has its own
+     internal padding (.rpt-pp-grid-wrap) so the cards still have
+     margin from the page edges. */
+  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 0!important;min-height:0!important;overflow:hidden!important;align-content:start;}
+  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-head{margin-bottom:3px!important;padding-bottom:3px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-img{width:140px!important;height:92px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-card{grid-template-columns:140px 1fr!important;}
+  #ar2-report .rpt-pp-page,#ar2-report .rpt-pp-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
+  #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
+  /* ── Exec Summary pages — locked to 100vh, no bleed ── */
+  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
+  /* Portrait ES body containment — both body-1 (page 1) and body-2 (page 2)
+     must be flex:1 1 0 so they grow to fill remaining vertical space inside
+     the .rpt-es-page (height:100vh) and overflow:hidden clips any content
+     that exceeds that allotted body height. Previously body-2 used
+     flex:0 1 auto which let content push past the page boundary.
+     Children (left/right col) inherit this strict containment via overflow:hidden. */
+  #ar2-report .rpt-es-body-1,
+  #ar2-report .rpt-es-page-2 .rpt-es-body-2{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;}
+  #ar2-report .rpt-es-body-1 > *,
+  #ar2-report .rpt-es-page-2 .rpt-es-body-2 > *{min-height:0!important;overflow:hidden!important;}
+  /* Chart SVG cap kept loose so the print render matches the screen preview.
+     Earlier we'd hard-clamped to 160px which made the chart shrink and
+     introduce horizontal margins — preview and PDF then diverged. The
+     viewBox aspect (540×210) already keeps the natural height ≈ col-width
+     ÷ 2.57 ≈ 176px, which fits comfortably without bleeding the footer. */
+  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:200px!important;}
+  #ar2-report .rpt-es-device-full{margin:0 0 10px!important;}
+  #ar2-report .rpt-es-feat-grid{margin:3px 0 10px!important;}
+  #ar2-report .rpt-es-left,#ar2-report .rpt-es-right{padding:14px 24px 18px!important;}
+  #ar2-report .rpt-es-left-2{padding:12px 24px 16px!important;}
+  #ar2-report .rpt-es-right-2{padding:12px 26px 16px!important;}
+  #ar2-report .rpt-es-hero img{height:120px!important;}
+  #ar2-report .rpt-es-foot{padding:8px 28px!important;font-size:8px!important;margin-top:auto!important;}
+  #ar2-report .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
+  #ar2-report .rpt-es-chart{margin:4px 0 8px!important;}
+  #ar2-report .rpt-es-page a[href]{color:inherit;}
+  #ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px!important;margin-right:-28px!important;margin-bottom:-14px!important;}
+  #ar2-report .rpt-fs-img-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid;break-inside:avoid;width:100%!important;max-width:none!important;height:100vh!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:center!important;}
+  #ar2-report .rpt-fs-img-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:contain!important;display:block!important;margin:0!important;padding:0!important;}
+  /* Back cover — full bleed, no white borders (overrides fact-sheet contain) */
+  #ar2-report .rpt-back-cover-page img{object-fit:cover!important;}
+  #ar2-report .rpt-fs-img-page:last-child{page-break-after:avoid;break-after:avoid;}
+  /* ── Landscape variants — clamp to exactly one landscape page, no bleed ── */
+  #ar2-report .rpt-ls-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-ls-back-cover-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;}
+  #ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;max-width:100%!important;max-height:100vh!important;object-fit:cover!important;display:block!important;margin:0!important;padding:0!important;}
+  #ar2-report .rpt-ls-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;width:100vw!important;max-width:none!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;aspect-ratio:auto!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt-ls-es-page,#ar2-report .rpt-ls-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  #ar2-report .rpt-ls-es-body-3col,#ar2-report .rpt-ls-es-body-2col{flex:1!important;min-height:0!important;overflow:hidden!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-foot{margin-top:auto!important;}
+  #ar2-report .rpt-ls-es-page a[href]{color:inherit;}
+  #ar2-report .rpt-pres-deck-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:100vh!important;margin:0!important;padding:0!important;overflow:hidden!important;position:relative!important;box-shadow:none!important;aspect-ratio:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  #ar2-report .rpt a[href]{color:inherit;}
+  #ar2-report .rpt-cta-bar a{color:#48cae4!important;text-decoration:none!important;}
+  #ar2-report .rpt-media-wrap a{display:block;}
+  /* Flatten gradients (applies to both orientations) → smaller PDF raster size */
+  #ar2-report .rpt-kpis{background:#071628!important;}
+  #ar2-report .rpt-cta-bar{background:#071628!important;}
+}
+/* ── Portrait-only compaction — ensures up to 10 pools fit on a single Assessment page. Does not affect landscape. ── */
+@media print and (orientation:portrait){
+  #ar2-report .rpt-body{padding:12px 24px 8px;}
+  #ar2-report .rpt-sec{margin-bottom:8px;}
+  #ar2-report .rpt-stitle{margin-bottom:7px;padding-bottom:4px;font-size:8px;}
+  #ar2-report .rpt-row{padding:2px 0;font-size:10.5px;}
+  #ar2-report .rpt-tbl td,#ar2-report .rpt-tbl th{padding:4px 8px;font-size:10.5px;}
+  #ar2-report .rpt-tbl{font-size:10.5px;}
+  #ar2-report .rpt-sbox{padding:10px 12px;margin-bottom:6px;}
+  #ar2-report .rpt-sbox-title{margin-bottom:6px;padding-bottom:5px;}
+  #ar2-report .rpt-kpi{padding:12px 12px;}
+  #ar2-report .rpt-kpi-val{font-size:22px;}
+  #ar2-report .rpt-head{padding:16px 28px 14px;}
+  #ar2-report .rpt-disc{font-size:8px;padding-top:6px;margin-top:8px;line-height:1.5;}
+  #ar2-report .rpt-foot{padding:10px 28px;}
+  #ar2-report .rpt-stat{padding:8px 10px;}
+  #ar2-report .rpt-stat-val{font-size:14px;}
+  #ar2-report .rpt-comments{padding:6px 10px;font-size:10.5px;}
+  /* ── PORTRAIT EXEC SUMMARY — PDF ONLY compression ──
+     Screen preview renders the ES pages at ~1113px tall, but the print
+     page (8.5x11in @ 96dpi) is 1056px tall. Without these rules the page-1
+     hero/lead and page-2 outcome-cards/Ritz block overflow off the bottom
+     of the PDF page (preview looks fine, print doesn't). These rules
+     apply to PRINT ONLY: screen preview is unaffected. */
+  #ar2-report .rpt-es-page .rpt-es-head{padding:8px 24px 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-foot{padding:5px 24px!important;font-size:7.5px!important;}
+  #ar2-report .rpt-es-page .rpt-es-foot .rpt-foot-logo{font-size:10px!important;}
+  #ar2-report .rpt-es-page .rpt-es-left,
+  #ar2-report .rpt-es-page .rpt-es-right{padding:10px 20px 12px!important;}
+  #ar2-report .rpt-es-page .rpt-es-left-2,
+  #ar2-report .rpt-es-page .rpt-es-right-2{padding:8px 20px 10px!important;}
+  #ar2-report .rpt-es-page .rpt-es-hero img{height:90px!important;}
+  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:130px!important;}
+  #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-statline{padding:3px 0!important;}
+  #ar2-report .rpt-es-page .rpt-es-bignum{font-size:20px!important;margin:2px 0 8px!important;}
+  #ar2-report .rpt-es-page .rpt-es-outcome-cards{gap:6px!important;margin:5px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-out-card{padding:5px 4px!important;}
+  #ar2-report .rpt-es-page .rpt-es-feat-grid{margin:2px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-device-full{margin:0 0 4px!important;}
+  /* Trim Ritz + video container margins on page 2 so they don't push the
+     bottom off the print page. */
+  #ar2-report .rpt-es-page .rpt-es-ritz{margin:4px 0 6px!important;}
+  #ar2-report .rpt-es-page .rpt-es-video{margin:4px 0 6px!important;}
+  /* ── PORTRAIT ASSESSMENT — cap image/video grids + client-logo header ──
+     The single-page Assessment fits Pool Config + Devices + Purchase +
+     Breakdown + Water + Property Images + Video Resources + CTA + Foot
+     into one 8.5×11 page. When a Client uploads a logo, the rpt-head
+     grows from ~70px (wordmark+sub) to ~83px (42px logo+sub), eating into
+     the body slot. Combined with the natural ~120px-tall 16/9 image
+     tiles, the imgHtml + ytHtml row could overflow the body's
+     overflow:hidden clip — content vanished or visually crowded the
+     footer. Caps below trim the tile height and tighten the header logo
+     so PDF and preview stay aligned even with a tall client mark.
+     Selector `.rpt:not(.rpt-landscape)` targets ONLY the bare Assessment
+     wrapper — Cover / ES / Pool Profile / Back Cover all use their own
+     `.rpt-*-page` classes and aren't affected. */
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-grid{gap:6px!important;margin-top:3px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-wrap{max-height:72px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-img-cap{font-size:8px!important;margin-top:2px!important;line-height:1.25!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-head-left img{max-height:34px!important;margin-bottom:2px!important;}
+  /* ── Portrait Assessment body: belt-and-suspenders containment ──
+     The body is flex-column with its 3 children (Row A pool+devices,
+     Row B purchase+breakdown+water+images+videos, disclaimer) as flex
+     items. Mark the row that holds Property Images + Video Resources
+     (`.rpt-pt-media-row`, added by the JS builder below) as flex:0 0 auto
+     and pin it just above the disclaimer with margin-top:auto so the
+     images CANNOT be pushed past the body's overflow:hidden boundary —
+     if upper content runs tall, the Purchase/Breakdown row gets clipped
+     before the media row does. */
+  #ar2-report .rpt:not(.rpt-landscape) > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-pt-media-row{margin-top:auto!important;flex:0 0 auto!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-disc{flex:0 0 auto!important;}
+  /* Compress all sections except the bottom-pinned media row so dense
+     properties (7+ pools + water + images + videos) still fit on a single
+     portrait page. */
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-row{padding:1.5px 0!important;font-size:10px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-sec{margin-bottom:6px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-sbox{padding:7px 10px!important;margin-bottom:4px!important;}
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-tbl td,
+  #ar2-report .rpt:not(.rpt-landscape) .rpt-tbl th{padding:3px 6px!important;font-size:10px!important;}
+}
+/* ── LANDSCAPE PRINT RULES ──
+   IMPORTANT: rules here are inside plain `@media print` and scoped by the
+   `.rpt-landscape` / `.rpt.rpt-landscape` selector — NOT inside
+   `@media print and (orientation:landscape)`.
+   Why: Chrome's print engine (esp. headless --print-to-pdf, and in some
+   interactive-print configurations) reports the orientation media query
+   as PORTRAIT even when the page is laid out landscape via @page or the
+   print dialog. As a result, every CSS rule we previously placed inside
+   `@media print and (orientation:landscape){}` was DEAD CODE — never
+   applied — which is why landscape Assessment PDFs kept breaking even
+   after the rules were updated. Class scoping works because the JS
+   builder adds `rpt-landscape` to the wrapper when EX.layout==='landscape'. */
+@media print{
+  #ar2-report .rpt.rpt-landscape{font-size:10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 20px;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:20px;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 20px 6px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:8px 10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:7px;}
+  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:6px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cols{gap:10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{border-radius:3px;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot-logo{font-size:11px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar .cta-label{font-size:8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar a{font-size:10px;}
+  /* Landscape is single-page tight — drop the redundant Savings Projection
+     line below the breakdown table to recover ~24px of vertical space. The
+     same value is already visible via the savings_weight applied in the
+     scenario boxes; keeping it on portrait only. */
+  #ar2-report .rpt.rpt-landscape .rpt-sw-applied{display:none!important;}
+  /* Pool Profiles landscape — scoped via the dedicated landscape page class
+     (.rpt-pp-page-landscape — applied by the JS builder when layout is
+     landscape) so portrait Pool Profile pages are not affected. */
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr!important;gap:8px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-card{min-height:140px!important;padding:8px!important;grid-template-columns:110px 1fr!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-img{width:110px!important;height:74px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-name{font-size:12px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-row{font-size:9.5px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-row .v{font-size:10.5px!important;min-width:64px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-title{font-size:18px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-sub{font-size:9.5px!important;}
+  #ar2-report .rpt-pp-page-landscape .rpt-pp-header{padding-bottom:6px!important;margin-bottom:8px!important;}
+  /* ── Landscape Exec Summary fine-tuning ── */
+  #ar2-report .rpt-ls-es-page .rpt-es-head{padding:10px 24px 8px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-left,#ar2-report .rpt-ls-es-page .rpt-es-right,#ar2-report .rpt-ls-es-page .rpt-es-mid{padding:14px 22px 16px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-foot{padding:6px 24px!important;font-size:8px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-foot .rpt-foot-logo{font-size:11px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:200px!important;}
+  #ar2-report .rpt-ls-es-page .rpt-es-hero img{height:110px!important;}
+  /* Ritz + video — natural aspect ratio in print too. Image fills col
+     width with height:auto so the source proportions are preserved
+     and nothing is cropped. */
+  #ar2-report .rpt-ls-es-page .rpt-es-ritz img,
+  #ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%!important;height:auto!important;max-height:none!important;display:block!important;}
+  /* ── ASSESSMENT LANDSCAPE — PDF ONLY compression ──
+     Screen preview renders the Assessment at 1120×866px, but the print
+     page (11×8.5 in @ 96dpi) is 1056×816px — 50px shorter. Without these
+     rules content that just fits the screen preview overflows onto a
+     phantom second page in the PDF. These rules apply to PRINT ONLY:
+     screen preview is unaffected. */
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:4px 20px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:18px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo-sub{font-size:7px!important;margin-top:1px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:14px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-date{font-size:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:4px 10px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:15px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:6.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:4px 16px 2px!important;font-size:9.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:3px 20px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot{padding:3px 20px!important;font-size:6.5px!important;}
+  /* ── Landscape Assessment AGGRESSIVE compaction ──
+     The landscape body slot is ~440-460 CSS px tall (8.5in − chrome).
+     With 7+ pools + 2 purchase boxes + full breakdown + water + images
+     + videos, content totals ~480-520 CSS px naturally. To make it ALL
+     fit on one landscape page we squeeze every section: smaller fonts,
+     tighter padding on rows / boxes / tables / titles. This is print-
+     only — screen preview keeps the relaxed sizes.
+     Numbers tuned against the actual user data: 7 pools, Purchase +
+     Advantage boxes, 6-row Breakdown table, Water Conservation row,
+     2 property images, 2 video thumbs. Verified to fit with ~20px to
+     spare before the disclaimer. */
+  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:4px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:7px!important;margin-bottom:3px!important;padding-bottom:2px!important;letter-spacing:2px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row{padding:1px 0!important;font-size:9.5px!important;line-height:1.35!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row.strong{padding:1.5px 0!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:5px 8px!important;margin-bottom:3px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7px!important;margin-bottom:3px!important;padding-bottom:2px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl td,
+  #ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:2px 5px!important;font-size:9px!important;line-height:1.35!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-cols{gap:14px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:7px!important;line-height:1.4!important;margin-top:2px!important;padding-top:2px!important;border-top:1px solid #eee!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat{padding:4px 6px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:11px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:6.5px!important;}
+  /* ── Property Images + Video Resources row (new) ──
+     Rendered as a regular 2-col section after Row B, in natural flow.
+     Capped tile height of 78px in print so the row + caption stays
+     under 110px and the entire body fits a single landscape page. */
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row{margin-top:4px!important;margin-bottom:0!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row .rpt-stitle{font-size:7px!important;margin-bottom:3px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:78px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:6px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:7.5px!important;margin-top:2px!important;line-height:1.25!important;}
+}
+/* ── Mobile: results panel above form ── */
+@media(max-width:860px){
+  #ar2 .ar-layout{display:flex;flex-direction:column;}
+  #ar2 .ar-res-col{order:-1;padding-top:20px;}
+  #ar2 .ar-form-col{padding:12px 0 0;}
+  #ar2 .ar-dev-col{padding:0;}
+}
+/* ── CO₂ advanced disclosure ── */
+/* ── Advanced chemicals disclosure ── */
+#ar2 .ar-adv-details{margin-top:2px;}
+#ar2 .ar-adv-details>summary{font-size:12px;color:#3a6a80;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid rgba(0,180,216,.14);border-radius:8px;user-select:none;transition:color .15s,border-color .15s;}
+#ar2 .ar-adv-details>summary::-webkit-details-marker{display:none;}
+#ar2 .ar-adv-details[open]>summary{color:var(--t);border-color:rgba(0,180,216,.3);}
+#ar2 .ar-adv-details>.ar-adv-body{margin-top:10px;}
+/* ── Nav disabled hint ── */
+#ar2 .ar-nav-hint{font-size:11px;color:#3a6a80;text-align:center;margin-top:8px;}
+/* ── Savings weight direction labels ── */
+#ar2 .ar-slider-dirs{display:flex;justify-content:space-between;font-size:10px;color:#3a6a80;margin-bottom:3px;}
+/* ── Device total row ── */
+#ar2 .ar-dev-total{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-top:8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:9px;font-size:12px;}
+#ar2 .ar-dev-total .k{color:var(--mu);}
+#ar2 .ar-dev-total .v{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--go);}
+/* ── Tab recommended badge ── */
+#ar2 .ar-tab-rec{font-size:9px;letter-spacing:1px;text-transform:uppercase;background:rgba(34,197,94,.18);color:var(--gr);border-radius:4px;padding:2px 5px;margin-left:5px;font-weight:700;}
+/* ── Quick-add button in empty state ── */
+#ar2 .ar-quick-add{display:inline-flex;align-items:center;gap:6px;margin-top:14px;padding:9px 18px;border-radius:8px;border:1px solid rgba(0,180,216,.35);background:rgba(0,180,216,.1);color:var(--t);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
+#ar2 .ar-quick-add:hover{background:rgba(0,180,216,.2);}
+/* ── Manual volume section ── */
+#ar2 .ar-manual-lede{font-size:11px;color:#3a6a80;padding:8px 11px;border-radius:7px;border:1px dashed rgba(0,180,216,.2);margin-top:10px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;}
+#ar2 .ar-manual-lede:hover{border-color:rgba(0,180,216,.35);color:var(--mu);}
+/* ── Reset button ── */
+#ar2 .ar-reset-btn{font-size:12px;font-weight:500;color:var(--mu);background:none;border:1px solid rgba(0,180,216,.15);cursor:pointer;padding:6px 13px;border-radius:7px;transition:background .18s,color .18s;font-family:inherit;}
+#ar2 .ar-reset-btn:hover{background:rgba(239,68,68,.1);color:var(--re);border-color:rgba(239,68,68,.25);}
+/* ══════════════════════════════════════════════════
+   REPORT — Professional design system
+   ══════════════════════════════════════════════════ */
+#ar2-report .rpt{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:13px;line-height:1.5;max-width:860px;margin:0 auto;display:flex;flex-direction:column;}
+/* Landscape Assessment — preview at 11×8.5 aspect ratio so it visually
+   matches the printed page. JS adds the .rpt-landscape class when
+   EX.layout==='landscape'. */
+/* ════════════════════════════════════════════════════════════════════
+   SCREEN-MODE landscape preview rules.
+   IMPORTANT: wrapped in @media screen so they DO NOT leak into print.
+   In print mode, the @media print block (above in this stylesheet) sets
+   page elements to 100vw/100vh which match the actual 11×8.5 print page.
+   Without this @media screen scope, the !important here would override
+   print sizing → content would overflow physical page → Chrome would
+   cascade onto phantom pages. (Caused multi-day debug.)
+   ════════════════════════════════════════════════════════════════════ */
+@media screen {
+  /* Force explicit width/height so every landscape page renders at exactly
+     11×8.5 in / 1120×866 px in screen preview.
+     !important inside @media screen is safe — the @media print rules use
+     a separate media query, so this !important only applies on screen and
+     never overrides print sizing. Without !important, other unscoped rules
+     defined later in this stylesheet (e.g. .rpt-ls-cover-page{width:100%})
+     would win the cascade and render some pages narrower than the ES pages. */
+  #ar2-report .rpt-ls-cover-page,
+  #ar2-report .rpt-ls-back-cover-page,
+  #ar2-report .rpt-ls-es-page,
+  #ar2-report .rpt-pp-page.rpt-pp-page-landscape{
+    width:1120px!important;
+    max-width:1120px!important;
+    height:866px!important;
+    min-height:866px!important;
+    max-height:866px!important;
+    margin:32px auto 0!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+    box-sizing:border-box!important;
+    aspect-ratio:auto!important;
+  }
+  /* Landscape Assessment matches the other landscape page wrappers — same
+     1120×866 explicit size, flex column, overflow:hidden. The body inside
+     contains naturally-flowing rows (Row A, Row B, media row, disc); no
+     special grid containment needed since we no longer try to bottom-pin
+     anything inside individual columns. */
+  #ar2-report .rpt.rpt-landscape{
+    width:1120px!important;
+    max-width:1120px!important;
+    height:866px!important;
+    min-height:866px!important;
+    max-height:866px!important;
+    margin:32px auto 0!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+    box-sizing:border-box!important;
+    aspect-ratio:auto!important;
+  }
+  /* Screen body containment so content doesn't push CTA/footer past the
+     866px page boundary in preview. */
+  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0;min-height:0;overflow:hidden;display:flex;flex-direction:column;}
+  #ar2-report .rpt-pp-page.rpt-pp-page-landscape > .rpt-pp-grid{flex:1 1 0;min-height:0;overflow:hidden;}
+  /* Property Images + Video Resources row — separate row at the bottom
+     of body, natural flow placement. Mirrors print-mode caps so preview
+     and PDF render Property Images / Video Resources at the same 16/9
+     aspect and same ~110px max-height. */
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row{margin-top:6px;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9;max-height:110px;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:8px;}
+  /* Landscape Assessment compression — fits 5-KPI strip + 2-col body + CTA + footer in 866px */
+  #ar2-report .rpt.rpt-landscape{font-size:11px;}
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:10px 22px 8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:22px;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:16px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:10px 12px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:8px;letter-spacing:1.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpis-5 .rpt-kpi-val{font-size:16px;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 22px 8px;font-size:10px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:8px;margin-bottom:5px;padding-bottom:3px;}
+  #ar2-report .rpt.rpt-landscape .rpt-row{font-size:10px;padding:1.5px 0;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl td,#ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:3px 6px;font-size:9.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:8px 10px;margin-bottom:5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7.5px;margin-bottom:4px;padding-bottom:3px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat{padding:6px 8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:13px;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px;}
+  #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:6px 22px;font-size:9px;}
+  #ar2-report .rpt.rpt-landscape .rpt-foot{padding:7px 22px;font-size:8.5px;}
+  #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px;line-height:1.4;}
+}
+#ar2-report .rpt .rpt-body{flex:1;}
+#ar2-report .rpt *{box-sizing:border-box;}
+/* ── Header band ── */
+#ar2-report .rpt-head{background:#040f1e;padding:22px 32px 20px;display:flex;justify-content:space-between;align-items:center;gap:20px;}
+#ar2-report .rpt-head-left{}
+#ar2-report .rpt-logo{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:5px;color:#fff;line-height:1;}
+#ar2-report .rpt-logo-sub{font-size:8px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;margin-top:4px;}
+#ar2-report .rpt-head-right{text-align:right;}
+#ar2-report .rpt-prop-name{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:#fff;line-height:1.1;}
+#ar2-report .rpt-prop-date{font-size:10px;color:#7db8cc;margin-top:5px;line-height:1.5;}
+#ar2-report .rpt-nsf-badge{display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid rgba(0,180,216,.4);border-radius:3px;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:600;}
+/* ── KPI stripe ── */
+#ar2-report .rpt-kpis{background:linear-gradient(to right,#071628,#0a2540);border-bottom:3px solid #00b4d8;display:grid;grid-template-columns:repeat(4,1fr);}
+/* Landscape variant: 5th block (Savings Projection Applied) — 5-col grid */
+#ar2-report .rpt-kpis-5{grid-template-columns:repeat(5,1fr);}
+#ar2-report .rpt-kpi{padding:16px 16px;text-align:center;border-right:1px solid rgba(0,180,216,.15);}
+#ar2-report .rpt-kpi:last-child{border-right:none;}
+#ar2-report .rpt-kpi-lbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#fff;margin-bottom:6px;}
+#ar2-report .rpt-kpi-val{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:#fff;line-height:1;}
+#ar2-report .rpt-kpi-val.green{color:#4ade80;}
+#ar2-report .rpt-kpi-val.teal{color:#48cae4;}
+/* ── Body ── */
+#ar2-report .rpt-body{padding:16px 28px 12px;}
+/* ── Sections ── */
+#ar2-report .rpt-sec{margin-bottom:12px;}
+#ar2-report .rpt-stitle{font-size:8px;letter-spacing:3.5px;text-transform:uppercase;font-weight:700;color:#00b4d8;padding-bottom:6px;border-bottom:1.5px solid #00b4d8;margin-bottom:11px;display:flex;align-items:center;gap:8px;}
+#ar2-report .rpt-stitle::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,#d5eaf5,transparent);}
+/* ── Two-column ── */
+#ar2-report .rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+/* ── Data rows ── */
+#ar2-report .rpt-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:11px;}
+#ar2-report .rpt-row:last-child{border-bottom:none;}
+#ar2-report .rpt-row .k{color:#555;}
+#ar2-report .rpt-row .v{font-family:'JetBrains Mono',monospace;font-weight:600;color:#111;}
+#ar2-report .rpt-row.strong .k{font-weight:600;color:#111;}
+#ar2-report .rpt-row.strong .v{color:#040f1e;}
+#ar2-report .rpt-row .v.pos{color:#16a34a;}
+#ar2-report .rpt-row .v.neg{color:#dc2626;}
+#ar2-report .rpt-row .v.teal{color:#007fa0;}
+/* ── Box ── */
+#ar2-report .rpt-box{background:#f8fbfd;border:1px solid #d5eaf5;border-radius:5px;padding:12px 14px;}
+/* ── Scenario boxes ── */
+#ar2-report .rpt-sbox{border:1px solid #d5eaf5;border-top:3px solid #00b4d8;border-radius:0 0 5px 5px;padding:12px 14px;background:#f8fbfd;}
+#ar2-report .rpt-sbox.pur{border-top-color:#f0a500;}
+#ar2-report .rpt-sbox-title{font-size:8px;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:#00b4d8;margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid #e8f4fb;}
+#ar2-report .rpt-sbox.pur .rpt-sbox-title{color:#b07800;}
+/* ── Table ── */
+#ar2-report .rpt-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+#ar2-report .rpt-tbl thead tr{background:#040f1e;}
+#ar2-report .rpt-tbl th{text-align:left;padding:8px 10px;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#90d4e8;font-weight:600;}
+#ar2-report .rpt-tbl th:not(:first-child){text-align:right;}
+#ar2-report .rpt-tbl td{padding:6px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;}
+#ar2-report .rpt-tbl td:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2-report .rpt-tbl tbody tr:nth-child(even) td{background:#fafcfe;}
+#ar2-report .rpt-tbl tr.tot td{font-weight:700;background:#eaf7ff;border-top:2px solid #00b4d8;border-bottom:none;font-family:'JetBrains Mono',monospace;}
+/* ── Bar chart in table ── */
+#ar2-report .rpt-bar-wrap{display:flex;align-items:center;gap:7px;}
+#ar2-report .rpt-bar-bg{flex:1;height:5px;background:#e8f0f4;border-radius:3px;min-width:40px;}
+#ar2-report .rpt-bar-fill{height:100%;border-radius:3px;background:linear-gradient(to right,#00b4d8,#48cae4);}
+/* ── Water conservation ── */
+#ar2-report .rpt-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+#ar2-report .rpt-stat{background:#f0fbff;border:1px solid #c8eaf5;border-radius:5px;padding:10px 12px;text-align:center;}
+#ar2-report .rpt-stat-val{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#007fa0;margin-bottom:3px;}
+#ar2-report .rpt-stat-lbl{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#7db8cc;}
+/* ── Comments ── */
+#ar2-report .rpt-comments{background:#fafafa;border-left:3px solid #00b4d8;padding:10px 14px;font-size:12px;color:#444;line-height:1.75;border-radius:0 5px 5px 0;}
+#ar2-report .rpt-comments p{margin-bottom:6px;}
+#ar2-report .rpt-comments p:last-child{margin-bottom:0;}
+/* ── Media — images ── */
+#ar2-report .rpt-img-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+#ar2-report .rpt-img-item{break-inside:avoid;}
+#ar2-report .rpt-img-wrap{aspect-ratio:16/9;overflow:hidden;border-radius:5px;border:1px solid #d5e8f0;}
+#ar2-report .rpt-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2-report .rpt-img-cap{font-size:10px;color:#555;margin-top:5px;line-height:1.5;}
+/* ── Media — YouTube ── */
+#ar2-report .rpt-yt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+#ar2-report .rpt-yt-item{break-inside:avoid;}
+#ar2-report .rpt-yt-thumb{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:5px;border:1px solid #d5e8f0;}
+#ar2-report .rpt-yt-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2-report .rpt-yt-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.25);}
+#ar2-report .rpt-yt-play-btn{background:rgba(0,0,0,.6);border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;}
+#ar2-report .rpt-yt-url{font-size:9px;color:#00b4d8;margin-top:5px;word-break:break-all;line-height:1.4;}
+#ar2-report .rpt-yt-cap{font-size:10px;color:#555;margin-top:3px;line-height:1.5;}
+/* ── Fact Sheet Page ── */
+#ar2-report .rpt-factsheet-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:13px;line-height:1.5;max-width:860px;margin:0 auto;page-break-before:always;break-before:page;display:flex;flex-direction:column;}
+#ar2-report .rpt-factsheet-page .rpt-body{flex:1;}
+#ar2-report .rpt-factsheet-page .rpt-foot{margin-top:auto;}
+#ar2-report .rpt-factsheet-page *{box-sizing:border-box;}
+#ar2-report .rpt-fs-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+#ar2-report .rpt-fs-kpi{text-align:center;padding:14px 8px;background:#f0fbff;border:1px solid #c8eaf5;border-radius:6px;}
+#ar2-report .rpt-fs-kpi-val{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:#00b4d8;}
+#ar2-report .rpt-fs-kpi-lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-top:4px;}
+#ar2-report .rpt-fs-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0;}
+#ar2-report .rpt-fs-cell{background:#f8fbfd;border:1px solid #d5eaf5;border-radius:6px;padding:14px 12px;text-align:center;}
+#ar2-report .rpt-fs-cell-title{font-size:11px;font-weight:700;color:#111;margin-bottom:4px;}
+#ar2-report .rpt-cert-row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0;}
+#ar2-report .rpt-cert{text-align:center;padding:10px 6px;background:#f8fbfd;border:1px solid #d5eaf5;border-radius:5px;}
+#ar2-report .rpt-cert-val{font-size:10px;font-weight:700;color:#00b4d8;margin-bottom:3px;}
+#ar2-report .rpt-cert-lbl{font-size:9px;color:#666;line-height:1.4;}
+/* ── Legacy aliases ── */
+#ar2-report .rpt-fs-hero-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+#ar2-report .rpt-fs-how{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0;}
+#ar2-report .rpt-fs-how-card{background:#f8fbfd;border:1px solid #d5eaf5;border-radius:6px;padding:14px 12px;text-align:center;}
+#ar2-report .rpt-fs-how-num{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#00b4d8;margin-bottom:6px;}
+#ar2-report .rpt-fs-how-title{font-size:11px;font-weight:700;color:#111;margin-bottom:4px;}
+#ar2-report .rpt-fs-how-desc{font-size:10px;color:#666;line-height:1.5;}
+#ar2-report .rpt-fs-lab{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0;}
+#ar2-report .rpt-fs-lab-col{}
+#ar2-report .rpt-fs-certs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0;}
+#ar2-report .rpt-fs-cert{text-align:center;padding:10px 6px;background:#f8fbfd;border:1px solid #d5eaf5;border-radius:5px;}
+#ar2-report .rpt-fs-cert-title{font-size:10px;font-weight:700;color:#00b4d8;margin-bottom:3px;}
+#ar2-report .rpt-fs-cert-desc{font-size:9px;color:#666;line-height:1.4;}
+#ar2-report .rpt-fs-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:13px;line-height:1.5;max-width:860px;margin:0 auto;page-break-before:always;}
+#ar2-report .rpt-fs-img-page{max-width:860px;margin:32px auto 0;background:#fff;box-shadow:0 2px 12px rgba(4,15,30,.08);}
+#ar2-report .rpt-fs-img-page img{width:100%;height:auto;display:block;}
+/* Back cover preview — taller area to mimic full-bleed page */
+#ar2-report .rpt-back-cover-page{aspect-ratio:8.5/11;overflow:hidden;}
+#ar2-report .rpt-back-cover-page img{width:100%;height:100%;object-fit:cover;}
+/* Preview-only separation between the Assessment page and subsequent pages */
+#ar2-report .rpt-pp-page{margin-top:32px;box-shadow:0 2px 12px rgba(4,15,30,.08);min-height:1113px;display:flex;flex-direction:column;}
+/* Grid keeps cards at natural height — empty space goes below, footer sits at bottom */
+#ar2-report .rpt-pp-page .rpt-pp-grid{flex:1 1 auto;align-content:start;}
+/* Pool Profile page footer — span full page width edge-to-edge and sit at bottom of page */
+#ar2-report .rpt-pp-page .rpt-foot{margin-left:-28px;margin-right:-28px;margin-bottom:-18px;margin-top:auto;}
+/* ── Executive Summary Pages ── */
+/* Portrait ES page — preview at the EXACT print dimensions (8.5x11in @ 96dpi
+   = 816x1056 px). Previously the screen preview was 1113px tall, 57px more
+   than the print page, which masked content that overflows in the PDF.
+   Locking screen to 816x1056 means what you see is what you get.
+   Companion: ES content density is compressed at base level (rules below)
+   so screen and print render identically. The @media print rules layer
+   on top with !important for any final pixel-perfect tweaks. */
+#ar2-report .rpt-es-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:11px;line-height:1.45;width:816px;max-width:816px;margin:32px auto 0;page-break-before:always;break-before:page;display:flex;flex-direction:column;min-height:1056px;max-height:1056px;height:1056px;position:relative;box-shadow:0 2px 12px rgba(4,15,30,.08);overflow:hidden;box-sizing:border-box;}
+#ar2-report .rpt-es-page *{box-sizing:border-box;}
+/* Page 1 header (Assessment-style band across the top) — tight padding so
+   header total height ~70px instead of ~98px, saving 28px for body content. */
+#ar2-report .rpt-es-head{background:#040f1e;padding:10px 24px 8px;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-shrink:0;}
+#ar2-report .rpt-es-head-left{}
+#ar2-report .rpt-es-logo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:5px;color:#fff;line-height:1;}
+#ar2-report .rpt-es-logo-sub{font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;margin-top:3px;}
+#ar2-report .rpt-es-head-right{text-align:right;}
+#ar2-report .rpt-es-prop-name{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#fff;line-height:1.1;}
+#ar2-report .rpt-es-prop-date{font-size:9px;color:#7db8cc;margin-top:3px;line-height:1.4;}
+#ar2-report .rpt-es-nsf-badge{display:inline-block;margin-top:4px;padding:1px 6px;border:1px solid rgba(0,180,216,.4);border-radius:3px;font-size:7px;letter-spacing:1.2px;text-transform:uppercase;color:#48cae4;font-weight:600;}
+/* Page 1 body — 2-col grid below the header */
+#ar2-report .rpt-es-body-1{display:grid;grid-template-columns:320px 1fr;flex:1;min-height:0;}
+/* Page 2 body — 2-col grid below the hero */
+#ar2-report .rpt-es-page-2 .rpt-es-body-2{display:grid;grid-template-columns:320px 1fr;flex:1;min-height:0;}
+#ar2-report .rpt-es-hero{width:100%;overflow:hidden;background:#0a2540;flex-shrink:0;}
+#ar2-report .rpt-es-hero img{width:100%;height:90px;object-fit:cover;display:block;}
+#ar2-report .rpt-es-left{background:#0a2540;color:#fff;padding:12px 20px 14px;}
+/* Page 2 columns flex top-to-bottom and stretch the bottom block so the
+   column fills the height above the footer (no empty band at the bottom).
+   Left col: ESG section pinned to bottom (margin-top:auto on its h2).
+   Right col: Video Summary pinned to bottom (margin-top:auto on its h2).
+   Extra space between top and bottom blocks distributes naturally. */
+#ar2-report .rpt-es-left-2{padding:10px 20px 14px;display:flex;flex-direction:column;}
+#ar2-report .rpt-es-right{background:#fff;color:#222;padding:12px 22px 14px;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+/* Investment chart + custom block sit at the bottom of the page 1 right column,
+   pinned just above the footer band so the chart fills the column span and
+   visually anchors the page. margin-top:auto pushes the block to the bottom of
+   the flex column when there's slack; if content above runs long, the body
+   itself shrinks proportionally rather than letting the chart bleed below. */
+#ar2-report .rpt-es-right .rpt-es-right-bottom{margin-top:auto;width:100%;flex-shrink:0;}
+#ar2-report .rpt-es-right .rpt-es-right-bottom .rpt-es-chart{margin:0 0 4px;width:100%;}
+/* Don't cap the SVG height — preserveAspectRatio="xMidYMid meet" with a max-
+   height leaves horizontal margins (chart shrinks to fit smaller dim, leaving
+   blank space). Letting it render at its natural aspect (col-width / 1.8)
+   means the chart spans the full column width, matching the rest of the
+   right-column content. */
+#ar2-report .rpt-es-right-2{padding:10px 22px 14px;display:flex;flex-direction:column;}
+/* Page 2 — proportionate stretch. Sections expand vertically so the col
+   fills the area between the hero image and the footer without bunching
+   at the top. Calibrated to fit cleanly within 1056px page boundary. */
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-h2,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-h2{margin:10px 0 4px;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 > .rpt-es-h2:first-child,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 > .rpt-es-h2:first-child{margin-top:0;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-statline{padding:3px 0;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-ritz{margin:4px 0 8px;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-quote{margin:6px 0;padding:6px 0 6px 10px;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-ul-dark li{margin-bottom:3px;line-height:1.45;}
+#ar2-report .rpt-es-page-2 .rpt-es-left-2 .rpt-es-p,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-p,
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-p-light{margin-bottom:6px;line-height:1.45;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-ul li{margin-bottom:3px;line-height:1.45;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-outcome-cards{gap:6px;margin:6px 0 8px;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-out-card{padding:6px 5px;}
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 .rpt-es-link{margin:4px 0;}
+/* Right col Video Summary still pins to the bottom so the thumbnail
+   sits at the column foot — that's the intentional layout for the right
+   column. Left col ESG no longer pins; it flows naturally under the
+   quote with normal spacing so col-1 content is balanced rather than
+   bunched (top half) + isolated bottom block. Any leftover height drops
+   below the ESG bullets near the footer. */
+#ar2-report .rpt-es-page-2 .rpt-es-right-2 > .rpt-es-h2-tail{margin-top:auto;padding-top:8px;}
+/* Custom user-supplied section (full-width above footer on Page 1) */
+#ar2-report .rpt-es-custom{background:#f0fbff;border-top:3px solid #00b4d8;padding:14px 32px 16px;flex-shrink:0;}
+#ar2-report .rpt-es-custom-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#0a2540;margin-bottom:6px;line-height:1.1;}
+#ar2-report .rpt-es-custom-copy{font-size:11px;line-height:1.55;color:#444;}
+/* Footer band — wired to bottom via flex */
+#ar2-report .rpt-es-foot{margin-top:auto;flex-shrink:0;}
+/* Device graphic in right column */
+#ar2-report .rpt-es-device{margin:6px 0 10px;text-align:center;}
+#ar2-report .rpt-es-device img{max-width:100%;height:auto;display:block;margin:0 auto;}
+/* ── AquaRev Water Technology block — right column only ── */
+#ar2-report .rpt-es-right .rpt-es-h2:first-child{margin-top:0;}
+#ar2-report .rpt-es-tech-blurb{margin:0 0 4px;font-size:10px;line-height:1.4;color:#444;}
+#ar2-report .rpt-es-tech-blurb:first-of-type{margin-top:2px;}
+#ar2-report .rpt-es-device-full{margin:4px 0 4px;width:100%;}
+#ar2-report .rpt-es-device-full img{width:100%;max-width:100%;height:auto;display:block;}
+#ar2-report .rpt-es-feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:2px 0 4px;}
+#ar2-report .rpt-es-feat-col .rpt-es-h3-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.5px;color:#0a2540;margin:0 0 3px;font-weight:700;}
+#ar2-report .rpt-es-feat-col .rpt-es-ul{margin-bottom:0;}
+#ar2-report .rpt-es-feat-col .rpt-es-ul li{font-size:10px;padding-left:10px;margin-bottom:1px;line-height:1.35;}
+/* ── Documented Performance Outcomes — card grid ── */
+#ar2-report .rpt-es-outcome-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin:4px 0 5px;}
+#ar2-report .rpt-es-out-card{background:#f0fbff;border:1px solid #c8eaf5;border-top:3px solid #00b4d8;border-radius:0 0 5px 5px;padding:5px 4px;text-align:center;}
+#ar2-report .rpt-es-out-pct{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#00b4d8;line-height:1;margin-bottom:2px;}
+#ar2-report .rpt-es-out-lbl{font-size:8.5px;color:#444;letter-spacing:0.2px;line-height:1.2;}
+/* ── Investment Chart (lives in Page 1 right column) ──
+   No max-height: with viewBox 540×300 and preserveAspectRatio='xMidYMid
+   meet', clamping height leaves horizontal margins (chart doesn't fill
+   the col). Letting it render at natural aspect (col-width / 1.8) means
+   the chart spans the full col width as the user expects. */
+#ar2-report .rpt-es-chart{margin:2px 0 4px;}
+#ar2-report .rpt-es-chart-svg{width:100%;height:auto;display:block;}
+/* Chart title must stay on one line so the chart card aligns visually
+   with the column. White-space:nowrap + smaller font keep the full string
+   "Investment & Return Profile — 5-Year Outlook" within the col width. */
+#ar2-report .rpt-es-chart-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:#0a2540;line-height:1.1;margin-bottom:2px;white-space:nowrap;}
+#ar2-report .rpt-es-chart-title .rpt-es-chart-sub-title{font-size:12px;letter-spacing:1px;color:#0a2540;}
+#ar2-report .rpt-es-chart-sub{font-size:9.5px;color:#666;margin-bottom:0;}
+#ar2-report .rpt-es-chart-svg{width:100%;height:auto;display:block;}
+/* Chart header strip — title/subtitle on left, Net Benefit + Payback Period
+   stats on right. Lives ABOVE the SVG so the data line and green fill never
+   collide with text labels (used to be embedded inside the SVG plot region). */
+#ar2-report .rpt-es-chart-hdr{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:4px;}
+#ar2-report .rpt-es-chart-hdr-text{flex:1;min-width:0;}
+#ar2-report .rpt-es-chart-hdr .rpt-es-chart-sub{margin-bottom:0;}
+#ar2-report .rpt-es-chart-stats{flex:0 0 auto;text-align:right;line-height:1.15;padding-bottom:2px;}
+#ar2-report .rpt-es-chart-stat-net{font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;color:#15803d;letter-spacing:.2px;}
+#ar2-report .rpt-es-chart-stat-pb{font-family:'DM Sans',sans-serif;font-size:10px;color:#444;}
+#ar2-report .rpt-es-title{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:2px;color:#fff;line-height:1;margin-bottom:8px;}
+#ar2-report .rpt-es-lead{font-size:10.5px;line-height:1.45;color:#cfe2eb;margin-bottom:8px;}
+#ar2-report .rpt-es-h2{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;color:#48cae4;margin:8px 0 4px;line-height:1.1;}
+#ar2-report .rpt-es-h2-light{color:#0a2540;}
+#ar2-report .rpt-es-h3-light{font-size:10.5px;font-weight:700;color:#0a2540;margin:6px 0 3px;}
+#ar2-report .rpt-es-p{font-size:10px;line-height:1.4;color:#cfe2eb;margin-bottom:5px;}
+#ar2-report .rpt-es-p-light{font-size:10px;line-height:1.4;color:#444;margin-bottom:5px;}
+#ar2-report .rpt-es-p strong,#ar2-report .rpt-es-p-light strong{color:#fff;}
+#ar2-report .rpt-es-right .rpt-es-p-light strong,#ar2-report .rpt-es-right .rpt-es-h2-light{color:#0a2540;}
+#ar2-report .rpt-es-right .rpt-es-p-light strong{color:#0a2540;}
+#ar2-report .rpt-es-bignum{font-family:'JetBrains Mono','Bebas Neue',monospace;font-size:18px;font-weight:700;color:#fff;margin:2px 0 6px;line-height:1.1;}
+#ar2-report .rpt-es-bignum-unit{font-size:11px;font-weight:500;color:#cfe2eb;margin-left:4px;}
+#ar2-report .rpt-es-statline{display:flex;align-items:baseline;gap:12px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2-report .rpt-es-statline .v{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:#fff;min-width:64px;}
+#ar2-report .rpt-es-statline .k{font-size:10px;color:#cfe2eb;}
+#ar2-report .rpt-es-note{font-size:8.5px;color:#7db8cc;margin-top:4px;font-style:italic;}
+#ar2-report .rpt-es-ul{list-style:none;padding:0;margin:0 0 5px;}
+#ar2-report .rpt-es-ul li{position:relative;padding-left:12px;font-size:10px;line-height:1.4;color:#444;margin-bottom:2px;}
+#ar2-report .rpt-es-ul li::before{content:'\2022';position:absolute;left:0;color:#00b4d8;font-weight:700;}
+#ar2-report .rpt-es-left .rpt-es-ul li,#ar2-report .rpt-es-ul-dark li{color:#cfe2eb;}
+#ar2-report .rpt-es-ul-dark{list-style:none;padding:0;margin:0 0 5px;}
+#ar2-report .rpt-es-ul-dark li{position:relative;padding-left:12px;font-size:10px;line-height:1.4;color:#cfe2eb;margin-bottom:2px;}
+#ar2-report .rpt-es-ul-dark li::before{content:'\2022';position:absolute;left:0;color:#48cae4;font-weight:700;}
+#ar2-report .rpt-es-ul-dark li strong{color:#fff;}
+#ar2-report .rpt-es-pct-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;margin-top:5px;}
+#ar2-report .rpt-es-pct{display:flex;align-items:baseline;gap:6px;}
+#ar2-report .rpt-es-pct .n{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:#00b4d8;min-width:42px;}
+#ar2-report .rpt-es-pct .lbl{font-size:9.5px;color:#444;}
+#ar2-report .rpt-es-quote{margin:6px 0;padding:4px 0;border-left:3px solid #48cae4;padding-left:10px;font-size:10px;font-style:italic;color:#cfe2eb;line-height:1.4;}
+#ar2-report .rpt-es-quote .quote-mark{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#48cae4;font-style:normal;line-height:0;vertical-align:-2px;}
+#ar2-report .rpt-es-quote cite{display:block;margin-top:4px;font-size:9px;font-style:normal;color:#7db8cc;letter-spacing:1px;text-transform:uppercase;}
+#ar2-report .rpt-es-link{margin:3px 0;}
+#ar2-report .rpt-es-link a{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#00b4d8;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;}
+#ar2-report .rpt-es-link a:hover{color:#0a2540;}
+#ar2-report .rpt-es-link-ico{width:13px;height:13px;flex-shrink:0;color:#00b4d8;}
+#ar2-report .rpt-es-link a:hover .rpt-es-link-ico{color:#0a2540;}
+/* ── Quote / Order Form pages ──────────────────────────────────────
+   Each quote page reuses .rpt-es-page (sizing + flex column + overflow
+   containment) and .rpt-es-head / .rpt-es-foot (header / footer band)
+   so the look-and-feel matches the Executive Summary. The body content
+   between them lives under .rpt-q-body. */
+#ar2-report .rpt-q-page{padding:0;}
+#ar2-report .rpt-q-body{flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column;gap:10px;font-size:11px;color:#222;}
+#ar2-report .rpt-q-doc-kind{position:absolute;top:14px;right:32px;font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:4px;color:#fff;z-index:2;line-height:1;}
+#ar2-report .rpt-q-meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+/* Standardized top row used on every Quote page (Order, Terms, Payment).
+   Three columns: Seller (left) · Prepared For — Buyer (middle) · Header info
+   card (right). The right column is wrapped in a light-tinted card so it reads
+   as a discrete metadata block rather than another body column. */
+#ar2-report .rpt-q-top-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:start;}
+#ar2-report .rpt-q-top-col{min-width:0;}
+#ar2-report .rpt-q-top-card-body{background:#f0fbff;border:1px solid #c8eaf5;border-radius:6px;padding:8px 12px;margin-top:0;}
+#ar2-report .rpt-q-top-card-body .rpt-q-meta-rows{gap:3px 10px;}
+#ar2-report .rpt-q-block-title{font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;margin-bottom:4px;}
+#ar2-report .rpt-q-block-text{font-size:10.5px;line-height:1.5;color:#222;white-space:pre-line;}
+#ar2-report .rpt-q-meta-rows{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:10.5px;color:#444;}
+#ar2-report .rpt-q-meta-rows dt{font-weight:600;color:#0a2540;letter-spacing:0.5px;text-transform:uppercase;font-size:9px;align-self:center;}
+#ar2-report .rpt-q-meta-rows dd{margin:0;color:#222;}
+#ar2-report .rpt-q-table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:4px;}
+#ar2-report .rpt-q-table thead th{background:#0a2540;color:#fff;padding:6px 8px;text-align:left;font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;font-weight:700;}
+#ar2-report .rpt-q-table thead th.amt,#ar2-report .rpt-q-table thead th.qty,#ar2-report .rpt-q-table thead th.tax,#ar2-report .rpt-q-table thead th.rate{text-align:right;}
+#ar2-report .rpt-q-table tbody td{padding:5px 8px;border-bottom:1px solid #e5eef3;vertical-align:top;}
+#ar2-report .rpt-q-table tbody td.amt,#ar2-report .rpt-q-table tbody td.qty,#ar2-report .rpt-q-table tbody td.tax,#ar2-report .rpt-q-table tbody td.rate{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2-report .rpt-q-section-row td{background:#f0fbff;font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;color:#0a2540;padding:5px 8px;font-weight:700;}
+#ar2-report .rpt-q-totals{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:start;margin-top:6px;}
+#ar2-report .rpt-q-totals .terms{font-size:8.5px;line-height:1.4;color:#444;max-width:55ch;}
+#ar2-report .rpt-q-totals .terms-title{font-family:'Bebas Neue',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#48cae4;margin-bottom:3px;text-transform:uppercase;}
+#ar2-report .rpt-q-totals-table{display:grid;grid-template-columns:auto 110px;gap:3px 12px;font-size:11px;color:#222;min-width:240px;font-family:'JetBrains Mono',monospace;}
+#ar2-report .rpt-q-totals-table dt{color:#444;}
+#ar2-report .rpt-q-totals-table dd{margin:0;text-align:right;}
+#ar2-report .rpt-q-totals-table .strong dt,#ar2-report .rpt-q-totals-table .strong dd{font-weight:700;color:#0a2540;border-top:2px solid #0a2540;padding-top:4px;margin-top:3px;}
+#ar2-report .rpt-q-sigblock{margin-top:auto;padding-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:10px;color:#444;}
+#ar2-report .rpt-q-sigblock .sigline{display:flex;flex-direction:column;gap:4px;}
+#ar2-report .rpt-q-sigblock .sigline label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#0a2540;font-weight:700;}
+#ar2-report .rpt-q-sigblock .sigline .line{border-bottom:1px solid #0a2540;height:18px;}
+#ar2-report .rpt-q-shipto{font-size:10px;line-height:1.5;color:#222;white-space:pre-line;}
+/* Terms page — nested ordered list with hanging indent for numbered items
+   and lettered sub-items so the structure is visually unambiguous in the PDF. */
+#ar2-report .rpt-q-terms-body{flex:1 1 0;min-height:0;overflow:hidden;padding:24px 36px 18px;display:flex;flex-direction:column;gap:10px;}
+#ar2-report .rpt-q-terms-text{font-size:10.5px;line-height:1.55;color:#222;}
+#ar2-report .rpt-q-terms-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:#0a2540;margin-bottom:6px;}
+#ar2-report .rpt-q-terms-ol{list-style:none;counter-reset:tnum;padding-left:0;margin:0;}
+#ar2-report .rpt-q-terms-ol > li{counter-increment:tnum;position:relative;padding-left:28px;margin-bottom:6px;line-height:1.5;}
+#ar2-report .rpt-q-terms-ol > li::before{content:counter(tnum) ".";position:absolute;left:0;top:0;font-weight:700;color:#0a2540;width:22px;text-align:left;}
+#ar2-report .rpt-q-terms-sub-ol{list-style:none;counter-reset:tsub;padding-left:0;margin:4px 0 0 8px;}
+#ar2-report .rpt-q-terms-sub-ol > li{counter-increment:tsub;position:relative;padding-left:24px;margin-bottom:3px;line-height:1.45;color:#333;}
+#ar2-report .rpt-q-terms-sub-ol > li::before{content:counter(tsub, lower-alpha) ".";position:absolute;left:0;top:0;color:#0a2540;width:18px;text-align:left;}
+#ar2-report .rpt-q-terms-p{margin:6px 0;}
+/* Payment Form page — each section sits in its own bordered box for clear
+   visual hierarchy. Signature row at the bottom uses dedicated lines. */
+#ar2-report .rpt-q-pay-body{flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column;gap:10px;}
+#ar2-report .rpt-q-pay-method-strip{display:flex;align-items:center;gap:18px;padding:6px 0 4px;border-bottom:1px solid #d8e4eb;}
+#ar2-report .rpt-q-pay-method-strip .rpt-q-block-title{margin-bottom:0;}
+#ar2-report .rpt-q-pay-method{display:flex;gap:14px;font-size:11px;color:#222;}
+#ar2-report .rpt-q-pay-method label{display:flex;align-items:center;gap:6px;}
+#ar2-report .rpt-q-pay-method input[type="checkbox"]{width:14px;height:14px;}
+#ar2-report .rpt-q-pay-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:10px;color:#222;}
+#ar2-report .rpt-q-pay-box{border:1px solid #c8d8e0;border-radius:6px;padding:10px 12px;background:#f7fbfd;}
+#ar2-report .rpt-q-pay-cols .col-title{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:2px;color:#0a2540;margin-bottom:6px;border-bottom:2px solid #00b4d8;padding-bottom:4px;}
+#ar2-report .rpt-q-pay-field{display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #d8e4eb;padding:3px 0;font-size:10px;}
+#ar2-report .rpt-q-pay-field label{flex:0 0 100px;color:#666;font-weight:600;}
+#ar2-report .rpt-q-pay-field .val{flex:1;color:#222;min-height:14px;}
+#ar2-report .rpt-q-pay-auth-box{margin-top:6px;}
+#ar2-report .rpt-q-pay-auth{font-size:9.5px;line-height:1.5;color:#444;padding:4px 0 10px;}
+#ar2-report .rpt-q-pay-sig-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;align-items:end;margin-top:8px;}
+#ar2-report .rpt-q-pay-sig{display:flex;flex-direction:column;gap:4px;}
+#ar2-report .rpt-q-pay-sig label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#0a2540;font-weight:700;}
+#ar2-report .rpt-q-pay-sig .line{border-bottom:1px solid #0a2540;height:22px;}
+/* Ship-To box on the Order page */
+#ar2-report .rpt-q-shipto-box{border:1px solid #c8eaf5;background:#f0fbff;border-radius:6px;padding:8px 12px;margin-top:8px;max-width:55ch;}
+#ar2-report .rpt-q-shipto-box .rpt-q-block-title{margin-bottom:4px;}
+#ar2-report .rpt-q-shipto-box .rpt-q-shipto{font-size:9.5px;line-height:1.4;}
+#ar2-report .rpt-q-shipterm{margin-top:6px;padding-top:6px;border-top:1px dashed #b9d9e6;font-size:10.5px;color:#0a2540;}
+#ar2-report .rpt-q-shipterm-label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#5b6f7c;font-weight:700;}
+#ar2-report .rpt-q-shipterm b{color:#0a2540;letter-spacing:.6px;}
+#ar2-report .rpt-es-video{display:block;margin:4px 0 6px;border-radius:5px;overflow:hidden;border:1px solid #d5eaf5;}
+#ar2-report .rpt-es-video img{width:100%;height:auto;display:block;}
+#ar2-report .rpt-es-ritz{margin:4px 0 6px;border-radius:4px;overflow:hidden;}
+#ar2-report .rpt-es-ritz img{width:100%;height:auto;display:block;}
+#ar2-report .rpt-es-contact{font-size:11px;line-height:1.6;color:#444;}
+#ar2-report .rpt-es-contact a{color:#444;text-decoration:none;}
+#ar2-report .rpt-es-url{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:2px;color:#48cae4;font-family:'DM Sans',sans-serif;font-weight:600;}
+/* ── Step 3 export panel header ── */
+#ar2 .ar-export-panel-label{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--aq);margin:8px 0 4px;}
+/* ── Landscape Cover (page) ── */
+#ar2-report .rpt-ls-cover-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;overflow:hidden;aspect-ratio:11/8.5;box-shadow:0 2px 12px rgba(4,15,30,.08);}
+#ar2-report .rpt-ls-cover-page .rpt-cover-bg{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;position:absolute!important;inset:0!important;z-index:1;}
+#ar2-report .rpt-ls-back-cover-page img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important;}
+/* Position overlay so the left edge aligns with the 'A' in the AquaRevWater
+   logo on the cover image — sits at ~7% from the left edge. */
+#ar2-report .rpt-ls-cover-overlay{position:absolute;left:11%;top:42%;max-width:48%;text-align:left;z-index:2;color:#fff;}
+#ar2-report .rpt-ls-cover-tagline{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;}
+#ar2-report .rpt-ls-cover-prop{margin-top:8px;font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:#fff;line-height:1.1;word-wrap:break-word;}
+#ar2-report .rpt-ls-cover-date{margin-top:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#7db8cc;}
+/* ── Landscape Back Cover (page) — full bleed ── */
+#ar2-report .rpt-ls-back-cover-page{aspect-ratio:11/8.5;}
+/* ── Landscape Exec Summary pages (preview screen) ── */
+#ar2-report .rpt-ls-es-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:11px;line-height:1.5;max-width:1120px;margin:32px auto 0;page-break-before:always;break-before:page;display:flex;flex-direction:column;aspect-ratio:11/8.5;position:relative;box-shadow:0 2px 12px rgba(4,15,30,.08);overflow:hidden;}
+#ar2-report .rpt-ls-es-page *{box-sizing:border-box;}
+#ar2-report .rpt-ls-es-head{flex-shrink:0;}
+#ar2-report .rpt-ls-es-foot{margin-top:auto;flex-shrink:0;}
+/* Switched from CSS Grid to Flexbox for explicit height containment.
+   Grid auto-rows can stretch row height to max content, leaking past
+   the page footer. Flexbox + flex:1 1 0 + min-height:0 + overflow:hidden
+   guarantees each col fills the body height exactly and clips overflow. */
+#ar2-report .rpt-ls-es-body-3col{flex:1 1 0;min-height:0;display:flex;flex-direction:row;}
+#ar2-report .rpt-ls-es-body-2col{flex:1 1 0;min-height:0;display:flex;flex-direction:row;}
+#ar2-report .rpt-ls-es-body-3col > .rpt-ls-es-col{flex:1 1 0;width:0;min-width:0;}
+#ar2-report .rpt-ls-es-body-2col > .rpt-ls-es-col{flex:1 1 0;width:0;min-width:0;}
+#ar2-report .rpt-ls-es-col{padding:14px 18px 14px;overflow:hidden;min-height:0;height:100%;display:flex;flex-direction:column;}
+#ar2-report .rpt-ls-es-col-dark{background:#0a2540;color:#fff;}
+#ar2-report .rpt-ls-es-col-light{background:#fff;color:#222;}
+/* ── Col-with-anchor pattern (Page 1 cols 1 & 2) ──
+   Top content stacks naturally; anchor section pinned to bottom of column. */
+#ar2-report .rpt-ls-col-with-anchor{display:flex;flex-direction:column;}
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-content{flex:0 0 auto;}
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-anchor{margin-top:auto;padding-top:10px;}
+/* ── Flow modifier ── opt out of bottom-anchored layout so the bullets sit
+   directly under the paragraphs above instead of being pushed to the
+   column footer. Used on Page 1 col 1 (Operational Advantages / Outcome
+   Impact). The leftover space is reserved for future content. */
+#ar2-report .rpt-ls-col-with-anchor .rpt-ls-col-anchor.rpt-ls-anchor-flow{margin-top:0;padding-top:14px;}
+/* ── ES Page 1 — extra breathing room between bottom content and the
+   footer band. Col 2 has slightly less footer padding to give the
+   technology blurb more room for readable font. Col 3 keeps a fuller
+   pad since its chart card has its own visual separation. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2){padding-bottom:10px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(3){padding-bottom:32px;}
+/* Col 2 — device graphic displays at full width and natural aspect (no
+   crop). Pump-room image gets 5% trimmed off the bottom (aspect-ratio
+   16/8.55 ≈ 1.872, object-position top) to recover vertical space.
+   Tech blurb font bumped to 10.5px for readability — the slack absorbed
+   the auto-margin gap that used to sit between the device image and the
+   "Inline Device Installation" header (~43px of dead space). */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-es-tech-blurb{font-size:10.5px;line-height:1.4;margin-bottom:3px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-es-device-full{margin:2px 0 0;}
+/* Crop ~10px off the top of the device image (aspect 1.785 vs natural
+   1.692 — keeps the device body and arrows visible, trims the empty
+   upper margin of the source PNG). object-position:center bottom. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-es-device-full img{width:100%;max-width:100%;max-height:none;height:auto;aspect-ratio:1.785/1;object-fit:cover;object-position:center bottom;}
+/* Tighten the anchor padding-top in col 2 so the device image and the
+   Installation title sit close together (was ~16-26px apart in addition
+   to the auto-margin gap). */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-ls-col-anchor{padding-top:2px;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-ls-col-anchor-title-light{margin-bottom:2px;}
+/* Pump room — crop 5% off the bottom by constraining display aspect to
+   1.872 (vs natural 16/9 = 1.778) and pinning content to the top. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(2) .rpt-ls-col-anchor-img{aspect-ratio:1.872/1;object-fit:cover;object-position:center top;}
+/* Col 3 — slightly tighter chart card and stat lines so the chart lifts
+   off the footer with the new padding-bottom. */
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(3) .rpt-es-chart-svg{max-height:160px!important;}
+#ar2-report .rpt-ls-es-page-1 .rpt-ls-es-body-3col > .rpt-ls-es-col:nth-child(3) .rpt-es-statline{padding:2px 0;}
+#ar2-report .rpt-ls-col-anchor-title-light{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.8px;color:#0a2540;margin-bottom:4px;text-transform:uppercase;font-weight:700;}
+/* Pump room photo — fixed 16:9 aspect, fills column width, no distortion. */
+#ar2-report .rpt-ls-col-anchor-img{width:100%;max-width:100%;aspect-ratio:16/9;object-fit:cover;display:block;border-radius:6px;}
+/* ── H3-dark variant for the bottom-anchor 2-col bullet headers (dark cols) */
+#ar2-report .rpt-ls-es-page .rpt-es-h3-dark{font-size:10px;letter-spacing:1.8px;margin:0 0 4px;color:#48cae4;font-family:'Bebas Neue',sans-serif;font-weight:700;text-transform:uppercase;}
+/* ── Assessment Snapshot scope tiles (Page 1 col 3) — 2-stat panel */
+#ar2-report .rpt-ls-scope-row{display:flex;align-items:center;gap:14px;margin:8px 0 10px;padding:10px 8px;background:rgba(72,202,228,.06);border:1px solid rgba(72,202,228,.18);border-radius:6px;}
+#ar2-report .rpt-ls-scope-item{flex:1;text-align:center;}
+#ar2-report .rpt-ls-scope-num{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:2px;color:#48cae4;line-height:1;}
+#ar2-report .rpt-ls-scope-lbl{font-family:'DM Sans',sans-serif;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#cfe2eb;margin-top:3px;}
+#ar2-report .rpt-ls-scope-divider{width:1px;height:36px;background:rgba(72,202,228,.25);}
+#ar2-report .rpt-ls-volume-lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#cfe2eb;margin:6px 0 2px;}
+/* ROI chart card (lives inside col 3 of ES Page 1). margin-top:auto pins
+   it to the bottom of the col so the financial statlines flow above it
+   and the chart sits comfortably above the footer with no cutoff. */
+#ar2-report .rpt-ls-chart-card{background:#fff;border-radius:6px;margin-top:auto;padding:8px 10px;color:#222;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart{margin:0;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-svg{max-height:110px;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-title{font-size:14px;line-height:1.1;margin-bottom:1px;white-space:nowrap;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-title .rpt-es-chart-sub-title{font-size:12px;color:#5a7388;letter-spacing:1px;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-sub{font-size:8.5px;line-height:1.3;color:#666;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-hdr{margin-bottom:2px;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-stat-net{font-size:11px;}
+#ar2-report .rpt-ls-chart-card .rpt-es-chart-stat-pb{font-size:9px;}
+/* ── Page 2 Col 3 — NSF default image OR vertical photo stack ──
+   NSF image: object-fit:cover + object-position:right fills the entire
+   column between header and footer. The image is cropped from the LEFT
+   side as the column gets narrower, keeping the NSF logos and product
+   shot (right-side composition of the source image) visible.
+   Container has zero padding so the image goes truly edge-to-edge.
+   Photo stack: flex:1 1 0 per tile so 4 photos share col height equally. */
+#ar2-report .rpt-ls-p2c3{padding:0;display:flex;flex-direction:column;gap:0;}
+#ar2-report .rpt-ls-p2c3-default-img{display:block;width:100%;height:100%;flex:1 1 0;min-height:0;object-fit:cover;object-position:right center;}
+#ar2-report .rpt-ls-p2c3-stack{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-height:0;width:100%;padding:8px;}
+#ar2-report .rpt-ls-p2c3-tile{width:100%;flex:1 1 0;min-height:0;border-radius:5px;overflow:hidden;background:#0a2540;}
+#ar2-report .rpt-ls-p2c3-tile img{width:100%;height:100%;display:block;object-fit:cover;}
+#ar2-report .rpt-ls-video-caption-pre{margin-bottom:4px;font-size:9.5px;color:#5a7388;}
+/* Video hero — natural aspect, fills column width. */
+#ar2-report .rpt-ls-video-hero{display:block;width:100%;}
+#ar2-report .rpt-ls-video-hero img{width:100%;height:auto;border-radius:5px;display:block;}
+/* ── Property Photos drawer (Step 4 export panel) ── */
+#ar2 .ar-p2c3-drawer{margin:4px 0 10px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:10px;}
+#ar2 .ar-p2c3-slots{display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-p2c3-slot{position:relative;width:100%;aspect-ratio:16/9;border:1px dashed rgba(0,180,216,.35);border-radius:6px;background:rgba(0,180,216,.04);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;transition:background .15s,border-color .15s;}
+#ar2 .ar-p2c3-slot:hover{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.55);}
+#ar2 .ar-p2c3-slot.filled{cursor:default;border-style:solid;border-color:rgba(0,180,216,.5);}
+#ar2 .ar-p2c3-slot.dragging{background:rgba(0,180,216,.2);border-color:#48cae4;}
+#ar2 .ar-p2c3-slot img{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2 .ar-p2c3-slot-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#7db8cc;font-size:11px;text-align:center;padding:8px;width:100%;height:100%;}
+#ar2 .ar-p2c3-slot-inner input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+#ar2 .ar-p2c3-rm{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.65);color:#fff;cursor:pointer;font-size:14px;line-height:22px;padding:0;display:flex;align-items:center;justify-content:center;}
+#ar2 .ar-p2c3-rm:hover{background:rgba(239,68,68,.85);}
+#ar2-report .rpt-ls-es-page .rpt-es-title{font-size:34px;letter-spacing:2px;}
+#ar2-report .rpt-ls-es-page .rpt-es-h2{font-size:14px;margin:10px 0 5px;}
+#ar2-report .rpt-ls-es-page .rpt-es-lead{font-size:10.5px;line-height:1.5;}
+#ar2-report .rpt-ls-es-page .rpt-es-p,#ar2-report .rpt-ls-es-page .rpt-es-p-light{font-size:10.5px;line-height:1.5;margin-bottom:5px;}
+#ar2-report .rpt-ls-es-page .rpt-es-bignum{font-size:18px;margin:2px 0 8px;}
+#ar2-report .rpt-ls-es-page .rpt-es-bignum-unit{font-size:11px;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline{padding:3px 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline .v{font-size:14px;min-width:64px;}
+#ar2-report .rpt-ls-es-page .rpt-es-statline .k{font-size:10px;}
+#ar2-report .rpt-ls-es-page .rpt-es-ul li{font-size:10.5px;line-height:1.4;margin-bottom:3px;}
+#ar2-report .rpt-ls-es-page .rpt-es-h3-light{font-size:12px;letter-spacing:2px;color:#0a2540;font-family:'Bebas Neue',sans-serif;font-weight:700;margin:6px 0 4px;}
+#ar2-report .rpt-ls-es-page .rpt-es-tech-blurb{font-size:10px;line-height:1.5;}
+#ar2-report .rpt-ls-es-page .rpt-es-device-full{margin:6px 0 8px;text-align:center;}
+#ar2-report .rpt-ls-es-page .rpt-es-device-full img{width:100%;max-width:100%;height:auto;margin:0 auto;display:block;}
+#ar2-report .rpt-ls-feat-row .rpt-es-feat-col{margin-top:4px;}
+#ar2-report .rpt-ls-outcome-cards{grid-template-columns:1fr 1fr 1fr!important;gap:6px!important;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-card{padding:8px 6px;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-pct{font-size:18px;}
+#ar2-report .rpt-ls-outcome-cards .rpt-es-out-lbl{font-size:9.5px;}
+/* Ritz hero photo — natural aspect ratio (no forced container ratio, no
+   object-fit cropping). Image fills col width and lets height adjust to
+   maintain its native proportions; surrounding content flows around it. */
+#ar2-report .rpt-ls-es-page .rpt-es-ritz{display:block;border-radius:4px;overflow:hidden;width:100%;margin:8px 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-ritz img{width:100%;height:auto;max-height:none;display:block;}
+#ar2-report .rpt-ls-es-page .rpt-es-quote{font-size:11px;line-height:1.5;}
+#ar2-report .rpt-ls-es-page .rpt-es-link a{font-size:11.5px;}
+/* Video thumbnail — natural aspect ratio. width:100%; height:auto so the
+   image displays at its source proportions without cropping or stretching. */
+#ar2-report .rpt-ls-es-page .rpt-es-video{display:block;border-radius:5px;overflow:hidden;width:100%;margin:6px 0 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-video img{width:100%;height:auto;max-height:none;display:block;}
+/* ── Landscape ES Page 2 ── ──────────────────────────────────────────────
+   Col 1 Ritz photo: full-bleed across the column (no horizontal col padding)
+   so the wide narrow source image has more visual presence. Compress ESG
+   section below to absorb the image's vertical footprint without clipping.
+   Col 2 Video Summary: title sits directly above the thumbnail with normal
+   spacing — no margin-top:auto pin (which used to leave an empty gap).
+   Other content tightened so the column distributes evenly head-to-foot. */
+/* ── Col 1: full-bleed Ritz image — extend past 18px col padding both sides
+   so the image spans wall-to-wall. width:calc(100%+36px) overrides the
+   inherited width:100% from .rpt-ls-es-page .rpt-es-ritz earlier in the file. */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-ritz-fb{margin:8px -18px 8px;border-radius:0;width:calc(100% + 36px);}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-ritz-fb img{width:100%;height:auto;max-height:none;display:block;}
+/* ── Col 1: compressed ESG section ── */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-ul-dark{margin:2px 0 0;padding-left:14px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-ul-dark li{font-size:9.5px;line-height:1.35;margin-bottom:2px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-h2:nth-of-type(2){margin:8px 0 3px;font-size:13px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-col-dark .rpt-es-h2:nth-of-type(2) + .rpt-es-p{font-size:9.5px;line-height:1.4;margin-bottom:3px;}
+/* ── Col 2: tighten content + flow Video Summary naturally ── */
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2){display:flex;flex-direction:column;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-h2{margin:8px 0 4px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-p,
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-p-light{margin-bottom:4px;font-size:10px;line-height:1.4;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-outcome-cards{gap:5px;margin:4px 0 6px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-outcome-cards .rpt-es-out-card{padding:6px 8px;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-ul li{font-size:10px;margin-bottom:2px;line-height:1.35;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-video-caption-pre{display:none;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-es-link{margin:2px 0;font-size:10.5px;line-height:1.3;}
+#ar2-report .rpt-ls-es-page-2 .rpt-ls-es-body-p2 > .rpt-ls-es-col:nth-child(2) .rpt-ls-video-hero{margin:6px 0 0;}
+#ar2-report .rpt-ls-es-page .rpt-es-chart{margin:0 0 8px;}
+#ar2-report .rpt-ls-es-page .rpt-es-chart-svg{max-height:240px;}
+#ar2-report .rpt-ls-es-page .rpt-es-custom{padding:10px 14px;border-top:3px solid #00b4d8;background:#f0fbff;}
+/* ── Presentation Deck (stub) ── */
+#ar2-report .rpt-pres-deck-page{position:relative;width:100%;max-width:1120px;margin:32px auto 0;background:#0a2540;color:#fff;aspect-ratio:11/8.5;display:flex;align-items:center;justify-content:center;overflow:hidden;page-break-before:always;break-before:page;box-shadow:0 2px 12px rgba(4,15,30,.08);}
+#ar2-report .rpt-pres-deck-stub{text-align:center;padding:40px;}
+#ar2-report .rpt-pres-deck-logo{font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:6px;color:#fff;}
+#ar2-report .rpt-pres-deck-sub{font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-top:6px;}
+#ar2-report .rpt-pres-deck-prop{margin-top:24px;font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;color:#fff;}
+#ar2-report .rpt-pres-deck-note{margin-top:18px;font-size:11px;color:#7db8cc;font-style:italic;}
+/* ── Pool Profiles Page ── */
+#ar2-report .rpt-pp-page{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#222;background:#fff;font-size:12px;line-height:1.4;max-width:860px;margin:0 auto;padding:0;page-break-before:always;break-before:page;box-sizing:border-box;}
+/* Pool Profile: full-bleed page — header band spans edge-to-edge with its
+   own internal padding; grid + footer have their own padding too.
+   Removed the wrapper padding so the header/footer go to the page edge. */
+#ar2-report .rpt-pp-page > .rpt-es-head{margin:0;}
+#ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;}
+#ar2-report .rpt-pp-page .rpt-foot{margin:0;}
+/* Landscape Pool Profiles — preview at 11×8.5 aspect ratio. */
+#ar2-report .rpt-pp-page.rpt-pp-page-landscape{max-width:1120px;aspect-ratio:11/8.5;min-height:0;overflow:hidden;}
+#ar2-report .rpt-pp-page *{box-sizing:border-box;}
+#ar2-report .rpt-pp-header{border-bottom:1.5px solid #00b4d8;padding-bottom:10px;margin-bottom:14px;}
+#ar2-report .rpt-pp-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#00b4d8;line-height:1;}
+#ar2-report .rpt-pp-sub{font-size:11px;color:#666;margin-top:4px;}
+#ar2-report .rpt-pp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+#ar2-report .rpt-pp-grid-1{grid-template-columns:1fr;}
+#ar2-report .rpt-pp-card{background:#f8fbfd;border:1px solid #d5eaf5;border-top:3px solid #00b4d8;border-radius:0 0 6px 6px;padding:12px;display:grid;grid-template-columns:150px 1fr;gap:12px;min-height:172px;break-inside:avoid;page-break-inside:avoid;}
+#ar2-report .rpt-pp-grid-1 .rpt-pp-card{grid-template-columns:300px 1fr;min-height:220px;}
+#ar2-report .rpt-pp-img{width:150px;height:100px;border-radius:4px;border:1px solid #d5eaf5;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#eaf5fa;flex-shrink:0;}
+#ar2-report .rpt-pp-grid-1 .rpt-pp-img{width:300px;height:200px;}
+#ar2-report .rpt-pp-img img{width:100%;height:100%;object-fit:cover;display:block;}
+#ar2-report .rpt-pp-img-empty{flex-direction:column;gap:6px;background:#e8eef3;border-color:#cdd8e0;}
+#ar2-report .rpt-pp-img-empty svg{stroke:#94a3b8;}
+#ar2-report .rpt-pp-img-empty-lbl{font-size:9px;color:#94a3b8;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;}
+#ar2-report .rpt-pp-info{display:flex;flex-direction:column;min-width:0;}
+#ar2-report .rpt-pp-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid #e8f4fb;}
+#ar2-report .rpt-pp-name{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;color:#040f1e;line-height:1;flex:1;min-width:0;}
+#ar2-report .rpt-pp-pill{display:inline-block;font-size:8px;letter-spacing:1px;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:10px;border:1px solid transparent;line-height:1.4;}
+#ar2-report .rpt-pp-rows{display:flex;flex-direction:column;gap:2px;}
+#ar2-report .rpt-pp-row{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;padding:2px 0;}
+#ar2-report .rpt-pp-row .k{color:#555;}
+#ar2-report .rpt-pp-row .v{font-family:'JetBrains Mono',monospace;font-weight:600;color:#111;}
+#ar2-report .rpt-pp-row.strong .k{color:#040f1e;font-weight:600;}
+#ar2-report .rpt-pp-row.strong .v{font-weight:700;}
+#ar2-report .rpt-pp-row .v.pos{color:#16a34a;}
+#ar2-report .rpt-pp-summary{margin-top:12px;padding:10px 14px;background:#040f1e;color:#90d4e8;border-radius:5px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:10px;letter-spacing:1px;text-transform:uppercase;}
+#ar2-report .rpt-pp-summary strong{color:#fff;font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:0.5px;}
+/* ── Disclaimer ── */
+#ar2-report .rpt-disc{font-size:9px;color:#aaa;line-height:1.7;border-top:1px solid #eee;padding-top:11px;margin-top:16px;}
+/* ── Footer band ── */
+#ar2-report .rpt-cta-bar{background:linear-gradient(135deg,#071628,#0a2540);padding:14px 32px;display:flex;justify-content:space-between;align-items:center;gap:16px;border-top:2px solid #00b4d8;}
+#ar2-report .rpt-cta-bar a{color:#48cae4;font-size:12px;font-weight:600;text-decoration:none;}
+/* ── Cover Page ── */
+#ar2-report .rpt-cover-page{page-break-after:always;break-after:page;position:relative;width:100%;max-width:860px;margin:0 auto;overflow:hidden;}
+#ar2-report .rpt-cover-bg{width:100%;height:auto;display:block;}
+#ar2-report .rpt-cover-overlay{position:absolute;top:20%;left:7%;text-align:left;z-index:2;}
+#ar2-report .rpt-cta-bar span{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#7db8cc;}
+#ar2-report .rpt-foot{background:#040f1e;padding:12px 32px;display:flex;justify-content:space-between;align-items:center;gap:20px;}
+#ar2-report .rpt-foot-logo{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:3px;color:#fff;flex-shrink:0;}
+#ar2-report .rpt-foot-info{font-size:9px;color:#4a7a90;text-align:right;line-height:1.6;}
+/* ── Archive ── */
+#ar2 .ar-bank-wrap{max-width:1320px;margin:0 auto;padding:0 0 60px;width:100%;box-sizing:border-box;}
+#ar2 .ar-bank-hero{display:flex;justify-content:space-between;align-items:center;height:58px;border-bottom:1px solid rgba(255,255,255,.06);}
+#ar2 .ar-bank-title{font-size:14px;font-weight:600;color:#fff;display:flex;align-items:center;gap:10px;}
+#ar2 .ar-bank-title span{color:var(--mu);font-weight:400;font-size:13px;}
+#ar2 .ar-bank-empty{text-align:center;padding:80px 20px;color:var(--mu);font-size:14px;line-height:1.8;}
+#ar2 .ar-bank-empty svg{display:block;margin:0 auto 16px;opacity:.25;}
+#ar2 .ar-bank-loading{text-align:center;padding:50px;color:var(--mu);font-size:13px;}
+#ar2 .ar-bank-search{width:100%;padding:9px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:var(--tx);font-size:13px;margin:16px 0 8px;box-sizing:border-box;outline:none;transition:border-color .2s,background .2s;}
+#ar2 .ar-bank-search:focus{border-color:rgba(0,180,216,.5);background:rgba(255,255,255,.06);}
+#ar2 .ar-bank-search::placeholder{color:var(--mu);opacity:.5;}
+/* Select mode toolbar */
+#ar2 .ar-bank-toolbar{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06);}
+#ar2 .ar-bank-toolbar .ar-bank-sel-count{font-size:13px;color:var(--t);font-weight:500;}
+#ar2 .ar-bank-toolbar .ar-bank-sel-all{font-size:12px;color:var(--mu);cursor:pointer;border:none;background:none;padding:4px 8px;border-radius:4px;transition:color .15s;}
+#ar2 .ar-bank-toolbar .ar-bank-sel-all:hover{color:var(--t);}
+#ar2 .ar-bank-toolbar .ar-bank-del-sel{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#f87171;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;margin-left:auto;}
+#ar2 .ar-bank-toolbar .ar-bank-del-sel:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);}
+/* Checkbox column */
+#ar2 .ar-bank-chk{display:flex;align-items:center;justify-content:center;width:32px;}
+#ar2 .ar-bank-chk input{width:15px;height:15px;accent-color:var(--t);cursor:pointer;margin:0;}
+/* Table header — Actions column widened from 140px to 200px so icons
+   render with breathing room and never overlap adjacent metric columns. */
+#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
+/* Admin view adds a Created By column between the metrics and the actions strip. */
+#ar2 .ar-bank-thead.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-thead.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-thead>div:not(:first-child){text-align:right;}
+/* Row list */
+#ar2 .ar-bank-list{display:flex;flex-direction:column;gap:0;}
+/* Admin dashboard panel — collapsible drawer above the archive table.
+   Default state is collapsed (closed); click the header to expand. State
+   is persisted to localStorage as 'ar2:admin-dash-open'. */
+#ar2 .ar-admin-dash{margin:18px 0 14px;background:linear-gradient(145deg,rgba(0,180,216,.06),rgba(0,180,216,.02));border:1px solid rgba(0,180,216,.18);border-radius:12px;overflow:hidden;}
+#ar2 .ar-admin-dash-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;cursor:pointer;user-select:none;transition:background .15s;}
+#ar2 .ar-admin-dash-head:hover{background:rgba(0,180,216,.04);}
+#ar2 .ar-admin-dash-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;display:flex;align-items:center;gap:10px;}
+#ar2 .ar-admin-dash-title-sub{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:1px;color:var(--mu);text-transform:none;}
+#ar2 .ar-admin-dash-toggle{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.25);color:var(--t);font-size:18px;font-weight:600;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;line-height:1;transition:transform .25s,background .15s;}
+#ar2 .ar-admin-dash.open .ar-admin-dash-toggle{transform:rotate(180deg);}
+#ar2 .ar-admin-dash-body{display:none;padding:0 18px 18px;}
+#ar2 .ar-admin-dash.open .ar-admin-dash-body{display:block;}
+#ar2 .ar-admin-kpis{display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:14px;}
+#ar2 .ar-admin-kpi-card{background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:14px 16px;}
+#ar2 .ar-admin-kpi-lbl{font-size:10px;letter-spacing:1.5px;color:var(--mu);text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-admin-kpi-val{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:#fff;line-height:1;}
+#ar2 .ar-admin-kpi-sub{font-size:10.5px;color:var(--mu);margin-top:6px;}
+#ar2 .ar-admin-userlist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+#ar2 .ar-admin-userchip{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.22);border-radius:99px;padding:3px 10px;font-size:10.5px;color:var(--tx);}
+#ar2 .ar-admin-userchip b{color:#fff;font-family:'JetBrains Mono',monospace;margin-left:4px;}
+/* User-activity table inside the admin dashboard drawer. Lifetime + 30-day
+   record + 30-day login counts per user. Designed to read at a glance — small
+   monospaced numbers in right-aligned columns. */
+#ar2 .ar-admin-userstats-card{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+#ar2 .ar-admin-userstats-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:8px;}
+#ar2 .ar-admin-userstats-tbl{width:100%;border-collapse:collapse;font-size:11px;color:var(--tx);}
+#ar2 .ar-admin-userstats-tbl th{text-align:left;font-weight:500;color:var(--mu);font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-admin-userstats-tbl th.num,#ar2 .ar-admin-userstats-tbl td.num{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-admin-userstats-tbl td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);}
+#ar2 .ar-admin-userstats-tbl td.muted{color:var(--mu);font-size:10.5px;}
+#ar2 .ar-admin-userstats-tbl td.email{font-family:'JetBrains Mono',monospace;font-size:10.5px;word-break:break-all;}
+#ar2 .ar-admin-userstats-tbl td.email .muted{color:rgba(125,184,204,.5);}
+#ar2 .ar-admin-userstats-tbl tr:last-child td{border-bottom:none;}
+#ar2 .ar-admin-role{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:99px;font-weight:600;}
+#ar2 .ar-admin-role.role-admin{background:rgba(240,165,0,.14);color:var(--go);border:1px solid rgba(240,165,0,.3);}
+#ar2 .ar-admin-role.role-user{background:rgba(0,180,216,.1);color:var(--t);border:1px solid rgba(0,180,216,.25);}
+#ar2 .ar-admin-role.role-client{background:rgba(168,85,247,.12);color:#c89aff;border:1px solid rgba(168,85,247,.3);}
+#ar2 .ar-admin-disabled{display:inline-block;font-size:9px;color:var(--re);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:1px 6px;border-radius:99px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase;}
+/* ── Admin modal styling ────────────────────────────────────────────
+   Admin pop-up modals are appended to <body>, OUTSIDE the #ar2 root, so
+   the #ar2-scoped form/button styles don't reach them. These unscoped
+   rules guarantee modal inputs / selects / buttons render with proper
+   contrast on top of the dark gradient backdrop, regardless of the host
+   page's CSS (Webflow defaults, etc.). Apply via class="ar2-modal-card"
+   on the modal's inner card div. */
+.ar2-modal-card{font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;}
+.ar2-modal-card label{display:block;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;margin-bottom:5px;}
+.ar2-modal-card input[type="text"],
+.ar2-modal-card input[type="password"],
+.ar2-modal-card input:not([type]),
+.ar2-modal-card select,
+.ar2-modal-card textarea{
+  width:100%;
+  background:rgba(0,0,0,.45);
+  border:1px solid rgba(0,180,216,.4);
+  color:#ffffff;
+  padding:10px 12px;
+  border-radius:6px;
+  font-size:14px;
+  font-family:'DM Sans',sans-serif;
+  outline:none;
+  box-sizing:border-box;
+  transition:border-color .15s,box-shadow .15s;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  appearance:none;
+}
+.ar2-modal-card input:focus,
+.ar2-modal-card select:focus,
+.ar2-modal-card textarea:focus{
+  border-color:rgba(0,180,216,.85);
+  box-shadow:0 0 0 3px rgba(0,180,216,.15);
+}
+.ar2-modal-card input::placeholder,
+.ar2-modal-card textarea::placeholder{color:rgba(255,255,255,.45);opacity:1;}
+.ar2-modal-card select{
+  cursor:pointer;
+  padding-right:32px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2300b4d8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 11px center;
+}
+.ar2-modal-card select option{background:#0a2540;color:#fff;}
+.ar2-modal-card input[type="file"]{
+  background:rgba(0,0,0,.3);
+  border:1px dashed rgba(0,180,216,.35);
+  color:#cfe2eb;
+  padding:10px 12px;
+  border-radius:6px;
+  font-size:12px;
+  width:100%;
+  cursor:pointer;
+}
+.ar2-modal-card input[type="file"]::-webkit-file-upload-button,
+.ar2-modal-card input[type="file"]::file-selector-button{
+  background:rgba(0,180,216,.18);
+  border:1px solid rgba(0,180,216,.4);
+  color:#cfe2eb;
+  padding:5px 10px;
+  border-radius:4px;
+  font-size:11px;
+  cursor:pointer;
+  margin-right:10px;
+}
+.ar2-modal-card button.ar2-mb{
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.18);
+  color:#cfe2eb;
+  padding:11px 14px;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:13px;
+  font-weight:600;
+  font-family:inherit;
+  letter-spacing:.4px;
+  transition:.15s;
+}
+.ar2-modal-card button.ar2-mb:hover:not(:disabled){background:rgba(255,255,255,.14);}
+.ar2-modal-card button.ar2-mb.primary{
+  background:linear-gradient(135deg,#00b4d8,#48cae4);
+  border-color:transparent;
+  color:#04101e;
+}
+.ar2-modal-card button.ar2-mb.primary:hover:not(:disabled){filter:brightness(1.08);}
+.ar2-modal-card button.ar2-mb.danger{
+  background:rgba(239,68,68,.15);
+  border-color:rgba(239,68,68,.4);
+  color:#fca5a5;
+}
+.ar2-modal-card button.ar2-mb.danger:hover:not(:disabled){background:rgba(239,68,68,.25);}
+.ar2-modal-card button.ar2-mb:disabled{opacity:.5;cursor:not-allowed;}
+/* ── Help icon in the top bar ────────────────────────────────────
+   A small `?` circle that opens the step-aware tutorial overlay.
+   Sits between New and the user chip. */
+#ar2 .ar-help-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;cursor:pointer;padding:0;line-height:1;transition:.15s;flex-shrink:0;}
+#ar2 .ar-help-icon:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.6);color:#fff;}
+/* ── User chip in the top bar ──────────────────────────────────────
+   Sits beside the New button. Shows the signed-in user's initial in a
+   circle + their name. Click → dropdown with full name, role, and a
+   Sign Out option. Hidden until cloud session is established. */
+#ar2 .ar-user-chip{display:inline-flex;align-items:center;gap:8px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.28);color:var(--tx);padding:4px 12px 4px 4px;border-radius:99px;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;letter-spacing:.2px;transition:.15s;line-height:1;}
+#ar2 .ar-user-chip:hover{background:rgba(0,180,216,.16);border-color:rgba(0,180,216,.5);}
+#ar2 .ar-user-chip.role-admin{border-color:rgba(240,165,0,.4);background:rgba(240,165,0,.08);}
+#ar2 .ar-user-chip.role-admin:hover{background:rgba(240,165,0,.16);}
+#ar2 .ar-user-chip.role-client{border-color:rgba(168,85,247,.45);background:rgba(168,85,247,.1);}
+#ar2 .ar-user-chip.role-client:hover{background:rgba(168,85,247,.18);}
+#ar2 .ar-user-chip-avatar{width:26px;height:26px;border-radius:50%;background:var(--t);color:#04101e;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;letter-spacing:0;flex-shrink:0;}
+#ar2 .ar-user-chip.role-admin .ar-user-chip-avatar{background:var(--go);}
+#ar2 .ar-user-chip.role-client .ar-user-chip-avatar{background:#a855f7;color:#fff;}
+#ar2 .ar-user-chip-name{font-size:12px;font-weight:600;}
+@media(max-width:780px){#ar2 .ar-user-chip-name{display:none;}}
+/* Icon-only variant — renders as a clean circle without the name pill. */
+#ar2 .ar-user-chip.ar-user-chip-icononly{padding:3px;border-radius:50%;}
+#ar2 .ar-user-chip.ar-user-chip-icononly .ar-user-chip-name{display:none;}
+/* Sign-Out menu popped open from the chip */
+.ar-user-menu{position:fixed;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:14px;box-shadow:0 12px 36px rgba(0,0,0,.5);z-index:999997;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;min-width:220px;}
+.ar-user-menu-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:2px;}
+.ar-user-menu-role{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#48cae4;margin-bottom:12px;}
+.ar-user-menu-role.role-admin{color:#f0a500;}
+.ar-user-menu-role.role-client{color:#c89aff;}
+.ar-user-menu-divider{border-top:1px solid rgba(255,255,255,.08);margin:0 -14px 10px;}
+.ar-user-menu-btn{display:block;width:100%;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.32);color:#fca5a5;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;letter-spacing:.4px;text-align:center;transition:.15s;}
+.ar-user-menu-btn:hover{background:rgba(239,68,68,.22);}
+/* Add User button + row actions in the admin manager */
+#ar2 .ar-admin-userstats-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+#ar2 .ar-admin-add-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;letter-spacing:.4px;}
+#ar2 .ar-admin-add-btn:hover{filter:brightness(1.1);}
+#ar2 .ar-admin-userstats-tbl th.actions,#ar2 .ar-admin-userstats-tbl td.actions{text-align:right;white-space:nowrap;}
+#ar2 .ar-admin-row-act{background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.22);color:var(--t);font-size:10px;padding:3px 8px;border-radius:5px;cursor:pointer;font-family:inherit;font-weight:500;margin-left:4px;letter-spacing:.4px;transition:.15s;}
+#ar2 .ar-admin-row-act:hover{background:rgba(0,180,216,.16);border-color:rgba(0,180,216,.4);}
+#ar2 .ar-admin-row-act.danger{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.22);color:var(--re);}
+#ar2 .ar-admin-row-act.danger:hover{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.4);}
+#ar2 .ar-admin-row-act.enable{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.28);color:var(--gr);}
+#ar2 .ar-admin-row-act.enable:hover{background:rgba(34,197,94,.18);}
+#ar2 .ar-admin-chart{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;}
+#ar2 .ar-admin-chart-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-admin-chart svg{width:100%;height:auto;display:block;}
+#ar2 .ar-admin-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;color:var(--mu);}
+#ar2 .ar-admin-chart-legend i{display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;}
+/* Admin Created By cell + reassign menu */
+#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:10.5px;text-align:right;}
+#ar2 .ar-bank-createdby .name{color:var(--tx);font-weight:500;}
+#ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
+#ar2 .ar-bank-createdby .role.admin{color:var(--go);}
+#ar2 .ar-bank-act.reassign{background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.28);color:#f0a500;}
+#ar2 .ar-bank-act.reassign:hover{background:rgba(240,165,0,.22);}
+/* Each record row */
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
+#ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-card.selected{background:rgba(0,180,216,.06);}
+#ar2 .ar-bank-card:hover{background:rgba(0,180,216,.04);}
+#ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}
+/* Name + date column */
+#ar2 .ar-bank-name{display:flex;flex-direction:column;gap:2px;min-width:0;}
+#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-bank-date{font-size:11px;color:var(--mu);font-weight:400;}
+/* Data cells */
+#ar2 .ar-bank-cell{text-align:right;font-variant-numeric:tabular-nums;}
+#ar2 .ar-bank-cell-val{font-size:14px;font-weight:600;color:#e8e8e8;line-height:1.4;}
+#ar2 .ar-bank-cell-val.green{color:#4ade80;}
+#ar2 .ar-bank-cell-val.gold{color:#fbbf24;}
+#ar2 .ar-bank-cell-val.teal{color:var(--aq);}
+#ar2 .ar-bank-cell-sub{font-size:11px;color:var(--mu);font-weight:400;}
+/* Actions — always visible so users can see all available row actions
+   without having to hover; previously hover-only which hid them entirely
+   on touch devices and made the column purpose unclear. */
+#ar2 .ar-bank-actions{display:flex;gap:4px;justify-content:flex-end;align-items:center;opacity:1;}
+#ar2 .ar-bank-act{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:6px;border:none;background:rgba(255,255,255,.06);color:#ccc;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;}
+#ar2 .ar-bank-act:hover{background:rgba(0,180,216,.15);color:var(--t);}
+#ar2 .ar-bank-act.primary{background:rgba(0,180,216,.12);color:var(--t);}
+#ar2 .ar-bank-act.primary:hover{background:rgba(0,180,216,.22);}
+#ar2 .ar-bank-act.danger{background:transparent;color:#888;}
+#ar2 .ar-bank-act.danger:hover{background:rgba(239,68,68,.1);color:#f87171;}
+#ar2 .ar-bank-act:disabled{opacity:.4;cursor:default;}
+/* Mobile: collapse to card layout */
+@media(max-width:960px){
+#ar2 .ar-bank-thead{display:none;}
+#ar2 .ar-bank-card{grid-template-columns:1fr 1fr 1fr;gap:10px 16px;padding:16px 0;border-radius:0;}
+#ar2 .ar-bank-name{grid-column:1/-1;}
+#ar2 .ar-bank-cell{text-align:left;}
+#ar2 .ar-bank-actions{grid-column:1/-1;opacity:1;justify-content:flex-start;padding-top:10px;}
+}
+/* ── Save report button ── */
+#ar2 .ar-save-wrap{display:flex;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd);}
+#ar2 .ar-save-btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:9px;border:1px solid rgba(0,180,216,.35);background:rgba(0,180,216,.09);color:var(--t);font-size:13px;font-weight:500;cursor:pointer;transition:background .18s,border-color .18s;white-space:nowrap;}
+#ar2 .ar-save-btn:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.55);}
+#ar2 .ar-save-btn:disabled{opacity:.45;cursor:default;}
+#ar2 .ar-save-toast{font-size:12px;color:#4ade80;display:none;align-items:center;gap:5px;}
+#ar2 .ar-save-toast.err{color:#f87171;}
+#ar2 .ar-save-toast.show{display:inline-flex;}
+/* ── Bank nav button in top bar ── */
+#ar2 .ar-bank-nav{display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:7px;border:1px solid var(--bd);background:rgba(0,180,216,.07);color:var(--mu);font-size:12px;font-weight:500;cursor:pointer;transition:background .18s,color .18s;margin-left:auto;}
+#ar2 .ar-bank-nav:hover,#ar2 .ar-bank-nav.on{background:rgba(0,180,216,.15);color:var(--t);}
+
+/* ── Confetti burst (success feedback) ── */
+.ar-confetti{position:fixed;inset:0;pointer-events:none;z-index:100000;overflow:hidden;}
+.ar-confetti-piece{position:absolute;width:8px;height:12px;border-radius:2px;will-change:transform,opacity;opacity:0;}
+@keyframes ar-confetti-burst{
+  0%   {transform:translate(-50%,-50%) rotate(0deg) scale(.7);opacity:0;}
+  10%  {opacity:1;}
+  20%  {transform:translate(calc(-50% + var(--mx)),calc(-50% + var(--my))) rotate(calc(var(--r) * .3)) scale(1);}
+  100% {transform:translate(calc(-50% + var(--tx)),calc(-50% + var(--ty))) rotate(var(--r)) scale(1);opacity:0;}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   AquaRev Pool Measure (Step 0) — #ap2 scope, coexists with #ar2
+   ═══════════════════════════════════════════════════════════════════ */
+#ap2,#ap2 *,#ap2 *::before,#ap2 *::after{box-sizing:border-box;margin:0;padding:0}
+#ap2{
+  --t:#00b4d8;--aq:#48cae4;--ic:#90e0ef;--go:#f0a500;--gr:#22c55e;
+  --re:#ef4444;--tx:#e0f4fa;--mu:#7db8cc;--nv:#040f1e;--dp:#071628;
+  --pa:#0d2d4a;--bd:rgba(0,180,216,.2);
+  --cd:linear-gradient(145deg,rgba(13,45,74,.92),rgba(7,22,40,.96));
+  font-family:'DM Sans',sans-serif;font-size:14px;line-height:1.5;
+  color:var(--tx);
+  position:relative; /* anchor for the first-run overlay (Phase 4C) */
+}
+/* Step 0: hide the calculator's 3-column layout entirely; #ap2 is the step's UI. */
+#ar2.map-step #ar2-main-layout{display:none !important;}
+#ar2.map-step #ap2{display:block;}
+#ap2{display:none;}
+/* Step-nav buttons pinned at the top of their columns. */
+#ap2 .ap-top-nav{margin-bottom:12px;padding:12px 16px;font-size:12px;}
+/* Skip button — amber/gold treatment to flag it as "opt-out" rather than "continue". */
+#ap2 .ap-top-nav#ap-btn-skip{background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.45);color:var(--go);}
+#ap2 .ap-top-nav#ap-btn-skip:hover{background:rgba(240,165,0,.28);border-color:var(--go);color:#fff;}
+
+#ap2 .ap-bar{background:rgba(4,15,30,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd);padding:0 20px;}
+#ap2 .ap-bar-inner{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;gap:0;height:58px;max-width:1420px;margin:0 auto;}
+#ap2 .ap-brand{display:flex;align-items:center;gap:10px;}
+#ap2 .ap-bn{font-family:'Bebas Neue',sans-serif;font-size:21px;letter-spacing:3px;background:linear-gradient(135deg,#fff,var(--aq),var(--t));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+#ap2 .ap-bd{width:1px;height:18px;background:rgba(0,180,216,.3);}
+#ap2 .ap-bs{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#3a6a80;}
+#ap2 .ap-status{justify-self:center;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);}
+#ap2 .ap-status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mu);margin-right:6px;vertical-align:middle;}
+#ap2 .ap-status.ready .dot{background:var(--gr);}
+#ap2 .ap-status.busy .dot{background:var(--go);animation:ap-pulse 1s infinite;}
+@keyframes ap-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+#ap2 .ap-actions{justify-self:end;display:flex;gap:8px;}
+/* Match the calculator's .ar-layout span: max-width 1320px, horizontal padding 20px. */
+#ap2 .ap-layout{display:grid;grid-template-columns:280px 1fr 300px;gap:12px;max-width:1320px;margin:0 auto;padding:20px 20px 24px;align-items:stretch;}
+@media(max-width:1200px){#ap2 .ap-layout{grid-template-columns:260px 1fr 280px;gap:10px;}}
+@media(max-width:1040px){#ap2 .ap-layout{grid-template-columns:240px 1fr;} #ap2 .ap-col-right{grid-column:1 / -1;}}
+@media(max-width:760px){#ap2 .ap-layout{grid-template-columns:1fr;} #ap2 .ap-col-left,#ap2 .ap-col-map,#ap2 .ap-col-right{grid-column:1 / -1;}}
+#ap2 .ap-card{background:var(--cd);border:1px solid var(--bd);border-radius:14px;padding:18px 16px;position:relative;overflow:hidden;margin-bottom:12px;}
+#ap2 .ap-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));}
+#ap2 .ap-card.ac-go::before{background:linear-gradient(90deg,var(--go),#f7c948);}
+#ap2 .ap-card.ac-gr::before{background:linear-gradient(90deg,var(--gr),#4ade80);}
+#ap2 .ap-card-title{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
+#ap2 .ap-lbl{display:block;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--mu);font-weight:600;margin-bottom:6px;}
+#ap2 .ap-inp,#ap2 .ap-sel{width:100%;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.22);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .16s,box-shadow .16s;}
+#ap2 .ap-inp:focus,#ap2 .ap-sel:focus{border-color:rgba(0,180,216,.6);box-shadow:0 0 0 3px rgba(0,180,216,.1);}
+#ap2 .ap-inp::placeholder{color:rgba(125,184,204,.4);}
+#ap2 .ap-inp.sm{padding:7px 10px;font-size:13px;}
+#ap2 .ap-frow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+#ap2 .ap-field{margin-bottom:12px;}
+#ap2 .ap-field:last-child{margin-bottom:0;}
+#ap2 .ap-btn{appearance:none;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;padding:10px 14px;border-radius:10px;cursor:pointer;transition:all .18s;border:1px solid transparent;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;}
+#ap2 .ap-btn.primary{background:linear-gradient(135deg,var(--t),#0088a8);color:#fff;box-shadow:0 2px 10px rgba(0,180,216,.25);}
+#ap2 .ap-btn.primary:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,180,216,.35);}
+#ap2 .ap-btn.ghost{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.28);color:var(--t);}
+#ap2 .ap-btn.ghost:hover{background:rgba(0,180,216,.18);}
+#ap2 .ap-btn.danger{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);color:var(--re);}
+#ap2 .ap-btn.danger:hover{background:rgba(239,68,68,.2);}
+#ap2 .ap-btn.full{width:100%;}
+#ap2 .ap-btn:disabled{opacity:.45;cursor:not-allowed;transform:none !important;box-shadow:none !important;}
+#ap2 .ap-btn-row{display:flex;gap:8px;}
+#ap2 .ap-btn-row .ap-btn{flex:1;}
+#ap2 .ap-map-wrap{background:var(--cd);border:1px solid var(--bd);border-radius:14px;overflow:hidden;position:relative;min-height:620px;display:flex;flex-direction:column;}
+#ap2 #ap-map{flex:1;min-height:620px;}
+#ap2 .ap-map-overlay{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:5;}
+#ap2 .ap-map-overlay .ap-btn{padding:8px 12px;font-size:11px;backdrop-filter:blur(10px);background:rgba(4,15,30,.82);}
+#ap2 .ap-map-hint{position:absolute;bottom:12px;left:12px;right:12px;background:rgba(4,15,30,.85);backdrop-filter:blur(10px);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--tx);z-index:5;display:none;}
+#ap2 .ap-map-hint.show{display:block;}
+#ap2 .ap-map-hint strong{color:var(--t);}
+#ap2 .ap-kpi-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+#ap2 .ap-summary-card{padding:12px 14px;margin-bottom:12px;}
+#ap2 .ap-totals-inline{display:flex;gap:16px;align-items:baseline;}
+#ap2 .ap-totals-inline > div{display:flex;align-items:baseline;gap:6px;}
+#ap2 .ap-totals-inline .lbl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);font-weight:600;}
+#ap2 .ap-totals-inline b{font-family:'JetBrains Mono',monospace;font-size:18px;color:var(--go);font-weight:600;}
+#ap2 .ap-totals-inline .unit{font-size:10px;color:var(--mu);}
+#ap2 .ap-kpi{background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.15);border-radius:10px;padding:10px 8px;text-align:center;}
+#ap2 .ap-kpi-lbl{font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:var(--mu);margin-bottom:4px;font-weight:600;}
+#ap2 .ap-kpi-val{font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t);font-weight:600;line-height:1.2;}
+#ap2 .ap-kpi-sub{font-size:10px;color:var(--mu);margin-top:2px;}
+#ap2 .ap-pool-list{display:flex;flex-direction:column;gap:8px;max-height:520px;overflow-y:auto;margin:0 -6px;padding:0 6px;}
+#ap2 .ap-pool-list::-webkit-scrollbar{width:6px;}
+#ap2 .ap-pool-list::-webkit-scrollbar-track{background:rgba(0,0,0,.2);}
+#ap2 .ap-pool-list::-webkit-scrollbar-thumb{background:rgba(0,180,216,.3);border-radius:3px;}
+/* Card + hover/select states. Left rail doubles as status color. */
+#ap2 .ap-pool{background:linear-gradient(145deg,rgba(13,45,74,.45),rgba(7,22,40,.55));border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:12px 12px 10px 28px;cursor:pointer;transition:border-color .15s,background .15s,transform .1s;position:relative;box-shadow:inset 3px 0 0 rgba(34,197,94,.0);}
+#ap2 .ap-pool:hover{border-color:rgba(0,180,216,.45);background:linear-gradient(145deg,rgba(13,45,74,.6),rgba(7,22,40,.7));}
+/* ── Phase 3: drag handle + inline × delete ── */
+#ap2 .ap-pool-drag-handle{position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#5a8aa0;font-size:16px;letter-spacing:-2px;line-height:1;cursor:grab;user-select:none;padding:4px 2px;}
+#ap2 .ap-pool[draggable="true"]:hover .ap-pool-drag-handle{color:#7db8cc;}
+#ap2 .ap-pool[draggable="false"] .ap-pool-drag-handle{opacity:.25;cursor:default;}
+#ap2 .ap-pool[draggable="true"]:active{cursor:grabbing;}
+#ap2 .ap-pool.dragging{opacity:.45;}
+#ap2 .ap-pool.drop-above{box-shadow:inset 0 3px 0 var(--t),inset 3px 0 0 var(--gr);}
+#ap2 .ap-pool.drop-below{box-shadow:inset 0 -3px 0 var(--t),inset 3px 0 0 var(--gr);}
+#ap2 .ap-pool-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border:none;background:rgba(239,68,68,.12);color:#ef4444;border-radius:50%;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;transition:background .15s,transform .1s;z-index:2;}
+#ap2 .ap-pool-x:hover{background:rgba(239,68,68,.28);transform:scale(1.1);}
+/* ── Phase 4C: First-run hint overlay ── */
+#ap2 .ap-first-run{position:absolute;inset:0;background:rgba(4,15,30,.55);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:flex-start;padding:60px;pointer-events:auto;}
+#ap2 .ap-first-run-card{background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.45);border-radius:12px;padding:24px 28px;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.55);color:#e7f1f7;font-family:'DM Sans',sans-serif;}
+#ap2 .ap-first-run-eyebrow{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:3px;color:#48cae4;font-weight:700;text-transform:uppercase;margin-bottom:6px;}
+#ap2 .ap-first-run-title{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1.5px;color:#fff;margin-bottom:14px;}
+#ap2 .ap-first-run-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.5;color:#cfe2eb;}
+#ap2 .ap-first-run-list li{padding:8px 12px;border-left:2px solid rgba(0,180,216,.45);background:rgba(0,180,216,.06);border-radius:0 6px 6px 0;}
+#ap2 .ap-first-run-list b{color:#fff;}
+#ap2 .ap-first-run-list kbd{margin-left:6px;font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;background:rgba(0,180,216,.18);border:1px solid rgba(0,180,216,.35);border-radius:3px;color:#48cae4;}
+#ap2 .ap-first-run-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;}
+#ap2 .ap-first-run-tip{font-size:11px;color:#7db8cc;}
+#ap2 .ap-first-run-tip kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;background:rgba(0,180,216,.18);border:1px solid rgba(0,180,216,.35);border-radius:3px;color:#48cae4;margin:0 2px;}
+#ap2 .ap-pool.selected{border-color:var(--t);box-shadow:inset 3px 0 0 var(--t),0 0 0 2px rgba(0,180,216,.2);}
+#ap2 .ap-pool.checked{border-color:var(--go);background:rgba(240,165,0,.08);}
+#ap2 .ap-pool.registered{box-shadow:inset 3px 0 0 var(--gr);}
+#ap2 .ap-pool.registered:hover{box-shadow:inset 3px 0 0 var(--gr);}
+#ap2 .ap-pool.registered.selected{box-shadow:inset 3px 0 0 var(--gr),0 0 0 2px rgba(0,180,216,.2);}
+
+/* 2-column grid: [thumbnail] [body]. Body stacks three rows. */
+#ap2 .ap-pool-row{display:grid;grid-template-columns:72px 1fr;gap:12px;align-items:start;}
+/* Select-for-merge checkbox sits 32px from the right edge so it doesn't
+   overlap the × delete button at right:6 (which is 22px wide). */
+#ap2 .ap-pool-check{appearance:none;position:absolute;top:10px;right:34px;width:14px;height:14px;border:1.5px solid rgba(0,180,216,.35);border-radius:3px;background:rgba(0,0,0,.4);cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s;z-index:2;}
+#ap2 .ap-pool:hover .ap-pool-check,#ap2 .ap-pool .ap-pool-check:checked,#ap2 .ap-pool.checked .ap-pool-check{opacity:1;}
+#ap2 .ap-pool-check:checked{background:var(--go);border-color:var(--go);}
+#ap2 .ap-pool-check:checked::after{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 5l3 3 5-6' stroke='%23040f1e' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/10px no-repeat;}
+
+/* Thumbnail — larger for at-a-glance recognition */
+#ap2 .ap-pool-thumb-sm{width:72px;height:56px;border-radius:6px;overflow:hidden;background:rgba(0,0,0,.4);border:1px solid rgba(0,180,216,.22);display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:18px;flex-shrink:0;}
+#ap2 .ap-pool-thumb-sm img{display:block;width:100%;height:100%;object-fit:cover;}
+
+/* Body — 3 rows: name · meta · actions */
+#ap2 .ap-pool-body{min-width:0;display:flex;flex-direction:column;gap:5px;}
+#ap2 .ap-pool-name{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--tx);line-height:1.2;word-break:break-word;padding-right:20px;}
+#ap2 .ap-pool-num{display:inline-flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:.5px;background:linear-gradient(135deg,var(--t),#0077b6);color:#fff;min-width:22px;height:20px;border-radius:5px;padding:0 5px;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.35);}
+#ap2 .ap-pool-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--mu);align-items:center;line-height:1.2;}
+#ap2 .ap-pool-meta b{font-family:'JetBrains Mono',monospace;color:var(--tx);font-weight:500;}
+#ap2 .ap-pool-meta .sep{color:rgba(125,184,204,.35);}
+#ap2 .ap-pool-meta .dev{color:var(--aq);}
+
+/* Actions row — right-justified status pill + menu button */
+#ap2 .ap-pool-actions-row{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:3px;}
+#ap2 .ap-merge-bar{display:none;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.35);border-radius:10px;margin-bottom:10px;}
+#ap2 .ap-merge-bar.show{display:flex;}
+#ap2 .ap-merge-bar-text{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--go);font-weight:600;}
+#ap2 .ap-merge-bar .ap-mini-btn{border-color:rgba(240,165,0,.4);color:var(--go);background:rgba(240,165,0,.1);}
+#ap2 .ap-merge-bar .ap-mini-btn:hover{background:rgba(240,165,0,.2);}
+/* Tool-mode map cursors. Inline SVG data URLs so no external requests
+   on tool entry. Hotspots are tuned to the visible tip of each glyph
+   (top-left for the arrow, top-right for the wand) so the click point
+   matches what the rep sees. Falls back to crosshair / pointer if the
+   browser can't load the SVG. */
+#ap2.tracing .maplibregl-canvas{
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cpath d='M3 2 L3 22 L9 17 L13 25 L16 24 L12 16 L20 16 Z' fill='%23dc2626' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, crosshair !important;
+}
+#ap2.wand .maplibregl-canvas{
+  cursor: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cpath d='M22 4 L26 8 L10 24 L6 20 Z' fill='%23f97316' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M21 2 L23 4 M27 6 L29 8 M19 6 L21 8' stroke='%23fde68a' stroke-width='1.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='6' r='1' fill='%23fff'/%3E%3C/svg%3E") 24 6, crosshair !important;
+}
+#ap2 .ap-btn.wand-active{background:linear-gradient(135deg,var(--go),#d88b00) !important;color:#fff !important;box-shadow:0 2px 10px rgba(240,165,0,.3) !important;}
+#ap2 .ap-pool-more-wrap{position:relative;}
+#ap2 .ap-pool-more-btn{width:28px;height:24px;padding:0;font-size:15px;line-height:1;border-radius:6px;flex:0 0 auto;letter-spacing:1px;}
+/* Popover lives outside card clipping via position:fixed; coords set on open. */
+/* Popover lives outside card clipping via position:fixed; coords set on open. */
+#ap2 .ap-pool-more-menu{position:fixed;display:none;z-index:1500;min-width:180px;background:rgba(4,15,30,.96);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:10px;padding:4px;box-shadow:0 12px 40px rgba(0,0,0,.7);}
+#ap2 .ap-pool-more-menu.show{display:block;}
+#ap2 .ap-pool-more-menu .ap-ctx-item{width:100%;}
+#ap2 .ap-mini-btn{flex:1;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.2);color:var(--t);padding:5px 6px;border-radius:6px;font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;font-family:inherit;}
+#ap2 .ap-mini-btn:hover{background:rgba(0,180,216,.15);}
+#ap2 .ap-mini-btn.danger{color:var(--re);border-color:rgba(239,68,68,.28);background:rgba(239,68,68,.06);}
+#ap2 .ap-mini-btn.danger:hover{background:rgba(239,68,68,.18);}
+#ap2 .ap-empty{text-align:center;padding:24px 10px;color:var(--mu);font-size:12px;font-style:italic;}
+#ap2 .ap-toggle{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border-radius:10px;border:1px solid rgba(0,180,216,.22);overflow:hidden;}
+#ap2 .ap-tog-btn{padding:8px 10px;text-align:center;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:none;background:transparent;color:var(--mu);transition:.18s;font-family:inherit;}
+#ap2 .ap-tog-btn.on{background:rgba(0,180,216,.18);color:var(--t);}
+#ap2 .ap-help{font-size:11px;color:var(--mu);line-height:1.5;margin-top:6px;}
+#ap2 .ap-lbl-aux{font-weight:400;color:var(--mu);text-transform:none;letter-spacing:0;font-size:10px;margin-left:4px;}
+#ap2 .ap-xref-row{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:10px;color:var(--mu);flex-wrap:wrap;}
+#ap2 .ap-xref-lbl{text-transform:uppercase;letter-spacing:.8px;font-size:9px;color:var(--mu);opacity:.8;}
+#ap2 .ap-xref-link{color:var(--t);text-decoration:none;font-size:11px;font-weight:500;border-bottom:1px dotted rgba(0,180,216,.4);transition:.15s;}
+#ap2 .ap-xref-link:hover{color:#fff;border-bottom-color:var(--t);}
+#ap2 .ap-xref-sep{color:var(--mu);opacity:.6;}
+#ap2 .ap-name-wrap{position:relative;}
+#ap2 .ap-name-dropdown{position:absolute;top:calc(100% + 2px);left:0;right:0;background:rgba(4,15,30,.98);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.6);max-height:280px;overflow-y:auto;z-index:900;display:none;}
+#ap2 .ap-name-dropdown.show{display:block;}
+#ap2 .ap-name-sug{padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s;}
+#ap2 .ap-name-sug:last-child{border-bottom:none;}
+#ap2 .ap-name-sug:hover,#ap2 .ap-name-sug.active{background:rgba(0,180,216,.12);}
+#ap2 .ap-name-sug-label{font-size:13px;color:var(--tx);font-weight:500;line-height:1.3;}
+#ap2 .ap-name-sug-meta{font-size:11px;color:var(--mu);margin-top:2px;line-height:1.3;}
+#ap2 .ap-name-sug-type{display:inline-block;font-size:9px;color:var(--t);text-transform:uppercase;letter-spacing:.5px;margin-right:6px;opacity:.7;}
+#ap2 .ap-name-empty{padding:10px 12px;font-size:11px;color:var(--mu);text-align:center;}
+#ap2 .ap-info-btn{flex:0 0 auto;width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,180,216,.5);background:rgba(0,180,216,.08);color:var(--t);font-weight:700;font-family:inherit;font-size:12px;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;transition:.18s;}
+#ap2 .ap-info-btn:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.8);}
+#ap2 .ap-measurement .ap-help{display:none;}
+#ap2 .ap-measurement.show-help .ap-help{display:block;}
+#ap2 .ap-measurement.show-help .ap-info-btn{background:var(--t);border-color:var(--t);color:#04101e;}
+#ap2 .ap-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(4,15,30,.95);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:10px;padding:10px 16px 10px 14px;font-size:13px;color:var(--tx);z-index:1000;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;}
+#ap2 .ap-toast.show{opacity:1;}
+#ap2 .ap-toast.err{border-color:rgba(239,68,68,.5);}
+#ap2 .ap-toast.ok{border-color:rgba(34,197,94,.5);}
+#ap2 .ap-toast .drop{width:18px;height:18px;flex-shrink:0;}
+#ap2 .ap-ctx{position:fixed;z-index:2000;min-width:220px;background:rgba(4,15,30,.96);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:10px;padding:6px;box-shadow:0 12px 40px rgba(0,0,0,.6);display:none;}
+#ap2 .ap-ctx.show{display:block;}
+#ap2 .ap-ctx-title{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);padding:6px 10px 4px;font-weight:600;}
+#ap2 .ap-ctx-item{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;color:var(--tx);font-family:'DM Sans',sans-serif;font-size:13px;text-align:left;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background .12s;}
+#ap2 .ap-ctx-item:hover{background:rgba(0,180,216,.15);}
+#ap2 .ap-ctx-item.danger{color:var(--re);}
+#ap2 .ap-ctx-item.danger:hover{background:rgba(239,68,68,.15);}
+#ap2 .ap-ctx-item .ico{width:14px;height:14px;flex-shrink:0;opacity:.7;}
+#ap2 .ap-ctx-sep{height:1px;background:rgba(0,180,216,.15);margin:4px 2px;}
+#ap2 .ap-confirm{position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;padding:20px;}
+#ap2 .ap-confirm.show{display:flex;}
+#ap2 .ap-confirm-backdrop{position:absolute;inset:0;background:rgba(4,15,30,.75);backdrop-filter:blur(6px);cursor:pointer;}
+#ap2 .ap-confirm-card{position:relative;background:linear-gradient(145deg,rgba(13,45,74,.98),rgba(7,22,40,1));border:1px solid var(--bd);border-radius:14px;padding:24px;width:100%;max-width:360px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.7);}
+#ap2 .ap-confirm-icon{width:48px;height:48px;margin:0 auto 14px;}
+#ap2 .ap-confirm-icon svg{width:100%;height:100%;filter:drop-shadow(0 4px 10px rgba(0,119,182,.4));}
+#ap2 .ap-confirm-title{font-size:16px;font-weight:600;color:var(--tx);margin-bottom:6px;}
+#ap2 .ap-confirm-body{font-size:13px;color:var(--mu);margin-bottom:18px;line-height:1.4;}
+#ap2 .ap-confirm-body:empty{display:none;margin-bottom:10px;}
+#ap2 .ap-confirm-actions{display:flex;gap:10px;}
+#ap2 .ap-confirm-actions .ap-btn{flex:1;}
+#ap2 .ap-confirm .ap-btn.primary.danger{background:linear-gradient(135deg,var(--re),#b91c1c) !important;color:#fff !important;border-color:transparent !important;box-shadow:0 2px 10px rgba(239,68,68,.3) !important;}
+#ap2 .ap-confirm .ap-btn.primary.danger:hover{box-shadow:0 4px 16px rgba(239,68,68,.45) !important;transform:translateY(-1px);}
+#ap2 .ap-modal{position:fixed;inset:0;z-index:3000;display:none;align-items:center;justify-content:center;padding:20px;}
+#ap2 .ap-modal.show{display:flex;}
+#ap2 .ap-modal-backdrop{position:absolute;inset:0;background:rgba(4,15,30,.75);backdrop-filter:blur(6px);}
+#ap2 .ap-modal-card{position:relative;background:linear-gradient(145deg,rgba(13,45,74,.98),rgba(7,22,40,1));border:1px solid var(--bd);border-radius:16px;padding:24px;width:100%;max-width:460px;box-shadow:0 24px 60px rgba(0,0,0,.7);max-height:88vh;overflow-y:auto;}
+#ap2 .ap-modal-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));border-radius:16px 16px 0 0;}
+#ap2 .ap-modal-card::-webkit-scrollbar{width:8px;}
+#ap2 .ap-modal-card::-webkit-scrollbar-thumb{background:rgba(0,180,216,.3);border-radius:4px;}
+#ap2 .ap-modal-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2.5px;color:var(--tx);margin-bottom:18px;}
+#ap2 .ap-modal-sub{font-size:11px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:-12px;margin-bottom:16px;}
+#ap2 .ap-modal-actions{display:flex;gap:10px;margin-top:20px;}
+#ap2 .ap-modal-actions .ap-btn{flex:1;}
+#ap2 textarea.ap-inp{resize:vertical;min-height:64px;font-family:'DM Sans',sans-serif;}
+#ap2 .ap-pipe-grid{display:flex;flex-direction:column;gap:6px;}
+#ap2 .ap-pipe-row{display:grid;grid-template-columns:44px 1fr 96px;gap:10px;align-items:center;background:rgba(0,0,0,.2);border:1px solid rgba(0,180,216,.14);border-radius:8px;padding:6px 10px;}
+#ap2 .ap-pipe-sz{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:#fff;}
+#ap2 .ap-pipe-flow{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);}
+#ap2 .ap-qty{display:grid;grid-template-columns:26px 1fr 26px;align-items:center;gap:4px;background:rgba(0,0,0,.24);border:1px solid rgba(0,180,216,.22);border-radius:6px;}
+#ap2 .ap-qty-btn{border:none;background:transparent;color:var(--t);font-size:15px;font-weight:700;height:26px;cursor:pointer;font-family:inherit;}
+#ap2 .ap-qty-btn:hover{background:rgba(0,180,216,.15);border-radius:6px;}
+#ap2 .ap-qty-n{text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--tx);}
+#ap2 .ap-image-thumb{width:80px;height:60px;border-radius:6px;object-fit:cover;border:1px solid rgba(0,180,216,.3);}
+#ap2 details.ap-advanced{margin-top:4px;border-top:1px solid rgba(0,180,216,.12);padding-top:10px;}
+#ap2 details.ap-advanced summary{cursor:pointer;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);font-weight:600;list-style:none;padding:2px 0;user-select:none;}
+#ap2 details.ap-advanced summary::-webkit-details-marker{display:none;}
+#ap2 details.ap-advanced summary::before{content:'▸ ';color:var(--t);font-size:9px;}
+#ap2 details.ap-advanced[open] summary::before{content:'▾ ';}
+#ap2 .ap-review{background:var(--cd);border:1px solid rgba(240,165,0,.4);border-radius:14px;padding:16px;margin-top:12px;position:relative;overflow:hidden;transition:border-color .2s,opacity .2s;}
+#ap2 .ap-review::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--go),#f7c948);}
+#ap2 .ap-review.empty{border-color:rgba(0,180,216,.12);opacity:.75;}
+#ap2 .ap-review.empty::before{background:rgba(0,180,216,.25);}
+#ap2 .ap-review-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+#ap2 .ap-review-title{font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:600;color:var(--go);}
+#ap2 .ap-review.empty .ap-review-title{color:var(--mu);}
+#ap2 .ap-review-stats{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--tx);}
+#ap2 .ap-review-grid{display:grid;grid-template-columns:140px 1fr;gap:14px;align-items:start;}
+@media(max-width:640px){#ap2 .ap-review-grid{grid-template-columns:1fr;}}
+#ap2 .ap-review-thumb{width:140px;height:100px;border-radius:8px;background:rgba(0,0,0,.25);border:1px solid rgba(0,180,216,.22);overflow:hidden;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:10px;position:relative;}
+#ap2 .ap-review-thumb img{display:block;width:100%;height:100%;object-fit:cover;}
+#ap2 .ap-review-thumb .ap-recap{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:50%;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);border:1px solid rgba(0,180,216,.35);color:var(--t);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-family:inherit;transition:background .15s,transform .15s;}
+#ap2 .ap-review-thumb .ap-recap:hover{background:rgba(0,180,216,.35);color:#fff;transform:scale(1.08);}
+#ap2 .ap-review-thumb .ap-recap svg{width:14px;height:14px;}
+#ap2 .ap-review-body{display:flex;flex-direction:column;gap:10px;}
+#ap2 .ap-review-row{display:grid;grid-template-columns:1.6fr 1fr 0.7fr;gap:10px;}
+@media(max-width:640px){#ap2 .ap-review-row{grid-template-columns:1fr;}}
+#ap2 .ap-review-kbd{display:flex;gap:14px;margin-top:6px;font-size:10px;letter-spacing:1px;color:var(--mu);text-transform:uppercase;font-weight:600;flex-wrap:wrap;}
+#ap2 .ap-review-kbd kbd{font-family:'JetBrains Mono',monospace;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.25);border-radius:4px;padding:1px 6px;color:var(--t);font-size:10px;margin-right:4px;}
+#ap2 .ap-review-counter{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;padding:2px 8px;background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.3);border-radius:10px;color:var(--go);margin-right:8px;}
+#ap2 .ap-review-pipes{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;}
+@media(max-width:720px){#ap2 .ap-review-pipes{grid-template-columns:repeat(3,1fr);}}
+#ap2 .ap-pipe-chip{display:flex;flex-direction:column;align-items:stretch;gap:4px;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.12);border-radius:8px;padding:6px 4px;transition:opacity .15s,border-color .15s,background .15s;}
+#ap2 .ap-pipe-chip.zero{opacity:.55;}
+#ap2 .ap-pipe-chip.zero:hover{opacity:.9;border-color:rgba(0,180,216,.25);}
+#ap2 .ap-pipe-chip.has{opacity:1;border-color:rgba(0,180,216,.45);background:rgba(0,180,216,.08);box-shadow:inset 0 0 0 1px rgba(0,180,216,.22);}
+#ap2 .ap-pipe-chip .sz{font-family:'Bebas Neue',sans-serif;font-size:15px;color:#fff;letter-spacing:1px;text-align:center;line-height:1;}
+#ap2 .ap-pipe-chip.has .sz{color:var(--aq);}
+#ap2 .ap-pipe-chip .qty-row{display:grid;grid-template-columns:22px 1fr 22px;align-items:center;gap:2px;}
+#ap2 .ap-pipe-chip .btn{border:none;background:rgba(0,180,216,.08);color:var(--t);font-weight:700;cursor:pointer;padding:2px 0;font-family:inherit;border-radius:4px;font-size:13px;line-height:1;}
+#ap2 .ap-pipe-chip .btn:hover{background:rgba(0,180,216,.2);}
+#ap2 .ap-pipe-chip .n{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--tx);text-align:center;}
+#ap2 .ap-pipe-chip.has .n{color:var(--aq);font-weight:600;}
+#ap2 .ap-review-actions{display:flex;gap:8px;margin-top:4px;}
+#ap2 .ap-review-actions .ap-btn{padding:9px 14px;font-size:11px;}
+#ap2 .ap-pool.draft{border-color:rgba(240,165,0,.45);box-shadow:inset 3px 0 0 var(--go);}
+#ap2 .ap-pool.draft:hover{box-shadow:inset 3px 0 0 var(--go);}
+#ap2 .ap-pool-status{display:inline-flex;align-items:center;justify-content:center;gap:3px;font-weight:600;padding:3px 8px;height:22px;border-radius:11px;letter-spacing:.5px;line-height:1;}
+#ap2 .ap-pool-status.registered{color:var(--gr);background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.4);font-size:11px;}
+#ap2 .ap-pool-status.draft{color:var(--go);background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.4);text-transform:uppercase;letter-spacing:1.2px;font-size:9px;}
+#ap2 .ap-progress{display:inline-flex;align-items:center;gap:8px;margin-left:14px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);font-weight:600;}
+#ap2 .ap-progress b{font-family:'JetBrains Mono',monospace;color:var(--tx);font-size:11px;font-weight:600;letter-spacing:0;}
+#ap2 .ap-btn.merge-active{background:linear-gradient(135deg,var(--go),#d88b00) !important;color:#fff !important;}
+#ap2.merge-mode .maplibregl-canvas{cursor:copy !important;}
+/* ── Pool number flag — horizontal pill, screen-upright. ──
+   Marker is created with rotationAlignment:'viewport' + pitchAlignment:'viewport'
+   so the pill is always upright on screen regardless of map rotation/tilt.
+   Centred via polylabel (pole of inaccessibility) so L-shaped pools land their
+   flag inside the water rather than on a centroid that may sit on a wall. */
+.ap-pool-flag{
+  cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:28px;height:22px;padding:0 9px;
+  font-family:'Bebas Neue',sans-serif;font-size:13px;line-height:1;letter-spacing:1.5px;
+  color:#fff;
+  background:linear-gradient(135deg,#00b4d8,#0077b6);
+  border:1.5px solid #fff;border-radius:999px;
+  box-shadow:0 2px 6px rgba(0,0,0,.45);
+  transition:transform .15s,box-shadow .15s;
+  white-space:nowrap;
+}
+.ap-pool-flag:hover{transform:scale(1.08);box-shadow:0 4px 10px rgba(0,0,0,.55);}
+.ap-pool-flag.selected{background:linear-gradient(135deg,var(--go),#d88b00);}
+/* Zoom-out collapse — when the user zooms out far enough to see multiple
+   pools at once, shrink each pill to a tighter dot-style badge so the
+   map stays readable. JS toggles the .compact class via map.on('zoom'). */
+.ap-pool-flag.compact{min-width:18px;height:16px;padding:0 5px;font-size:10px;border-width:1px;letter-spacing:0.5px;}
+/* Property (big) flag — shown only when zoomed out beyond pool scale so the user can navigate back. */
+/* Google-Maps-style red teardrop pin. The :before is the teardrop body,
+   the :after is the white dot in the centre. Drop-shadow below for depth. */
+.ap-property-flag{width:28px;height:40px;cursor:pointer;position:relative;filter:drop-shadow(0 4px 6px rgba(0,0,0,.55));transition:transform .15s;}
+.ap-property-flag::before{content:'';position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50% 50% 50% 0;background:linear-gradient(135deg,#ea4335 0%,#c5221f 100%);transform:rotate(-45deg);border:2px solid #fff;box-sizing:border-box;}
+.ap-property-flag::after{content:'';position:absolute;left:50%;top:9px;width:9px;height:9px;background:#fff;border-radius:50%;transform:translateX(-50%);}
+.ap-property-flag > span{display:none;}
+.ap-property-flag:hover{transform:scale(1.12) translateY(-2px);}
+.maplibregl-ctrl-attrib{background:rgba(4,15,30,.7) !important;color:#7db8cc !important;font-size:10px !important;}
+.maplibregl-ctrl-attrib a{color:#48cae4 !important;}
+.mapboxgl-ctrl-group,.maplibregl-ctrl-group{background:rgba(4,15,30,.92) !important;border:1px solid rgba(0,180,216,.45) !important;box-shadow:0 4px 14px rgba(0,0,0,.5) !important;}
+.mapboxgl-ctrl-group button,.maplibregl-ctrl-group button{background:transparent !important;width:32px !important;height:32px !important;}
+.mapboxgl-ctrl-group button+button,.maplibregl-ctrl-group button+button{border-top:1px solid rgba(0,180,216,.25) !important;}
+.mapboxgl-ctrl-group button:hover,.maplibregl-ctrl-group button:hover{background:rgba(0,180,216,.22) !important;}
+/* Invert + and - icons so they render bright white on dark background */
+.mapboxgl-ctrl-group button .mapboxgl-ctrl-icon,
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1) brightness(2) contrast(1.1);}
