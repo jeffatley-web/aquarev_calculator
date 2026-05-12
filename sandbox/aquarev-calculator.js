@@ -1076,8 +1076,11 @@ window.AR2_PF = (function(){
     loadError: null
   };
 
+  // AR2_CLOUD's public API exposes `getClient` (not `client`). Using the
+  // correct name here is critical — without it, every Supabase call in
+  // this namespace silently rejects with "cloud not ready".
   function client(){
-    return window.AR2_CLOUD && AR2_CLOUD.client && AR2_CLOUD.client();
+    return window.AR2_CLOUD && AR2_CLOUD.getClient && AR2_CLOUD.getClient();
   }
   function user(){
     return window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user();
