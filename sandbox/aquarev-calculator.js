@@ -2334,9 +2334,12 @@ window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null
 /* ── Init the role-gated UI on login ────────────────────────────────────
    AR2_PF.init() is normally lazy — it runs the first time the Archive is
    opened. For the Map Pools radios to know the role from the first paint,
-   we re-run init() right after gateLogin succeeds and toggle body.pf-enabled.
-   Hooked into both the cloud-mode login success path and the legacy
-   single-passcode unlock path so all auth flows converge here. */
+   we need to run init() the moment cloud auth is ready.
+
+   IMPORTANT: AR2_PF.init() is idempotent via pfState.initialized — if we
+   call it before AR2_CLOUD.isReady() is true, it marks itself initialized
+   and returns early, leaving pfState.enabled forever undefined. So we MUST
+   poll for cloud-ready first, then call init() exactly once. */
 (function(){
   function applyPfBody(){
     try {
@@ -2350,17 +2353,20 @@ window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null
       try { AR2_PF.loadPortfolios(); } catch(_){}
     }
   }
-  // Try once on DOM ready (covers remembered-session bootstraps) and again
-  // on a short delay (covers async cloud-ready races).
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', applyPfBody);
-  } else {
+  // Poll for cloud-ready every 500ms (up to ~2 min cap). The moment the
+  // user finishes gateLogin, AR2_CLOUD.isReady() flips true; we then call
+  // init() ONCE and stop polling. This avoids the early-init race where
+  // AR2_PF.init() bails out and locks pfState.initialized=true.
+  var ticks = 0;
+  var iv = setInterval(function(){
+    ticks++;
+    if (ticks > 240) { clearInterval(iv); return; }
+    if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
+    clearInterval(iv);
     applyPfBody();
-  }
-  setTimeout(applyPfBody, 1500);
-  setTimeout(applyPfBody, 4000);
-  // Re-evaluate whenever the Archive is opened (covers the case where the
-  // user signed in after the page settled).
+  }, 500);
+  // Safety net: re-evaluate whenever the Archive is opened. Covers
+  // sign-out/sign-in within the same session and any oddball race.
   document.addEventListener('click', function(e){
     var btn = e.target && e.target.closest && e.target.closest('[data-action="view-bank"]');
     if (btn) setTimeout(applyPfBody, 60);
