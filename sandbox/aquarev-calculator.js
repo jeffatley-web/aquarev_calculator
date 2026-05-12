@@ -1269,11 +1269,19 @@ window.AR2_PF = (function(){
       + '</div>';
     document.body.appendChild(backdrop);
     setTimeout(function(){ var i = document.getElementById('ar-pf-new-name'); if (i) i.focus(); }, 30);
-    // Close on backdrop click
+    // Click delegate scoped TO the modal itself, not to #ar2. The main app's
+    // click handler is bound to #ar2, but this modal is mounted at document
+    // .body level so its events never bubble there. Without this listener,
+    // Cancel and Create buttons were inert. Backdrop click also closes.
     backdrop.addEventListener('click', function(e){
-      if (e.target === backdrop) closeNewPortfolioModal();
+      if (e.target === backdrop) { closeNewPortfolioModal(); return; }
+      var act = e.target.closest('[data-pf-action]');
+      if (!act) return;
+      var a = act.getAttribute('data-pf-action');
+      if (a === 'modal-cancel') { closeNewPortfolioModal(); return; }
+      if (a === 'modal-create') { submitNewPortfolio();     return; }
     });
-    // Submit on Enter
+    // Keyboard: Esc closes, Enter on the name input submits.
     backdrop.addEventListener('keydown', function(e){
       if (e.key === 'Escape') closeNewPortfolioModal();
       if (e.key === 'Enter' && e.target.id === 'ar-pf-new-name') submitNewPortfolio();
