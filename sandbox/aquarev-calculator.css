@@ -2128,9 +2128,15 @@
    Using a class (not inline style) means the visibility state can't be
    stomped by a stray re-render that omits the inline style attribute.
    ════════════════════════════════════════════════════════════════════ */
-#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.95),rgba(7,22,40,.95));border-bottom:1px solid rgba(0,180,216,.22);}
+/* Subbar geometry mirrors the top bar (.ar-bar / .ar-bar-inner) so the
+   breadcrumb starts at the same left edge as the AQUAREV WATER logo and
+   ends at the same right edge as the New / Archive buttons:
+     outer  → background full-width + 0 20px horizontal padding (= .ar-bar)
+     inner  → max-width 1320px, centered, no horizontal padding
+              (= .ar-bar-inner) */
+#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.95),rgba(7,22,40,.95));border-bottom:1px solid rgba(0,180,216,.22);padding:0 20px;}
 #ar2-pf-subbar.is-active{display:block;}
-.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:10px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;}
+.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:10px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
 .ar-pf-sub-back{background:rgba(0,180,216,.10);border:1px solid rgba(0,180,216,.28);color:var(--t);font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 11px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;}
 .ar-pf-sub-back:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
 .ar-pf-sub-sep{color:#7db8cc;font-size:14px;opacity:.6;}
