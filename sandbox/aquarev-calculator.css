@@ -2077,3 +2077,47 @@
 .ar-pf-modal-btn.primary:hover{filter:brightness(1.1);}
 .ar-pf-modal-btn:disabled{opacity:.45;cursor:not-allowed;}
 .ar-pf-modal-err{font-size:12px;color:#f87171;margin-top:8px;min-height:16px;}
+.ar-pf-modal-hint{font-size:11.5px;color:#7db8cc;margin-top:8px;line-height:1.55;}
+
+/* ════════════════════════════════════════════════════════════════════
+   Portfolio Overview (Phase 1b) — hero + KPI strip + property roster
+   ════════════════════════════════════════════════════════════════════ */
+#ar2 .ar-pf-ov-hero{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:18px;}
+#ar2 .ar-pf-back{background:transparent;border:1px solid rgba(0,180,216,.22);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .15s,border-color .15s;}
+#ar2 .ar-pf-back:hover{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.4);color:var(--t);}
+#ar2 .ar-pf-ov-title-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:14px;}
+#ar2 .ar-pf-ov-title{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-pf-ov-meta{display:flex;align-items:center;gap:8px;}
+
+/* KPI strip — borrows visual language from the existing report KPI band
+   so portfolio totals feel native to the calculator brand. */
+#ar2 .ar-pf-kpistrip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:rgba(0,180,216,.16);border:1px solid rgba(0,180,216,.18);border-radius:12px;overflow:hidden;margin-bottom:18px;}
+#ar2 .ar-pf-kpi{background:linear-gradient(145deg,#0d2d4a,#071628);padding:14px 16px;text-align:center;}
+#ar2 .ar-pf-kpi-lbl{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;}
+#ar2 .ar-pf-kpi-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:#e0f4fa;letter-spacing:.5px;}
+#ar2 .ar-pf-kpi-val.teal{color:var(--t);}
+#ar2 .ar-pf-kpi-val.green{color:var(--gr);}
+
+/* Property roster — list of property rows. Hover lifts each row slightly. */
+#ar2 .ar-pf-prop-list{display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-pf-prop-row{display:grid;grid-template-columns:36px 1fr 90px 110px 110px 90px;gap:14px;align-items:center;padding:12px 16px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-prop-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
+#ar2 .ar-pf-prop-idx{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:var(--mu);text-align:center;}
+#ar2 .ar-pf-prop-id{min-width:0;}
+#ar2 .ar-pf-prop-name{font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:#e0f4fa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-pf-prop-sub{font-size:11px;color:var(--mu);margin-top:2px;letter-spacing:.3px;}
+#ar2 .ar-pf-prop-kpi{text-align:right;}
+#ar2 .ar-pf-prop-kpi .v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#cfe2eb;}
+#ar2 .ar-pf-prop-kpi .l{font-size:9.5px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:1px;}
+#ar2 .ar-pf-prop-status{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:5px 8px;border-radius:7px;font-weight:700;text-align:center;}
+#ar2 .ar-pf-prop-status.incomplete{background:rgba(240,165,0,.16);color:#f0a500;}
+#ar2 .ar-pf-prop-status.ready{background:rgba(34,197,94,.18);color:var(--gr);}
+
+/* Narrow viewport — collapse the per-property KPI columns to keep the
+   row legible. Single Assessments already does similar at this breakpoint. */
+@media(max-width:860px){
+  #ar2 .ar-pf-kpistrip{grid-template-columns:repeat(3,1fr);}
+  #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px;}
+  #ar2 .ar-pf-prop-row .ar-pf-prop-kpi:not(:nth-of-type(1)){display:none;}
+  #ar2 .ar-pf-ov-title{font-size:22px;}
+}

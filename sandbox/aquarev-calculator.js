@@ -1073,7 +1073,12 @@ window.AR2_PF = (function(){
     activeTab: 'single',         // 'single' | 'portfolios'
     portfolios: null,            // null = not loaded yet; array once loaded
     loading: false,
-    loadError: null
+    loadError: null,
+    // Phase 1b — Portfolio Overview navigation
+    viewMode: 'list',            // 'list' | 'overview'
+    selectedPortfolioId: null,   // when viewMode === 'overview'
+    properties: {},              // { [portfolioId]: { rows, loading, error } }
+    rollup: {}                   // { [portfolioId]: { data, loading, error } }
   };
 
   // AR2_CLOUD's public API exposes `getClient` (not `client`). Using the
@@ -1184,11 +1189,14 @@ window.AR2_PF = (function(){
       + '</div>';
   }
 
-  // Render the Portfolios panel into the given mount element. Phase 1:
-  // empty state OR simple row list. Phase 2 will replace with the full
-  // Portfolio Overview (roster grid + roll-up KPIs).
+  // Render the Portfolios panel into the given mount element.
+  // Dispatches by viewMode: 'list' shows the portfolios collection;
+  // 'overview' shows the Portfolio Overview for the selected portfolio.
   function renderPortfoliosPanel(mount){
     if (!mount) return;
+    if (pfState.viewMode === 'overview' && pfState.selectedPortfolioId){
+      return renderPortfolioOverview(mount);
+    }
     // Hero header (always shown)
     var hero = '<div class="ar-pf-panel-hero">'
       +   '<div>'
@@ -1313,6 +1321,303 @@ window.AR2_PF = (function(){
     });
   }
 
+  // ════════════════════════════════════════════════════════════════
+  // Phase 1b — Portfolio Overview, Properties, Add Property
+  // ════════════════════════════════════════════════════════════════
+
+  // Look up a portfolio header from the cached portfolios list. Used by
+  // the overview renderer to pull the portfolio name/status without an
+  // extra fetch. Returns undefined if not in cache.
+  function getPortfolio(id){
+    if (!pfState.portfolios) return undefined;
+    for (var i = 0; i < pfState.portfolios.length; i++){
+      if (pfState.portfolios[i].id === id) return pfState.portfolios[i];
+    }
+    return undefined;
+  }
+
+  // Fetch the property list for a portfolio. Cached in pfState.properties
+  // keyed by portfolioId. Each entry: { rows, loading, error }.
+  function loadProperties(portfolioId){
+    if (!portfolioId) return Promise.resolve([]);
+    var slot = pfState.properties[portfolioId] || {};
+    if (slot.loading) return Promise.resolve(slot.rows || []);
+    if (slot.rows)    return Promise.resolve(slot.rows);
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    slot.loading = true;
+    slot.error = null;
+    pfState.properties[portfolioId] = slot;
+    return c.from('portfolio_properties')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .eq('portfolio_id', portfolioId)
+      .order('order_index', { ascending: true })
+      .order('created_at',  { ascending: true })
+      .then(function(rs){
+        slot.loading = false;
+        if (rs.error) { slot.error = rs.error.message || 'load failed'; slot.rows = []; }
+        else          { slot.rows  = rs.data || []; }
+        return slot.rows;
+      }, function(err){
+        slot.loading = false;
+        slot.error = (err && err.message) || 'load failed';
+        slot.rows = [];
+        return slot.rows;
+      });
+  }
+  function refreshProperties(portfolioId){
+    if (pfState.properties[portfolioId]) pfState.properties[portfolioId].rows = null;
+    return loadProperties(portfolioId);
+  }
+
+  // Compute the next order_index for a new property in this portfolio.
+  // Phase 1b ordering: append to the bottom. Phase 2 will add drag-to-
+  // reorder; until then order_index is just an append counter.
+  function nextOrderIndex(portfolioId){
+    var rows = (pfState.properties[portfolioId] && pfState.properties[portfolioId].rows) || [];
+    var maxIdx = -1;
+    for (var i = 0; i < rows.length; i++){
+      var o = rows[i].order_index;
+      if (typeof o === 'number' && o > maxIdx) maxIdx = o;
+    }
+    return maxIdx + 1;
+  }
+
+  // Create a new property in the given portfolio. Server-side defaults
+  // populate empty state_json / ex_json / computed_kpis. The newly-
+  // created row is appended to the local cache so the roster updates
+  // without a refetch.
+  function createProperty(portfolioId, name){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    var trimmed = String(name || '').trim();
+    if (!portfolioId) return Promise.reject(new Error('portfolio required'));
+    if (!trimmed)     return Promise.reject(new Error('Name required'));
+    return c.from('portfolio_properties')
+      .insert({
+        portfolio_id: portfolioId,
+        property_name: trimmed,
+        order_index: nextOrderIndex(portfolioId)
+      })
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        var slot = pfState.properties[portfolioId] || { rows: [], loading: false, error: null };
+        slot.rows = (slot.rows || []).concat([rs.data]);
+        pfState.properties[portfolioId] = slot;
+        // Roll-up changes → invalidate the cached aggregate so the KPI
+        // strip pulls fresh numbers on next render.
+        pfState.rollup[portfolioId] = null;
+        return rs.data;
+      });
+  }
+
+  // Server-side roll-up of computed_kpis. Cached per portfolio; null
+  // entries trigger a fresh fetch.
+  function getRollup(portfolioId){
+    var slot = pfState.rollup[portfolioId];
+    if (slot && slot.data) return Promise.resolve(slot.data);
+    if (slot && slot.loading) return Promise.resolve(null);
+    pfState.rollup[portfolioId] = { data: null, loading: true, error: null };
+    return rollup(portfolioId).then(function(data){
+      pfState.rollup[portfolioId] = { data: data, loading: false, error: null };
+      return data;
+    }, function(err){
+      pfState.rollup[portfolioId] = { data: null, loading: false, error: (err && err.message) || 'rollup failed' };
+      return null;
+    });
+  }
+
+  // ── Navigation: list ↔ overview ────────────────────────────────
+  function openPortfolio(portfolioId){
+    if (!portfolioId) return;
+    pfState.selectedPortfolioId = portfolioId;
+    pfState.viewMode = 'overview';
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  function backToPortfoliosList(){
+    pfState.viewMode = 'list';
+    pfState.selectedPortfolioId = null;
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+
+  // ── Portfolio Overview render ──────────────────────────────────
+  // Mounts: header (portfolio name + back btn), KPI strip (rollup
+  // aggregates), property roster (rows), add-property CTA.
+  function renderPortfolioOverview(mount){
+    if (!mount) return;
+    var pid = pfState.selectedPortfolioId;
+    if (!pid){ pfState.viewMode = 'list'; return renderPortfoliosPanel(mount); }
+    var p = getPortfolio(pid);
+    var headerName = p ? (p.name || 'Untitled portfolio') : 'Loading…';
+    var statusClass = ((p && p.status) || 'draft').toLowerCase();
+    var statusLabel = ((p && p.status) || 'draft').replace('_',' ');
+
+    // Hero: back btn + portfolio name + status + Add Property CTA
+    var hero = '<div class="ar-pf-ov-hero">'
+      +   '<button class="ar-pf-back" data-pf-action="back-to-list" type="button" aria-label="Back to portfolios">&#x2190; Portfolios</button>'
+      +   '<div class="ar-pf-ov-title-wrap">'
+      +     '<div class="ar-pf-ov-title">' + esc(headerName) + '</div>'
+      +     '<div class="ar-pf-ov-meta">'
+      +       '<span class="ar-pf-row-status ' + statusClass + '">' + esc(statusLabel) + '</span>'
+      +     '</div>'
+      +   '</div>'
+      +   '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add Property</button>'
+      + '</div>';
+
+    // KPI strip — pulls aggregates from getRollup(). Renders a "loading"
+    // skeleton on first paint, then re-renders with the data.
+    var rollupSlot = pfState.rollup[pid];
+    var r = rollupSlot && rollupSlot.data;
+    var kpiLine = function(lbl, val, color){
+      return '<div class="ar-pf-kpi">'
+        +   '<div class="ar-pf-kpi-lbl">' + esc(lbl) + '</div>'
+        +   '<div class="ar-pf-kpi-val' + (color ? ' ' + color : '') + '">' + val + '</div>'
+        + '</div>';
+    };
+    var kpis;
+    if (!r){
+      kpis = '<div class="ar-pf-kpistrip">'
+        + kpiLine('Properties', '—')
+        + kpiLine('Devices',    '—')
+        + kpiLine('Pool Volume','—')
+        + kpiLine('Monthly',    '—')
+        + kpiLine('Annual',     '—')
+        + kpiLine('Payback',    '—')
+        + '</div>';
+    } else {
+      var nProp = Number(r.property_count) || 0;
+      var nDev  = Number(r.total_dev)      || 0;
+      var totGal= Number(r.total_pool_gal) || 0;
+      var mo    = Number(r.total_mo)       || 0;
+      var yr    = Number(r.total_yr)       || 0;
+      var pay   = r.blended_payback_mo == null ? null : Number(r.blended_payback_mo);
+      // Pool volume — show K / M suffix to keep the tile compact at scale
+      var gallonsStr = (totGal >= 1e6 ? (totGal/1e6).toFixed(1)+'M' :
+                        totGal >= 1e3 ? (totGal/1e3).toFixed(0)+'K' :
+                        String(Math.round(totGal))) + ' gal';
+      kpis = '<div class="ar-pf-kpistrip">'
+        + kpiLine('Properties', String(nProp))
+        + kpiLine('Devices',    String(nDev), 'teal')
+        + kpiLine('Pool Volume',gallonsStr)
+        + kpiLine('Monthly',    (mo  ? fc(mo,0)  : '—'), mo ? 'green' : '')
+        + kpiLine('Annual',     (yr  ? fc(yr,0)  : '—'), yr ? 'green' : '')
+        + kpiLine('Payback',    (pay && pay>0 ? Math.round(pay)+' mo' : '—'), 'teal')
+        + '</div>';
+    }
+
+    // Roster — empty state OR list of property cards
+    var slot = pfState.properties[pid];
+    var roster;
+    if (!slot || (slot.loading && !slot.rows)){
+      roster = '<div class="ar-pf-empty" style="opacity:.7">Loading properties…</div>';
+    } else if (slot.error){
+      roster = '<div class="ar-pf-empty">'
+        + '<div class="ar-pf-empty-icon" style="color:#f87171;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.12)">!</div>'
+        + '<div class="ar-pf-empty-title">Couldn\'t load properties</div>'
+        + '<div class="ar-pf-empty-body">' + esc(slot.error) + '</div>'
+        + '</div>';
+    } else if (!slot.rows || !slot.rows.length){
+      roster = '<div class="ar-pf-empty">'
+        + '<div class="ar-pf-empty-icon">+</div>'
+        + '<div class="ar-pf-empty-title">No properties in this portfolio yet</div>'
+        + '<div class="ar-pf-empty-body">Add each hotel, resort or location individually. Each property keeps its own pool profile, device mix, and economics — and rolls up into the portfolio totals at the top.</div>'
+        + '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add the first property</button>'
+        + '</div>';
+    } else {
+      var rows = slot.rows.map(function(prop, idx){
+        var k    = prop.computed_kpis || {};
+        var nDev = Number(k.total_dev)  || 0;
+        var mo   = Number(k.total_mo)   || 0;
+        var inv  = Number(k.inv)        || 0;
+        var country = prop.country ? esc(prop.country) : '';
+        var subline = country ? country : (prop.formatted_address ? esc(prop.formatted_address) : '');
+        var incomplete = nDev === 0;
+        return '<div class="ar-pf-prop-row" data-pf-property="' + prop.id + '" role="button" tabindex="0">'
+          +   '<div class="ar-pf-prop-idx">' + (idx + 1) + '</div>'
+          +   '<div class="ar-pf-prop-id">'
+          +     '<div class="ar-pf-prop-name">' + esc(prop.property_name || 'Untitled property') + '</div>'
+          +     '<div class="ar-pf-prop-sub">' + (subline || '<span style="opacity:.55">No location set</span>') + '</div>'
+          +   '</div>'
+          +   '<div class="ar-pf-prop-kpi"><div class="v">' + (nDev ? String(nDev) : '—') + '</div><div class="l">Devices</div></div>'
+          +   '<div class="ar-pf-prop-kpi"><div class="v">' + (inv ? fc(inv,0)   : '—') + '</div><div class="l">Investment</div></div>'
+          +   '<div class="ar-pf-prop-kpi"><div class="v">' + (mo  ? fc(mo,0)    : '—') + '</div><div class="l">Monthly</div></div>'
+          +   '<div class="ar-pf-prop-status' + (incomplete ? ' incomplete' : ' ready') + '">'
+          +     (incomplete ? 'Incomplete' : 'Ready')
+          +   '</div>'
+          + '</div>';
+      }).join('');
+      roster = '<div class="ar-pf-prop-list">' + rows + '</div>';
+    }
+
+    mount.innerHTML = '<div class="ar-pf-panel">' + hero + kpis + roster + '</div>';
+
+    // Kick off any pending fetches (idempotent — they short-circuit if
+    // a fresh entry is already cached).
+    if (!slot || (!slot.rows && !slot.loading)){
+      loadProperties(pid).then(function(){ renderPortfolioOverview(mount); });
+    }
+    if (!rollupSlot || (!rollupSlot.data && !rollupSlot.loading && !rollupSlot.error)){
+      getRollup(pid).then(function(){ renderPortfolioOverview(mount); });
+    }
+  }
+
+  // ── Add Property modal (similar shape to New Portfolio modal) ──
+  function openAddPropertyModal(){
+    if (document.getElementById('ar-pf-add-prop-modal')) return;
+    var backdrop = document.createElement('div');
+    backdrop.id = 'ar-pf-add-prop-modal';
+    backdrop.className = 'ar-pf-modal-backdrop';
+    backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-add-prop-title">'
+      + '<div class="ar-pf-modal-title" id="ar-pf-add-prop-title">Add property</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-pf-add-prop-name">Property name</label>'
+      + '<input class="ar-pf-modal-input" id="ar-pf-add-prop-name" type="text" maxlength="160" placeholder="e.g. Ritz-Carlton, Turks &amp; Caicos" autocomplete="off" />'
+      + '<div class="ar-pf-modal-hint">You\'ll configure pools, devices, and savings on the next page (Phase 1c).</div>'
+      + '<div class="ar-pf-modal-err" id="ar-pf-add-prop-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+      +   '<button class="ar-pf-modal-btn" data-pf-action="add-prop-cancel" type="button">Cancel</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-pf-action="add-prop-create" type="button">Add property</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(backdrop);
+    setTimeout(function(){ var i = document.getElementById('ar-pf-add-prop-name'); if (i) i.focus(); }, 30);
+    backdrop.addEventListener('click', function(e){
+      if (e.target === backdrop) { closeAddPropertyModal(); return; }
+      var act = e.target.closest('[data-pf-action]');
+      if (!act) return;
+      var a = act.getAttribute('data-pf-action');
+      if (a === 'add-prop-cancel') { closeAddPropertyModal(); return; }
+      if (a === 'add-prop-create') { submitNewProperty();     return; }
+    });
+    backdrop.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeAddPropertyModal();
+      if (e.key === 'Enter' && e.target.id === 'ar-pf-add-prop-name') submitNewProperty();
+    });
+  }
+  function closeAddPropertyModal(){
+    var el = document.getElementById('ar-pf-add-prop-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function submitNewProperty(){
+    var pid = pfState.selectedPortfolioId;
+    if (!pid) { closeAddPropertyModal(); return; }
+    var input = document.getElementById('ar-pf-add-prop-name');
+    var err = document.getElementById('ar-pf-add-prop-err');
+    var btn = document.querySelector('[data-pf-action="add-prop-create"]');
+    if (!input) return;
+    var name = input.value.trim();
+    if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    createProperty(pid, name).then(function(){
+      closeAddPropertyModal();
+      if (typeof renderArchive === 'function') renderArchive();
+    }).catch(function(e){
+      if (btn) { btn.disabled = false; btn.textContent = 'Add property'; }
+      if (err) err.textContent = (e && e.message) || 'Add failed.';
+    });
+  }
+
   // Helper: simple HTML escape (mirrors esc() used in single-property code)
   function esc(s){
     return String(s == null ? '' : s)
@@ -1336,6 +1641,19 @@ window.AR2_PF = (function(){
     openNewPortfolioModal: openNewPortfolioModal,
     closeNewPortfolioModal: closeNewPortfolioModal,
     submitNewPortfolio: submitNewPortfolio,
+    // Phase 1b
+    viewMode: function(){ return pfState.viewMode; },
+    selectedPortfolioId: function(){ return pfState.selectedPortfolioId; },
+    openPortfolio: openPortfolio,
+    backToPortfoliosList: backToPortfoliosList,
+    renderPortfolioOverview: renderPortfolioOverview,
+    loadProperties: loadProperties,
+    refreshProperties: refreshProperties,
+    createProperty: createProperty,
+    getRollup: getRollup,
+    openAddPropertyModal: openAddPropertyModal,
+    closeAddPropertyModal: closeAddPropertyModal,
+    submitNewProperty: submitNewProperty,
     _state: pfState  // exposed for debug only
   };
 })();
@@ -6004,16 +6322,26 @@ function handleClick(e){
     var pfAct = e.target.closest('[data-pf-action]');
     if (pfAct) {
       var act = pfAct.getAttribute('data-pf-action');
-      if (act === 'new-portfolio')    { AR2_PF.openNewPortfolioModal(); return; }
-      if (act === 'modal-cancel')     { AR2_PF.closeNewPortfolioModal();  return; }
-      if (act === 'modal-create')     { AR2_PF.submitNewPortfolio();      return; }
+      // List view — new portfolio
+      if (act === 'new-portfolio')    { AR2_PF.openNewPortfolioModal();    return; }
+      if (act === 'modal-cancel')     { AR2_PF.closeNewPortfolioModal();   return; }
+      if (act === 'modal-create')     { AR2_PF.submitNewPortfolio();       return; }
+      // Overview view — navigation + properties (Phase 1b)
+      if (act === 'back-to-list')     { AR2_PF.backToPortfoliosList();     return; }
+      if (act === 'new-property')     { AR2_PF.openAddPropertyModal();     return; }
+      if (act === 'add-prop-cancel')  { AR2_PF.closeAddPropertyModal();    return; }
+      if (act === 'add-prop-create')  { AR2_PF.submitNewProperty();        return; }
     }
     var pfRow = e.target.closest('[data-pf-portfolio]');
     if (pfRow) {
-      // Phase 2 will open the Portfolio Overview page. For now the row
-      // click is a no-op so we can ship Phase 1 without the overview UI.
-      // Console log helps confirm the click pipeline is wired correctly.
-      try { console.log('[AR2_PF] portfolio row clicked:', pfRow.getAttribute('data-pf-portfolio')); } catch(_) {}
+      AR2_PF.openPortfolio(pfRow.getAttribute('data-pf-portfolio'));
+      return;
+    }
+    var pfProp = e.target.closest('[data-pf-property]');
+    if (pfProp) {
+      // Phase 1c will open the Property Detail (calculator scoped to this
+      // property). For Phase 1b the row click is informational only.
+      try { console.log('[AR2_PF] property row clicked:', pfProp.getAttribute('data-pf-property')); } catch(_) {}
       return;
     }
   }
