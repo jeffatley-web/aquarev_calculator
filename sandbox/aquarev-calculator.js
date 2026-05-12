@@ -2090,6 +2090,283 @@ window.AR2_PF = (function(){
   };
 })();
 
+/* ── Map Pools Property/Portfolio mode radios (Phase 1d sandbox) ──────
+   Three-mode radio strip on the Map Pools "Add Property or Portfolio" card:
+     • Property          — single assessment (default, saves to assessments)
+     • Add to Portfolio  — single assessment bound to an existing portfolio
+                           (saves to portfolio_properties — wired in Pass 2)
+     • Portfolio         — create a new portfolio (opens New Portfolio modal)
+   Role gating: the latter two radios have data-pf-only and are hidden by
+   CSS until body.pf-enabled is set by AR2_PF.init() — so Clients never see
+   them. Users and Admins see them; the picker contents are scoped by RLS
+   (users see own portfolios, admins see all).
+
+   The chosen "add-to-portfolio" target is stashed on window.AR2_MAP_PF_TARGET
+   for the Pass-2 save routing branch in bankSaveReport. Pass 1 only wires
+   the UI — saves still go to the assessments table.
+   ────────────────────────────────────────────────────────────────────── */
+window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
+
+(function(){
+  var picker, pickerSel, pickerHint, pickerChip, pickerChipName;
+  function $els(){
+    picker         = picker         || document.getElementById('ap-pf-picker');
+    pickerSel      = pickerSel      || document.getElementById('ap-pf-picker-select');
+    pickerHint     = pickerHint     || document.getElementById('ap-pf-picker-hint');
+    pickerChip     = pickerChip     || document.getElementById('ap-pf-picker-chip');
+    pickerChipName = pickerChipName || document.getElementById('ap-pf-picker-chip-name');
+  }
+  function getRadio(value){
+    return document.querySelector('input[name="ap-create-mode"][value="'+value+'"]');
+  }
+  function checkRadio(value){
+    var r = getRadio(value);
+    if (r) r.checked = true;
+  }
+  function showPicker(show){
+    $els();
+    if (!picker) return;
+    picker.classList.toggle('is-active', !!show);
+  }
+  function setChip(name){
+    $els();
+    if (!pickerChip) return;
+    if (name){
+      if (pickerChipName) pickerChipName.textContent = name;
+      pickerChip.classList.add('is-active');
+    } else {
+      pickerChip.classList.remove('is-active');
+    }
+  }
+  function clearTarget(){
+    window.AR2_MAP_PF_TARGET = null;
+    setChip(null);
+  }
+  function setTarget(id, name){
+    window.AR2_MAP_PF_TARGET = { id: id, name: name };
+    setChip(name);
+  }
+
+  // Populate the <select> from AR2_PF.portfolios(). RLS already scopes the
+  // list to what the signed-in user can see, so we don't filter client-side.
+  function populatePicker(){
+    $els();
+    if (!pickerSel) return;
+    var list = (window.AR2_PF && AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+    var sel = pickerSel;
+    sel.disabled = false;
+    // Rebuild options. First item is always the placeholder; last item is
+    // the "+ New portfolio…" pivot. Existing portfolios sit in between.
+    var html = '<option value="" disabled selected>'
+      + (list.length ? '— Select a portfolio —' : '— No portfolios yet —')
+      + '</option>';
+    for (var i = 0; i < list.length; i++){
+      var p = list[i];
+      html += '<option value="'+p.id+'">'+ (p.name || 'Untitled') +'</option>';
+    }
+    html += '<option value="__new__">+ New portfolio…</option>';
+    sel.innerHTML = html;
+    if (pickerHint){
+      var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+      pickerHint.textContent = list.length
+        ? (isAdmin
+            ? 'Admin view — showing all portfolios across users.'
+            : 'Showing portfolios you own.')
+        : 'No portfolios yet — choose "+ New portfolio…" to create one.';
+    }
+  }
+
+  // Load portfolios from Supabase if we haven't yet. Shows a "Loading…"
+  // state on the <select> while the fetch is in flight.
+  function loadAndPopulate(){
+    $els();
+    if (!pickerSel) return;
+    if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+      pickerSel.innerHTML = '<option value="" disabled selected>Portfolios unavailable</option>';
+      pickerSel.disabled = true;
+      if (pickerHint) pickerHint.textContent = 'Portfolios are not available in this account.';
+      return;
+    }
+    pickerSel.disabled = true;
+    pickerSel.innerHTML = '<option value="" disabled selected>Loading…</option>';
+    if (pickerHint) pickerHint.textContent = 'Loading your portfolios…';
+    AR2_PF.loadPortfolios().then(function(){ populatePicker(); })
+      .catch(function(e){
+        pickerSel.disabled = false;
+        pickerSel.innerHTML = '<option value="" disabled selected>— Couldn\'t load —</option>';
+        if (pickerHint) pickerHint.textContent = (e && e.message) || 'Load failed. Try again.';
+      });
+  }
+
+  // After New Portfolio modal closes, this watches for the modal node being
+  // removed from <body>. On removal: if the portfolios count grew, we treat
+  // it as a successful create and act accordingly per the caller's context.
+  function watchPortfolioModal(onCreated, onCancelled){
+    var modal = document.getElementById('ar-pf-new-modal');
+    if (!modal || !window.MutationObserver){
+      if (onCancelled) onCancelled();
+      return;
+    }
+    var before = (window.AR2_PF && AR2_PF.portfolios && AR2_PF.portfolios().length) || 0;
+    var obs = new MutationObserver(function(){
+      if (document.getElementById('ar-pf-new-modal')) return;
+      obs.disconnect();
+      var after = (window.AR2_PF && AR2_PF.portfolios && AR2_PF.portfolios().length) || 0;
+      if (after > before){
+        // Newest portfolio is prepended to the array (see createPortfolio
+        // in AR2_PF — line where pfState.portfolios is updated).
+        var list = AR2_PF.portfolios();
+        var newest = list && list[0];
+        if (onCreated) onCreated(newest);
+      } else {
+        if (onCancelled) onCancelled();
+      }
+    });
+    obs.observe(document.body, { childList: true });
+  }
+
+  // Main radio change handler.
+  function onModeChange(e){
+    var t = e.target;
+    if (!t || t.name !== 'ap-create-mode') return;
+    var mode = t.value;
+
+    // Mode: "property" — clear any portfolio binding, hide picker.
+    if (mode === 'property'){
+      clearTarget();
+      showPicker(false);
+      return;
+    }
+
+    // Both portfolio modes require AR2_PF to be enabled.
+    if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+      alert('Portfolios are not available in this account.');
+      checkRadio('property');
+      clearTarget();
+      showPicker(false);
+      return;
+    }
+
+    // Mode: "add-to-portfolio" — show picker, populate it.
+    if (mode === 'add-to-portfolio'){
+      showPicker(true);
+      loadAndPopulate();
+      return;
+    }
+
+    // Mode: "portfolio" — open New Portfolio modal. On success, drop the
+    // user into the Archive's Portfolios tab so they can add this property
+    // to the new portfolio. On cancel, flip back to Property.
+    if (mode === 'portfolio'){
+      AR2_PF.openNewPortfolioModal();
+      watchPortfolioModal(
+        function onCreated(){
+          checkRadio('property');
+          clearTarget();
+          showPicker(false);
+          try { AR2_PF.setActiveTab('portfolios'); } catch(_){}
+          var bankBtn = document.getElementById('ar2-bank-nav');
+          if (bankBtn) bankBtn.click();
+        },
+        function onCancelled(){
+          checkRadio('property');
+          clearTarget();
+          showPicker(false);
+        }
+      );
+      return;
+    }
+  }
+
+  // Picker <select> change — bind to a portfolio, or pivot to "+ New portfolio…"
+  function onPickerChange(e){
+    var sel = e.target;
+    if (!sel || sel.id !== 'ap-pf-picker-select') return;
+    var v = sel.value;
+    if (!v) return;
+    if (v === '__new__'){
+      // Reset the select so it doesn't stay stuck on "+ New portfolio…"
+      // — this way after the modal closes the user can pick from the list.
+      sel.value = '';
+      AR2_PF.openNewPortfolioModal();
+      watchPortfolioModal(
+        function onCreated(newest){
+          // Auto-bind to the just-created portfolio. Repopulate so the
+          // new row appears in the <select>, then select it.
+          populatePicker();
+          if (newest){
+            sel.value = newest.id;
+            setTarget(newest.id, newest.name);
+          }
+        },
+        function onCancelled(){
+          // User backed out — leave the select on the placeholder.
+        }
+      );
+      return;
+    }
+    // Picked an existing portfolio. Look up the name from AR2_PF cache.
+    var list = (AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+    var match = null;
+    for (var i = 0; i < list.length; i++){ if (list[i].id === v){ match = list[i]; break; } }
+    if (match) setTarget(match.id, match.name);
+  }
+
+  // Chip "×" — clear the bound portfolio. Drop back to Property mode.
+  function onChipClear(e){
+    var btn = e.target && e.target.closest && e.target.closest('#ap-pf-picker-chip-clear');
+    if (!btn) return;
+    e.preventDefault();
+    clearTarget();
+    var sel = document.getElementById('ap-pf-picker-select');
+    if (sel) sel.value = '';
+    checkRadio('property');
+    showPicker(false);
+  }
+
+  document.addEventListener('change', function(e){
+    onModeChange(e);
+    onPickerChange(e);
+  });
+  document.addEventListener('click', onChipClear);
+})();
+
+/* ── Init the role-gated UI on login ────────────────────────────────────
+   AR2_PF.init() is normally lazy — it runs the first time the Archive is
+   opened. For the Map Pools radios to know the role from the first paint,
+   we re-run init() right after gateLogin succeeds and toggle body.pf-enabled.
+   Hooked into both the cloud-mode login success path and the legacy
+   single-passcode unlock path so all auth flows converge here. */
+(function(){
+  function applyPfBody(){
+    try {
+      if (window.AR2_PF && AR2_PF.init){ AR2_PF.init(); }
+    } catch(_){}
+    var enabled = !!(window.AR2_PF && AR2_PF.isEnabled && AR2_PF.isEnabled());
+    document.body.classList.toggle('pf-enabled', enabled);
+    // Preload portfolios so the picker opens instantly when the rep flips
+    // the radio (no spinner on first interaction).
+    if (enabled && AR2_PF.loadPortfolios){
+      try { AR2_PF.loadPortfolios(); } catch(_){}
+    }
+  }
+  // Try once on DOM ready (covers remembered-session bootstraps) and again
+  // on a short delay (covers async cloud-ready races).
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', applyPfBody);
+  } else {
+    applyPfBody();
+  }
+  setTimeout(applyPfBody, 1500);
+  setTimeout(applyPfBody, 4000);
+  // Re-evaluate whenever the Archive is opened (covers the case where the
+  // user signed in after the page settled).
+  document.addEventListener('click', function(e){
+    var btn = e.target && e.target.closest && e.target.closest('[data-action="view-bank"]');
+    if (btn) setTimeout(applyPfBody, 60);
+  });
+})();
+
 function bankGetIndex(){
   return window.storage.get(BANK_IDX)
     .then(function(r){if(!r)return[];var s=typeof r==='string'?r:r.value;return s?JSON.parse(s):[];})
@@ -3832,11 +4109,6 @@ function renderStep0(){
       +'<label class="ar-lbl">Property Name</label>'
       +'<input class="ar-inp" type="text" data-f="propertyName" value="'+esc(S.propertyName)+'" placeholder="Client Property Name" autocomplete="organization" />'
     +'</div>'
-    // Number of Properties — for Exec Summary "Portfolio Snapshot"
-    +'<div class="ar-field" style="display:flex;align-items:center;gap:12px">'
-      +'<label class="ar-lbl" style="margin:0;flex:1">Number of Properties <span style="font-weight:400;color:var(--mu)">(for Exec Summary)</span></label>'
-      +'<input class="ar-inp" type="number" min="1" max="999" step="1" data-f="propertiesCount" value="'+(S.propertiesCount||1)+'" style="max-width:100px" onfocus="this.select()" />'
-    +'</div>'
     // Devices by Pool toggle
     +'<div class="ar-manual-lede" data-sw-s="devicesByPool" style="margin-bottom:12px">'
       +'<span>'+(S.devicesByPool?'\u2714 Devices entered per pool':'Devices by Pool')+'<span style="font-size:10px;color:var(--mu);display:block;margin-top:2px;font-weight:400">'+(S.devicesByPool?'Totals computed from per-pool counts':'Toggle on to enter device counts per pool')+'</span></span>'
@@ -4584,6 +4856,9 @@ function renderNav(){
   else if(S.step===4) backLabel = isClientNav ? '\u2190 Pricing & Settings' : '\u2190 Quote';
   var html='<div class="ar-nav-stack">'
     +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
+    // Step 5 (Export) gets a second Archive entrypoint above the Back button
+    // so the rep doesn't have to scroll to the Export panel just to save.
+    +(isLast?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Archive</button>':'')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
     +(disableNext?'<div class="ar-nav-hint">Select a device above to continue</div>':'')
   +'</div>';
@@ -6519,7 +6794,7 @@ function renderExportSection(){
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">'
       +'<button class="ar-gen-btn" data-action="preview-report"'+(EX.exporting?' disabled':'')+' style="background:linear-gradient(135deg,#7ed6e8,#48cae4)">Preview</button>'
       +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download</button>'
-      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--go),#f7c948)"'+(EX.saving?' disabled':'')+'>Archive</button>'
+      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv)"'+(EX.saving?' disabled':'')+'>Archive</button>'
     +'</div>'
     +'<div class="ar-save-toast'+(EX.saveStatus?(' show'+(EX.saveStatus==='error'?' err':'')):'')+'">'+I.check+' '+(EX.saveStatus==='error'?'Save failed \u2014 try again':'Saved to Archive')+'</div>'
   +'</div>';

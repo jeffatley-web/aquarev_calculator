@@ -1716,6 +1716,34 @@
 #ap2 .ap-card.ac-go::before{background:linear-gradient(90deg,var(--go),#f7c948);}
 #ap2 .ap-card.ac-gr::before{background:linear-gradient(90deg,var(--gr),#4ade80);}
 #ap2 .ap-card-title{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
+/* Property / Add to Portfolio / Portfolio mode toggle (Phase 1d sandbox).
+   Radio strip lives on the Map Pools Property card. The "Add to Portfolio"
+   and "Portfolio" radios are gated to User/Admin roles only — hidden until
+   body.pf-enabled is set by AR2_PF.init() on login. Clients never see them. */
+#ap2 .ap-mode-radios{display:flex;gap:6px;margin:-4px 0 12px;padding:4px;background:rgba(7,22,40,.55);border:1px solid var(--bd);border-radius:10px;}
+#ap2 .ap-mode-radio{flex:1;position:relative;display:flex;align-items:center;justify-content:center;gap:6px;font-size:11.5px;font-weight:600;letter-spacing:.3px;color:var(--mu);padding:7px 8px;border-radius:7px;cursor:pointer;user-select:none;transition:background .15s,color .15s;text-align:center;line-height:1.15;}
+#ap2 .ap-mode-radio input{position:absolute;opacity:0;pointer-events:none;}
+#ap2 .ap-mode-radio:hover{color:var(--tx);}
+#ap2 .ap-mode-radio:has(input:checked){background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;box-shadow:inset 0 0 0 1px rgba(0,180,216,.45);}
+/* Role-gated UI: PF-only controls are hidden until AR2_PF.init() confirms
+   the signed-in user has a role of 'user' or 'admin'. Clients never see these. */
+#ap2 [data-pf-only]{display:none!important;}
+body.pf-enabled #ap2 .ap-mode-radio[data-pf-only]{display:flex!important;}
+body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!important;}
+/* Portfolio picker — appears under the radios when "Add to Portfolio" is
+   the active mode. Lists portfolios visible to the signed-in user (RLS
+   already scopes: users see own only, admins see all). */
+#ap2 .ap-pf-picker{margin:0 0 12px;}
+#ap2 .ap-pf-picker-lbl{display:block;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;font-weight:600;}
+#ap2 .ap-pf-picker-select{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:10px 30px 10px 12px;color:#e0f4fa;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,#7db8cc 50%),linear-gradient(135deg,#7db8cc 50%,transparent 50%);background-position:calc(100% - 18px) 55%,calc(100% - 13px) 55%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;cursor:pointer;}
+#ap2 .ap-pf-picker-select:focus{border-color:var(--t);}
+#ap2 .ap-pf-picker-select:disabled{opacity:.55;cursor:wait;}
+#ap2 .ap-pf-picker-hint{font-size:11px;color:#7db8cc;margin-top:6px;line-height:1.45;}
+#ap2 .ap-pf-picker-chip{display:none;align-items:center;gap:8px;margin:8px 0 0;padding:8px 10px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);border-radius:7px;font-size:12px;color:#cfe2eb;font-weight:600;line-height:1.3;}
+#ap2 .ap-pf-picker-chip.is-active{display:flex;}
+#ap2 .ap-pf-picker-chip b{color:var(--gr);font-weight:700;}
+#ap2 .ap-pf-picker-chip-clear{margin-left:auto;background:transparent;border:none;color:var(--mu);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px;}
+#ap2 .ap-pf-picker-chip-clear:hover{background:rgba(255,255,255,.08);color:var(--tx);}
 #ap2 .ap-lbl{display:block;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--mu);font-weight:600;margin-bottom:6px;}
 #ap2 .ap-inp,#ap2 .ap-sel{width:100%;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.22);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .16s,box-shadow .16s;}
 #ap2 .ap-inp:focus,#ap2 .ap-sel:focus{border-color:rgba(0,180,216,.6);box-shadow:0 0 0 3px rgba(0,180,216,.1);}
@@ -2128,15 +2156,15 @@
    Using a class (not inline style) means the visibility state can't be
    stomped by a stray re-render that omits the inline style attribute.
    ════════════════════════════════════════════════════════════════════ */
-/* Subbar geometry mirrors the top bar (.ar-bar / .ar-bar-inner) so the
-   breadcrumb starts at the same left edge as the AQUAREV WATER logo and
-   ends at the same right edge as the New / Archive buttons:
-     outer  → background full-width + 0 20px horizontal padding (= .ar-bar)
-     inner  → max-width 1320px, centered, no horizontal padding
-              (= .ar-bar-inner) */
-#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.95),rgba(7,22,40,.95));border-bottom:1px solid rgba(0,180,216,.22);padding:0 20px;}
+/* Subbar geometry mirrors the calculator content area (.ar-layout) so the
+   breadcrumb starts at the same left edge as the form column and ends at
+   the same right edge as the results column:
+     outer  → background full-width, no horizontal padding
+     inner  → max-width 1320px, centered, 20px horizontal padding
+              (matches .ar-layout) */
+#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.95),rgba(7,22,40,.95));border-bottom:1px solid rgba(0,180,216,.22);padding:0;}
 #ar2-pf-subbar.is-active{display:block;}
-.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:10px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
+.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
 .ar-pf-sub-back{background:rgba(0,180,216,.10);border:1px solid rgba(0,180,216,.28);color:var(--t);font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 11px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;}
 .ar-pf-sub-back:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
 .ar-pf-sub-sep{color:#7db8cc;font-size:14px;opacity:.6;}
