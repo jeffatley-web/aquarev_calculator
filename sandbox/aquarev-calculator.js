@@ -3930,15 +3930,17 @@ function renderStepper(){
   for(var i=0;i<STEP_LBLS.length;i++){
     var dc=i<S.step?'done':i===S.step?'active':'idle';
     var dot=i<S.step?I.check:String(i+1);
-    // Quote step (index 3) is hidden for Client users — add a marker so CSS
-    // can hide both the dot and its connector line via the .app-client class.
+    // Quote step (index 3) is hidden for two modes:
+    //   • Client users  → via .app-client + [data-client-hide]
+    //   • Portfolio property mode → via body.pf-property-mode + [data-pf-prop-hide]
+    // Both markers are stamped on the dot, the label, and the connector line.
     var stepId = STEPS[i];
-    var clientHide = (stepId === 'quote') ? ' data-client-hide' : '';
-    h+='<div class="ar-si"'+clientHide+'>'
+    var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide' : '';
+    h+='<div class="ar-si"'+hideAttr+'>'
       +'<div class="ar-dot '+dc+'">'+dot+'</div>'
       +'<span class="ar-sl '+dc+'">'+STEP_LBLS[i]+'</span>'
       +'</div>';
-    if(i<STEP_LBLS.length-1)h+='<div class="ar-sc '+(i<S.step?'done':'')+'"'+clientHide+'></div>';
+    if(i<STEP_LBLS.length-1)h+='<div class="ar-sc '+(i<S.step?'done':'')+'"'+hideAttr+'></div>';
   }
   h+='<button class="ar-step-arrow" data-step-nav="next"'+(S.step>=STEPS.length-1?' disabled':'')+'>\u2192</button>';
   el.innerHTML=h;
@@ -4923,20 +4925,28 @@ function renderNav(){
   // Clients skip the Quote step (index 3) \u2014 labels swap accordingly so they
   // see "Continue \u2192 Export" from Pricing and "\u2190 Pricing & Settings" from Export.
   var isClientNav = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
+  // Portfolio property mode also skips the Quote step \u2014 Quote lives at the
+  // portfolio level, not per-property. Treat it the same as client nav for
+  // label purposes so reps see "Continue \u2192 Export" / "\u2190 Pricing & Settings"
+  // instead of references to a step they'll never visit.
+  var inPfProp = !!(window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode());
+  var skipQuote = isClientNav || inPfProp;
   var nextLabel='Continue \u2192';
   if(S.step===1) nextLabel='Continue \u2192 Pricing';
-  else if(S.step===2) nextLabel = isClientNav ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
+  else if(S.step===2) nextLabel = skipQuote ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
   else if(S.step===3) nextLabel='Continue \u2192 Export';
   var backLabel='\u2190 Back';
   if(S.step===1) backLabel='\u2190 Map Pools';
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
-  else if(S.step===4) backLabel = isClientNav ? '\u2190 Pricing & Settings' : '\u2190 Quote';
+  else if(S.step===4) backLabel = skipQuote ? '\u2190 Pricing & Settings' : '\u2190 Quote';
   var html='<div class="ar-nav-stack">'
     +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
     // Step 5 (Export) gets a second Archive entrypoint above the Back button
     // so the rep doesn't have to scroll to the Export panel just to save.
-    +(isLast?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Archive</button>':'')
+    // Hidden in portfolio property mode — saves happen via "Save & Close",
+    // not the single-property Archive flow.
+    +(isLast && !inPfProp?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Archive</button>':'')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
     +(navHint?'<div class="ar-nav-hint">'+navHint+'</div>':'')
   +'</div>';
@@ -6686,6 +6696,25 @@ function generateReport(){
 
 /* ── Export section render (shown in results on review step) ── */
 function renderExportSection(){
+  // Portfolio property mode replaces the per-property export panel with a
+  // single "Save & Close" card. Quote + PDF + roll-up happen at the
+  // portfolio level — there's no per-property PDF in this mode, so the
+  // Preview / Download / Archive trio is replaced with one action that
+  // returns the rep to the Portfolio Overview. Autosave has already
+  // persisted any pending state, so this button is purely navigational.
+  if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+    var lp = (AR2_PF.loadedProperty && AR2_PF.loadedProperty()) || null;
+    var propName = (lp && lp.property_name) || S.propertyName || 'this property';
+    return '<div class="ar-card ar-fu ar-export">'
+      +'<div class="ar-card-title" style="display:flex;align-items:center;gap:8px;color:var(--gr)">'+I.check+' Property complete</div>'
+      +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin:10px 0 16px">'
+        +'All calculator data for <b style="color:#fff">'+esc(propName)+'</b> has been saved to the portfolio.'
+        +'<br><br>'
+        +'<span style="color:#7db8cc">The <b style="color:var(--tx)">Portfolio Quote</b>, consolidated discounts, shipping, and PDF export all live at the <b style="color:var(--tx)">portfolio level</b>. Return to the Portfolio Overview to keep working.</span>'
+      +'</div>'
+      +'<button class="ar-gen-btn" data-pf-action="save-and-close" style="width:100%;background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);font-weight:700;letter-spacing:1px">Save &amp; Close → Portfolio Overview</button>'
+    +'</div>';
+  }
   return '<div class="ar-card ar-fu ar-export">'
     +'<div class="ar-card-title" style="display:flex;align-items:center;gap:8px">'+I.file+' Export Assessment Report</div>'
 
@@ -7325,11 +7354,14 @@ function handleClick(e){
     }
     return;
   }
-  // Helper — Clients don't see the Quote step (index 3). When their nav
-  // would land on it, skip in the same direction. Returns the resolved step.
+  // Helper — Two modes skip the Quote step (index 3):
+  //   • Client users (Quote is rep-only)
+  //   • Portfolio property mode (Quote lives at the portfolio level)
+  // When nav would land on Quote, skip in the same direction.
   function resolveStepForClient(target, direction){
     var isClient = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
-    if(!isClient || target !== 3) return target;
+    var inPfProp = !!(window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode());
+    if(!(isClient || inPfProp) || target !== 3) return target;
     if(direction === 'next') return Math.min(STEPS.length - 1, target + 1);
     if(direction === 'back') return Math.max(0, target - 1);
     return target;

@@ -49,6 +49,11 @@
    Used to gate the Quote step, Discount slider, Cover/Back Cover/Exec
    Summary export toggles, and the Quote-page export toggles. */
 #ar2.app-client [data-client-hide]{display:none !important;}
+/* Portfolio property mode — hides surfaces that don't apply when the rep
+   is working on a property INSIDE a portfolio. Quote step is the headline
+   case (Quote lives at the portfolio level), but the pattern extends to
+   any future per-property element that should disappear in pf context. */
+body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Quote app page: card headers tinted teal-blue for visual consistency with
    the rendered PDF's section accents. Scoped to .quote-step so other steps
    keep the standard text-color titles. Catches both standalone titles and
