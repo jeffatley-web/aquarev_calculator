@@ -2134,7 +2134,13 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-exp-row:last-child{border-bottom:none;}
 #ar2 .ar-pf-exp-row input[type=checkbox]{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;accent-color:var(--t);}
 #ar2 .ar-pf-exp-row-text{display:flex;flex-direction:column;gap:2px;font-size:14px;color:#e0f4fa;font-weight:500;line-height:1.35;}
-#ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;align-items:center;gap:8px;}
+#ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+/* Inline radio sub-control under an Export section row (Cards vs List). */
+#ar2 .ar-pf-exp-radio-group{display:inline-flex;align-items:center;gap:2px;padding:2px;background:rgba(7,22,40,.55);border:1px solid var(--bd);border-radius:7px;margin-left:6px;}
+#ar2 .ar-pf-exp-radio{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--mu);cursor:pointer;user-select:none;transition:background .12s,color .12s;}
+#ar2 .ar-pf-exp-radio:hover{color:var(--tx);}
+#ar2 .ar-pf-exp-radio.active{background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;}
+#ar2 .ar-pf-exp-radio input{position:absolute;opacity:0;pointer-events:none;}
 #ar2 .ar-pf-exp-row.locked{cursor:default;opacity:.85;}
 #ar2 .ar-pf-exp-row.locked input[type=checkbox]{cursor:not-allowed;opacity:.4;}
 #ar2 .ar-pf-exp-unlock{background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:filter .15s;}
@@ -2203,6 +2209,19 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    HTML carries .rpt / .rpt-cover-page / .rpt-es-page / .rpt-pp-page / etc.
    which already have @page sizing, page-break rules, and print-color-adjust
    wired in higher up in this stylesheet. */
+/* P7+: Portfolio list-table styles — used by the Pool Profiles List view
+   and the Property Profiles List-by-Country view. Mirrors the visual
+   weight of the existing report (Bebas Neue headers, navy accents) so
+   it doesn't look foreign next to the card pages. */
+#ar2-report .rpt-ppl-tbl{width:100%;border-collapse:collapse;font-size:10.5px;color:#222;background:#fff;}
+#ar2-report .rpt-ppl-tbl thead th{font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;color:#0a2540;text-align:left;padding:7px 10px;background:#f5fbff;border-bottom:1.5px solid #48cae4;text-transform:uppercase;}
+#ar2-report .rpt-ppl-tbl thead th.num{text-align:right;}
+#ar2-report .rpt-ppl-tbl tbody td{padding:6px 10px;border-bottom:1px solid #eef4f7;vertical-align:top;}
+#ar2-report .rpt-ppl-tbl tbody td.num{text-align:right;font-family:'JetBrains Mono',monospace;color:#0a2540;}
+#ar2-report .rpt-ppl-country-row td{background:#f0fbff;font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.5px;color:#0a2540;padding:6px 10px;font-weight:700;text-transform:uppercase;border-top:1px solid #cce8f1;border-bottom:1px solid #cce8f1;}
+#ar2-report .rpt-ppl-row td{font-size:10.5px;}
+#ar2-report .rpt-ppl-addr{font-size:9.5px;color:#666;margin-top:1px;}
+#ar2-report .rpt-ppl-wrap{background:#fff;}
 /* Portfolio Overview action group — pinned right via margin-left:auto so
    Quote / Export / + Property sit as a unit on the right side of the hero,
    regardless of how long the portfolio title runs. */

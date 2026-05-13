@@ -1860,14 +1860,17 @@ window.AR2_PF = (function(){
      ───────────────────────────────────────────────────────────────── */
   function _defaultExportState(){
     return {
-      cover:        true,
-      execSummary:  true,
-      poolProfiles: true,
-      perProperty:  true,
-      quote:        false, // off by default; flips true after Quote unlock
-      stdTerms:     true,
-      backCover:    true,
-      quoteReady:   false  // becomes true once the Quote builder is saved
+      cover:                true,
+      execSummary:          true,
+      propertyProfile:      true,           // NEW: Property Profile page(s)
+      propertyProfileLayout:'cards',        // 'cards' | 'list-by-country'
+      poolProfiles:         true,
+      poolProfilesLayout:   'cards',        // 'cards' | 'list' (compact rows grouped by property)
+      perProperty:          true,
+      quote:                false,           // off by default; flips true after Quote unlock
+      stdTerms:             true,
+      backCover:            true,
+      quoteReady:           false             // becomes true once the Quote builder is saved
     };
   }
   function getExportState(pid){
@@ -1937,7 +1940,18 @@ window.AR2_PF = (function(){
       +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.cover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="cover"><span class="ar-pf-exp-row-text">Cover Page<span class="ar-pf-exp-row-meta">Portfolio name + buyer info</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.execSummary?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="execSummary"><span class="ar-pf-exp-row-text">Executive Summary<span class="ar-pf-exp-row-meta">Rolled-up KPIs across all properties</span></span></label>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.poolProfiles?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="poolProfiles"><span class="ar-pf-exp-row-text">Property Pool Profiles<span class="ar-pf-exp-row-meta">One block per property — pools + volumes</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.propertyProfile?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="propertyProfile"><span class="ar-pf-exp-row-text">Property Profiles<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list'
+      +       '<span class="ar-pf-exp-radio-group">'
+      +         '<label class="ar-pf-exp-radio' + (st.propertyProfileLayout!=='list-by-country'?' active':'') + '"><input type="radio" name="propProfLayout" value="cards" ' + (st.propertyProfileLayout!=='list-by-country'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout"> Cards</label>'
+      +         '<label class="ar-pf-exp-radio' + (st.propertyProfileLayout==='list-by-country'?' active':'') + '"><input type="radio" name="propProfLayout" value="list-by-country" ' + (st.propertyProfileLayout==='list-by-country'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout"> List by Country</label>'
+      +       '</span>'
+      +     '</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.poolProfiles?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="poolProfiles"><span class="ar-pf-exp-row-text">Property Pool Profiles<span class="ar-pf-exp-row-meta">Pool detail grouped by property — cards or compact list'
+      +       '<span class="ar-pf-exp-radio-group">'
+      +         '<label class="ar-pf-exp-radio' + (st.poolProfilesLayout!=='list'?' active':'') + '"><input type="radio" name="poolProfLayout" value="cards" ' + (st.poolProfilesLayout!=='list'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout"> Cards</label>'
+      +         '<label class="ar-pf-exp-radio' + (st.poolProfilesLayout==='list'?' active':'') + '"><input type="radio" name="poolProfLayout" value="list" ' + (st.poolProfilesLayout==='list'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout"> List</label>'
+      +       '</span>'
+      +     '</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.perProperty?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="perProperty"><span class="ar-pf-exp-row-text">Per-Property Assessments<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback</span></span></label>'
       +     quoteRow
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.stdTerms?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="stdTerms"><span class="ar-pf-exp-row-text">Standard Terms<span class="ar-pf-exp-row-meta">Pulls from Quote section 6 if configured</span></span></label>'
@@ -2827,7 +2841,31 @@ function buildPortfolioReportPreview(pid, mode){
     }
 
     // ──────────────────────────────────────────────────────────────
-    //  2. Per-Property Pages — hydrate each property's state into the
+    //  2a. Portfolio Property Profiles — one card per property, or a
+    //      list grouped by country. Independent of per-property capture.
+    // ──────────────────────────────────────────────────────────────
+    if (st.propertyProfile && states.length){
+      var propLayout = (st.propertyProfileLayout === 'list-by-country') ? 'list-by-country' : 'cards';
+      var propPages = buildPropertyProfilesPages(pName, states, today, propLayout);
+      for (var ppi = 0; ppi < propPages.length; ppi++) sections.push(propPages[ppi]);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  2b. Portfolio Pool Profiles — LIST mode bypasses per-property
+    //      capture and renders a compact list grouped by property,
+    //      paginated ~24 rows per page. (Cards mode flows through the
+    //      capture loop below so each property's pool profile pages
+    //      are pixel-identical to single-property — and now max 10
+    //      cards per page.)
+    // ──────────────────────────────────────────────────────────────
+    var poolProfilesUseList = (st.poolProfiles && st.poolProfilesLayout === 'list');
+    if (poolProfilesUseList){
+      var plPages = buildPortfolioPoolProfilesListPages(pName, states, today);
+      for (var pli = 0; pli < plPages.length; pli++) sections.push(plPages[pli]);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3. Per-Property Pages — hydrate each property's state into the
     //     global S/EX, run generateReport in capture mode, harvest
     //     the resulting HTML. Each property produces its full Pool
     //     Profile + Assessment (and optionally Exec Summary) pages
@@ -2839,8 +2877,11 @@ function buildPortfolioReportPreview(pid, mode){
     //     belong at the portfolio level. Exec Summary inherits the
     //     portfolio's execSummary toggle so the rep can choose
     //     between portfolio-level only vs portfolio + per-property.
+    //     Pool Profiles in capture flow is suppressed when the rep
+    //     selected the List layout (rendered above).
     // ──────────────────────────────────────────────────────────────
-    if (st.poolProfiles || st.perProperty || st.execSummary){
+    var poolProfilesUseCapture = (st.poolProfiles && st.poolProfilesLayout !== 'list');
+    if (poolProfilesUseCapture || st.perProperty || st.execSummary){
       // Snapshot the live state — this is critical, we restore on every
       // exit path including failures.
       var savedS  = JSON.parse(JSON.stringify(S));
@@ -2876,9 +2917,9 @@ function buildPortfolioReportPreview(pid, mode){
           EX.inclQuote         = false;
           EX.inclQuoteTerms    = false;
           EX.inclQuotePayment  = false;
-          EX.inclExecSummary   = !!st.execSummary;   // honor portfolio toggle
-          EX.inclLsExecSummary = false;              // portrait only
-          EX.inclPoolProfiles  = !!st.poolProfiles;  // honor portfolio toggle
+          EX.inclExecSummary   = !!st.execSummary;        // honor portfolio toggle
+          EX.inclLsExecSummary = false;                   // portrait only
+          EX.inclPoolProfiles  = !!poolProfilesUseCapture; // Cards mode only; List mode is rendered separately above
           EX.layout            = 'portrait';
           EX._captureMode      = true;
           // Property name flows through S.propertyName for the per-property
@@ -2954,6 +2995,222 @@ function buildPortfolioReportPreview(pid, mode){
     // the @page sizing and page breaks already wired into .rpt-* CSS.
     renderPortfolioReportToDOM(pName, sections, mode);
   });
+}
+
+/* P7+: Portfolio Property Profiles page(s).
+   Two layouts:
+     • cards          — one card per property (image stand-in + KPIs)
+     • list-by-country — compact table grouped by country header
+   Honors the 10-per-page rule for cards; list view paginates by row count. */
+function buildPropertyProfilesPages(pName, states, today, layout){
+  if (!states || !states.length) return [];
+  function ppHeader(subtitle){
+    return '<div class="rpt-es-head rpt-pp-es-head">'
+      + '<div class="rpt-es-head-left">'
+        + '<div class="rpt-es-logo">AQUAREV WATER</div>'
+        + '<div class="rpt-es-logo-sub">Property Profiles</div>'
+      + '</div>'
+      + '<div class="rpt-es-head-right">'
+        + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+        + '<div class="rpt-es-prop-date">' + esc(today) + ' · ' + states.length + ' propert' + (states.length===1?'y':'ies') + (subtitle?' · ' + esc(subtitle):'') + '</div>'
+        + '<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+      + '</div>'
+    + '</div>';
+  }
+  var ppFooter = '<div class="rpt-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Build a card per property — same .rpt-pp-card chrome single uses, so
+  // the layout / typography / pagination are pixel-identical to pool profiles.
+  function cardHtml(p){
+    var k = p.computed_kpis || {};
+    var sj = p.state_json || {};
+    var bodies = sj.bodies || [];
+    var poolCount = bodies.length || Number(sj.manualPoolCount) || 0;
+    var totalGal = 0;
+    for (var b=0;b<bodies.length;b++) totalGal += Number(bodyGallons ? bodyGallons(bodies[b]) : bodies[b].gallons) || 0;
+    if (!totalGal) totalGal = Number(sj.manualTotalGallons) || 0;
+    var inv = Number(k.inv) || 0;
+    var mo  = Number(k.total_mo) || 0;
+    var pb  = k.payback ? Math.round(Number(k.payback)) : null;
+    var country = p.country || '';
+    var addr = p.formatted_address || '';
+    // Image stand-in — same .rpt-pp-img-empty SVG as pool cards so visual
+    // weight matches the pool profiles pages exactly.
+    var img = '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V8l4-3v16"/><path d="M9 21V5l8-2v18"/><path d="M9 9h0M9 13h0M9 17h0M13 7h0M13 11h0M13 15h0M13 19h0"/></svg><div class="rpt-pp-img-empty-lbl">Property</div></div>';
+    return '<div class="rpt-pp-card">'
+      + img
+      + '<div class="rpt-pp-info">'
+        + '<div class="rpt-pp-head">'
+          + '<div class="rpt-pp-name">' + esc(p.property_name || 'Property') + '</div>'
+          + (country ? '<span class="rpt-pp-pill" style="background:#0891b2;color:#fff;border-color:#0891b2">' + esc(country) + '</span>' : '')
+        + '</div>'
+        + '<div class="rpt-pp-rows">'
+          + (addr ? '<div class="rpt-pp-row"><span class="k">Address</span><span class="v" style="font-size:9.5px;text-align:right">' + esc(addr) + '</span></div>' : '')
+          + '<div class="rpt-pp-row"><span class="k">Pools</span><span class="v">' + poolCount + '</span></div>'
+          + '<div class="rpt-pp-row"><span class="k">Total Volume</span><span class="v">' + fn(Math.round(totalGal)) + ' gal</span></div>'
+          + '<div class="rpt-pp-row"><span class="k">Investment</span><span class="v">' + (inv?fc(inv,0):'—') + '</span></div>'
+          + '<div class="rpt-pp-row strong"><span class="k">Monthly Plan</span><span class="v pos">' + (mo?fc(mo,0) + ' / mo':'—') + '</span></div>'
+          + (pb!=null ? '<div class="rpt-pp-row"><span class="k">Payback</span><span class="v">' + pb + ' mo</span></div>' : '')
+        + '</div>'
+      + '</div>'
+    + '</div>';
+  }
+  // List-by-country: compact table grouped under country headers. ~24 rows
+  // per page comfortably fits in a 8.5×11 portrait layout.
+  if (layout === 'list-by-country'){
+    var byCountry = {};
+    var order = [];
+    for (var i=0; i<states.length; i++){
+      var c = (states[i].country && String(states[i].country).trim()) || 'Other';
+      if (!byCountry[c]){ byCountry[c] = []; order.push(c); }
+      byCountry[c].push(states[i]);
+    }
+    order.sort();
+    var rowsHtml = '';
+    for (var ci=0; ci<order.length; ci++){
+      var cc = order[ci];
+      var props = byCountry[cc];
+      rowsHtml += '<tr class="rpt-ppl-country-row"><td colspan="5">' + esc(cc) + ' <span style="font-weight:400;opacity:.7">· ' + props.length + ' propert' + (props.length===1?'y':'ies') + '</span></td></tr>';
+      for (var pi=0; pi<props.length; pi++){
+        var pp = props[pi];
+        var kk = pp.computed_kpis || {};
+        var sjj = pp.state_json || {};
+        var bb = sjj.bodies || [];
+        var ppPools = bb.length || Number(sjj.manualPoolCount) || 0;
+        var ppInv = Number(kk.inv) || 0;
+        var ppMo  = Number(kk.total_mo) || 0;
+        var ppPb  = kk.payback ? Math.round(Number(kk.payback)) : null;
+        rowsHtml += '<tr class="rpt-ppl-row">'
+          + '<td>' + esc(pp.property_name || 'Property') + (pp.formatted_address?'<div class="rpt-ppl-addr">' + esc(pp.formatted_address) + '</div>':'') + '</td>'
+          + '<td class="num">' + ppPools + '</td>'
+          + '<td class="num">' + (ppInv?fc(ppInv,0):'—') + '</td>'
+          + '<td class="num">' + (ppMo?fc(ppMo,0) + ' / mo':'—') + '</td>'
+          + '<td class="num">' + (ppPb!=null?ppPb + ' mo':'—') + '</td>'
+        + '</tr>';
+      }
+    }
+    return ['<div class="rpt-pp-page">'
+      + ppHeader('List by Country')
+      + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
+        + '<table class="rpt-ppl-tbl">'
+          + '<thead><tr><th>Property</th><th class="num">Pools</th><th class="num">Investment</th><th class="num">Monthly Plan</th><th class="num">Payback</th></tr></thead>'
+          + '<tbody>' + rowsHtml + '</tbody>'
+        + '</table>'
+      + '</div>'
+      + ppFooter
+    + '</div>'];
+  }
+  // Cards: chunk 10 per page (matches the pool profile cards limit).
+  var cardsArr = states.map(cardHtml);
+  var PER_PAGE = 10;
+  var total = Math.max(1, Math.ceil(cardsArr.length / PER_PAGE));
+  var pages = [];
+  for (var pp=0; pp<total; pp++){
+    var slice = cardsArr.slice(pp*PER_PAGE, (pp+1)*PER_PAGE).join('');
+    pages.push(
+      '<div class="rpt-pp-page">'
+      + ppHeader(total>1 ? ('Page ' + (pp+1) + ' of ' + total) : '')
+      + '<div class="rpt-pp-grid">' + slice + '</div>'
+      + ppFooter
+    + '</div>'
+    );
+  }
+  return pages;
+}
+
+/* P7+: Portfolio Pool Profiles "List" view — compact rows grouped under
+   per-property headers. Used when poolProfilesLayout === 'list' on the
+   Export panel. ~22-24 rows per page in portrait. */
+function buildPortfolioPoolProfilesListPages(pName, states, today){
+  if (!states || !states.length) return [];
+  function ppHeader(subtitle){
+    return '<div class="rpt-es-head rpt-pp-es-head">'
+      + '<div class="rpt-es-head-left">'
+        + '<div class="rpt-es-logo">AQUAREV WATER</div>'
+        + '<div class="rpt-es-logo-sub">Pool Profiles</div>'
+      + '</div>'
+      + '<div class="rpt-es-head-right">'
+        + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+        + '<div class="rpt-es-prop-date">' + esc(today) + ' · ' + states.length + ' propert' + (states.length===1?'y':'ies') + (subtitle?' · ' + esc(subtitle):'') + '</div>'
+        + '<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+      + '</div>'
+    + '</div>';
+  }
+  var ppFooter = '<div class="rpt-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Flatten into a list of "row items": one per pool, with a sentinel-style
+  // "header row" preceding each property block.
+  var items = [];
+  for (var pi=0; pi<states.length; pi++){
+    var p = states[pi];
+    var sj = p.state_json || {};
+    var bodies = sj.bodies || [];
+    var poolCount = bodies.length;
+    items.push({ kind:'property', name:p.property_name||'Property', count:poolCount, country:p.country||'' });
+    if (bodies.length){
+      for (var b=0; b<bodies.length; b++){
+        var body = bodies[b];
+        var g = (typeof bodyGallons === 'function') ? bodyGallons(body) : (Number(body.gallons)||0);
+        items.push({
+          kind: 'pool',
+          label: body.label || ('Pool ' + (b+1)),
+          type:  (body.poolType === 'saltwater') ? 'Saltwater' : 'Chlorine',
+          dims:  (body.inputMode !== 'gallons' && body.length && body.width && body.depth) ? (body.length+'×'+body.width+'×'+body.depth+' ft') : '',
+          gal:   Math.round(g),
+          co2:   !!body.co2Use
+        });
+      }
+    } else if (sj.manualVolume){
+      // Manual mode — synthesize one row showing the manual aggregate
+      var nMan = Math.max(1, Number(sj.manualPoolCount) || 1);
+      var gMan = Math.round(Number(sj.manualTotalGallons) || 0);
+      items.push({ kind:'pool', label:nMan + ' pool' + (nMan===1?'':'s') + ' (manual estimate)', type:'Manual', dims:'', gal:gMan, co2:false });
+    }
+  }
+  // Paginate — ~24 rows per page in portrait.
+  var ROWS_PER_PAGE = 24;
+  var pages = [];
+  var total = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
+  for (var pgi=0; pgi<total; pgi++){
+    var chunk = items.slice(pgi*ROWS_PER_PAGE, (pgi+1)*ROWS_PER_PAGE);
+    var rowsHtml = '';
+    for (var ri=0; ri<chunk.length; ri++){
+      var it = chunk[ri];
+      if (it.kind === 'property'){
+        rowsHtml += '<tr class="rpt-ppl-country-row"><td colspan="4">' + esc(it.name) + (it.country?' <span style="opacity:.7;font-weight:400">· ' + esc(it.country) + '</span>':'') + ' <span style="opacity:.7;font-weight:400">· ' + it.count + ' pool' + (it.count===1?'':'s') + '</span></td></tr>';
+      } else {
+        rowsHtml += '<tr class="rpt-ppl-row">'
+          + '<td>' + esc(it.label) + (it.dims?'<div class="rpt-ppl-addr">' + esc(it.dims) + '</div>':'') + (it.co2?' <span class="rpt-pp-pill" style="background:#ecfeff;color:#0891b2;border-color:#a5f3fc;font-size:8.5px;padding:1px 5px">CO₂</span>':'') + '</td>'
+          + '<td>' + esc(it.type) + '</td>'
+          + '<td class="num">' + fn(it.gal) + ' gal</td>'
+          + '<td></td>'
+        + '</tr>';
+      }
+    }
+    pages.push(
+      '<div class="rpt-pp-page">'
+      + ppHeader(total>1 ? ('Page ' + (pgi+1) + ' of ' + total) : '')
+      + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
+        + '<table class="rpt-ppl-tbl">'
+          + '<thead><tr><th>Pool</th><th>Type</th><th class="num">Volume</th><th></th></tr></thead>'
+          + '<tbody>' + rowsHtml + '</tbody>'
+        + '</table>'
+      + '</div>'
+      + ppFooter
+    + '</div>'
+    );
+  }
+  return pages;
 }
 
 /* P7: Portfolio quote page — replicates the single-property quote chrome
@@ -7496,10 +7753,11 @@ function generateReport(){
         +'</div>'
       +'</div>';
       // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
-      // Landscape: 12 cards/page (3 cols × 4 rows). Portrait: 8 cards/page (2 cols × 4 rows).
+      // Landscape: 15 cards/page (3 cols × 5 rows). Portrait: 10 cards/page (2 cols × 5 rows).
+      // Bumped from 12/8 → 15/10 (2026-05-13) for tighter presentation density.
       // Each page renders its own header band (with "Page X of Y" subtitle when paginated)
       // and its own footer band. Cards listed in user-defined order.
-      var CARDS_PER_PAGE=(EX.layout==='landscape')?12:8;
+      var CARDS_PER_PAGE=(EX.layout==='landscape')?15:10;
       var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
       poolProfilesHtml='';
       for(var ppPi=0; ppPi<totalPpPages; ppPi++){
@@ -8593,6 +8851,20 @@ function handleClick(e){
           AR2_PF.setExportSection(pidT, key, !!pfAct.checked);
         }
         return; // Don't re-render — the checkbox already reflects new state.
+      }
+      // P7+: Layout sub-radio (Cards / List for Pool Profiles, Cards /
+      // List-by-Country for Property Profiles). Stores the value on the
+      // export state, then re-renders the panel so the active pill flips.
+      if (act === 'exp-set-layout'){
+        var pidL = AR2_PF.selectedPortfolioId();
+        var lk = pfAct.getAttribute('data-layout-key');
+        if (pidL && lk){
+          var stL = AR2_PF.getExportState(pidL);
+          stL[lk] = pfAct.value;
+          var live = document.getElementById('ar2-bank-overview-mount');
+          if (live && pfState.viewMode === 'export') AR2_PF.renderPortfolioExport(live);
+        }
+        return;
       }
       // P6: Ship-To mode toggle (split vs consolidated). Re-render the
       // Quote builder so the body section swaps between modes.
