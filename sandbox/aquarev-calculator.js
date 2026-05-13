@@ -1941,15 +1941,15 @@ window.AR2_PF = (function(){
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.cover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="cover"><span class="ar-pf-exp-row-text">Cover Page<span class="ar-pf-exp-row-meta">Portfolio name + buyer info</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.execSummary?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="execSummary"><span class="ar-pf-exp-row-text">Executive Summary<span class="ar-pf-exp-row-meta">Rolled-up KPIs across all properties</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.propertyProfile?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="propertyProfile"><span class="ar-pf-exp-row-text">Property Profiles<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list'
-      +       '<span class="ar-pf-exp-radio-group">'
-      +         '<label class="ar-pf-exp-radio' + (st.propertyProfileLayout!=='list-by-country'?' active':'') + '"><input type="radio" name="propProfLayout" value="cards" ' + (st.propertyProfileLayout!=='list-by-country'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout"> Cards</label>'
-      +         '<label class="ar-pf-exp-radio' + (st.propertyProfileLayout==='list-by-country'?' active':'') + '"><input type="radio" name="propProfLayout" value="list-by-country" ' + (st.propertyProfileLayout==='list-by-country'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout"> List by Country</label>'
+      +       '<span class="ar-pf-exp-radio-group" role="radiogroup">'
+      +         '<span class="ar-pf-exp-radio' + (st.propertyProfileLayout!=='list-by-country'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout" data-layout-value="cards" role="radio" aria-checked="' + (st.propertyProfileLayout!=='list-by-country') + '">Cards</span>'
+      +         '<span class="ar-pf-exp-radio' + (st.propertyProfileLayout==='list-by-country'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout" data-layout-value="list-by-country" role="radio" aria-checked="' + (st.propertyProfileLayout==='list-by-country') + '">List by Country</span>'
       +       '</span>'
       +     '</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.poolProfiles?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="poolProfiles"><span class="ar-pf-exp-row-text">Property Pool Profiles<span class="ar-pf-exp-row-meta">Pool detail grouped by property — cards or compact list'
-      +       '<span class="ar-pf-exp-radio-group">'
-      +         '<label class="ar-pf-exp-radio' + (st.poolProfilesLayout!=='list'?' active':'') + '"><input type="radio" name="poolProfLayout" value="cards" ' + (st.poolProfilesLayout!=='list'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout"> Cards</label>'
-      +         '<label class="ar-pf-exp-radio' + (st.poolProfilesLayout==='list'?' active':'') + '"><input type="radio" name="poolProfLayout" value="list" ' + (st.poolProfilesLayout==='list'?'checked':'') + ' data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout"> List</label>'
+      +       '<span class="ar-pf-exp-radio-group" role="radiogroup">'
+      +         '<span class="ar-pf-exp-radio' + (st.poolProfilesLayout!=='list'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout" data-layout-value="cards" role="radio" aria-checked="' + (st.poolProfilesLayout!=='list') + '">Cards</span>'
+      +         '<span class="ar-pf-exp-radio' + (st.poolProfilesLayout==='list'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout" data-layout-value="list" role="radio" aria-checked="' + (st.poolProfilesLayout==='list') + '">List</span>'
       +       '</span>'
       +     '</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.perProperty?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="perProperty"><span class="ar-pf-exp-row-text">Per-Property Assessments<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback</span></span></label>'
@@ -2832,7 +2832,7 @@ function buildPortfolioReportPreview(pid, mode){
         '<div class="rpt-cover-page">'
         + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg','class="rpt-cover-bg"',1100)
         + '<div class="rpt-cover-overlay">'
-          + '<div style="font-family:\'DM Sans\',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600">Portfolio · Water Enhancement &amp; Cost Saving Assessment</div>'
+          + '<div style="font-family:\'DM Sans\',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600">Water Enhancement &amp; Cost Saving Assessment</div>'
           + '<div style="margin-top:10px;font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:3px;color:#fff;line-height:1.1">' + esc(pName) + '</div>'
           + '<div style="margin-top:8px;font-family:\'DM Sans\',sans-serif;font-size:12px;color:#7db8cc">' + ((Number(roll.property_count)||states.length) + ' Properties · ' + today) + '</div>'
         + '</div>'
@@ -9021,14 +9021,22 @@ function handleClick(e){
         return; // Don't re-render — the checkbox already reflects new state.
       }
       // P7+: Layout sub-radio (Cards / List for Pool Profiles, Cards /
-      // List-by-Country for Property Profiles). Stores the value on the
-      // export state, then re-renders the panel so the active pill flips.
+      // List-by-Country for Property Profiles). Pills are <span> elements
+      // — not <input>/<label> — to avoid nested-label conflicts with the
+      // outer .ar-pf-exp-row label (which would otherwise toggle the row's
+      // checkbox every time the inner pill was clicked). Value comes from
+      // data-layout-value, NOT .value (spans have no value property).
+      // stopPropagation prevents the click from bubbling up to the row's
+      // <label>, which would toggle the parent checkbox.
       if (act === 'exp-set-layout'){
+        e.preventDefault();
+        e.stopPropagation();
         var pidL = AR2_PF.selectedPortfolioId();
         var lk = pfAct.getAttribute('data-layout-key');
-        if (pidL && lk){
+        var lv = pfAct.getAttribute('data-layout-value');
+        if (pidL && lk && lv){
           var stL = AR2_PF.getExportState(pidL);
-          stL[lk] = pfAct.value;
+          stL[lk] = lv;
           var live = document.getElementById('ar2-bank-overview-mount');
           if (live && pfState.viewMode === 'export') AR2_PF.renderPortfolioExport(live);
         }

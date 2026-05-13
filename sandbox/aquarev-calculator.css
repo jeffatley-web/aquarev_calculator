@@ -2135,12 +2135,13 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-exp-row input[type=checkbox]{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;accent-color:var(--t);}
 #ar2 .ar-pf-exp-row-text{display:flex;flex-direction:column;gap:2px;font-size:14px;color:#e0f4fa;font-weight:500;line-height:1.35;}
 #ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
-/* Inline radio sub-control under an Export section row (Cards vs List). */
+/* Inline radio sub-control under an Export section row (Cards vs List).
+   Rendered as <span> elements (not native radios) to avoid nested-label
+   click bubbling that would toggle the parent row's checkbox. */
 #ar2 .ar-pf-exp-radio-group{display:inline-flex;align-items:center;gap:2px;padding:2px;background:rgba(7,22,40,.55);border:1px solid var(--bd);border-radius:7px;margin-left:6px;}
-#ar2 .ar-pf-exp-radio{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--mu);cursor:pointer;user-select:none;transition:background .12s,color .12s;}
-#ar2 .ar-pf-exp-radio:hover{color:var(--tx);}
+#ar2 .ar-pf-exp-radio{display:inline-flex;align-items:center;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--mu);cursor:pointer;user-select:none;transition:background .12s,color .12s;}
+#ar2 .ar-pf-exp-radio:hover{color:var(--tx);background:rgba(0,180,216,.08);}
 #ar2 .ar-pf-exp-radio.active{background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;}
-#ar2 .ar-pf-exp-radio input{position:absolute;opacity:0;pointer-events:none;}
 #ar2 .ar-pf-exp-row.locked{cursor:default;opacity:.85;}
 #ar2 .ar-pf-exp-row.locked input[type=checkbox]{cursor:not-allowed;opacity:.4;}
 #ar2 .ar-pf-exp-unlock{background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:filter .15s;}
