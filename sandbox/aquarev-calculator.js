@@ -3102,10 +3102,106 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
   // Investment chart — reuse the same builder single-property uses. SVG
   // gradient ID is unique per call so the portfolio's Assessment chart
   // and any per-property Exec Summary charts don't collide.
+  // Roll up R-style values across all properties by hydrating each property
+  // into the globals + calling calcROI(). Same snapshot/restore pattern the
+  // per-property capture loop uses, but in isolation here.
+  var portfolioR = { items: [], inv: totalInv, total_mo: totalMo, total_yr: totalYr, total_dev: totalDev,
+                     adv_mo: 0, adv_net_mo: 0, adv_net_yr: 0, adv_net_5: 0,
+                     net5: 0, roi5: 0, payback: blendedPb,
+                     gal_saved_5yr: 0, disc_amt: 0 };
+  var itemsAccum = {};
+  var savedS_a  = JSON.parse(JSON.stringify(S));
+  var savedEX_a = JSON.parse(JSON.stringify(EX));
+  try {
+    for (var ai=0; ai<states.length; ai++){
+      var aProp = states[ai];
+      for (var dk1 in S){ if (S.hasOwnProperty(dk1) && !(dk1 in savedS_a))  delete S[dk1]; }
+      for (var sk1 in savedS_a){ if (savedS_a.hasOwnProperty(sk1)) S[sk1] = savedS_a[sk1]; }
+      if (aProp.state_json && typeof aProp.state_json === 'object'){
+        for (var kk in aProp.state_json){ if (aProp.state_json.hasOwnProperty(kk)) S[kk] = aProp.state_json[kk]; }
+      }
+      var aR = null;
+      try { aR = (typeof calcROI === 'function') ? calcROI() : null; } catch(_){ aR = null; }
+      if (!aR) continue;
+      portfolioR.adv_mo        += Number(aR.adv_mo)        || 0;
+      portfolioR.gal_saved_5yr += Number(aR.gal_saved_5yr) || 0;
+      portfolioR.disc_amt      += Number(aR.disc_amt)      || 0;
+      if (Array.isArray(aR.items)){
+        for (var it=0; it<aR.items.length; it++){
+          var line = aR.items[it];
+          var lbl = line.lbl || 'Unknown';
+          if (!itemsAccum[lbl]) itemsAccum[lbl] = { lbl: lbl, sav: 0, pct: 0 };
+          itemsAccum[lbl].sav += Number(line.sav) || 0;
+        }
+      }
+    }
+  } finally {
+    for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS_a))  delete S[dks]; }
+    for (var sks in savedS_a){  if (savedS_a.hasOwnProperty(sks))  S[sks]  = savedS_a[sks]; }
+    for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX_a)) delete EX[dke]; }
+    for (var ske in savedEX_a){ if (savedEX_a.hasOwnProperty(ske)) EX[ske] = savedEX_a[ske]; }
+  }
+  portfolioR.items = Object.keys(itemsAccum).map(function(k){ return itemsAccum[k]; });
+  portfolioR.items.sort(function(a,b){ return b.sav - a.sav; });
+  var totalSavCheck = portfolioR.items.reduce(function(s,x){ return s + x.sav; }, 0) || 1;
+  portfolioR.items.forEach(function(x){ x.pct = x.sav / totalSavCheck; });
+  portfolioR.net5       = (portfolioR.total_mo * 60) - portfolioR.inv;
+  portfolioR.roi5       = portfolioR.inv > 0 ? portfolioR.net5 / portfolioR.inv : 0;
+  portfolioR.adv_net_mo = portfolioR.total_mo - portfolioR.adv_mo;
+  portfolioR.adv_net_yr = portfolioR.adv_net_mo * 12;
+  portfolioR.adv_net_5  = portfolioR.adv_net_yr * 5;
+  // Scenario visibility (mirrors single-property)
+  var showAdv = (typeof EX !== 'undefined') ? (EX.bothScenarios || EX.scenario === 'advantage') : true;
+  var showPur = (typeof EX !== 'undefined') ? (EX.bothScenarios || EX.scenario === 'purchase')  : true;
+  // Purchase + Advantage scenario boxes — same .rpt-sbox markup as single
+  var advBox = '', purBox = '';
+  if (showAdv){
+    advBox = '<div class="rpt-sbox">'
+      + '<div class="rpt-sbox-title">Advantage Plan · 60 Month Finance</div>'
+      + '<div class="rpt-row"><span class="k">60 Month Finance</span><span class="v">' + fc(portfolioR.adv_mo, 0) + '/mo</span></div>'
+      + '<div class="rpt-row"><span class="k">Net Monthly Savings</span><span class="v ' + (portfolioR.adv_net_mo>=0?'pos':'neg') + '">' + fc(portfolioR.adv_net_mo, 0) + '</span></div>'
+      + '<div class="rpt-row"><span class="k">Net Annual Savings</span><span class="v ' + (portfolioR.adv_net_yr>=0?'pos':'neg') + '">' + fc(portfolioR.adv_net_yr, 0) + '</span></div>'
+      + '<div class="rpt-row strong"><span class="k">5-Year Net Savings</span><span class="v ' + (portfolioR.adv_net_5>=0?'pos':'neg') + '">' + fc(portfolioR.adv_net_5, 0) + '</span></div>'
+    + '</div>';
+  }
+  if (showPur){
+    purBox = '<div class="rpt-sbox pur">'
+      + '<div class="rpt-sbox-title">Purchase · One-Time Investment</div>'
+      + '<div class="rpt-row"><span class="k">Total Investment</span><span class="v">' + fc(portfolioR.inv, 0) + '</span></div>'
+      + '<div class="rpt-row"><span class="k">Payback Period</span><span class="v teal">' + Math.round(portfolioR.payback) + ' months</span></div>'
+      + '<div class="rpt-row"><span class="k">5-Year Net Savings</span><span class="v pos">' + fc(portfolioR.net5, 0) + '</span></div>'
+      + '<div class="rpt-row strong"><span class="k">5-Year ROI</span><span class="v pos">' + (typeof fp === 'function' ? fp(portfolioR.roi5) : (Math.round(portfolioR.roi5*100)+'%')) + '</span></div>'
+    + '</div>';
+  }
+  // Monthly Savings Breakdown — same inline-bar table single-property uses
+  var maxSav = portfolioR.items.length ? Math.max.apply(null, portfolioR.items.map(function(x){return x.sav;})) : 1;
+  var bkRows = portfolioR.items.map(function(x){
+    var pct = Math.max(3, Math.round((x.sav/maxSav)*100));
+    return '<tr>'
+      + '<td><div class="rpt-bar-wrap">'
+        + '<span style="min-width:120px;display:inline-block">' + esc(x.lbl) + '</span>'
+        + '<div class="rpt-bar-bg"><div class="rpt-bar-fill" style="width:' + pct + '%"></div></div>'
+      + '</div></td>'
+      + '<td>' + fc(x.sav) + '</td>'
+      + '<td>' + (typeof fp === 'function' ? fp(x.pct) : Math.round(x.pct*100)+'%') + '</td>'
+    + '</tr>';
+  }).join('');
+  // Water Conservation 5-year total
+  var waterHtml = '';
+  if (typeof EX !== 'undefined' && EX.inclWater && portfolioR.gal_saved_5yr > 0){
+    waterHtml = '<div>'
+      + '<div class="rpt-stitle">Water Conservation — 5 Years</div>'
+      + '<div class="rpt-stat-grid">'
+        + '<div class="rpt-stat" style="grid-column:1/-1"><div class="rpt-stat-val">' + fn(Math.round(portfolioR.gal_saved_5yr)) + '</div><div class="rpt-stat-lbl">5-Year Water Conservation Total (Gallons)</div></div>'
+      + '</div>'
+    + '</div>';
+  }
+  // Savings projection weight (from current S.savings_weight if set)
+  var savWeightVal = (typeof S !== 'undefined' && S.savings_weight != null) ? Math.round(Number(S.savings_weight) * 100) : null;
+  // Investment chart — reuse the same builder single-property uses.
   var chartHtml = '';
   if (typeof buildInvestmentChart === 'function'){
-    var net5 = (totalMo * 60) - totalInv;
-    try { chartHtml = buildInvestmentChart(totalInv, totalMo, blendedPb, net5); } catch(_){ chartHtml = ''; }
+    try { chartHtml = buildInvestmentChart(portfolioR.inv, portfolioR.total_mo, portfolioR.payback, portfolioR.net5); } catch(_){ chartHtml = ''; }
   }
   // Body — Property Configuration | AquaRev Devices Required + chart
   var body = '<div class="rpt-body">'
@@ -3121,10 +3217,29 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
       + '<div>'
         + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
         + devRows
-        + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">' + fc(totalInv, 0) + '</span></div>'
+        + (portfolioR.disc_amt > 0 ? '<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">-' + fc(portfolioR.disc_amt, 0) + '</span></div>' : '')
+        + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">' + fc(portfolioR.inv, 0) + '</span></div>'
       + '</div>'
     + '</div>'
-    // Row B: Investment chart (full width)
+    // Row B: Purchase Options + Advantage (stacked left) | Monthly Savings
+    // Breakdown table + Water Conservation (right). Same layout as the
+    // single-property portrait Assessment page.
+    + '<div class="rpt-sec rpt-cols">'
+      + '<div>'
+        + '<div class="rpt-stitle">Purchase Options</div>'
+        + purBox + advBox
+      + '</div>'
+      + '<div>'
+        + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+        + '<table class="rpt-tbl">'
+          + '<thead><tr><th>Category</th><th>Monthly Savings</th><th>% of Total</th></tr></thead>'
+          + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>' + fc(portfolioR.total_mo) + '</td><td>100%</td></tr></tbody>'
+        + '</table>'
+        + (savWeightVal != null ? '<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">' + savWeightVal + '%</span></div>' : '')
+        + (waterHtml ? '<div style="margin-top:10px">' + waterHtml + '</div>' : '')
+      + '</div>'
+    + '</div>'
+    // Row C: Investment chart (full width)
     + (chartHtml ? '<div class="rpt-sec">' + chartHtml + '</div>' : '')
     + '<div class="rpt-disc">Portfolio aggregates rolled up from ' + propCount + ' propert' + (propCount===1?'y':'ies') + '. Per-property breakdowns follow on subsequent pages. Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T.</div>'
   + '</div>';
