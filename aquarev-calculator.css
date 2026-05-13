@@ -49,6 +49,11 @@
    Used to gate the Quote step, Discount slider, Cover/Back Cover/Exec
    Summary export toggles, and the Quote-page export toggles. */
 #ar2.app-client [data-client-hide]{display:none !important;}
+/* Portfolio property mode — hides surfaces that don't apply when the rep
+   is working on a property INSIDE a portfolio. Quote step is the headline
+   case (Quote lives at the portfolio level), but the pattern extends to
+   any future per-property element that should disappear in pf context. */
+body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Quote app page: card headers tinted teal-blue for visual consistency with
    the rendered PDF's section accents. Scoped to .quote-step so other steps
    keep the standard text-color titles. Catches both standalone titles and
@@ -1417,11 +1422,11 @@
 #ar2 .ar-bank-chk input{width:15px;height:15px;accent-color:var(--t);cursor:pointer;margin:0;}
 /* Table header — Actions column widened from 140px to 200px so icons
    render with breathing room and never overlap adjacent metric columns. */
-#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
-#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
+#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 260px;}
 /* Admin view adds a Created By column between the metrics and the actions strip. */
-#ar2 .ar-bank-thead.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
-#ar2 .ar-bank-thead.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-thead.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 280px;}
+#ar2 .ar-bank-thead.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 280px;}
 #ar2 .ar-bank-thead>div:not(:first-child){text-align:right;}
 /* Row list */
 #ar2 .ar-bank-list{display:flex;flex-direction:column;gap:0;}
@@ -1605,23 +1610,41 @@
 #ar2 .ar-admin-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;color:var(--mu);}
 #ar2 .ar-admin-chart-legend i{display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;}
 /* Admin Created By cell + reassign menu */
-#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:10.5px;text-align:right;}
+#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:10.5px;text-align:left;padding-left:8px;}
+/* Created By thead label — left-aligned to match the row data; overrides
+   the generic "all non-first thead columns are right-aligned" rule. */
+#ar2 .ar-bank-thead > .ar-bank-th-createdby{text-align:left;padding-left:8px;}
 #ar2 .ar-bank-createdby .name{color:var(--tx);font-weight:500;}
 #ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
 #ar2 .ar-bank-createdby .role.admin{color:var(--go);}
 #ar2 .ar-bank-act.reassign{background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.28);color:#f0a500;}
 #ar2 .ar-bank-act.reassign:hover{background:rgba(240,165,0,.22);}
 /* Each record row */
-#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
 #ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
-#ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
-#ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 280px;}
+#ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 280px;}
 #ar2 .ar-bank-card.selected{background:rgba(0,180,216,.06);}
 #ar2 .ar-bank-card:hover{background:rgba(0,180,216,.04);}
 #ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}
 /* Name + date column */
 #ar2 .ar-bank-name{display:flex;flex-direction:column;gap:2px;min-width:0;}
-#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:10px;cursor:pointer;padding-left:10px;}
+#ar2 .ar-bank-prop:hover{color:var(--t);}
+/* Type badge — small pill at the front of each row name distinguishing
+   single assessments from portfolios in the unified Archive list. */
+/* Premium type indicator — small icon marker (no text pill) before the
+   record name. Pair with a 3px left-edge accent stripe on the row itself
+   for unmistakable visual differentiation. */
+#ar2 .ar-bank-typeicon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;flex-shrink:0;cursor:default;}
+#ar2 .ar-bank-typeicon.single{color:#48cae4;background:rgba(72,202,228,.10);box-shadow:inset 0 0 0 1px rgba(72,202,228,.22);}
+#ar2 .ar-bank-typeicon.portfolio{color:#4ade80;background:rgba(74,222,128,.10);box-shadow:inset 0 0 0 1px rgba(74,222,128,.28);}
+/* Left-edge accent stripe — pulled into a pseudo-element to avoid affecting
+   layout. 3px wide bar at the leftmost edge of each row, color-coded by
+   type. Singles get a teal stripe, portfolios get a green stripe. */
+#ar2 .ar-bank-card::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:#48cae4;opacity:.65;}
+#ar2 .ar-bank-card.is-portfolio::before{background:#4ade80;opacity:.85;}
+#ar2 .ar-bank-card.is-portfolio{background:linear-gradient(90deg,rgba(74,222,128,.04),transparent 35%);}
 #ar2 .ar-bank-date{font-size:11px;color:var(--mu);font-weight:400;}
 /* Data cells */
 #ar2 .ar-bank-cell{text-align:right;font-variant-numeric:tabular-nums;}
@@ -1715,7 +1738,38 @@
 #ap2 .ap-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));}
 #ap2 .ap-card.ac-go::before{background:linear-gradient(90deg,var(--go),#f7c948);}
 #ap2 .ap-card.ac-gr::before{background:linear-gradient(90deg,var(--gr),#4ade80);}
+/* Start-here variant — default blue border kept; only the top accent line
+   turns bold green so the rep's eye lands on this card first. */
+#ap2 .ap-card.ap-card-start::before{height:4px;background:linear-gradient(90deg,var(--gr),#4ade80);}
 #ap2 .ap-card-title{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
+/* Property / Add to Portfolio / Portfolio mode toggle (Phase 1d sandbox).
+   Radio strip lives on the Map Pools Property card. The "Add to Portfolio"
+   and "Portfolio" radios are gated to User/Admin roles only — hidden until
+   body.pf-enabled is set by AR2_PF.init() on login. Clients never see them. */
+#ap2 .ap-mode-radios{display:flex;gap:6px;margin:-4px 0 12px;padding:4px;background:rgba(7,22,40,.55);border:1px solid var(--bd);border-radius:10px;}
+#ap2 .ap-mode-radio{flex:1;position:relative;display:flex;align-items:center;justify-content:center;gap:6px;font-size:11.5px;font-weight:600;letter-spacing:.3px;color:var(--mu);padding:7px 8px;border-radius:7px;cursor:pointer;user-select:none;transition:background .15s,color .15s;text-align:center;line-height:1.15;}
+#ap2 .ap-mode-radio input{position:absolute;opacity:0;pointer-events:none;}
+#ap2 .ap-mode-radio:hover{color:var(--tx);}
+#ap2 .ap-mode-radio:has(input:checked){background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;box-shadow:inset 0 0 0 1px rgba(0,180,216,.45);}
+/* Role-gated UI: PF-only controls are hidden until AR2_PF.init() confirms
+   the signed-in user has a role of 'user' or 'admin'. Clients never see these. */
+#ap2 [data-pf-only]{display:none!important;}
+body.pf-enabled #ap2 .ap-mode-radio[data-pf-only]{display:flex!important;}
+body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!important;}
+/* Portfolio picker — appears under the radios when "Add to Portfolio" is
+   the active mode. Lists portfolios visible to the signed-in user (RLS
+   already scopes: users see own only, admins see all). */
+#ap2 .ap-pf-picker{margin:0 0 12px;}
+#ap2 .ap-pf-picker-lbl{display:block;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;font-weight:600;}
+#ap2 .ap-pf-picker-select{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:10px 30px 10px 12px;color:#e0f4fa;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,#7db8cc 50%),linear-gradient(135deg,#7db8cc 50%,transparent 50%);background-position:calc(100% - 18px) 55%,calc(100% - 13px) 55%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;cursor:pointer;}
+#ap2 .ap-pf-picker-select:focus{border-color:var(--t);}
+#ap2 .ap-pf-picker-select:disabled{opacity:.55;cursor:wait;}
+#ap2 .ap-pf-picker-hint{font-size:11px;color:#7db8cc;margin-top:6px;line-height:1.45;}
+#ap2 .ap-pf-picker-chip{display:none;align-items:center;gap:8px;margin:8px 0 0;padding:8px 10px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);border-radius:7px;font-size:12px;color:#cfe2eb;font-weight:600;line-height:1.3;}
+#ap2 .ap-pf-picker-chip.is-active{display:flex;}
+#ap2 .ap-pf-picker-chip b{color:var(--gr);font-weight:700;}
+#ap2 .ap-pf-picker-chip-clear{margin-left:auto;background:transparent;border:none;color:var(--mu);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px;}
+#ap2 .ap-pf-picker-chip-clear:hover{background:rgba(255,255,255,.08);color:var(--tx);}
 #ap2 .ap-lbl{display:block;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--mu);font-weight:600;margin-bottom:6px;}
 #ap2 .ap-inp,#ap2 .ap-sel{width:100%;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.22);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .16s,box-shadow .16s;}
 #ap2 .ap-inp:focus,#ap2 .ap-sel:focus{border-color:rgba(0,180,216,.6);box-shadow:0 0 0 3px rgba(0,180,216,.1);}
@@ -1737,7 +1791,7 @@
 #ap2 .ap-btn-row .ap-btn{flex:1;}
 #ap2 .ap-map-wrap{background:var(--cd);border:1px solid var(--bd);border-radius:14px;overflow:hidden;position:relative;min-height:620px;display:flex;flex-direction:column;}
 #ap2 #ap-map{flex:1;min-height:620px;}
-#ap2 .ap-map-overlay{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:5;}
+#ap2 .ap-map-overlay{position:absolute;bottom:12px;left:12px;display:flex;gap:8px;z-index:5;}
 #ap2 .ap-map-overlay .ap-btn{padding:8px 12px;font-size:11px;backdrop-filter:blur(10px);background:rgba(4,15,30,.82);}
 #ap2 .ap-map-hint{position:absolute;bottom:12px;left:12px;right:12px;background:rgba(4,15,30,.85);backdrop-filter:blur(10px);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--tx);z-index:5;display:none;}
 #ap2 .ap-map-hint.show{display:block;}
@@ -2004,3 +2058,277 @@
 /* Invert + and - icons so they render bright white on dark background */
 .mapboxgl-ctrl-group button .mapboxgl-ctrl-icon,
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1) brightness(2) contrast(1.1);}
+
+/* ════════════════════════════════════════════════════════════════════
+   PORTFOLIO TOOL (sandbox build) — namespaced ar-pf-* so nothing here
+   can collide with existing single-assessment styles. Every rule lives
+   under .ar-pf-* and stays inside #ar2 / #ar2-bank scope.
+   ════════════════════════════════════════════════════════════════════ */
+/* Archive wrap (Portfolio mode) — mirrors .ar-bank-wrap so the tabstrip,
+   Single Assessments content, and Portfolios panel all share the same
+   horizontal span (1320px max-width, centered) as the rest of the app.
+   No padding-bottom here: when the Single Assessments tab is active,
+   renderBank renders its own .ar-bank-wrap inside which already adds
+   60px bottom padding. The Portfolio panel sets its own bottom space. */
+#ar2 .ar-pf-archive-wrap{max-width:1320px;margin:0 auto;padding:0;width:100%;box-sizing:border-box;}
+/* Tab strip — sits at the top of the archive wrap when AR2_PF is enabled.
+   No horizontal padding here because the wrap above already centers content. */
+#ar2 .ar-pf-tabstrip{display:flex;gap:2px;background:linear-gradient(180deg,rgba(13,45,74,.5),rgba(7,22,40,.3));border-bottom:1px solid rgba(0,180,216,.18);}
+#ar2 .ar-pf-tab{position:relative;background:transparent;border:none;color:#7db8cc;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;padding:14px 18px 12px;cursor:pointer;transition:color .15s;border-radius:0;}
+#ar2 .ar-pf-tab:hover{color:#cfe2eb;}
+#ar2 .ar-pf-tab.active{color:var(--t);}
+#ar2 .ar-pf-tab.active::after{content:"";position:absolute;left:14px;right:14px;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));border-radius:1px;}
+#ar2 .ar-pf-tab-count{display:inline-block;margin-left:6px;padding:1px 7px;background:rgba(0,180,216,.16);color:var(--t);border-radius:9px;font-size:10px;letter-spacing:.5px;font-weight:700;}
+#ar2 .ar-pf-tab.active .ar-pf-tab-count{background:rgba(0,180,216,.28);color:#fff;}
+
+/* Portfolio panel container — holds either the empty state or the roster.
+   Bottom padding mirrors the Single Assessments view (.ar-bank-wrap's 60px)
+   so both tabs visually rest the same distance above the page edge. */
+#ar2 .ar-pf-panel{padding:18px 0 60px;}
+#ar2 .ar-pf-panel-hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:14px;flex-wrap:wrap;}
+#ar2 .ar-pf-panel-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#fff;}
+#ar2 .ar-pf-panel-sub{font-size:11.5px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:2px;}
+
+/* CTA: New Portfolio */
+#ar2 .ar-pf-newbtn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.32);background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.12));color:var(--t);font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .18s,background .18s;}
+#ar2 .ar-pf-newbtn:hover{filter:brightness(1.15);background:linear-gradient(135deg,rgba(0,180,216,.28),rgba(72,202,228,.18));}
+#ar2 .ar-pf-newbtn::before{content:"+";font-size:18px;line-height:1;font-weight:400;}
+
+/* Empty state — shown when user has no portfolios yet */
+#ar2 .ar-pf-empty{padding:48px 24px;text-align:center;border:1px dashed rgba(0,180,216,.22);border-radius:14px;background:rgba(13,45,74,.32);}
+#ar2 .ar-pf-empty-icon{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.1));display:inline-flex;align-items:center;justify-content:center;color:var(--t);font-size:26px;margin-bottom:16px;border:1px solid rgba(0,180,216,.28);}
+#ar2 .ar-pf-empty-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2.5px;color:#fff;margin-bottom:8px;}
+#ar2 .ar-pf-empty-body{font-size:13px;color:var(--mu);line-height:1.65;max-width:480px;margin:0 auto 22px;}
+
+/* Portfolio list row (Phase 1 — simple list; Phase 2 = full roster grid) */
+#ar2 .ar-pf-list{display:flex;flex-direction:column;gap:10px;}
+#ar2 .ar-pf-row{display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:14px 18px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:11px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
+#ar2 .ar-pf-row-name{font-family:'DM Sans',sans-serif;font-size:14.5px;font-weight:600;color:#e0f4fa;}
+#ar2 .ar-pf-row-meta{font-size:11px;color:var(--mu);letter-spacing:.5px;margin-top:3px;}
+#ar2 .ar-pf-row-status{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 9px;border-radius:9px;font-weight:700;}
+#ar2 .ar-pf-row-status.draft{background:rgba(125,184,204,.16);color:#8fb8c8;}
+#ar2 .ar-pf-row-status.in_review{background:rgba(240,165,0,.16);color:#f0a500;}
+#ar2 .ar-pf-row-status.sent{background:rgba(0,180,216,.18);color:var(--t);}
+#ar2 .ar-pf-row-status.won{background:rgba(34,197,94,.18);color:var(--gr);}
+#ar2 .ar-pf-row-status.lost{background:rgba(239,68,68,.16);color:#f87171;}
+#ar2 .ar-pf-row-status.archived{background:rgba(125,184,204,.08);color:#7db8cc;}
+#ar2 .ar-pf-row-kpi{display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
+#ar2 .ar-pf-row-kpi .v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#cfe2eb;}
+#ar2 .ar-pf-row-kpi .l{font-size:9.5px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;}
+
+/* New Portfolio modal — lightweight create form */
+.ar-pf-modal-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.75);z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;}
+.ar-pf-modal{width:100%;max-width:440px;background:linear-gradient(145deg,#0d2d4a,#071628);border:1px solid rgba(0,180,216,.32);border-radius:14px;padding:22px 24px 18px;box-shadow:0 14px 40px rgba(0,0,0,.55);color:#e0f4fa;font-family:'DM Sans',sans-serif;}
+.ar-pf-modal-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:3px;color:#fff;margin-bottom:14px;}
+.ar-pf-modal-lbl{display:block;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;}
+.ar-pf-modal-input{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:10px 12px;color:#e0f4fa;font-size:14px;font-family:inherit;outline:none;transition:border-color .15s;}
+.ar-pf-modal-input:focus{border-color:var(--t);}
+.ar-pf-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+.ar-pf-modal-btn{padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.2);background:transparent;color:#cfe2eb;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
+.ar-pf-modal-btn:hover{background:rgba(0,180,216,.1);}
+.ar-pf-modal-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));border-color:transparent;color:var(--nv);}
+.ar-pf-modal-btn.primary:hover{filter:brightness(1.1);}
+.ar-pf-modal-btn:disabled{opacity:.45;cursor:not-allowed;}
+.ar-pf-modal-err{font-size:12px;color:#f87171;margin-top:8px;min-height:16px;}
+.ar-pf-modal-hint{font-size:11.5px;color:#7db8cc;margin-top:8px;line-height:1.55;}
+
+/* ════════════════════════════════════════════════════════════════════
+   Portfolio Overview (Phase 1b) — hero + KPI strip + property roster
+   ════════════════════════════════════════════════════════════════════ */
+#ar2 .ar-pf-ov-hero{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:18px;}
+/* P3: Portfolio Export panel */
+#ar2 .ar-pf-exp-wrap{max-width:760px;margin:0 auto;padding:0 0 60px;}
+#ar2 .ar-pf-exp-card{background:linear-gradient(145deg,rgba(13,45,74,.6),rgba(7,22,40,.7));border:1px solid var(--bd);border-radius:14px;padding:20px 22px;}
+#ar2 .ar-pf-exp-card-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:3px;color:var(--t);margin-bottom:14px;}
+#ar2 .ar-pf-exp-row{display:flex;align-items:flex-start;gap:12px;padding:12px 4px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;}
+#ar2 .ar-pf-exp-row:last-child{border-bottom:none;}
+#ar2 .ar-pf-exp-row input[type=checkbox]{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;accent-color:var(--t);}
+#ar2 .ar-pf-exp-row-text{display:flex;flex-direction:column;gap:2px;font-size:14px;color:#e0f4fa;font-weight:500;line-height:1.35;}
+#ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+/* CSV import — drag-and-drop zone inside the bulk-import modal. */
+#ar2 .ar-csv-drop,
+.ar-pf-modal .ar-csv-drop{position:relative;border:2px dashed rgba(0,180,216,.32);border-radius:10px;padding:28px 18px;text-align:center;background:rgba(7,22,40,.45);transition:background .15s,border-color .15s,transform .12s;outline:none;cursor:pointer;}
+.ar-pf-modal .ar-csv-drop:hover,
+.ar-pf-modal .ar-csv-drop:focus{border-color:var(--t);background:rgba(0,180,216,.06);}
+.ar-pf-modal .ar-csv-drop.is-drag{border-color:var(--gr);background:rgba(34,197,94,.10);transform:scale(1.01);}
+/* Sub-options strip — sits just below a parent .ar-toggle-row when the
+   section has Cards/List style choices. Negative top margin merges the
+   strip visually with its parent row so it reads as part of the same group. */
+#ar2 .ar-pf-exp-sub-row{margin:-6px 0 9px;padding:6px 13px 8px;display:flex;justify-content:flex-end;border-left:1px solid rgba(0,180,216,.12);border-right:1px solid rgba(0,180,216,.12);border-bottom:1px solid rgba(0,180,216,.12);border-bottom-left-radius:9px;border-bottom-right-radius:9px;background:rgba(7,22,40,.25);}
+/* Inline radio sub-control under an Export section row (Cards vs List).
+   Rendered as <span> elements (not native radios) to avoid nested-label
+   click bubbling that would toggle the parent row's checkbox. */
+#ar2 .ar-pf-exp-radio-group{display:inline-flex;align-items:center;gap:2px;padding:2px;background:rgba(7,22,40,.55);border:1px solid var(--bd);border-radius:7px;margin-left:6px;}
+#ar2 .ar-pf-exp-radio{display:inline-flex;align-items:center;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--mu);cursor:pointer;user-select:none;transition:background .12s,color .12s;}
+#ar2 .ar-pf-exp-radio:hover{color:var(--tx);background:rgba(0,180,216,.08);}
+#ar2 .ar-pf-exp-radio.active{background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;}
+#ar2 .ar-pf-exp-row.locked{cursor:default;opacity:.85;}
+#ar2 .ar-pf-exp-row.locked input[type=checkbox]{cursor:not-allowed;opacity:.4;}
+#ar2 .ar-pf-exp-unlock{background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:filter .15s;}
+#ar2 .ar-pf-exp-unlock:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-exp-edit{background:transparent;border:1px solid rgba(0,180,216,.4);color:var(--t);border-radius:6px;padding:4px 10px;font-family:inherit;font-size:11px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:background .15s;}
+#ar2 .ar-pf-exp-edit:hover{background:rgba(0,180,216,.12);}
+#ar2 .ar-pf-exp-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:18px;}
+#ar2 .ar-pf-exp-btn{padding:12px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.32);background:transparent;color:var(--t);font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.6px;cursor:pointer;transition:background .15s,border-color .15s;}
+#ar2 .ar-pf-exp-btn:hover{background:rgba(0,180,216,.10);border-color:var(--t);}
+#ar2 .ar-pf-exp-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);border-color:transparent;}
+#ar2 .ar-pf-exp-btn.primary:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-exp-btn.archive{background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border-color:transparent;}
+#ar2 .ar-pf-exp-btn.archive:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-exp-note{margin-top:12px;font-size:11px;color:var(--mu);text-align:center;font-style:italic;}
+/* P3: Quote builder shell */
+#ar2 .ar-pf-qb-wrap{max-width:880px;margin:0 auto;padding:0 0 60px;display:flex;flex-direction:column;gap:14px;}
+#ar2 .ar-pf-qb-card{background:linear-gradient(145deg,rgba(13,45,74,.6),rgba(7,22,40,.7));border:1px solid var(--bd);border-radius:14px;padding:20px 22px;position:relative;}
+#ar2 .ar-pf-qb-card.placeholder{opacity:.6;background:linear-gradient(145deg,rgba(13,45,74,.3),rgba(7,22,40,.4));}
+#ar2 .ar-pf-qb-section-num{position:absolute;top:-12px;left:18px;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+#ar2 .ar-pf-qb-card-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:3px;color:var(--t);margin-bottom:14px;padding-left:34px;}
+#ar2 .ar-pf-qb-grid{display:grid;gap:12px 14px;}
+#ar2 .ar-pf-qb-grid.two{grid-template-columns:1fr 1fr;}
+#ar2 .ar-pf-qb-field{display:flex;flex-direction:column;gap:5px;}
+#ar2 .ar-pf-qb-field.full{grid-column:1/-1;}
+#ar2 .ar-pf-qb-field span{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+#ar2 .ar-pf-qb-field input,#ar2 .ar-pf-qb-field textarea{background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:9px 11px;color:#e0f4fa;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;resize:vertical;}
+#ar2 .ar-pf-qb-field input:focus,#ar2 .ar-pf-qb-field textarea:focus{border-color:var(--t);}
+#ar2 .ar-pf-qb-placeholder{font-size:12px;color:var(--mu);padding:8px 0 4px 34px;line-height:1.5;font-style:italic;}
+/* P5: Line items roll-up — table-style rows + per-property breakdown */
+#ar2 .ar-pf-li-thead{display:grid;grid-template-columns:2fr 90px 110px 110px;gap:10px;padding:6px 0 8px;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;font-weight:600;border-bottom:1px solid rgba(0,180,216,.18);margin-bottom:6px;}
+#ar2 .ar-pf-li-thead .num{text-align:right;}
+#ar2 .ar-pf-li-row{display:grid;grid-template-columns:2fr 90px 110px 110px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed rgba(0,180,216,.08);}
+#ar2 .ar-pf-li-row.has-override{background:linear-gradient(90deg,rgba(240,165,0,.06),transparent 40%);}
+#ar2 .ar-pf-li-sku{display:flex;flex-direction:column;gap:2px;min-width:0;}
+#ar2 .ar-pf-li-sku-label{font-size:13px;color:#e0f4fa;font-weight:600;}
+#ar2 .ar-pf-li-sku-meta{font-size:11px;color:var(--mu);}
+#ar2 .ar-pf-li-cell{font-size:13px;color:#e0f4fa;}
+#ar2 .ar-pf-li-cell.num{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-pf-li-cell input{width:100%;text-align:right;background:rgba(7,22,40,.5);border:1px solid rgba(0,180,216,.2);border-radius:6px;padding:6px 8px;color:#e0f4fa;font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;transition:border-color .15s;}
+#ar2 .ar-pf-li-cell input:focus{border-color:var(--t);background:rgba(7,22,40,.8);}
+#ar2 .ar-pf-li-cell input::placeholder{color:rgba(125,184,204,.6);}
+#ar2 .ar-pf-li-breakdown{margin:-2px 0 6px 8px;padding:6px 10px;background:rgba(7,22,40,.45);border-left:2px solid rgba(0,180,216,.25);border-radius:4px;}
+#ar2 .ar-pf-li-breakdown summary{font-size:11px;color:var(--t);cursor:pointer;letter-spacing:.5px;padding:2px 0;outline:none;}
+#ar2 .ar-pf-li-breakdown summary:hover{color:#fff;}
+#ar2 .ar-pf-li-bd-body{margin-top:6px;display:flex;flex-direction:column;gap:3px;}
+#ar2 .ar-pf-li-bd-row{display:flex;justify-content:space-between;font-size:11.5px;color:#cfe2eb;padding:2px 0;}
+#ar2 .ar-pf-li-bd-row .num{color:var(--aq);font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-pf-li-subtotal{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,180,216,.25);font-size:13px;color:#cfe2eb;}
+#ar2 .ar-pf-li-subtotal b{color:var(--t);font-family:'JetBrains Mono',monospace;font-size:15px;}
+#ar2 .ar-pf-li-note{font-size:11px;color:var(--mu);margin-top:8px;font-style:italic;line-height:1.45;}
+/* P6: Ship-To list */
+#ar2 .ar-pf-ship-mode{display:flex;gap:14px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(0,180,216,.15);}
+#ar2 .ar-pf-ship-mode-radio{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#cfe2eb;cursor:pointer;}
+#ar2 .ar-pf-ship-mode-radio input{cursor:pointer;accent-color:var(--t);}
+#ar2 .ar-pf-ship-list{display:flex;flex-direction:column;gap:14px;}
+#ar2 .ar-pf-ship-row{background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.14);border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-pf-ship-row-head{display:flex;flex-direction:column;gap:2px;}
+#ar2 .ar-pf-ship-row-name{font-size:12px;color:#e0f4fa;font-weight:600;letter-spacing:.3px;}
+#ar2 .ar-pf-ship-row-auto{font-size:11px;color:var(--mu);line-height:1.4;}
+#ar2 .ar-pf-ship-row-auto.missing{color:#f87171;font-style:italic;}
+#ar2 .ar-pf-ship-row-input,#ar2 .ar-pf-ship-row-notes{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.22);border-radius:7px;padding:8px 10px;color:#e0f4fa;font-family:inherit;font-size:12.5px;outline:none;transition:border-color .15s;resize:vertical;}
+#ar2 .ar-pf-ship-row-input:focus,#ar2 .ar-pf-ship-row-notes:focus{border-color:var(--t);}
+#ar2 .ar-pf-ship-consolid{display:flex;flex-direction:column;gap:10px;}
+/* P7: Portfolio report reuses single-property .rpt-* page chrome exactly.
+   No portfolio-specific page-size CSS needed — the captured per-property
+   HTML carries .rpt / .rpt-cover-page / .rpt-es-page / .rpt-pp-page / etc.
+   which already have @page sizing, page-break rules, and print-color-adjust
+   wired in higher up in this stylesheet. */
+/* P7+: Portfolio list-table styles — used by the Pool Profiles List view
+   and the Property Profiles List-by-Country view. Mirrors the visual
+   weight of the existing report (Bebas Neue headers, navy accents) so
+   it doesn't look foreign next to the card pages. */
+#ar2-report .rpt-ppl-tbl{width:100%;border-collapse:collapse;font-size:10.5px;color:#222;background:#fff;}
+#ar2-report .rpt-ppl-tbl thead th{font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;color:#0a2540;text-align:left;padding:7px 10px;background:#f5fbff;border-bottom:1.5px solid #48cae4;text-transform:uppercase;}
+#ar2-report .rpt-ppl-tbl thead th.num{text-align:right;}
+#ar2-report .rpt-ppl-tbl tbody td{padding:6px 10px;border-bottom:1px solid #eef4f7;vertical-align:top;}
+#ar2-report .rpt-ppl-tbl tbody td.num{text-align:right;font-family:'JetBrains Mono',monospace;color:#0a2540;}
+#ar2-report .rpt-ppl-country-row td{background:#f0fbff;font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.5px;color:#0a2540;padding:6px 10px;font-weight:700;text-transform:uppercase;border-top:1px solid #cce8f1;border-bottom:1px solid #cce8f1;}
+#ar2-report .rpt-ppl-row td{font-size:10.5px;}
+#ar2-report .rpt-ppl-addr{font-size:9.5px;color:#666;margin-top:1px;}
+#ar2-report .rpt-ppl-wrap{background:#fff;}
+/* Portfolio Overview action group — pinned right via margin-left:auto so
+   Quote / Export / + Property sit as a unit on the right side of the hero,
+   regardless of how long the portfolio title runs. */
+#ar2 .ar-pf-ov-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;}
+#ar2 .ar-pf-actbtn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.32);background:transparent;color:var(--t);font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .18s,background .18s,border-color .18s,color .18s;}
+#ar2 .ar-pf-actbtn:hover{background:rgba(0,180,216,.10);border-color:var(--t);color:#fff;}
+#ar2 .ar-pf-actbtn.primary{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);border-color:transparent;}
+#ar2 .ar-pf-actbtn.primary:hover{filter:brightness(1.1);background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);}
+#ar2 .ar-pf-back{background:transparent;border:1px solid rgba(0,180,216,.22);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .15s,border-color .15s;}
+#ar2 .ar-pf-back:hover{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.4);color:var(--t);}
+#ar2 .ar-pf-ov-title-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:14px;}
+#ar2 .ar-pf-ov-title{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-pf-ov-meta{display:flex;align-items:center;gap:8px;}
+
+/* KPI strip — borrows visual language from the existing report KPI band
+   so portfolio totals feel native to the calculator brand. */
+#ar2 .ar-pf-kpistrip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:rgba(0,180,216,.16);border:1px solid rgba(0,180,216,.18);border-radius:12px;overflow:hidden;margin-bottom:18px;}
+#ar2 .ar-pf-kpi{background:linear-gradient(145deg,#0d2d4a,#071628);padding:14px 16px;text-align:center;}
+#ar2 .ar-pf-kpi-lbl{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;}
+#ar2 .ar-pf-kpi-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:#e0f4fa;letter-spacing:.5px;}
+#ar2 .ar-pf-kpi-val.teal{color:var(--t);}
+#ar2 .ar-pf-kpi-val.green{color:var(--gr);}
+
+/* Property roster — list of property rows. Hover lifts each row slightly. */
+#ar2 .ar-pf-prop-list{display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-pf-prop-row{display:grid;grid-template-columns:36px 1fr 90px 110px 110px 90px;gap:14px;align-items:center;padding:12px 16px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-prop-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
+#ar2 .ar-pf-prop-idx{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:var(--mu);text-align:center;}
+#ar2 .ar-pf-prop-id{min-width:0;}
+#ar2 .ar-pf-prop-name{font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:#e0f4fa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-pf-prop-sub{font-size:11px;color:var(--mu);margin-top:2px;letter-spacing:.3px;}
+#ar2 .ar-pf-prop-kpi{text-align:right;}
+#ar2 .ar-pf-prop-kpi .v{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#cfe2eb;}
+#ar2 .ar-pf-prop-kpi .l{font-size:9.5px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:1px;}
+#ar2 .ar-pf-prop-status{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:5px 8px;border-radius:7px;font-weight:700;text-align:center;}
+#ar2 .ar-pf-prop-status.incomplete{background:rgba(240,165,0,.16);color:#f0a500;}
+#ar2 .ar-pf-prop-status.ready{background:rgba(34,197,94,.18);color:var(--gr);}
+
+/* Narrow viewport — collapse the per-property KPI columns to keep the
+   row legible. Single Assessments already does similar at this breakpoint. */
+@media(max-width:860px){
+  #ar2 .ar-pf-kpistrip{grid-template-columns:repeat(3,1fr);}
+  #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px;}
+  #ar2 .ar-pf-prop-row .ar-pf-prop-kpi:not(:nth-of-type(1)){display:none;}
+  #ar2 .ar-pf-ov-title{font-size:22px;}
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Property-mode subbar (Phase 1c) — breadcrumb + Save controls.
+   Hidden by default — `.is-active` is toggled by AR2_PF._toggleSubbar.
+   Using a class (not inline style) means the visibility state can't be
+   stomped by a stray re-render that omits the inline style attribute.
+   ════════════════════════════════════════════════════════════════════ */
+/* Subbar geometry mirrors the calculator content area (.ar-layout) so the
+   breadcrumb starts at the same left edge as the form column and ends at
+   the same right edge as the results column:
+     outer  → background full-width, no horizontal padding
+     inner  → max-width 1320px, centered, 20px horizontal padding
+              (matches .ar-layout) */
+#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.95),rgba(7,22,40,.95));border-bottom:1px solid rgba(0,180,216,.22);padding:0;}
+#ar2-pf-subbar.is-active{display:block;}
+.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
+.ar-pf-sub-back{background:rgba(0,180,216,.10);border:1px solid rgba(0,180,216,.28);color:var(--t);font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 11px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;}
+.ar-pf-sub-back:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
+.ar-pf-sub-sep{color:#7db8cc;font-size:14px;opacity:.6;}
+.ar-pf-sub-prop{font-size:13px;font-weight:600;color:#e0f4fa;letter-spacing:.3px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ar-pf-sub-status{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;padding:4px 9px;border-radius:7px;font-weight:700;}
+.ar-pf-sub-status.saving{background:rgba(125,184,204,.18);color:#7db8cc;}
+.ar-pf-sub-status.saved {background:rgba(34,197,94,.18);color:var(--gr);}
+.ar-pf-sub-status.error {background:rgba(239,68,68,.18);color:#f87171;cursor:help;}
+/* Prev/Next property navigation (Phase 1d) — sits between the property
+   name and the save status. Disabled at the boundaries (first / last). */
+.ar-pf-sub-nav{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:7px;}
+.ar-pf-sub-navbtn{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--t);font-size:14px;cursor:pointer;border-radius:4px;transition:background .12s,color .12s;font-family:inherit;}
+.ar-pf-sub-navbtn:hover:not(:disabled){background:rgba(0,180,216,.16);}
+.ar-pf-sub-navbtn:disabled{color:#3a5b6a;cursor:not-allowed;opacity:.5;}
+.ar-pf-sub-navpos{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;min-width:48px;text-align:center;}
+.ar-pf-sub-actions{display:flex;gap:6px;}
+.ar-pf-sub-act{background:transparent;border:1px solid rgba(0,180,216,.22);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 12px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
+.ar-pf-sub-act:hover{background:rgba(0,180,216,.10);border-color:rgba(0,180,216,.4);color:var(--t);}
+.ar-pf-sub-act.primary{background:linear-gradient(135deg,var(--t),var(--aq));border-color:transparent;color:var(--nv);}
+.ar-pf-sub-act.primary:hover{filter:brightness(1.1);}
+
+/* Property mode — single-assessment-only chrome is hidden. The "New"
+   button doesn't apply (use Add Property in the overview instead);
+   the Archive button label is replaced by the breadcrumb so we hide
+   it. The .pf-property-mode body class scopes these overrides. */
+body.pf-property-mode #ar2 #ar2-bar-actions{display:none!important;}

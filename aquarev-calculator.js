@@ -808,6 +808,64 @@ var Cloud = (function(){
     });
   }
 
+  // Admin-only: portfolio-aware totals for the top of the dashboard.
+  // Returns aggregate counts across assessments + portfolios + properties
+  // (hard-deleted records never appear here — Supabase returns only live rows).
+  function statsAdminKpis(){
+    var c = getClient();
+    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    var since7 = new Date(Date.now() - 7*86400000).toISOString();
+    // Assessments table stores the full session under `snapshot` jsonb
+    // (snapshot.state.bodies, snapshot.state.manualPoolCount, etc.).
+    // Older versions of this query asked for a top-level `state` column —
+    // that doesn't exist on the schema, which makes the whole Promise reject
+    // and leaves the dashboard KPIs at their em-dash placeholder.
+    return Promise.all([
+      c.from('assessments').select('id,created_at,summary,snapshot').eq('app_id', APP_ID),
+      c.from('portfolios').select('id,created_at'),
+      c.from('portfolio_properties').select('id,state_json,computed_kpis,excluded_from_rollup,created_at')
+    ]).then(function(arr){
+      var asRes = arr[0], pfRes = arr[1], ppRes = arr[2];
+      if (asRes.error) throw asRes.error;
+      if (pfRes.error) throw pfRes.error;
+      if (ppRes.error) throw ppRes.error;
+      var ass = asRes.data || [], pfs = pfRes.data || [], pps = ppRes.data || [];
+      var recordsLast7Days = 0;
+      var poolsTotal = 0, valueTotal = 0;
+      ass.forEach(function(r){
+        if (r.created_at && r.created_at >= since7) recordsLast7Days++;
+        // snapshot.state holds the bodies array; legacy records may have
+        // bodies directly on snapshot. Try both for robustness.
+        var snap = r.snapshot || {};
+        var st = snap.state || snap || {};
+        var bodies = Array.isArray(st.bodies) ? st.bodies : [];
+        if (st.manualVolume) poolsTotal += Math.max(1, Number(st.manualPoolCount) || 1);
+        else                 poolsTotal += bodies.length;
+        var sum = r.summary || {};
+        valueTotal += Number(sum.inv) || 0;
+      });
+      pfs.forEach(function(r){
+        if (r.created_at && r.created_at >= since7) recordsLast7Days++;
+      });
+      pps.forEach(function(r){
+        var sj = r.state_json || {};
+        var bodies = Array.isArray(sj.bodies) ? sj.bodies : [];
+        if (sj.manualVolume) poolsTotal += Math.max(1, Number(sj.manualPoolCount) || 1);
+        else                 poolsTotal += bodies.length;
+        var k = r.computed_kpis || {};
+        valueTotal += Number(k.inv) || 0;
+      });
+      return {
+        recordsLast7Days: recordsLast7Days,
+        assessmentsTotal: ass.length,
+        portfoliosTotal:  pfs.length,
+        propertiesTotal:  pps.length,
+        poolsTotal:       poolsTotal,
+        valueTotal:       valueTotal
+      };
+    });
+  }
+
   function statsLast30Days(){
     var c = getClient();
     if(!c || !user) return Promise.reject(new Error('not_signed_in'));
@@ -985,6 +1043,7 @@ var Cloud = (function(){
     reassignAssessment: reassignAssessment,
     listUsers: listUsers,
     statsLast30Days: statsLast30Days,
+    statsAdminKpis:  statsAdminKpis,
     stats90DailyByUser: stats90DailyByUser,
     adminUserStats: adminUserStats,
     isClient: function(){ return !!user && user.role === 'client'; },
@@ -1050,10 +1109,4038 @@ var Cloud = (function(){
 })();
 window.AR2_CLOUD = Cloud;
 
+/* ════════════════════════════════════════════════════════════════════
+   AR2_PF — Portfolio Tool namespace (SANDBOX BUILD, Phase 1)
+   Production calculator does not include this code path; this lives only
+   in the sandbox master HTML at /calculator-sandbox.
+   Strict isolation contract:
+     - Uses its OWN state object (pfState). Never reads or writes AR2_CLOUD
+       internals or single-property state (S, Q, EX).
+     - All UI selectors are .ar-pf-* prefixed. No collisions with existing
+       .ar-* classes.
+     - Database calls only against the new portfolios / portfolio_properties
+       / portfolio_quotes tables. Existing assessments / quotes tables are
+       never touched by this code.
+     - When user is Client role (or AR2_CLOUD not ready), isEnabled() is
+       false and the entire feature is dormant — archive renders exactly
+       as it does on production.
+   ════════════════════════════════════════════════════════════════════ */
+window.AR2_PF = (function(){
+  var pfState = {
+    initialized: false,
+    enabled: false,
+    activeTab: 'single',         // 'single' | 'portfolios'
+    portfolios: null,            // null = not loaded yet; array once loaded
+    loading: false,
+    loadError: null,
+    // Phase 1b — Portfolio Overview navigation
+    viewMode: 'list',            // 'list' | 'overview'
+    selectedPortfolioId: null,   // when viewMode === 'overview'
+    properties: {},              // { [portfolioId]: { rows, loading, error } }
+    rollup: {},                  // { [portfolioId]: { data, loading, error } }
+    // Phase 1c — Property mode (calculator scoped to one portfolio property)
+    propertyMode: false,
+    loadedProperty: null,        // full portfolio_properties row currently open
+    savedSnapshot: null,         // { S, EX } captured before entering property mode
+    saveStatus: 'idle',          // 'idle' | 'saving' | 'saved' | 'error'
+    saveError: null,
+    saveTimer: null,             // debounce handle for autosave
+    AUTOSAVE_DEBOUNCE_MS: 1500
+  };
+
+  // AR2_CLOUD's public API exposes `getClient` (not `client`). Using the
+  // correct name here is critical — without it, every Supabase call in
+  // this namespace silently rejects with "cloud not ready".
+  function client(){
+    return window.AR2_CLOUD && AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  }
+  function user(){
+    return window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user();
+  }
+
+  // Called once when AR2_CLOUD signals it's ready (or on first archive open
+  // if AR2_CLOUD was already ready). Decides whether the portfolio feature
+  // is available for this user.
+  function init(){
+    if (pfState.initialized) return;
+    pfState.initialized = true;
+    if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
+    var u = user();
+    // Clients are explicitly excluded per Phase 1 product decision.
+    if (!u || u.role === 'client') { pfState.enabled = false; return; }
+    pfState.enabled = true;
+  }
+
+  function isEnabled(){ return pfState.enabled === true; }
+  function activeTab(){ return pfState.activeTab; }
+
+  function setActiveTab(tab){
+    if (tab !== 'single' && tab !== 'portfolios') return;
+    if (pfState.activeTab === tab) return;
+    pfState.activeTab = tab;
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+
+  // Fetch portfolio list for the current user. Idempotent — pfState.portfolios
+  // caches the result. Call refreshPortfolios() to force a reload.
+  function loadPortfolios(){
+    if (pfState.loading) return Promise.resolve(pfState.portfolios);
+    if (pfState.portfolios !== null) return Promise.resolve(pfState.portfolios);
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    pfState.loading = true;
+    pfState.loadError = null;
+    return c.from('portfolios')
+      .select('id,name,status,default_currency,client_contact_name,last_modified_at,created_at,user_id')
+      .order('last_modified_at', { ascending: false })
+      .then(function(rs){
+        pfState.loading = false;
+        if (rs.error) { pfState.loadError = rs.error.message || 'load failed'; pfState.portfolios = []; }
+        else { pfState.portfolios = rs.data || []; }
+        return pfState.portfolios;
+      }, function(err){
+        pfState.loading = false;
+        pfState.loadError = (err && err.message) || 'load failed';
+        pfState.portfolios = [];
+        return pfState.portfolios;
+      });
+  }
+
+  function refreshPortfolios(){
+    pfState.portfolios = null;
+    return loadPortfolios();
+  }
+
+  // Delete a portfolio (and cascade-delete all properties via FK ON DELETE
+  // CASCADE in the schema). RLS already gates this so users can only delete
+  // their own; admins can delete any.
+  function deletePortfolio(portfolioId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    if (!portfolioId) return Promise.reject(new Error('portfolio id required'));
+    return c.from('portfolios').delete().eq('id', portfolioId).then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      // Drop from local caches so the Archive re-renders without the row.
+      if (Array.isArray(pfState.portfolios)){
+        pfState.portfolios = pfState.portfolios.filter(function(p){ return p.id !== portfolioId; });
+      }
+      if (pfState.properties)      pfState.properties[portfolioId]      = null;
+      if (pfState.rollup)          pfState.rollup[portfolioId]          = null;
+      if (pfState.propertyStates)  pfState.propertyStates[portfolioId]  = null;
+      if (pfState.quoteState)      pfState.quoteState[portfolioId]      = null;
+      if (pfState.exportState)     pfState.exportState[portfolioId]     = null;
+      // If the deleted portfolio was selected, drop back to the list view.
+      if (pfState.selectedPortfolioId === portfolioId){
+        pfState.selectedPortfolioId = null;
+        pfState.viewMode = 'list';
+      }
+      return true;
+    });
+  }
+
+  // Create a new portfolio. Returns the inserted row.
+  function createPortfolio(name){
+    var c = client();
+    var u = user();
+    if (!c || !u) return Promise.reject(new Error('cloud not ready'));
+    var trimmed = String(name || '').trim();
+    if (!trimmed) return Promise.reject(new Error('Name required'));
+    return c.from('portfolios')
+      .insert({ user_id: u.id, name: trimmed, status: 'draft' })
+      .select('id,name,status,default_currency,client_contact_name,last_modified_at,created_at,user_id')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        // Prepend to local cache so the UI updates without a full refetch
+        if (pfState.portfolios === null) pfState.portfolios = [];
+        pfState.portfolios = [rs.data].concat(pfState.portfolios);
+        return rs.data;
+      });
+  }
+
+  // Roll-up RPC — server-side aggregation over portfolio_properties.
+  // Returns the JSONB result documented in the SQL migration.
+  function rollup(portfolioId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    return c.rpc('portfolio_rollup', { p_portfolio_id: portfolioId })
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return rs.data;
+      });
+  }
+
+  // ─── UI: Tab strip + Portfolio panel ──────────────────────────────
+  function tabStripHtml(){
+    var single = pfState.activeTab === 'single';
+    return '<div class="ar-pf-tabstrip" role="tablist">'
+      + '<button class="ar-pf-tab' + (single?' active':'') + '" data-pf-tab="single" role="tab" type="button">Single Assessments</button>'
+      + '<button class="ar-pf-tab' + (!single?' active':'') + '" data-pf-tab="portfolios" role="tab" type="button">Portfolios'
+      +   (Array.isArray(pfState.portfolios) && pfState.portfolios.length
+            ? ' <span class="ar-pf-tab-count">'+pfState.portfolios.length+'</span>'
+            : '')
+      + '</button>'
+      + '</div>';
+  }
+
+  // Render the Portfolios panel into the given mount element.
+  // Dispatches by viewMode: 'list' shows the portfolios collection;
+  // 'overview' shows the Portfolio Overview for the selected portfolio.
+  function renderPortfoliosPanel(mount){
+    if (!mount) return;
+    if (pfState.viewMode === 'export' && pfState.selectedPortfolioId){
+      return renderPortfolioExport(mount);
+    }
+    if (pfState.viewMode === 'quote-builder' && pfState.selectedPortfolioId){
+      return renderQuoteBuilder(mount);
+    }
+    if (pfState.viewMode === 'overview' && pfState.selectedPortfolioId){
+      return renderPortfolioOverview(mount);
+    }
+    // Hero header (always shown)
+    var hero = '<div class="ar-pf-panel-hero">'
+      +   '<div>'
+      +     '<div class="ar-pf-panel-title">Portfolios</div>'
+      +     '<div class="ar-pf-panel-sub">Multi-property proposals · sandbox preview</div>'
+      +   '</div>'
+      +   '<button class="ar-pf-newbtn" data-pf-action="new-portfolio" type="button">New Portfolio</button>'
+      + '</div>';
+
+    // Loading state — only on first fetch
+    if (pfState.portfolios === null) {
+      mount.innerHTML = '<div class="ar-pf-panel">' + hero
+        + '<div class="ar-pf-empty" style="opacity:.7">Loading portfolios…</div>'
+        + '</div>';
+      loadPortfolios().then(function(){
+        // Re-look up by ID — see comment in renderPortfolioOverview for
+        // why we don't capture `mount` in closure.
+        var live = document.getElementById('ar2-bank-portfolios');
+        if (live) renderPortfoliosPanel(live);
+      });
+      return;
+    }
+
+    // Error state
+    if (pfState.loadError) {
+      mount.innerHTML = '<div class="ar-pf-panel">' + hero
+        + '<div class="ar-pf-empty">'
+        +   '<div class="ar-pf-empty-icon" style="color:#f87171;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.12)">!</div>'
+        +   '<div class="ar-pf-empty-title">Couldn\'t load portfolios</div>'
+        +   '<div class="ar-pf-empty-body">' + esc(pfState.loadError) + '</div>'
+        + '</div></div>';
+      return;
+    }
+
+    // Empty state
+    if (!pfState.portfolios.length) {
+      mount.innerHTML = '<div class="ar-pf-panel">' + hero
+        + '<div class="ar-pf-empty">'
+        +   '<div class="ar-pf-empty-icon">P</div>'
+        +   '<div class="ar-pf-empty-title">No portfolios yet</div>'
+        +   '<div class="ar-pf-empty-body">'
+        +     'Build a multi-property proposal by creating a portfolio, then add each property\'s pool profile, devices and savings. Portfolio totals roll up automatically.'
+        +   '</div>'
+        +   '<button class="ar-pf-newbtn" data-pf-action="new-portfolio" type="button">Create your first portfolio</button>'
+        + '</div></div>';
+      return;
+    }
+
+    // Populated list (Phase 1: simple rows; Phase 2 = full roster grid)
+    var rows = pfState.portfolios.map(function(p){
+      var dateStr = p.last_modified_at
+        ? new Date(p.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+        : '—';
+      var statusClass = (p.status || 'draft').toLowerCase();
+      return '<div class="ar-pf-row" data-pf-portfolio="' + p.id + '" role="button" tabindex="0">'
+        +   '<div>'
+        +     '<div class="ar-pf-row-name">' + esc(p.name || 'Untitled portfolio') + '</div>'
+        +     '<div class="ar-pf-row-meta">' + (p.client_contact_name ? esc(p.client_contact_name) + ' · ' : '') + dateStr + '</div>'
+        +   '</div>'
+        +   '<span class="ar-pf-row-status ' + statusClass + '">' + esc(p.status || 'draft').replace('_',' ') + '</span>'
+        +   '<div class="ar-pf-row-kpi"><div class="v">—</div><div class="l">Properties</div></div>'
+        +   '<div class="ar-pf-row-kpi"><div class="v">—</div><div class="l">Investment</div></div>'
+        + '</div>';
+    }).join('');
+
+    mount.innerHTML = '<div class="ar-pf-panel">' + hero
+      + '<div class="ar-pf-list">' + rows + '</div>'
+      + '</div>';
+  }
+
+  // ─── New Portfolio modal ──────────────────────────────────────────
+  function openNewPortfolioModal(){
+    if (document.getElementById('ar-pf-new-modal')) return;
+    var backdrop = document.createElement('div');
+    backdrop.id = 'ar-pf-new-modal';
+    backdrop.className = 'ar-pf-modal-backdrop';
+    backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-new-title">'
+      + '<div class="ar-pf-modal-title" id="ar-pf-new-title">New portfolio</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-pf-new-name">Portfolio name</label>'
+      + '<input class="ar-pf-modal-input" id="ar-pf-new-name" type="text" maxlength="120" placeholder="e.g. Marriott LATAM Phase 1" autocomplete="off" />'
+      + '<div class="ar-pf-modal-err" id="ar-pf-new-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+      +   '<button class="ar-pf-modal-btn" data-pf-action="modal-cancel" type="button">Cancel</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-pf-action="modal-create" type="button">Create</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(backdrop);
+    setTimeout(function(){ var i = document.getElementById('ar-pf-new-name'); if (i) i.focus(); }, 30);
+    // Click delegate scoped TO the modal itself, not to #ar2. The main app's
+    // click handler is bound to #ar2, but this modal is mounted at document
+    // .body level so its events never bubble there. Without this listener,
+    // Cancel and Create buttons were inert. Backdrop click also closes.
+    backdrop.addEventListener('click', function(e){
+      if (e.target === backdrop) { closeNewPortfolioModal(); return; }
+      var act = e.target.closest('[data-pf-action]');
+      if (!act) return;
+      var a = act.getAttribute('data-pf-action');
+      if (a === 'modal-cancel') { closeNewPortfolioModal(); return; }
+      if (a === 'modal-create') { submitNewPortfolio();     return; }
+    });
+    // Keyboard: Esc closes, Enter on the name input submits.
+    backdrop.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeNewPortfolioModal();
+      if (e.key === 'Enter' && e.target.id === 'ar-pf-new-name') submitNewPortfolio();
+    });
+  }
+  function closeNewPortfolioModal(){
+    var el = document.getElementById('ar-pf-new-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function submitNewPortfolio(){
+    var input = document.getElementById('ar-pf-new-name');
+    var err = document.getElementById('ar-pf-new-err');
+    var btn = document.querySelector('[data-pf-action="modal-create"]');
+    if (!input) return;
+    var name = input.value.trim();
+    if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+    createPortfolio(name).then(function(){
+      closeNewPortfolioModal();
+      // Stay on Portfolios tab, re-render to show the new row
+      pfState.activeTab = 'portfolios';
+      if (typeof renderArchive === 'function') renderArchive();
+    }).catch(function(e){
+      if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+      if (err) err.textContent = (e && e.message) || 'Create failed.';
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // Phase 1b — Portfolio Overview, Properties, Add Property
+  // ════════════════════════════════════════════════════════════════
+
+  // Look up a portfolio header from the cached portfolios list. Used by
+  // the overview renderer to pull the portfolio name/status without an
+  // extra fetch. Returns undefined if not in cache.
+  function getPortfolio(id){
+    if (!pfState.portfolios) return undefined;
+    for (var i = 0; i < pfState.portfolios.length; i++){
+      if (pfState.portfolios[i].id === id) return pfState.portfolios[i];
+    }
+    return undefined;
+  }
+
+  // Fetch the property list for a portfolio. Cached in pfState.properties
+  // keyed by portfolioId. Each entry: { rows, loading, error }.
+  function loadProperties(portfolioId){
+    if (!portfolioId) return Promise.resolve([]);
+    var slot = pfState.properties[portfolioId] || {};
+    if (slot.loading) return Promise.resolve(slot.rows || []);
+    if (slot.rows)    return Promise.resolve(slot.rows);
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    slot.loading = true;
+    slot.error = null;
+    pfState.properties[portfolioId] = slot;
+    return c.from('portfolio_properties')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .eq('portfolio_id', portfolioId)
+      .order('order_index', { ascending: true })
+      .order('created_at',  { ascending: true })
+      .then(function(rs){
+        slot.loading = false;
+        if (rs.error) { slot.error = rs.error.message || 'load failed'; slot.rows = []; }
+        else          { slot.rows  = rs.data || []; }
+        return slot.rows;
+      }, function(err){
+        slot.loading = false;
+        slot.error = (err && err.message) || 'load failed';
+        slot.rows = [];
+        return slot.rows;
+      });
+  }
+  /* P5: fetch full state_json blobs for all properties in a portfolio.
+     loadProperties() omits state_json for roster performance; line items
+     roll-up needs it. Cached separately so the roster fetch stays light. */
+  function loadPropertyStates(portfolioId){
+    if (!portfolioId) return Promise.resolve([]);
+    if (!pfState.propertyStates) pfState.propertyStates = {};
+    var slot = pfState.propertyStates[portfolioId] || {};
+    if (slot.loading) return Promise.resolve(slot.rows || []);
+    if (slot.rows)    return Promise.resolve(slot.rows);
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    slot.loading = true;
+    pfState.propertyStates[portfolioId] = slot;
+    return c.from('portfolio_properties')
+      .select('id,property_name,state_json,formatted_address,excluded_from_rollup')
+      .eq('portfolio_id', portfolioId)
+      .order('order_index', { ascending: true })
+      .order('created_at',  { ascending: true })
+      .then(function(rs){
+        slot.loading = false;
+        if (rs.error){ slot.rows = []; }
+        else         { slot.rows = (rs.data || []).filter(function(r){ return !r.excluded_from_rollup; }); }
+        return slot.rows;
+      }, function(){
+        slot.loading = false;
+        slot.rows = [];
+        return slot.rows;
+      });
+  }
+  /* P5: compute the line items roll-up. PIPES is a flat catalog so we
+     loop it once, summing each property's pipe_Nin field. overrides shape:
+     { pipe_2in: { qty: <num>|null, price: <num>|null } } — null means
+     "use auto"; a number overrides the rolled-up value. */
+  function computeLineItemsRollup(propertyRows, overrides){
+    overrides = overrides || {};
+    if (typeof PIPES === 'undefined') return [];
+    return PIPES.map(function(spec){
+      var ov = overrides[spec.k] || {};
+      // Auto qty: sum the SKU count across all properties' state_json.
+      var autoQty = 0;
+      var perProp = [];
+      for (var i = 0; i < propertyRows.length; i++){
+        var r = propertyRows[i];
+        var sj = r.state_json || {};
+        var n = Number(sj[spec.k]) || 0;
+        if (n > 0){
+          perProp.push({ id: r.id, name: r.property_name || 'Property', qty: n });
+          autoQty += n;
+        }
+      }
+      var qty = (ov.qty != null && ov.qty !== '') ? Number(ov.qty)   : autoQty;
+      var price = (ov.price != null && ov.price !== '') ? Number(ov.price) : spec.price;
+      return {
+        sku: spec.k,
+        label: spec.sz + ' AquaRev Device',
+        flow: spec.flow,
+        autoQty: autoQty,
+        autoPrice: spec.price,
+        qty: qty,
+        price: price,
+        total: qty * price,
+        hasOverride: !!(ov.qty != null && ov.qty !== '') || !!(ov.price != null && ov.price !== ''),
+        breakdown: perProp
+      };
+    }).filter(function(row){ return row.qty > 0 || row.hasOverride; });
+  }
+
+  function refreshProperties(portfolioId){
+    if (pfState.properties[portfolioId]) pfState.properties[portfolioId].rows = null;
+    return loadProperties(portfolioId);
+  }
+
+  // Compute the next order_index for a new property in this portfolio.
+  // Phase 1b ordering: append to the bottom. Phase 2 will add drag-to-
+  // reorder; until then order_index is just an append counter.
+  function nextOrderIndex(portfolioId){
+    var rows = (pfState.properties[portfolioId] && pfState.properties[portfolioId].rows) || [];
+    var maxIdx = -1;
+    for (var i = 0; i < rows.length; i++){
+      var o = rows[i].order_index;
+      if (typeof o === 'number' && o > maxIdx) maxIdx = o;
+    }
+    return maxIdx + 1;
+  }
+
+  // Create a new property in the given portfolio. Server-side defaults
+  // populate empty state_json / ex_json / computed_kpis. The newly-
+  // created row is appended to the local cache so the roster updates
+  // without a refetch.
+  function createProperty(portfolioId, name){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    var trimmed = String(name || '').trim();
+    if (!portfolioId) return Promise.reject(new Error('portfolio required'));
+    if (!trimmed)     return Promise.reject(new Error('Name required'));
+    return c.from('portfolio_properties')
+      .insert({
+        portfolio_id: portfolioId,
+        property_name: trimmed,
+        order_index: nextOrderIndex(portfolioId)
+      })
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        var slot = pfState.properties[portfolioId] || { rows: [], loading: false, error: null };
+        slot.rows = (slot.rows || []).concat([rs.data]);
+        pfState.properties[portfolioId] = slot;
+        // Roll-up changes → invalidate the cached aggregate so the KPI
+        // strip pulls fresh numbers on next render.
+        pfState.rollup[portfolioId] = null;
+        return rs.data;
+      });
+  }
+
+  // Server-side roll-up of computed_kpis. Cached per portfolio; null
+  // entries trigger a fresh fetch.
+  function getRollup(portfolioId){
+    var slot = pfState.rollup[portfolioId];
+    if (slot && slot.data) return Promise.resolve(slot.data);
+    if (slot && slot.loading) return Promise.resolve(null);
+    pfState.rollup[portfolioId] = { data: null, loading: true, error: null };
+    return rollup(portfolioId).then(function(data){
+      pfState.rollup[portfolioId] = { data: data, loading: false, error: null };
+      return data;
+    }, function(err){
+      pfState.rollup[portfolioId] = { data: null, loading: false, error: (err && err.message) || 'rollup failed' };
+      return null;
+    });
+  }
+
+  /* ── P4: portfolio_quotes load + save ──────────────────────────────
+     Loads the existing quote row for a portfolio (or null), and upserts
+     it back. The schema has dedicated columns for the most-used fields
+     (buyer_name, buyer_email, portfolio_discount_pct, tax_rate,
+     shipping_cost, shipping_term, notes) and a quote_state jsonb for
+     everything else (phone, bill-to, deposit, balance terms, std terms,
+     status). loadQuote merges both halves into a flat in-memory shape
+     that matches getQuoteState().
+     ─────────────────────────────────────────────────────────────────── */
+  function loadQuote(portfolioId){
+    var c = client();
+    if (!c || !portfolioId) return Promise.resolve(null);
+    return c.from('portfolio_quotes')
+      .select('id,portfolio_id,quote_state,portfolio_discount_pct,shipping_cost,shipping_term,tax_rate,buyer_name,buyer_email,notes')
+      .eq('portfolio_id', portfolioId)
+      .maybeSingle()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        if (!rs.data) return null;
+        var qs = rs.data.quote_state || {};
+        var q = _defaultQuoteState();
+        q.buyerName       = rs.data.buyer_name || '';
+        q.buyerEmail      = rs.data.buyer_email || '';
+        q.buyerPhone      = qs.buyerPhone || '';
+        q.billTo          = qs.billTo || '';
+        q.discountPct     = Number(rs.data.portfolio_discount_pct) || 0;
+        q.taxRate         = Number(rs.data.tax_rate) || 0;
+        q.shippingCost    = Number(rs.data.shipping_cost) || 0;
+        q.shippingTerm    = rs.data.shipping_term || '';
+        q.depositPct      = Number(qs.depositPct) || 0;
+        q.depositDueDate  = qs.depositDueDate || '';
+        q.balanceDueTerms = qs.balanceDueTerms || '';
+        q.stdTerms        = qs.stdTerms || '';
+        q.purchaseTerms   = (qs.purchaseTerms != null) ? qs.purchaseTerms : (typeof QUOTE_DEFAULT_TERMS !== 'undefined' ? QUOTE_DEFAULT_TERMS : '');
+        q.notes           = rs.data.notes || '';
+        q.status          = qs.status || 'draft';
+        q.lineOverrides   = qs.lineOverrides || {};
+        q.shipTos         = qs.shipTos || { mode:'split', perProp:{}, consolidated:{address:'',notes:''} };
+        // Cache into pfState so renderQuoteBuilder picks it up.
+        if (!pfState.quoteState) pfState.quoteState = {};
+        pfState.quoteState[portfolioId] = q;
+        // If a quote row exists, mark the Export panel section as Ready
+        // so it can be toggled on without re-saving from scratch.
+        if (!pfState.exportState) pfState.exportState = {};
+        if (!pfState.exportState[portfolioId]) pfState.exportState[portfolioId] = _defaultExportState();
+        pfState.exportState[portfolioId].quoteReady = true;
+        return q;
+      });
+  }
+  function saveQuote(portfolioId, q){
+    var c = client();
+    if (!c || !portfolioId) return Promise.reject(new Error('cloud not ready'));
+    // Pack non-column fields into quote_state jsonb
+    var quoteState = {
+      buyerPhone:      q.buyerPhone || '',
+      billTo:          q.billTo || '',
+      depositPct:      Number(q.depositPct) || 0,
+      depositDueDate:  q.depositDueDate || '',
+      balanceDueTerms: q.balanceDueTerms || '',
+      stdTerms:        q.stdTerms || '',
+      purchaseTerms:   q.purchaseTerms || '',
+      status:          q.status || 'draft',
+      lineOverrides:   q.lineOverrides || {},
+      shipTos:         q.shipTos || { mode:'split', perProp:{}, consolidated:{address:'',notes:''} }
+    };
+    var payload = {
+      portfolio_id:           portfolioId,
+      buyer_name:             q.buyerName || '',
+      buyer_email:            q.buyerEmail || '',
+      portfolio_discount_pct: Number(q.discountPct) || 0,
+      tax_rate:               Number(q.taxRate) || 0,
+      shipping_cost:          Number(q.shippingCost) || 0,
+      shipping_term:          q.shippingTerm || '',
+      notes:                  q.notes || '',
+      quote_state:            quoteState
+    };
+    // Upsert by portfolio_id (UNIQUE constraint in the schema makes this
+    // safe). Returns the row so we can confirm the write.
+    return c.from('portfolio_quotes')
+      .upsert(payload, { onConflict: 'portfolio_id' })
+      .select('id,portfolio_id')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return rs.data;
+      });
+  }
+
+  // ── Navigation: list ↔ overview ↔ export ↔ quote-builder ──────
+  function openPortfolio(portfolioId){
+    if (!portfolioId) return;
+    pfState.selectedPortfolioId = portfolioId;
+    pfState.viewMode = 'overview';
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  function backToPortfoliosList(){
+    pfState.viewMode = 'list';
+    pfState.selectedPortfolioId = null;
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  // Portfolio Export panel — section toggles + Preview/Download/Archive
+  // CTAs. The Portfolio Quote section is unlocked from here via the
+  // "Unlock & Configure" affordance, which routes into the Quote builder.
+  function openExport(portfolioId){
+    if (portfolioId) pfState.selectedPortfolioId = portfolioId;
+    if (!pfState.selectedPortfolioId) return;
+    pfState.viewMode = 'export';
+    // Lazy-load properties so we can show "X properties" counts in the
+    // section toggles. Roster is already cached when arriving from Overview.
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  function backToOverview(){
+    if (!pfState.selectedPortfolioId){
+      // No portfolio selected — fall all the way back to the list.
+      pfState.viewMode = 'list';
+    } else {
+      pfState.viewMode = 'overview';
+    }
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  // Quote builder — full-screen surface that replaces the Export panel.
+  // The "Back to Export" button returns the rep so the section toggles
+  // can be reviewed with the Quote now unlocked.
+  function openQuoteBuilder(portfolioId){
+    if (portfolioId) pfState.selectedPortfolioId = portfolioId;
+    if (!pfState.selectedPortfolioId) return;
+    // Dirty-state guard — if the rep is in property mode with pending
+    // edits, the Quote rolls up stale data. Save first.
+    if (pfState.propertyMode && pfState.loadedProperty){
+      var ok = confirm(
+        '"' + (pfState.loadedProperty.property_name || 'This property') + '" hasn\'t been saved yet.' +
+        '\n\nThe Portfolio Quote pulls live data from saved properties, so we need to save it first.' +
+        '\n\nSave and continue?'
+      );
+      if (!ok) return;
+      saveCurrentProperty().then(function(){
+        exitProperty().then(function(){
+          pfState.viewMode = 'quote-builder';
+          if (typeof renderArchive === 'function') renderArchive();
+        });
+      }).catch(function(e){
+        alert('Could not save property: ' + ((e && e.message) || 'unknown error'));
+      });
+      return;
+    }
+    pfState.viewMode = 'quote-builder';
+    if (typeof renderArchive === 'function') renderArchive();
+    // Hydrate from the DB after the first paint so existing values land in
+    // the form. We don't await this — the builder renders defaults first,
+    // then re-renders with persisted values when the load completes.
+    var pid = pfState.selectedPortfolioId;
+    if (pid){
+      loadQuote(pid).then(function(q){
+        if (!q) return;
+        var mount = document.getElementById('ar2-bank-overview-mount');
+        if (mount && pfState.viewMode === 'quote-builder') renderQuoteBuilder(mount);
+      }).catch(function(_){});
+    }
+  }
+  function backFromQuoteBuilder(){
+    pfState.viewMode = 'export';
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+
+  // ── Portfolio Overview render ──────────────────────────────────
+  // Mounts: header (portfolio name + back btn), KPI strip (rollup
+  // aggregates), property roster (rows), add-property CTA.
+  function renderPortfolioOverview(mount){
+    if (!mount) return;
+    var pid = pfState.selectedPortfolioId;
+    if (!pid){ pfState.viewMode = 'list'; return renderPortfoliosPanel(mount); }
+    var p = getPortfolio(pid);
+    var headerName = p ? (p.name || 'Untitled portfolio') : 'Loading…';
+    var statusClass = ((p && p.status) || 'draft').toLowerCase();
+    var statusLabel = ((p && p.status) || 'draft').replace('_',' ');
+
+    // Hero: back btn + portfolio name + status + action group
+    // Action group (right-pinned via margin-left:auto): Quote · Export · + Add Property.
+    // Order matches the natural workflow — capture properties (right), prepare
+    // the quote (middle), package the export (left). Quote + Export wire up in
+    // the next sandbox pass (P3); for now they show a "coming soon" placeholder
+    // so the layout is visible and testable.
+    var hero = '<div class="ar-pf-ov-hero">'
+      +   '<button class="ar-pf-back" data-pf-action="back-to-list" type="button" aria-label="Back to portfolios">&#x2190; Portfolios</button>'
+      +   '<div class="ar-pf-ov-title-wrap">'
+      +     '<div class="ar-pf-ov-title">' + esc(headerName) + '</div>'
+      +     '<div class="ar-pf-ov-meta">'
+      +       '<span class="ar-pf-row-status ' + statusClass + '">' + esc(statusLabel) + '</span>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="ar-pf-ov-actions">'
+      +     '<button class="ar-pf-actbtn" data-pf-action="open-quote" type="button" title="Configure the Portfolio Quote">Quote</button>'
+      +     '<button class="ar-pf-actbtn primary" data-pf-action="open-export" type="button" title="Package the portfolio for export and distribution">Export &rarr;</button>'
+      +     '<button class="ar-pf-actbtn" data-pf-action="import-csv" type="button" title="Bulk-import properties from a CSV / Excel template">&uarr; Import CSV</button>'
+      +     '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add Property</button>'
+      +   '</div>'
+      + '</div>';
+
+    // KPI strip — pulls aggregates from getRollup(). Renders a "loading"
+    // skeleton on first paint, then re-renders with the data.
+    var rollupSlot = pfState.rollup[pid];
+    var r = rollupSlot && rollupSlot.data;
+    var kpiLine = function(lbl, val, color){
+      return '<div class="ar-pf-kpi">'
+        +   '<div class="ar-pf-kpi-lbl">' + esc(lbl) + '</div>'
+        +   '<div class="ar-pf-kpi-val' + (color ? ' ' + color : '') + '">' + val + '</div>'
+        + '</div>';
+    };
+    var kpis;
+    if (!r){
+      kpis = '<div class="ar-pf-kpistrip">'
+        + kpiLine('Properties', '—')
+        + kpiLine('Devices',    '—')
+        + kpiLine('Pool Volume','—')
+        + kpiLine('Monthly',    '—')
+        + kpiLine('Annual',     '—')
+        + kpiLine('Payback',    '—')
+        + '</div>';
+    } else {
+      var nProp = Number(r.property_count) || 0;
+      var nDev  = Number(r.total_dev)      || 0;
+      var totGal= Number(r.total_pool_gal) || 0;
+      var mo    = Number(r.total_mo)       || 0;
+      var yr    = Number(r.total_yr)       || 0;
+      var pay   = r.blended_payback_mo == null ? null : Number(r.blended_payback_mo);
+      // Pool volume — show K / M suffix to keep the tile compact at scale
+      var gallonsStr = (totGal >= 1e6 ? (totGal/1e6).toFixed(1)+'M' :
+                        totGal >= 1e3 ? (totGal/1e3).toFixed(0)+'K' :
+                        String(Math.round(totGal))) + ' gal';
+      kpis = '<div class="ar-pf-kpistrip">'
+        + kpiLine('Properties', String(nProp))
+        + kpiLine('Devices',    String(nDev), 'teal')
+        + kpiLine('Pool Volume',gallonsStr)
+        + kpiLine('Monthly',    (mo  ? fc(mo,0)  : '—'), mo ? 'green' : '')
+        + kpiLine('Annual',     (yr  ? fc(yr,0)  : '—'), yr ? 'green' : '')
+        + kpiLine('Payback',    (pay && pay>0 ? Math.round(pay)+' mo' : '—'), 'teal')
+        + '</div>';
+    }
+
+    // Roster — empty state OR list of property cards
+    var slot = pfState.properties[pid];
+    var roster;
+    if (!slot || (slot.loading && !slot.rows)){
+      roster = '<div class="ar-pf-empty" style="opacity:.7">Loading properties…</div>';
+    } else if (slot.error){
+      roster = '<div class="ar-pf-empty">'
+        + '<div class="ar-pf-empty-icon" style="color:#f87171;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.12)">!</div>'
+        + '<div class="ar-pf-empty-title">Couldn\'t load properties</div>'
+        + '<div class="ar-pf-empty-body">' + esc(slot.error) + '</div>'
+        + '</div>';
+    } else if (!slot.rows || !slot.rows.length){
+      roster = '<div class="ar-pf-empty">'
+        + '<div class="ar-pf-empty-icon">+</div>'
+        + '<div class="ar-pf-empty-title">No properties in this portfolio yet</div>'
+        + '<div class="ar-pf-empty-body">Add each hotel, resort or location individually. Each property keeps its own pool profile, device mix, and economics — and rolls up into the portfolio totals at the top.</div>'
+        + '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add the first property</button>'
+        + '</div>';
+    } else {
+      var rows = slot.rows.map(function(prop, idx){
+        var k    = prop.computed_kpis || {};
+        var nDev = Number(k.total_dev)  || 0;
+        var mo   = Number(k.total_mo)   || 0;
+        var inv  = Number(k.inv)        || 0;
+        var country = prop.country ? esc(prop.country) : '';
+        var subline = country ? country : (prop.formatted_address ? esc(prop.formatted_address) : '');
+        var incomplete = nDev === 0;
+        return '<div class="ar-pf-prop-row" data-pf-property="' + prop.id + '" role="button" tabindex="0">'
+          +   '<div class="ar-pf-prop-idx">' + (idx + 1) + '</div>'
+          +   '<div class="ar-pf-prop-id">'
+          +     '<div class="ar-pf-prop-name">' + esc(prop.property_name || 'Untitled property') + '</div>'
+          +     '<div class="ar-pf-prop-sub">' + (subline || '<span style="opacity:.55">No location set</span>') + '</div>'
+          +   '</div>'
+          +   '<div class="ar-pf-prop-kpi"><div class="v">' + (nDev ? String(nDev) : '—') + '</div><div class="l">Devices</div></div>'
+          +   '<div class="ar-pf-prop-kpi"><div class="v">' + (inv ? fc(inv,0)   : '—') + '</div><div class="l">Investment</div></div>'
+          +   '<div class="ar-pf-prop-kpi"><div class="v">' + (mo  ? fc(mo,0)    : '—') + '</div><div class="l">Monthly</div></div>'
+          +   '<div class="ar-pf-prop-status' + (incomplete ? ' incomplete' : ' ready') + '">'
+          +     (incomplete ? 'Incomplete' : 'Ready')
+          +   '</div>'
+          + '</div>';
+      }).join('');
+      roster = '<div class="ar-pf-prop-list">' + rows + '</div>';
+    }
+
+    mount.innerHTML = '<div class="ar-pf-panel">' + hero + kpis + roster + '</div>';
+
+    // Kick off any pending fetches (idempotent — they short-circuit if
+    // a fresh entry is already cached). The .then handlers re-look up
+    // the mount element by ID rather than capturing the current `mount`
+    // in closure — this way a re-render of the archive shell (which
+    // replaces the #ar2-bank-portfolios container with a fresh DOM node)
+    // doesn't strand the fetch result on a detached element.
+    if (!slot || (!slot.rows && !slot.loading)){
+      loadProperties(pid).then(function(){
+        var live = document.getElementById('ar2-bank-portfolios');
+        if (live) renderPortfolioOverview(live);
+      });
+    }
+    if (!rollupSlot || (!rollupSlot.data && !rollupSlot.loading && !rollupSlot.error)){
+      getRollup(pid).then(function(){
+        var live = document.getElementById('ar2-bank-portfolios');
+        if (live) renderPortfolioOverview(live);
+      });
+    }
+  }
+
+  // ── Add Property modal (similar shape to New Portfolio modal) ──
+  /* ── P3: Portfolio Export panel ────────────────────────────────────
+     Section-toggles checklist + action CTAs. Replaces the Overview view
+     when pfState.viewMode === 'export'. The Portfolio Quote section is
+     locked until the rep clicks "Unlock & Configure" — that routes them
+     to the Quote builder, after which they return here with the Quote
+     section toggleable.
+
+     Section state lives in pfState.exportState keyed by portfolio id —
+     in-memory only for now; DB persistence to portfolio_quotes.notes
+     lands in P4 alongside the Quote builder fields.
+     ───────────────────────────────────────────────────────────────── */
+  function _defaultExportState(){
+    return {
+      cover:                true,
+      execSummary:          true,
+      propertyProfile:      true,           // NEW: Property Profile page(s)
+      propertyProfileLayout:'cards',        // 'cards' | 'list-by-country'
+      poolProfiles:         true,
+      poolProfilesLayout:   'cards',        // 'cards' | 'list' (compact rows grouped by property)
+      perProperty:          true,
+      quote:                false,           // off by default; flips true after Quote unlock
+      stdTerms:             true,
+      backCover:            true,
+      quoteReady:           false             // becomes true once the Quote builder is saved
+    };
+  }
+  function getExportState(pid){
+    if (!pfState.exportState) pfState.exportState = {};
+    if (!pfState.exportState[pid]) pfState.exportState[pid] = _defaultExportState();
+    return pfState.exportState[pid];
+  }
+  function setExportSection(pid, key, value){
+    var st = getExportState(pid);
+    st[key] = !!value;
+  }
+  function renderPortfolioExport(mount){
+    if (!mount) return;
+    var pid = pfState.selectedPortfolioId;
+    if (!pid){ pfState.viewMode = 'list'; return renderPortfoliosPanel(mount); }
+    var p = getPortfolio(pid);
+    var name = p ? (p.name || 'Untitled portfolio') : 'Loading…';
+    var st = getExportState(pid);
+    // Property count for the per-property toggle label
+    var propsSlot = pfState.properties[pid];
+    var propCount = (propsSlot && propsSlot.rows) ? propsSlot.rows.length : 0;
+    // Kick off a load if we don't have the roster yet
+    if (!propsSlot || (!propsSlot.rows && !propsSlot.loading)){
+      loadProperties(pid).then(function(){
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live && pfState.viewMode === 'export') renderPortfolioExport(live);
+      });
+    }
+    // Check the DB once for an existing quote row — if there is one, the
+    // Quote section flips from Locked to Ready without the rep having to
+    // re-open the builder. Cheap: maybeSingle on a UNIQUE-indexed column.
+    if (!pfState._quoteProbed) pfState._quoteProbed = {};
+    if (!pfState._quoteProbed[pid] && !st.quoteReady){
+      pfState._quoteProbed[pid] = true;
+      loadQuote(pid).then(function(q){
+        if (!q) return;
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live && pfState.viewMode === 'export') renderPortfolioExport(live);
+      }).catch(function(_){});
+    }
+    // Builds an .ar-toggle-row using the same chrome single-property uses
+    // (.ar-sw-track + .ar-sw-thumb). meta is shown as a small dimmed
+    // sub-line under the title. The toggle itself carries the data-pf-action.
+    function _expRow(key, title, meta, isOn){
+      return '<div class="ar-toggle-row" style="align-items:center">'
+        + '<label style="flex:1;line-height:1.3">'
+          + '<div>' + esc(title) + '</div>'
+          + (meta ? '<div style="font-size:11px;color:var(--mu);font-weight:400;margin-top:2px">' + meta + '</div>' : '')
+        + '</label>'
+        + '<div class="ar-sw-track' + (isOn?' on':'') + '" data-pf-action="exp-toggle" data-exp-key="' + key + '" role="switch" aria-checked="' + (!!isOn) + '"><div class="ar-sw-thumb"></div></div>'
+      + '</div>';
+    }
+    // Sub-options strip — sits below a parent toggle row when that section
+    // has Cards/List style choices.
+    function _expSubRow(layoutKey, options, currentValue){
+      var pills = options.map(function(opt){
+        var active = (currentValue === opt.value) || (!currentValue && opt.value === options[0].value);
+        return '<span class="ar-pf-exp-radio' + (active?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="' + layoutKey + '" data-layout-value="' + opt.value + '" role="radio" aria-checked="' + active + '">' + esc(opt.label) + '</span>';
+      }).join('');
+      return '<div class="ar-pf-exp-sub-row"><span class="ar-pf-exp-radio-group" role="radiogroup">' + pills + '</span></div>';
+    }
+    // Quote row — same .ar-toggle-row chrome, but the toggle stays visually
+    // disabled until the rep configures the Quote. A right-side action button
+    // surfaces "Unlock & Configure" when locked or "Edit" when ready.
+    var quoteRow;
+    if (st.quoteReady){
+      quoteRow = '<div class="ar-toggle-row" style="align-items:center">'
+        + '<label style="flex:1;line-height:1.3">'
+          + '<div>Portfolio Quote</div>'
+          + '<div style="font-size:11px;color:var(--gr);font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px">✓ Configured <button class="ar-pf-exp-edit" type="button" data-pf-action="open-quote">Edit</button></div>'
+        + '</label>'
+        + '<div class="ar-sw-track' + (st.quote?' on':'') + '" data-pf-action="exp-toggle" data-exp-key="quote" role="switch" aria-checked="' + !!st.quote + '"><div class="ar-sw-thumb"></div></div>'
+      + '</div>';
+    } else {
+      quoteRow = '<div class="ar-toggle-row" style="align-items:center;opacity:.92">'
+        + '<label style="flex:1;line-height:1.3">'
+          + '<div>Portfolio Quote</div>'
+          + '<div style="font-size:11px;color:var(--mu);font-weight:400;margin-top:2px;display:flex;align-items:center;gap:8px">🔒 Locked <button class="ar-pf-exp-unlock" type="button" data-pf-action="open-quote">Unlock &amp; Configure →</button></div>'
+        + '</label>'
+        + '<div class="ar-sw-track" style="opacity:.45;pointer-events:none" aria-disabled="true"><div class="ar-sw-thumb"></div></div>'
+      + '</div>';
+    }
+    mount.innerHTML =
+      '<div class="ar-pf-ov-hero">'
+      +   '<button class="ar-pf-back" data-pf-action="back-to-overview" type="button" aria-label="Back to portfolio overview">&#x2190; Portfolio</button>'
+      +   '<div class="ar-pf-ov-title-wrap">'
+      +     '<div class="ar-pf-ov-title">' + esc(name) + ' — Export</div>'
+      +     '<div class="ar-pf-ov-meta"><span class="ar-pf-row-status draft">Configure sections to include in the PDF</span></div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="ar-pf-exp-wrap">'
+      +   '<div class="ar-pf-exp-card">'
+      +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
+      +     _expRow('cover',           'Cover Page',           'Portfolio name + buyer info',                                                                       st.cover)
+      +     _expRow('execSummary',     'Executive Summary',    'Rolled-up KPIs across all properties',                                                              st.execSummary)
+      +     _expRow('perProperty',     'Portfolio Assessment', 'Portfolio summary + per-property assessment pages',                                                 st.perProperty)
+      +     _expRow('propertyProfile', 'Property Profiles',    propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list',           st.propertyProfile)
+      +     _expSubRow('propertyProfileLayout', [{value:'cards',label:'Cards'},{value:'list-by-country',label:'List by Country'}], st.propertyProfileLayout)
+      +     _expRow('poolProfiles',    'Property Pool Profiles','Pool detail grouped by property — cards or compact list',                                          st.poolProfiles)
+      +     _expSubRow('poolProfilesLayout',    [{value:'cards',label:'Cards'},{value:'list',label:'List'}],                                  st.poolProfilesLayout)
+      +     quoteRow
+      +     _expRow('stdTerms',        'Purchase Terms and Conditions', 'Pulls from Quote section 6 if configured',                                                st.stdTerms)
+      +     _expRow('backCover',       'Back Cover',           '',                                                                                                  st.backCover)
+      +   '</div>'
+      +   '<div class="ar-pf-exp-actions">'
+      +     '<button class="ar-pf-exp-btn" type="button" data-pf-action="exp-preview">Preview PDF</button>'
+      +     '<button class="ar-pf-exp-btn primary" type="button" data-pf-action="exp-download">Download PDF</button>'
+      +     '<button class="ar-pf-exp-btn archive" type="button" data-pf-action="exp-archive">Save to Archive</button>'
+      +   '</div>'
+      +   '<div class="ar-pf-exp-note">Preview · Download · Archive will hook into the Portfolio PDF templates in the next sandbox pass (P7).</div>'
+      + '</div>';
+  }
+
+  /* ── P3: Quote builder shell ───────────────────────────────────────
+     Full-screen surface replacing the Export panel while the rep is
+     configuring the Portfolio Quote. Sections 1, 4, 5, 6 (Recipient,
+     Adjustments, Deposit & Terms, Standard Terms / Notes) render as
+     manual forms — DB persistence wires up in P4. Sections 2 + 3
+     (Ship-To list, Line Items roll-up) are P5+/P6.
+     ───────────────────────────────────────────────────────────────── */
+  function _defaultQuoteState(){
+    return {
+      // 1. Recipient
+      buyerName: '', buyerEmail: '', buyerPhone: '', billTo: '',
+      // 4. Adjustments
+      discountPct: 0, taxRate: 0, shippingCost: 0, shippingTerm: '',
+      // 5. Deposit & Terms
+      depositPct: 0, depositDueDate: '', balanceDueTerms: '',
+      // 6. Standard Terms & Notes
+      stdTerms: '', notes: '',
+      // 6b. Purchase Terms & Conditions — long legal block, prints on its
+      // own page after the Quote page. Defaults to the same QUOTE_DEFAULT_TERMS
+      // single-property quotes use, so the rep gets a sensible starting point.
+      purchaseTerms: (typeof QUOTE_DEFAULT_TERMS !== 'undefined' ? QUOTE_DEFAULT_TERMS : ''),
+      // status flag (used by Export panel to flip quote section to "Ready")
+      status: 'draft'
+    };
+  }
+  function getQuoteState(pid){
+    if (!pfState.quoteState) pfState.quoteState = {};
+    if (!pfState.quoteState[pid]) pfState.quoteState[pid] = _defaultQuoteState();
+    return pfState.quoteState[pid];
+  }
+  /* P6: Ship-To list — one destination per property by default, populated
+     from portfolio_properties.formatted_address. Reps can override per-row,
+     add notes per destination, or flip to "consolidated" mode for a single
+     ship-to.
+     State shape on quote_state:
+       q.shipTos = {
+         mode: 'split' | 'consolidated',
+         perProp: { [propId]: { override: '', notes: '' } },
+         consolidated: { address: '', notes: '' }
+       }
+     ─────────────────────────────────────────────────────────────────── */
+  function _ensureShipTosState(q){
+    if (!q.shipTos) q.shipTos = { mode: 'split', perProp: {}, consolidated: { address: '', notes: '' } };
+    if (!q.shipTos.perProp) q.shipTos.perProp = {};
+    if (!q.shipTos.consolidated) q.shipTos.consolidated = { address: '', notes: '' };
+    return q.shipTos;
+  }
+  function renderShipTosSection(pid, q){
+    if (!pid) return '';
+    var st = _ensureShipTosState(q);
+    var states = (pfState.propertyStates && pfState.propertyStates[pid] && pfState.propertyStates[pid].rows) || null;
+    if (!states){
+      // loadPropertyStates already kicked off by Section 3; this just waits.
+      return ''
+        + '<div class="ar-pf-qb-card">'
+        +   '<div class="ar-pf-qb-section-num">2</div>'
+        +   '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
+        +   '<div class="ar-pf-qb-placeholder">Loading property addresses…</div>'
+        + '</div>';
+    }
+    var modeToggle = ''
+      + '<div class="ar-pf-ship-mode">'
+      +   '<label class="ar-pf-ship-mode-radio"><input type="radio" name="ship-mode" value="split" ' + (st.mode!=='consolidated'?'checked':'') + ' data-pf-action="ship-mode"> Split — one per property</label>'
+      +   '<label class="ar-pf-ship-mode-radio"><input type="radio" name="ship-mode" value="consolidated" ' + (st.mode==='consolidated'?'checked':'') + ' data-pf-action="ship-mode"> Consolidated — single destination</label>'
+      + '</div>';
+
+    var body;
+    if (st.mode === 'consolidated'){
+      body = ''
+        + '<div class="ar-pf-ship-consolid">'
+        +   '<label class="ar-pf-qb-field full"><span>Consolidated Ship-To Address</span><textarea rows="3" data-qb-ship-cons="address" placeholder="Single delivery destination for the whole portfolio">' + esc(st.consolidated.address || '') + '</textarea></label>'
+        +   '<label class="ar-pf-qb-field full"><span>Notes</span><input type="text" data-qb-ship-cons="notes" value="' + esc(st.consolidated.notes || '') + '" placeholder="e.g. Receiver: Operations, weekday delivery only"></label>'
+        + '</div>';
+    } else {
+      body = '<div class="ar-pf-ship-list">';
+      for (var i = 0; i < states.length; i++){
+        var r = states[i];
+        var pp = st.perProp[r.id] || { override: '', notes: '' };
+        // Auto address comes from formatted_address — when override is empty
+        // we show the auto value as a placeholder.
+        var autoAddr = r.formatted_address || '';
+        body += ''
+          + '<div class="ar-pf-ship-row">'
+          +   '<div class="ar-pf-ship-row-head">'
+          +     '<span class="ar-pf-ship-row-name">' + esc(r.property_name || 'Property') + '</span>'
+          +     (autoAddr ? '<span class="ar-pf-ship-row-auto">' + esc(autoAddr) + '</span>' : '<span class="ar-pf-ship-row-auto missing">No address captured</span>')
+          +   '</div>'
+          +   '<textarea rows="2" class="ar-pf-ship-row-input" data-qb-ship-prop="' + esc(r.id) + '" data-qb-ship-field="override" placeholder="' + (autoAddr ? esc('Auto: ' + autoAddr) : 'Enter ship-to address') + '">' + esc(pp.override || '') + '</textarea>'
+          +   '<input type="text" class="ar-pf-ship-row-notes" data-qb-ship-prop="' + esc(r.id) + '" data-qb-ship-field="notes" placeholder="Notes (optional)" value="' + esc(pp.notes || '') + '">'
+          + '</div>';
+      }
+      body += '</div>';
+      if (!states.length){
+        body = '<div class="ar-pf-qb-placeholder">No properties yet — add properties to populate destinations.</div>';
+      }
+    }
+    return ''
+      + '<div class="ar-pf-qb-card">'
+      +   '<div class="ar-pf-qb-section-num">2</div>'
+      +   '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
+      +   modeToggle
+      +   body
+      + '</div>';
+  }
+
+  /* P5: Line Items section renderer. Reads cached property states + the
+     quote's lineOverrides map, runs computeLineItemsRollup, and emits the
+     SKU rows with expandable per-property breakdowns. Empty rows include
+     all SKUs with zero qty so reps can still type in an override (manual-add).
+     Kicks off loadPropertyStates if not already cached — re-renders on resolve. */
+  function renderLineItemsSection(pid, q){
+    if (!pid) return '';
+    var states = (pfState.propertyStates && pfState.propertyStates[pid] && pfState.propertyStates[pid].rows) || null;
+    // Kick a load if needed; the .then re-renders the builder once states arrive.
+    if (!states){
+      loadPropertyStates(pid).then(function(){
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live && pfState.viewMode === 'quote-builder') renderQuoteBuilder(live);
+      });
+      return ''
+        + '<div class="ar-pf-qb-card">'
+        +   '<div class="ar-pf-qb-section-num">3</div>'
+        +   '<div class="ar-pf-qb-card-title">Line Items</div>'
+        +   '<div class="ar-pf-qb-placeholder">Loading property states…</div>'
+        + '</div>';
+    }
+    var overrides = q.lineOverrides || {};
+    var rows = computeLineItemsRollup(states, overrides);
+    if (!rows.length){
+      return ''
+        + '<div class="ar-pf-qb-card">'
+        +   '<div class="ar-pf-qb-section-num">3</div>'
+        +   '<div class="ar-pf-qb-card-title">Line Items</div>'
+        +   '<div class="ar-pf-qb-placeholder">No devices configured on any property yet. Add devices in property mode (Step 2) to populate line items.</div>'
+        + '</div>';
+    }
+    var subtotal = rows.reduce(function(s,r){ return s + r.total; }, 0);
+    var html = ''
+      + '<div class="ar-pf-qb-card">'
+      +   '<div class="ar-pf-qb-section-num">3</div>'
+      +   '<div class="ar-pf-qb-card-title">Line Items</div>'
+      +   '<div class="ar-pf-li-thead">'
+      +     '<div>SKU</div>'
+      +     '<div class="num">Qty</div>'
+      +     '<div class="num">Unit Price</div>'
+      +     '<div class="num">Line Total</div>'
+      +   '</div>';
+    for (var i = 0; i < rows.length; i++){
+      var r = rows[i];
+      var qtyDisplay   = r.qty;
+      var priceDisplay = r.price;
+      var qtyOverride   = (overrides[r.sku] && overrides[r.sku].qty   != null) ? overrides[r.sku].qty   : '';
+      var priceOverride = (overrides[r.sku] && overrides[r.sku].price != null) ? overrides[r.sku].price : '';
+      html += ''
+        + '<div class="ar-pf-li-row' + (r.hasOverride ? ' has-override' : '') + '">'
+        +   '<div class="ar-pf-li-sku">'
+        +     '<div class="ar-pf-li-sku-label">' + esc(r.label) + '</div>'
+        +     '<div class="ar-pf-li-sku-meta">' + esc(r.flow) + '</div>'
+        +   '</div>'
+        +   '<div class="ar-pf-li-cell num">'
+        +     '<input type="number" min="0" step="1" placeholder="' + r.autoQty + '" value="' + esc(String(qtyOverride)) + '" data-qb-override-sku="' + r.sku + '" data-qb-override-field="qty" title="Auto: ' + r.autoQty + '">'
+        +   '</div>'
+        +   '<div class="ar-pf-li-cell num">'
+        +     '<input type="number" min="0" step="0.01" placeholder="' + r.autoPrice + '" value="' + esc(String(priceOverride)) + '" data-qb-override-sku="' + r.sku + '" data-qb-override-field="price" title="Auto: ' + r.autoPrice + '">'
+        +   '</div>'
+        +   '<div class="ar-pf-li-cell num"><b>$' + fn(r.total) + '</b></div>'
+        + '</div>';
+      if (r.breakdown.length){
+        html += '<details class="ar-pf-li-breakdown"><summary>Per-property breakdown</summary><div class="ar-pf-li-bd-body">';
+        for (var b = 0; b < r.breakdown.length; b++){
+          var bp = r.breakdown[b];
+          html += '<div class="ar-pf-li-bd-row"><span>' + esc(bp.name) + '</span><span class="num">×' + bp.qty + '</span></div>';
+        }
+        html += '</div></details>';
+      }
+    }
+    html += ''
+      +   '<div class="ar-pf-li-subtotal">'
+      +     '<span>Devices subtotal</span>'
+      +     '<b>$' + fn(subtotal) + '</b>'
+      +   '</div>'
+      +   '<div class="ar-pf-li-note">Empty inputs use the auto-rolled value (shown as placeholder). Type a number to override.</div>'
+      + '</div>';
+    return html;
+  }
+
+  function renderQuoteBuilder(mount){
+    if (!mount) return;
+    var pid = pfState.selectedPortfolioId;
+    if (!pid){ pfState.viewMode = 'list'; return renderPortfoliosPanel(mount); }
+    var p = getPortfolio(pid);
+    var name = p ? (p.name || 'Untitled portfolio') : 'Loading…';
+    var q = getQuoteState(pid);
+    mount.innerHTML =
+      '<div class="ar-pf-ov-hero">'
+      +   '<button class="ar-pf-back" data-pf-action="back-from-quote" type="button" aria-label="Back to export">&#x2190; Export</button>'
+      +   '<div class="ar-pf-ov-title-wrap">'
+      +     '<div class="ar-pf-ov-title">' + esc(name) + ' — Quote</div>'
+      +     '<div class="ar-pf-ov-meta"><span class="ar-pf-row-status draft">Configure the Portfolio Quote</span></div>'
+      +   '</div>'
+      +   '<div class="ar-pf-ov-actions">'
+      +     '<button class="ar-pf-actbtn" type="button" data-pf-action="quote-save-draft">Save Draft</button>'
+      +     '<button class="ar-pf-actbtn primary" type="button" data-pf-action="quote-save-return">Save &amp; Return →</button>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="ar-pf-qb-wrap">'
+
+      // Section 1 — Recipient
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">1</div>'
+      +     '<div class="ar-pf-qb-card-title">Recipient</div>'
+      +     '<div class="ar-pf-qb-grid two">'
+      +       '<label class="ar-pf-qb-field"><span>Buyer Name</span><input type="text" data-qb-key="buyerName" value="' + esc(q.buyerName) + '" placeholder="Property group / entity name"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Buyer Email</span><input type="email" data-qb-key="buyerEmail" value="' + esc(q.buyerEmail) + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Phone</span><input type="tel" data-qb-key="buyerPhone" value="' + esc(q.buyerPhone) + '"></label>'
+      +       '<label class="ar-pf-qb-field full"><span>Bill-To Address</span><textarea data-qb-key="billTo" rows="2" placeholder="Street, City, State / Country, Postal">' + esc(q.billTo) + '</textarea></label>'
+      +     '</div>'
+      +   '</div>'
+
+      // Section 2/3 placeholders (P5/P6)
+      +   renderShipTosSection(pid, q)
+      +   renderLineItemsSection(pid, q)
+
+      // Section 4 — Adjustments
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">4</div>'
+      +     '<div class="ar-pf-qb-card-title">Adjustments</div>'
+      +     '<div class="ar-pf-qb-grid two">'
+      +       '<label class="ar-pf-qb-field"><span>Portfolio Discount (%)</span><input type="number" min="0" max="100" step="0.5" data-qb-key="discountPct" value="' + q.discountPct + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Tax Rate (%)</span><input type="number" min="0" max="100" step="0.01" data-qb-key="taxRate" value="' + q.taxRate + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Consolidated Shipping ($)</span><input type="number" min="0" step="0.01" data-qb-key="shippingCost" value="' + q.shippingCost + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Shipping Term</span><input type="text" data-qb-key="shippingTerm" value="' + esc(q.shippingTerm) + '" placeholder="e.g. EXW Origin, FOB Destination"></label>'
+      +     '</div>'
+      +   '</div>'
+
+      // Section 5 — Deposit & Terms
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">5</div>'
+      +     '<div class="ar-pf-qb-card-title">Deposit &amp; Payment Terms</div>'
+      +     '<div class="ar-pf-qb-grid two">'
+      +       '<label class="ar-pf-qb-field"><span>Deposit (%)</span><input type="number" min="0" max="100" step="1" data-qb-key="depositPct" value="' + q.depositPct + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Deposit Due Date</span><input type="date" data-qb-key="depositDueDate" value="' + esc(q.depositDueDate) + '"></label>'
+      +       '<label class="ar-pf-qb-field full"><span>Balance Due Terms</span><input type="text" data-qb-key="balanceDueTerms" value="' + esc(q.balanceDueTerms) + '" placeholder="e.g. Net 30 from delivery"></label>'
+      +     '</div>'
+      +   '</div>'
+
+      // Section 6 — Standard Terms, Purchase Terms & Notes
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">6</div>'
+      +     '<div class="ar-pf-qb-card-title">Standard Terms, Purchase Terms &amp; Notes</div>'
+      +     '<label class="ar-pf-qb-field full" style="margin-top:6px"><span>Standard Terms <em style="text-transform:none;letter-spacing:0;color:#7db8cc;font-weight:400">— short, prints on the Quote page above signature</em></span><textarea data-qb-key="stdTerms" rows="3" placeholder="Boilerplate terms that print on the Order page above the signature block">' + esc(q.stdTerms) + '</textarea></label>'
+      +     '<label class="ar-pf-qb-field full"><span>Purchase Terms and Conditions <em style="text-transform:none;letter-spacing:0;color:#7db8cc;font-weight:400">— long-form legal, prints on its own page after the Quote</em></span><textarea data-qb-key="purchaseTerms" rows="12" placeholder="Long-form legal terms — printed on a dedicated Purchase Terms page after the Quote.">' + esc(q.purchaseTerms || '') + '</textarea></label>'
+      +     '<label class="ar-pf-qb-field full"><span>Notes <em style="text-transform:none;letter-spacing:0;color:#7db8cc;font-weight:400">— internal, does not print</em></span><textarea data-qb-key="notes" rows="2" placeholder="Internal notes (won\'t print)">' + esc(q.notes) + '</textarea></label>'
+      +   '</div>'
+
+      + '</div>';
+  }
+
+  function openAddPropertyModal(){
+    if (document.getElementById('ar-pf-add-prop-modal')) return;
+    var backdrop = document.createElement('div');
+    backdrop.id = 'ar-pf-add-prop-modal';
+    backdrop.className = 'ar-pf-modal-backdrop';
+    backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-add-prop-title">'
+      + '<div class="ar-pf-modal-title" id="ar-pf-add-prop-title">Add property</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-pf-add-prop-name">Property name</label>'
+      + '<input class="ar-pf-modal-input" id="ar-pf-add-prop-name" type="text" maxlength="160" placeholder="e.g. Ritz-Carlton, Turks &amp; Caicos" autocomplete="off" />'
+      + '<div class="ar-pf-modal-hint">You\'ll configure pools, devices, and savings on the next page (Phase 1c).</div>'
+      + '<div class="ar-pf-modal-err" id="ar-pf-add-prop-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+      +   '<button class="ar-pf-modal-btn" data-pf-action="add-prop-cancel" type="button">Cancel</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-pf-action="add-prop-create" type="button">Add property</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(backdrop);
+    setTimeout(function(){ var i = document.getElementById('ar-pf-add-prop-name'); if (i) i.focus(); }, 30);
+    backdrop.addEventListener('click', function(e){
+      if (e.target === backdrop) { closeAddPropertyModal(); return; }
+      var act = e.target.closest('[data-pf-action]');
+      if (!act) return;
+      var a = act.getAttribute('data-pf-action');
+      if (a === 'add-prop-cancel') { closeAddPropertyModal(); return; }
+      if (a === 'add-prop-create') { submitNewProperty();     return; }
+    });
+    backdrop.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeAddPropertyModal();
+      if (e.key === 'Enter' && e.target.id === 'ar-pf-add-prop-name') submitNewProperty();
+    });
+  }
+  function closeAddPropertyModal(){
+    var el = document.getElementById('ar-pf-add-prop-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  function submitNewProperty(){
+    var pid = pfState.selectedPortfolioId;
+    if (!pid) { closeAddPropertyModal(); return; }
+    var input = document.getElementById('ar-pf-add-prop-name');
+    var err = document.getElementById('ar-pf-add-prop-err');
+    var btn = document.querySelector('[data-pf-action="add-prop-create"]');
+    if (!input) return;
+    var name = input.value.trim();
+    if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    createProperty(pid, name).then(function(){
+      closeAddPropertyModal();
+      if (typeof renderArchive === 'function') renderArchive();
+    }).catch(function(e){
+      if (btn) { btn.disabled = false; btn.textContent = 'Add property'; }
+      if (err) err.textContent = (e && e.message) || 'Add failed.';
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // Phase 1c — Property mode (calculator scoped to a portfolio property)
+  // ════════════════════════════════════════════════════════════════
+
+  // Deep-clone via JSON round-trip. Adequate for S/EX which hold plain
+  // data only (no functions, DOM nodes, dates). Used for snapshots and
+  // state hydration when entering/exiting property mode.
+  function cloneJson(v){
+    try { return JSON.parse(JSON.stringify(v)); }
+    catch(e){ return v; }
+  }
+
+  function inPropertyMode(){ return pfState.propertyMode === true; }
+  function loadedProperty(){ return pfState.loadedProperty; }
+  function saveStatus(){ return pfState.saveStatus; }
+
+  // Fetch the full portfolio_properties row including the heavy fields
+  // (state_json, ex_json, pool_measure_json) that the roster query omits
+  // for list-view performance.
+  function fetchPropertyFull(propertyId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    return c.from('portfolio_properties')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,state_json,ex_json,pool_measure_json,image_urls,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .eq('id', propertyId)
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return rs.data;
+      });
+  }
+
+  // Reset the calculator's global S / EX to fresh-default state WITHOUT
+  // calling render(). Mirrors the body of resetApp() but skips the
+  // render trigger so we can apply property state on top before the
+  // first paint.
+  function _resetCalcStateSilent(){
+    if (window.AR2_MAP && AR2_MAP.reset){ try { AR2_MAP.reset(); } catch(e){} }
+    S.step = 0; S.activeTab = 'advantage';
+    S.propertyName = '';
+    S.bodies = [{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];
+    S.devicesByPool = false;
+    S.pool_gallons = 0; S.chlorine_pool_gallons = 0; S.co2_pool_gallons = 0;
+    S.manualVolume = false; S.manualTotalGallons = ''; S.manualChlorineGallons = ''; S.manualCo2 = false; S.manualPoolCount = 1;
+    S.propertiesCount = 1;
+    S.pipe_2in = 0; S.pipe_3in = 0; S.pipe_4in = 0; S.pipe_6in = 0; S.pipe_8in = 0; S.pipe_10in = 0;
+    S.discount = 0; S.savings_weight = 1;
+    EX.images = []; EX.ytEntries = []; EX.comments = '';
+    EX.scenario = 'advantage'; EX.bothScenarios = true; EX.layout = 'portrait';
+    EX.inclCover = false; EX.inclWater = true; EX.inclFactSheet = false; EX.inclBackCover = false; EX.inclPoolProfiles = false; EX.inclExecSummary = false;
+    EX.execCustomTitle = ''; EX.execCustomCopy = '';
+    EX.inclLsCover = false; EX.inclLsExecSummary = false; EX.inclLsP2Col3Photos = false; EX.lsP2Col3Photos = []; EX.inclLsBackCover = false;
+    EX.saving = false; EX.saveStatus = null; EX.exporting = false;
+    if (typeof initDefaultYt === 'function') initDefaultYt();
+  }
+
+  // Shallow-assign object fields. Used to hydrate S from state_json
+  // without losing any keys that S has and state_json doesn't.
+  function _assignFields(target, src){
+    if (!src || typeof src !== 'object') return;
+    for (var k in src){
+      if (Object.prototype.hasOwnProperty.call(src, k)){
+        target[k] = src[k];
+      }
+    }
+  }
+
+  // Enter property mode. Loads the property row, snapshots the user's
+  // current single-property state, hydrates S/EX from state_json/ex_json,
+  // shows the breadcrumb subbar, and re-renders the calculator.
+  // Internal flag `_navWithinPortfolio` (set by prev/next nav) preserves
+  // the existing snapshot so exiting after multi-property navigation
+  // still restores the original single-property session.
+  function enterProperty(propertyId, _navWithinPortfolio){
+    if (!propertyId) return Promise.reject(new Error('property id required'));
+    return fetchPropertyFull(propertyId).then(function(prop){
+      // Snapshot the user's current single-property session — only on the
+      // INITIAL entry. Prev/Next navigation within property mode keeps
+      // the original snapshot so a multi-property session still restores
+      // back to the original single-property work on exit.
+      if (!_navWithinPortfolio || !pfState.savedSnapshot){
+        pfState.savedSnapshot = {
+          S: cloneJson(S),
+          EX: cloneJson(EX)
+        };
+      }
+      // Reset calculator to clean defaults so any field the property's
+      // state_json doesn't carry falls back to its default value.
+      _resetCalcStateSilent();
+      // Hydrate from property state. property_name overrides S.propertyName
+      // so the calculator UI shows the property's name as the property name.
+      if (prop.state_json && typeof prop.state_json === 'object'){
+        _assignFields(S, prop.state_json);
+      }
+      if (prop.ex_json && typeof prop.ex_json === 'object'){
+        _assignFields(EX, prop.ex_json);
+      }
+      // Force-set the property name to match the portfolio_properties.name
+      // (source of truth for the property's identity).
+      if (prop.property_name) S.propertyName = prop.property_name;
+      // Step index mapping (existing calculator, 0-indexed S.step):
+      //   0 → Map Pools          (UI label "Step 1")
+      //   1 → Pool & System      (UI label "Step 2")
+      //   2 → Pricing & Settings (UI label "Step 3")
+      //   3 → Quote              (UI label "Step 4")
+      //   4 → Export             (UI label "Step 5")
+      // A brand-new property has empty state_json, so S.step inherits
+      // the _resetCalcStateSilent default of 0 (Map Pools) — that's
+      // where the rep starts when adding a new property. Returning to
+      // an existing property restores whatever step they last saved.
+      // Just clamp to the valid range; never force a minimum.
+      var stepN = Number(S.step);
+      if (!(stepN >= 0 && stepN <= 4)) stepN = 0;
+      S.step = stepN;
+      pfState.propertyMode = true;
+      pfState.loadedProperty = prop;
+      pfState.saveStatus = 'idle';
+      pfState.saveError = null;
+      _renderSubbar();
+      _toggleSubbar(true);
+      // Show calculator (hide archive), then re-render with new S.
+      if (typeof showView === 'function') showView('form');
+      if (typeof render === 'function') render();
+      // Restore Map Pools state (polygons, boundary, centre, property name).
+      // Done AFTER render() so the persistent #ap2 mount has finished its
+      // own paint cycle and is ready to accept the snapshot.
+      if (prop.pool_measure_json && window.AR2_MAP && AR2_MAP.loadSnapshot){
+        try { AR2_MAP.loadSnapshot(prop.pool_measure_json); } catch(_){}
+      } else if (window.AR2_MAP && AR2_MAP.reset){
+        // No map data for this property — start clean (don't carry the
+        // last property's polygons over).
+        try { AR2_MAP.reset(); } catch(_){}
+      }
+    });
+  }
+
+  // Exit property mode. Saves any pending changes, restores the original
+  // single-property snapshot, navigates back to the Portfolio Overview.
+  function exitProperty(opts){
+    var skipSave = opts && opts.skipSave;
+    // Capture which portfolio we're returning to BEFORE we clear
+    // loadedProperty (which is the source of truth for portfolio_id).
+    var returnPortfolioId = (pfState.loadedProperty && pfState.loadedProperty.portfolio_id)
+                          || pfState.selectedPortfolioId;
+    var done = function(){
+      // Restore the user's prior single-property session
+      if (pfState.savedSnapshot){
+        _resetCalcStateSilent();
+        _assignFields(S, pfState.savedSnapshot.S);
+        _assignFields(EX, pfState.savedSnapshot.EX);
+      }
+      pfState.savedSnapshot = null;
+      pfState.propertyMode = false;
+      pfState.loadedProperty = null;
+      pfState.saveStatus = 'idle';
+      pfState.saveError = null;
+      if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
+      _toggleSubbar(false);
+      // Belt-and-suspenders cache invalidation. saveCurrentProperty already
+      // null'd these, but if the save failed (or was skipped) the caches
+      // could still be stale. Clear both so the Overview re-fetches fresh
+      // numbers when it renders below.
+      if (returnPortfolioId){
+        pfState.rollup[returnPortfolioId] = null;
+        var slot = pfState.properties[returnPortfolioId];
+        if (slot) slot.rows = null;
+      }
+      // Navigate back to Portfolio Overview (Portfolios tab, overview view)
+      pfState.activeTab = 'portfolios';
+      pfState.viewMode  = 'overview';
+      // Make sure selectedPortfolioId points at the portfolio we just
+      // exited from, even if it was somehow cleared elsewhere.
+      if (returnPortfolioId) pfState.selectedPortfolioId = returnPortfolioId;
+      // showView('bank') already calls renderArchive() internally, so
+      // calling renderArchive() again here would race: the first render
+      // captures a mount reference, the second wipes that mount and
+      // creates a new one, but the pending fetch from the first render
+      // writes its result to the detached old mount. Result: visible UI
+      // stuck on "Loading properties…" forever. Single renderArchive
+      // call only.
+      if (typeof showView === 'function') showView('bank');
+    };
+    if (skipSave || !pfState.loadedProperty){ done(); return Promise.resolve(); }
+    return saveCurrentProperty().then(done, function(err){
+      // Save failed — surface it but still allow exit so the user can
+      // navigate away. They'll see the error indicator next time they
+      // open this property.
+      try { console.warn('[AR2_PF] save before exit failed:', err); } catch(_){}
+      done();
+    });
+  }
+
+  // Compute the computed_kpis blob from the current S/EX/R. Field names
+  // match what portfolio_rollup(uuid) expects to aggregate.
+  function _buildKpisFromState(){
+    var R = (typeof calcROI === 'function') ? calcROI() : null;
+    if (!R) return {};
+    return {
+      total_dev:      Number(R.total_dev) || 0,
+      total_pool_gal: Number(S.pool_gallons) || 0,
+      total_mo:       Number(R.total_mo) || 0,
+      total_yr:       Number(R.total_yr) || 0,
+      inv:            Number(R.inv) || 0,
+      payback:        Number(R.payback) || 0,
+      roi5:           Number(R.roi5) || 0,
+      water_5yr:      Number(R.gal_saved_5yr) || 0,
+      disc_amt:       Number(R.disc_amt) || 0
+    };
+  }
+
+  // Persist current S/EX + freshly-computed KPIs to portfolio_properties.
+  // Returns a promise resolving when the UPDATE completes.
+  function saveCurrentProperty(){
+    if (!pfState.propertyMode || !pfState.loadedProperty){
+      return Promise.reject(new Error('not in property mode'));
+    }
+    // Cancel any pending debounced autosave — we're saving now, so the
+    // pending one is redundant and would risk double-fire after exit.
+    if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    var prop = pfState.loadedProperty;
+    var kpis = _buildKpisFromState();
+    // state_json mirrors single-property assessments.snapshot shape so
+    // hydration on next open is symmetric. ex_json saves images + export
+    // toggles. Both could grow large (images); Phase 2 migrates images
+    // to Supabase Storage. For Phase 1c we save inline.
+    var stateJson = cloneJson(S);
+    var exJson    = cloneJson(EX);
+    // Capture the AR2_MAP snapshot too (pool polygons, boundary, centre).
+    // Without this, every save would erase the map work — reps would trace
+    // pools on entry, navigate forward, then find the map blank on return.
+    var poolMeasureJson = null;
+    try { if (window.AR2_MAP && AR2_MAP.exportSnapshot) poolMeasureJson = AR2_MAP.exportSnapshot(); } catch(_){}
+    pfState.saveStatus = 'saving';
+    pfState.saveError  = null;
+    _renderSubbar();
+    var updatePayload = {
+      state_json: stateJson,
+      ex_json:    exJson,
+      computed_kpis: kpis,
+      // Persist a normalized property_name only if user has entered one
+      // in the calculator (S.propertyName); otherwise keep the existing.
+      property_name: (S.propertyName && String(S.propertyName).trim()) || prop.property_name
+    };
+    // Only overwrite pool_measure_json when AR2_MAP is available — if the
+    // map module hasn't loaded, leave the existing value alone rather than
+    // nuking it.
+    if (window.AR2_MAP && AR2_MAP.exportSnapshot){
+      updatePayload.pool_measure_json = poolMeasureJson;
+    }
+    // Same defensive rule for the formatted address — only write when the
+    // map module is loaded (and only when the rep actually typed/picked an
+    // address). Preserves prior value otherwise. Address feeds the Property
+    // Profiles roster, ship-to auto-populate, and country-grouping logic.
+    if (window.AR2_MAP && AR2_MAP.getFormattedAddress){
+      var addrNow = '';
+      try { addrNow = AR2_MAP.getFormattedAddress() || ''; } catch(_){}
+      if (addrNow){
+        updatePayload.formatted_address = addrNow;
+        stateJson.formattedAddress = addrNow; // mirror into state for round-trip
+      }
+    }
+    return c.from('portfolio_properties')
+      .update(updatePayload)
+      .eq('id', prop.id)
+      .select('id,property_name,computed_kpis,updated_at')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        // Update local caches so the Portfolio Overview reflects new
+        // KPIs without a refetch.
+        pfState.loadedProperty.property_name = rs.data.property_name;
+        pfState.loadedProperty.computed_kpis = rs.data.computed_kpis;
+        pfState.loadedProperty.updated_at    = rs.data.updated_at;
+        var portfolioId = prop.portfolio_id;
+        var slot = pfState.properties[portfolioId];
+        if (slot && slot.rows){
+          for (var i = 0; i < slot.rows.length; i++){
+            if (slot.rows[i].id === prop.id){
+              slot.rows[i].property_name  = rs.data.property_name;
+              slot.rows[i].computed_kpis  = rs.data.computed_kpis;
+              slot.rows[i].updated_at     = rs.data.updated_at;
+              break;
+            }
+          }
+        }
+        // Invalidate the cached rollup so the Overview KPI strip
+        // refetches with the new aggregates next time it renders.
+        // Use direct assignment (not the truthy-guarded variant) so any
+        // shape — null, undefined, or stale object — gets cleared.
+        pfState.rollup[portfolioId] = null;
+        pfState.saveStatus = 'saved';
+        _renderSubbar();
+        // Reset to idle after a short success window so the UI doesn't
+        // pin to "Saved" indefinitely.
+        setTimeout(function(){
+          if (pfState.saveStatus === 'saved') { pfState.saveStatus = 'idle'; _renderSubbar(); }
+        }, 2500);
+        return rs.data;
+      }, function(err){
+        pfState.saveStatus = 'error';
+        pfState.saveError  = (err && err.message) || 'Save failed';
+        _renderSubbar();
+        throw err;
+      });
+  }
+
+  // Debounced autosave — call from render() and on field changes. The
+  // debounce window collapses bursts of edits (typing, slider drag) into
+  // a single save once activity quiets down.
+  function scheduleAutosave(){
+    if (!pfState.propertyMode) return;
+    if (pfState.saveTimer) clearTimeout(pfState.saveTimer);
+    pfState.saveTimer = setTimeout(function(){
+      pfState.saveTimer = null;
+      saveCurrentProperty().catch(function(){ /* error surfaced via saveStatus */ });
+    }, pfState.AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  // ── Prev/Next property navigation within a portfolio ────────────
+  // Returns { idx, total } for the currently-loaded property within the
+  // ordered roster of its portfolio. Returns null if either no property
+  // is loaded or the roster hasn't been fetched yet.
+  function _propertyPosition(){
+    var prop = pfState.loadedProperty;
+    if (!prop) return null;
+    var rows = (pfState.properties[prop.portfolio_id] && pfState.properties[prop.portfolio_id].rows) || null;
+    if (!rows) return null;
+    for (var i = 0; i < rows.length; i++){
+      if (rows[i].id === prop.id) return { idx: i, total: rows.length };
+    }
+    return null;
+  }
+
+  // Navigate to the previous / next property in the portfolio. Saves the
+  // current property's state first, then loads the adjacent property via
+  // enterProperty(..., true) — the second arg preserves the original
+  // single-property snapshot so exiting still restores the user's pre-
+  // portfolio session correctly even after multi-property navigation.
+  function _navigateAdjacent(direction){
+    var pos = _propertyPosition();
+    if (!pos) return Promise.resolve(null);
+    var prop = pfState.loadedProperty;
+    var rows = pfState.properties[prop.portfolio_id].rows;
+    var targetIdx = pos.idx + direction;
+    if (targetIdx < 0 || targetIdx >= rows.length) return Promise.resolve(null);
+    var targetId = rows[targetIdx].id;
+    if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
+    return saveCurrentProperty().then(function(){
+      return enterProperty(targetId, true);
+    }, function(err){
+      // If save fails, still allow navigation but warn — the property
+      // state isn't lost (it's in S/EX), but the cloud copy is stale.
+      try { console.warn('[AR2_PF] save before nav failed:', err); } catch(_){}
+      return enterProperty(targetId, true);
+    });
+  }
+  function prevProperty(){ return _navigateAdjacent(-1); }
+  function nextProperty(){ return _navigateAdjacent(+1); }
+
+  // ── Subbar (in-property breadcrumb + Save & Close) ────────────
+  function _renderSubbar(){
+    var bar = document.getElementById('ar2-pf-subbar');
+    if (!bar) return;
+    if (!pfState.propertyMode || !pfState.loadedProperty){ bar.innerHTML = ''; return; }
+    var prop  = pfState.loadedProperty;
+    var pfRec = getPortfolio(prop.portfolio_id);
+    var pfName = pfRec ? (pfRec.name || 'Portfolio') : 'Portfolio';
+    var propName = (S.propertyName && S.propertyName.trim()) || prop.property_name || 'Property';
+    var status = pfState.saveStatus;
+    var statusHtml = '';
+    if (status === 'saving'){
+      statusHtml = '<span class="ar-pf-sub-status saving">Saving…</span>';
+    } else if (status === 'saved'){
+      statusHtml = '<span class="ar-pf-sub-status saved">Saved</span>';
+    } else if (status === 'error'){
+      statusHtml = '<span class="ar-pf-sub-status error" title="' + esc(pfState.saveError||'') + '">Save failed</span>';
+    }
+    // Property position within the portfolio's roster — drives Prev/Next
+    // enable state and the "(2 of 7)" indicator. _propertyPosition returns
+    // null if the roster hasn't been fetched yet; we hide the nav block
+    // in that case rather than render broken arrows.
+    var pos = _propertyPosition();
+    var navHtml = '';
+    if (pos && pos.total > 1){
+      var prevDisabled = pos.idx === 0;
+      var nextDisabled = pos.idx === pos.total - 1;
+      navHtml = '<div class="ar-pf-sub-nav">'
+        + '<button class="ar-pf-sub-navbtn" data-pf-action="prev-property" type="button" aria-label="Previous property"'
+        +   (prevDisabled ? ' disabled' : '') + '>&#x2190;</button>'
+        + '<span class="ar-pf-sub-navpos">' + (pos.idx + 1) + ' of ' + pos.total + '</span>'
+        + '<button class="ar-pf-sub-navbtn" data-pf-action="next-property" type="button" aria-label="Next property"'
+        +   (nextDisabled ? ' disabled' : '') + '>&#x2192;</button>'
+        + '</div>';
+    }
+    bar.innerHTML = '<div class="ar-pf-sub-inner">'
+      + '<button class="ar-pf-sub-back" data-pf-action="exit-property" type="button" aria-label="Back to portfolio">'
+      +   '&#x2190; ' + esc(pfName)
+      + '</button>'
+      + '<span class="ar-pf-sub-sep">/</span>'
+      + '<span class="ar-pf-sub-prop">' + esc(propName) + '</span>'
+      + navHtml
+      + statusHtml
+      + '<div class="ar-pf-sub-actions">'
+      +   '<button class="ar-pf-sub-act" data-pf-action="save-property" type="button">Save</button>'
+      +   '<button class="ar-pf-sub-act primary" data-pf-action="save-and-close" type="button">Save &amp; Close</button>'
+      + '</div>'
+      + '</div>';
+  }
+  function _toggleSubbar(show){
+    var bar = document.getElementById('ar2-pf-subbar');
+    var bodyEl = document.body;
+    if (!bar) return;
+    // Use CSS class for visibility — more robust than inline style toggles
+    // which can be lost if anything else writes to bar.style.
+    if (show){
+      bar.classList.add('is-active');
+      // Defensive: clear any legacy inline display value from previous
+      // sandbox builds that used the inline-style approach.
+      bar.style.display = '';
+    } else {
+      bar.classList.remove('is-active');
+      bar.style.display = '';
+    }
+    // body-level class lets CSS hide bar-actions and other single-mode
+    // chrome while in property mode without touching the DOM.
+    if (show) bodyEl.classList.add('pf-property-mode');
+    else      bodyEl.classList.remove('pf-property-mode');
+  }
+
+  // Helper: simple HTML escape (mirrors esc() used in single-property code)
+  function esc(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Public API
+  return {
+    init: init,
+    isEnabled: isEnabled,
+    activeTab: activeTab,
+    setActiveTab: setActiveTab,
+    portfolios: function(){ return pfState.portfolios ? pfState.portfolios.slice() : []; },
+    tabStripHtml: tabStripHtml,
+    renderPortfoliosPanel: renderPortfoliosPanel,
+    loadPortfolios: loadPortfolios,
+    refreshPortfolios: refreshPortfolios,
+    createPortfolio: createPortfolio,
+    deletePortfolio: deletePortfolio,
+    rollup: rollup,
+    openNewPortfolioModal: openNewPortfolioModal,
+    closeNewPortfolioModal: closeNewPortfolioModal,
+    submitNewPortfolio: submitNewPortfolio,
+    // Phase 1b
+    viewMode: function(){ return pfState.viewMode; },
+    selectedPortfolioId: function(){ return pfState.selectedPortfolioId; },
+    openPortfolio: openPortfolio,
+    backToPortfoliosList: backToPortfoliosList,
+    openExport: openExport,
+    backToOverview: backToOverview,
+    openQuoteBuilder: openQuoteBuilder,
+    backFromQuoteBuilder: backFromQuoteBuilder,
+    getExportState: getExportState,
+    setExportSection: setExportSection,
+    getQuoteState: getQuoteState,
+    loadQuote: loadQuote,
+    saveQuote: saveQuote,
+    loadPropertyStates: loadPropertyStates,
+    computeLineItemsRollup: computeLineItemsRollup,
+    renderPortfolioOverview: renderPortfolioOverview,
+    renderPortfolioExport: renderPortfolioExport,
+    renderQuoteBuilder: renderQuoteBuilder,
+    loadProperties: loadProperties,
+    refreshProperties: refreshProperties,
+    createProperty: createProperty,
+    getRollup: getRollup,
+    openAddPropertyModal: openAddPropertyModal,
+    closeAddPropertyModal: closeAddPropertyModal,
+    submitNewProperty: submitNewProperty,
+    // Phase 1c — property mode
+    inPropertyMode: inPropertyMode,
+    loadedProperty: loadedProperty,
+    saveStatus: saveStatus,
+    enterProperty: enterProperty,
+    exitProperty: exitProperty,
+    saveCurrentProperty: saveCurrentProperty,
+    scheduleAutosave: scheduleAutosave,
+    _renderSubbar: _renderSubbar,
+    // Phase 1d — Prev/Next property navigation
+    prevProperty: prevProperty,
+    nextProperty: nextProperty,
+    _state: pfState  // exposed for debug only
+  };
+})();
+
+/* ── Map Pools Property/Portfolio mode radios (Phase 1d sandbox) ──────
+   Three-mode radio strip on the Map Pools "Add Property or Portfolio" card:
+     • Property          — single assessment (default, saves to assessments)
+     • Add to Portfolio  — single assessment bound to an existing portfolio
+                           (saves to portfolio_properties — wired in Pass 2)
+     • Portfolio         — create a new portfolio (opens New Portfolio modal)
+   Role gating: the latter two radios have data-pf-only and are hidden by
+   CSS until body.pf-enabled is set by AR2_PF.init() — so Clients never see
+   them. Users and Admins see them; the picker contents are scoped by RLS
+   (users see own portfolios, admins see all).
+
+   The chosen "add-to-portfolio" target is stashed on window.AR2_MAP_PF_TARGET
+   for the Pass-2 save routing branch in bankSaveReport. Pass 1 only wires
+   the UI — saves still go to the assessments table.
+   ────────────────────────────────────────────────────────────────────── */
+window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
+
+/* ── Duplicate a portfolio — server-side: insert a new portfolios row with
+   suffixed name, then bulk-copy portfolio_properties rows to point at the
+   new portfolio id. RLS already gates this (users → own; admins → all). */
+function duplicatePortfolio(srcId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !srcId) return Promise.reject(new Error('cloud not ready'));
+  return c.from('portfolios').select('*').eq('id', srcId).single().then(function(rs){
+    if (rs.error) throw new Error(rs.error.message);
+    var src = rs.data;
+    var copy = {
+      user_id: src.user_id, // RLS keeps this scoped; admins can also duplicate
+      client_org_id: src.client_org_id,
+      name: (src.name || 'Untitled') + ' (Copy)',
+      client_contact_name: src.client_contact_name,
+      client_contact_email: src.client_contact_email,
+      cover_image_url: src.cover_image_url,
+      brand_logo_data: src.brand_logo_data,
+      status: 'draft',
+      default_currency: src.default_currency,
+      default_discount_pct: src.default_discount_pct,
+      default_savings_weight: src.default_savings_weight,
+      default_advantage_term: src.default_advantage_term,
+      notes: src.notes
+    };
+    return c.from('portfolios').insert(copy).select('id').single().then(function(rs2){
+      if (rs2.error) throw new Error(rs2.error.message);
+      var newId = rs2.data.id;
+      return c.from('portfolio_properties').select('*').eq('portfolio_id', srcId).then(function(pp){
+        if (pp.error) throw new Error(pp.error.message);
+        var rows = (pp.data || []).map(function(p){
+          return {
+            portfolio_id: newId,
+            order_index: p.order_index,
+            property_name: p.property_name,
+            property_brand: p.property_brand,
+            country: p.country,
+            lat: p.lat, lng: p.lng,
+            formatted_address: p.formatted_address,
+            state_json: p.state_json,
+            ex_json: p.ex_json,
+            pool_measure_json: p.pool_measure_json,
+            image_urls: p.image_urls,
+            computed_kpis: p.computed_kpis,
+            is_template: p.is_template,
+            excluded_from_rollup: p.excluded_from_rollup
+          };
+        });
+        if (!rows.length) return newId;
+        return c.from('portfolio_properties').insert(rows).then(function(ins){
+          if (ins.error) throw new Error(ins.error.message);
+          // Invalidate AR2_PF caches so the new portfolio appears
+          if (window.AR2_PF && AR2_PF._state){
+            AR2_PF._state.portfolios = null;
+            AR2_PF._state.properties[newId] = null;
+            AR2_PF._state.rollup[newId] = null;
+          }
+          if (window.AR2_PF && AR2_PF.refreshPortfolios){ try { AR2_PF.refreshPortfolios(); } catch(_){} }
+          return newId;
+        });
+      });
+    });
+  });
+}
+
+/* ── Copy single assessment → portfolio modal.
+   Lets the rep pick a target portfolio + decide between "Add as New Property"
+   (creates a new portfolio_properties row) or "Update Existing Property"
+   (overwrites a property in the portfolio with this assessment's state). */
+/* ── CSV bulk-import for portfolio properties ──────────────────────────
+   Opens a modal with a drag-and-drop zone + template download. Parses the
+   uploaded CSV, shows a preview table, then bulk-inserts one
+   portfolio_properties row per CSV row into the current portfolio.
+
+   Template columns (case-insensitive headers):
+     property_name      (required)
+     formatted_address  (optional)
+     country            (optional)
+     property_brand     (optional)
+     lat                (optional, numeric)
+     lng                (optional, numeric)
+   Any unknown columns are kept as part of state_json so reps can include
+   custom metadata that survives round-trips.
+   ──────────────────────────────────────────────────────────────────────── */
+function openImportCsvModal(portfolioId){
+  if (document.getElementById('ar-csv-modal')) return;
+  if (!portfolioId){
+    alert('Open a portfolio first, then import properties into it.');
+    return;
+  }
+  var bd = document.createElement('div');
+  bd.id = 'ar-csv-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.dataset.portfolioId = portfolioId;
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-csv-title" style="max-width:640px">'
+    + '<div class="ar-pf-modal-title" id="ar-csv-title">Import Properties from CSV</div>'
+    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">'
+    +   'Drop a CSV / Excel-exported file here, or click to browse. Each row becomes a property in this portfolio. '
+    +   '<button class="ar-pf-exp-edit" type="button" data-pf-action="csv-download-template" style="margin-left:4px">Download template</button>'
+    + '</div>'
+    + '<div class="ar-csv-drop" id="ar-csv-drop" tabindex="0" role="button" aria-label="Drop a CSV file here or click to browse">'
+    +   '<div style="font-size:14px;color:var(--tx);font-weight:600">&uarr; Drop CSV here</div>'
+    +   '<div style="font-size:11.5px;color:var(--mu);margin-top:6px">or click to browse</div>'
+    +   '<input type="file" id="ar-csv-file" accept=".csv,text/csv,application/vnd.ms-excel,text/plain" style="position:absolute;inset:0;opacity:0;cursor:pointer">'
+    + '</div>'
+    + '<div id="ar-csv-preview" style="display:none;margin-top:14px"></div>'
+    + '<div class="ar-pf-modal-err" id="ar-csv-err"></div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn" data-pf-action="csv-cancel" type="button">Cancel</button>'
+    +   '<button class="ar-pf-modal-btn primary" data-pf-action="csv-import" type="button" id="ar-csv-import-btn" disabled>Import 0 properties</button>'
+    + '</div>'
+  + '</div>';
+  document.body.appendChild(bd);
+  var drop = document.getElementById('ar-csv-drop');
+  var fileEl = document.getElementById('ar-csv-file');
+  function loadFile(f){
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      try {
+        var parsed = parseCsvForPortfolioImport(String(e.target.result || ''));
+        renderCsvPreview(parsed);
+        bd.dataset.parsedRows = JSON.stringify(parsed.rows);
+        var btn = document.getElementById('ar-csv-import-btn');
+        if (btn){
+          btn.disabled = !parsed.rows.length;
+          btn.textContent = 'Import ' + parsed.rows.length + ' propert' + (parsed.rows.length===1?'y':'ies');
+        }
+        var errEl = document.getElementById('ar-csv-err');
+        if (errEl) errEl.textContent = parsed.warnings.length ? parsed.warnings.join(' · ') : '';
+      } catch(parseErr){
+        var errEl2 = document.getElementById('ar-csv-err');
+        if (errEl2) errEl2.textContent = (parseErr && parseErr.message) || 'Could not parse file.';
+      }
+    };
+    reader.onerror = function(){
+      var errEl3 = document.getElementById('ar-csv-err');
+      if (errEl3) errEl3.textContent = 'Could not read the file.';
+    };
+    reader.readAsText(f);
+  }
+  fileEl.addEventListener('change', function(){ loadFile(fileEl.files && fileEl.files[0]); });
+  // Drag-and-drop UX — highlight on dragenter, accept on drop.
+  ['dragenter','dragover'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('is-drag'); });
+  });
+  ['dragleave','dragend','drop'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('is-drag'); });
+  });
+  drop.addEventListener('drop', function(e){
+    e.preventDefault();
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  bd.addEventListener('click', function(e){
+    if (e.target === bd) { closeImportCsvModal(); return; }
+    var btn = e.target.closest('[data-pf-action]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-pf-action');
+    if (act === 'csv-cancel')            { closeImportCsvModal(); return; }
+    if (act === 'csv-download-template') { downloadCsvImportTemplate(); return; }
+    if (act === 'csv-import')            { submitImportCsv(); return; }
+  });
+  bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeImportCsvModal(); });
+  setTimeout(function(){ try { drop.focus(); } catch(_){} }, 40);
+}
+function closeImportCsvModal(){
+  var el = document.getElementById('ar-csv-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+/* CSV parser — handles quoted fields (with escaped quotes) and CRLF. Maps
+   recognized columns into a known shape; preserves unknown columns under
+   `extras` so reps can include custom metadata. Skips fully-blank rows. */
+function parseCsvForPortfolioImport(text){
+  if (!text || !text.trim()) throw new Error('File is empty.');
+  // Strip BOM, normalize newlines
+  text = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  var lines = text.split('\n');
+  // Field-aware split (handles "quoted, values" + escaped "" quotes)
+  function splitCsvLine(line){
+    var out = [], cur = '', inQ = false;
+    for (var i=0; i<line.length; i++){
+      var ch = line[i];
+      if (inQ){
+        if (ch === '"' && line[i+1] === '"'){ cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else {
+        if (ch === ',') { out.push(cur); cur = ''; }
+        else if (ch === '"') inQ = true;
+        else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out.map(function(s){ return s.trim(); });
+  }
+  // Find header line — first non-empty
+  var headerLine = '';
+  var startIdx = 0;
+  for (var i=0; i<lines.length; i++){
+    if (lines[i].trim()){ headerLine = lines[i]; startIdx = i + 1; break; }
+  }
+  if (!headerLine) throw new Error('No header row found.');
+  var headers = splitCsvLine(headerLine).map(function(h){ return String(h||'').toLowerCase().replace(/\s+/g,'_'); });
+  // Map header aliases to canonical keys
+  var aliases = {
+    property_name: ['property_name','name','property','hotel','hotel_name','site','site_name'],
+    formatted_address: ['formatted_address','address','full_address','street','street_address'],
+    country: ['country','region'],
+    property_brand: ['property_brand','brand','chain'],
+    lat: ['lat','latitude'],
+    lng: ['lng','long','longitude','lon']
+  };
+  function canonicalize(h){
+    for (var key in aliases){
+      if (aliases[key].indexOf(h) > -1) return key;
+    }
+    return null;
+  }
+  var canonHeaders = headers.map(function(h){ return canonicalize(h) || h; });
+  // Must have at least property_name (under any alias)
+  if (canonHeaders.indexOf('property_name') === -1){
+    throw new Error('CSV missing required column: property_name (or alias: name, property, hotel, hotel_name, site).');
+  }
+  var rows = [];
+  var warnings = [];
+  for (var r=startIdx; r<lines.length; r++){
+    var rawLine = lines[r];
+    if (!rawLine.trim()) continue;
+    var cells = splitCsvLine(rawLine);
+    var row = { extras: {} };
+    for (var c=0; c<headers.length; c++){
+      var key = canonHeaders[c];
+      var val = (cells[c] != null ? cells[c] : '').trim();
+      if (val === '') continue;
+      if (key === 'lat' || key === 'lng'){
+        var n = parseFloat(val);
+        if (!isNaN(n)) row[key] = n;
+        else warnings.push('Row ' + (r+1) + ': ' + key + ' is not numeric, skipped.');
+      } else if (key === 'property_name' || key === 'formatted_address' || key === 'country' || key === 'property_brand'){
+        row[key] = val;
+      } else {
+        row.extras[key || headers[c]] = val;
+      }
+    }
+    if (!row.property_name){
+      warnings.push('Row ' + (r+1) + ': missing property_name, skipped.');
+      continue;
+    }
+    rows.push(row);
+  }
+  if (!rows.length) throw new Error('No valid rows found. Make sure at least one row has a property_name.');
+  return { rows: rows, headers: headers, warnings: warnings };
+}
+
+function renderCsvPreview(parsed){
+  var el = document.getElementById('ar-csv-preview');
+  if (!el) return;
+  var rows = parsed.rows.slice(0, 5);
+  var more = parsed.rows.length - rows.length;
+  var tbl = '<div style="font-size:11px;color:var(--mu);margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase">Preview — first ' + rows.length + ' of ' + parsed.rows.length + ' rows</div>'
+    + '<div style="border:1px solid rgba(0,180,216,.18);border-radius:8px;overflow:auto;max-height:220px">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:11.5px;color:#cfe2eb">'
+    + '<thead><tr style="background:rgba(7,22,40,.6);border-bottom:1px solid rgba(0,180,216,.25)">'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Name</th>'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Address</th>'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Country</th>'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Brand</th>'
+    + '</tr></thead><tbody>'
+    + rows.map(function(r){
+        return '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
+          + '<td style="padding:6px 10px">' + esc(r.property_name || '') + '</td>'
+          + '<td style="padding:6px 10px;color:var(--mu)">' + esc(r.formatted_address || '—') + '</td>'
+          + '<td style="padding:6px 10px;color:var(--mu)">' + esc(r.country || '—') + '</td>'
+          + '<td style="padding:6px 10px;color:var(--mu)">' + esc(r.property_brand || '—') + '</td>'
+        + '</tr>';
+      }).join('')
+    + '</tbody></table></div>'
+    + (more > 0 ? '<div style="font-size:11px;color:var(--mu);margin-top:6px">+ ' + more + ' more row' + (more===1?'':'s') + ' will be imported</div>' : '');
+  el.innerHTML = tbl;
+  el.style.display = 'block';
+}
+
+function downloadCsvImportTemplate(){
+  var csv = 'property_name,formatted_address,country,property_brand,lat,lng\n'
+    + '"Marriott Marina Bay","2 Bayfront Avenue, Singapore 018972","Singapore","Marriott","",""\n'
+    + '"Hilton Caribbean","123 Coral Drive, Nassau","Bahamas","Hilton","",""\n'
+    + '"Iberostar Punta Cana","Playa Bavaro, Punta Cana 23000","Dominican Republic","Iberostar","",""\n';
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'aquarev_portfolio_import_template.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+function submitImportCsv(){
+  var bd = document.getElementById('ar-csv-modal');
+  if (!bd) return;
+  var pid = bd.dataset.portfolioId;
+  var rawRows = bd.dataset.parsedRows;
+  if (!pid || !rawRows) return;
+  var rows;
+  try { rows = JSON.parse(rawRows); } catch(_){ rows = []; }
+  if (!rows.length) return;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){
+    var errEl = document.getElementById('ar-csv-err');
+    if (errEl) errEl.textContent = 'Cloud unavailable.';
+    return;
+  }
+  var btn = document.getElementById('ar-csv-import-btn');
+  if (btn){ btn.disabled = true; btn.textContent = 'Importing…'; }
+  // Build the rows for portfolio_properties insertion. Each property gets
+  // an empty state_json (rep will fill in pools/devices later), preserving
+  // any non-standard columns under state_json.import_extras.
+  var inserts = rows.map(function(r, idx){
+    var stateJson = { propertyName: r.property_name };
+    if (r.formatted_address) stateJson.formattedAddress = r.formatted_address;
+    if (r.extras && Object.keys(r.extras).length) stateJson.import_extras = r.extras;
+    return {
+      portfolio_id: pid,
+      property_name: r.property_name,
+      order_index: 1000 + idx, // appended at the end; rep can reorder later
+      country: r.country || null,
+      property_brand: r.property_brand || null,
+      formatted_address: r.formatted_address || null,
+      lat: (typeof r.lat === 'number') ? r.lat : null,
+      lng: (typeof r.lng === 'number') ? r.lng : null,
+      state_json: stateJson
+    };
+  });
+  c.from('portfolio_properties').insert(inserts).select('id').then(function(rs){
+    if (rs.error){
+      if (btn){ btn.disabled = false; btn.textContent = 'Import ' + rows.length + ' propert' + (rows.length===1?'y':'ies'); }
+      var errEl2 = document.getElementById('ar-csv-err');
+      if (errEl2) errEl2.textContent = (rs.error.message || 'Insert failed.');
+      return;
+    }
+    // Invalidate caches so the roster + rollup refresh
+    try {
+      if (window.AR2_PF && AR2_PF._state){
+        AR2_PF._state.properties[pid] = null;
+        AR2_PF._state.rollup[pid]     = null;
+        if (AR2_PF._state.propertyStates) AR2_PF._state.propertyStates[pid] = null;
+      }
+    } catch(_){}
+    closeImportCsvModal();
+    alert('Imported ' + (rs.data ? rs.data.length : rows.length) + ' propert' + (rows.length===1?'y':'ies') + ' into the portfolio.');
+    if (typeof renderArchive === 'function') renderArchive();
+  }).catch(function(err){
+    if (btn){ btn.disabled = false; btn.textContent = 'Import ' + rows.length + ' propert' + (rows.length===1?'y':'ies'); }
+    var errEl3 = document.getElementById('ar-csv-err');
+    if (errEl3) errEl3.textContent = (err && err.message) || 'Import failed.';
+  });
+}
+
+function openCopyToPortfolioModal(assessmentId){
+  if (document.getElementById('ar-copy-pf-modal')) return;
+  if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+    alert('Portfolios are not available in this account.');
+    return;
+  }
+  AR2_PF.loadPortfolios().then(function(){
+    var list = (AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+    if (!list.length){
+      alert('No portfolios yet. Create a portfolio first, then copy this assessment to it.');
+      return;
+    }
+    var bd = document.createElement('div');
+    bd.id = 'ar-copy-pf-modal';
+    bd.className = 'ar-pf-modal-backdrop';
+    var pfOptions = list.map(function(p){
+      return '<option value="' + esc(p.id) + '">' + esc(p.name || 'Untitled') + '</option>';
+    }).join('');
+    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-copy-pf-title">'
+      + '<div class="ar-pf-modal-title" id="ar-copy-pf-title">Copy to Portfolio</div>'
+      + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">Add this assessment to a portfolio as a property. You can either create a new property in the portfolio or update an existing one.</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-copy-pf-select">Target portfolio</label>'
+      + '<select class="ar-pf-modal-input" id="ar-copy-pf-select">' + pfOptions + '</select>'
+      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-copy-pf-prop-select">Existing property to update <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(only used by "Save & Update")</span></label>'
+      + '<select class="ar-pf-modal-input" id="ar-copy-pf-prop-select"><option value="">— Loading properties… —</option></select>'
+      + '<div class="ar-pf-modal-err" id="ar-copy-pf-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+        + '<button class="ar-pf-modal-btn" data-copy-pf-action="cancel" type="button">Cancel</button>'
+        + '<button class="ar-pf-modal-btn" data-copy-pf-action="update" type="button">Save &amp; Update</button>'
+        + '<button class="ar-pf-modal-btn primary" data-copy-pf-action="new" type="button">Save as New</button>'
+      + '</div>'
+    + '</div>';
+    document.body.appendChild(bd);
+    bd.dataset.assessmentId = assessmentId;
+    // Load property list for the first portfolio on open, and re-load on change
+    function refreshPropList(pid){
+      var propSel = document.getElementById('ar-copy-pf-prop-select');
+      if (!propSel) return;
+      propSel.innerHTML = '<option value="">— Loading properties… —</option>';
+      AR2_PF.loadProperties(pid).then(function(rows){
+        rows = rows || [];
+        if (!rows.length){ propSel.innerHTML = '<option value="">— No properties in this portfolio —</option>'; return; }
+        propSel.innerHTML = '<option value="">— Select a property —</option>'
+          + rows.map(function(r){ return '<option value="' + esc(r.id) + '">' + esc(r.property_name || 'Untitled') + '</option>'; }).join('');
+      }).catch(function(){
+        propSel.innerHTML = '<option value="">— Could not load —</option>';
+      });
+    }
+    refreshPropList(list[0].id);
+    bd.addEventListener('change', function(e){
+      if (e.target && e.target.id === 'ar-copy-pf-select') refreshPropList(e.target.value);
+    });
+    bd.addEventListener('click', function(e){
+      if (e.target === bd) { closeCopyToPortfolioModal(); return; }
+      var btn = e.target.closest('[data-copy-pf-action]');
+      if (!btn) return;
+      var act = btn.getAttribute('data-copy-pf-action');
+      if (act === 'cancel') { closeCopyToPortfolioModal(); return; }
+      if (act === 'new')    { submitCopyToPortfolio('new'); return; }
+      if (act === 'update') { submitCopyToPortfolio('update'); return; }
+    });
+    bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeCopyToPortfolioModal(); });
+    setTimeout(function(){ var s = document.getElementById('ar-copy-pf-select'); if (s) try { s.focus(); } catch(_){} }, 30);
+  }).catch(function(err){
+    alert('Could not load portfolios: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+function closeCopyToPortfolioModal(){
+  var el = document.getElementById('ar-copy-pf-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+function submitCopyToPortfolio(mode){
+  var bd = document.getElementById('ar-copy-pf-modal');
+  if (!bd) return;
+  var assessmentId = bd.dataset.assessmentId;
+  var pfSel = document.getElementById('ar-copy-pf-select');
+  var propSel = document.getElementById('ar-copy-pf-prop-select');
+  var err = document.getElementById('ar-copy-pf-err');
+  var pid = pfSel && pfSel.value;
+  if (!pid) { if (err) err.textContent = 'Pick a target portfolio.'; return; }
+  if (mode === 'update'){
+    var targetPropId = propSel && propSel.value;
+    if (!targetPropId) { if (err) err.textContent = 'Pick a property to update.'; return; }
+  }
+  if (err) err.textContent = '';
+  var btns = bd.querySelectorAll('[data-copy-pf-action]');
+  for (var b=0;b<btns.length;b++) btns[b].disabled = true;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c) { if (err) err.textContent = 'Cloud unavailable.'; return; }
+  // Fetch the source assessment row (state + summary + property_name)
+  c.from('assessments').select('id,property_name,summary,state,snapshot').eq('id', assessmentId).single().then(function(rs){
+    if (rs.error) throw new Error(rs.error.message);
+    var src = rs.data;
+    // assessments stores state in `state` jsonb; older records may use `snapshot`
+    var stateBlob = src.state || (src.snapshot && src.snapshot.state) || {};
+    var exBlob    = (src.snapshot && src.snapshot.ex) || {};
+    var mapBlob   = (src.snapshot && src.snapshot.mapping) || null;
+    var kpis      = src.summary || {};
+    var propName  = src.property_name || 'Imported Property';
+    if (mode === 'new'){
+      // Insert a new portfolio_properties row
+      return c.from('portfolio_properties').insert({
+        portfolio_id: pid,
+        property_name: propName,
+        order_index: 999, // placed at end; the rep can drag later
+        state_json: stateBlob,
+        ex_json: exBlob,
+        pool_measure_json: mapBlob,
+        computed_kpis: {
+          inv: Number(kpis.inv) || 0,
+          total_mo: Number(kpis.monthly) || 0,
+          total_yr: Number(kpis.annual) || 0,
+          total_dev: Number(kpis.devices) || 0,
+          total_pool_gal: Number(kpis.poolGallons) || 0,
+          payback: Number(kpis.payback) || 0
+        }
+      }).select('id').single();
+    }
+    // mode === 'update' — overwrite the chosen property row
+    var targetPropId = propSel.value;
+    return c.from('portfolio_properties').update({
+      property_name: propName,
+      state_json: stateBlob,
+      ex_json: exBlob,
+      pool_measure_json: mapBlob,
+      computed_kpis: {
+        inv: Number(kpis.inv) || 0,
+        total_mo: Number(kpis.monthly) || 0,
+        total_yr: Number(kpis.annual) || 0,
+        total_dev: Number(kpis.devices) || 0,
+        total_pool_gal: Number(kpis.poolGallons) || 0,
+        payback: Number(kpis.payback) || 0
+      }
+    }).eq('id', targetPropId).select('id').single();
+  }).then(function(rs){
+    if (rs && rs.error) throw new Error(rs.error.message);
+    // Invalidate caches so the portfolio's roster + roll-up reload fresh
+    if (window.AR2_PF && AR2_PF._state){
+      AR2_PF._state.properties[pid] = null;
+      AR2_PF._state.rollup[pid] = null;
+      AR2_PF._state.propertyStates && (AR2_PF._state.propertyStates[pid] = null);
+    }
+    closeCopyToPortfolioModal();
+    alert('Copied to portfolio.');
+    if (typeof renderArchive === 'function') renderArchive();
+  }).catch(function(e){
+    var err2 = document.getElementById('ar-copy-pf-err');
+    if (err2) err2.textContent = (e && e.message) || 'Copy failed.';
+    var btns2 = bd.querySelectorAll('[data-copy-pf-action]');
+    for (var b2=0;b2<btns2.length;b2++) btns2[b2].disabled = false;
+  });
+}
+
+/* ── P7: Portfolio Report (pixel-perfect, reuses single-property design) ──
+   Strategy: hydrate each portfolio property's state_json/ex_json into the
+   global S/EX, call generateReport() in capture mode, and harvest the
+   resulting HTML. Each property's pages render identically to a single-
+   property report — same .rpt-head, .rpt-kpis, .rpt-stat, .rpt-foot, exact
+   page sizes (8.5×11), exact page breaks, exact NSF badges, exact CTA bar.
+
+   The portfolio shell wraps these per-property pages with:
+     • Portfolio Cover — identical .rpt-cover-page chrome (same cover BG image),
+       portfolio name in the overlay
+     • Portfolio Quote — .rpt-es-head + .rpt-q-top-row + .rpt-q-tbl chrome
+       with rolled-up SKU line items across all properties
+     • Portfolio Back Cover — identical .rpt-back-cover-page image
+
+   All section toggles from the Export panel are honored.
+   ─────────────────────────────────────────────────────────────────────── */
+function buildPortfolioReportPreview(pid, mode){
+  if (!window.AR2_PF) return Promise.reject(new Error('AR2_PF not loaded'));
+  var st = AR2_PF.getExportState(pid);
+  var p  = (AR2_PF._state && AR2_PF._state.portfolios && AR2_PF._state.portfolios.filter(function(x){return x.id===pid;})[0]) || null;
+  var pName = (p && p.name) || 'Portfolio';
+
+  // Pull what we need in parallel: full property states + rollup + quote
+  var loadStatesP = AR2_PF.loadProperties(pid).then(function(){
+    return AR2_PF.loadPropertyStates ? AR2_PF.loadPropertyStates(pid) : Promise.resolve([]);
+  });
+  var rollupP = AR2_PF.getRollup(pid).catch(function(){ return null; });
+  var quoteP  = (st.quoteReady ? AR2_PF.loadQuote(pid).catch(function(){ return null; }) : Promise.resolve(null));
+
+  return Promise.all([loadStatesP, rollupP, quoteP]).then(function(arr){
+    var states = arr[0] || [];
+    var roll   = arr[1] || {};
+    var quote  = arr[2] || null;
+    var today  = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+
+    // Compute line items if quote is ready — same logic the Quote builder uses.
+    var lineItems = (quote && AR2_PF.computeLineItemsRollup) ?
+      AR2_PF.computeLineItemsRollup(states, quote.lineOverrides || {}) : [];
+
+    var sections = [];
+
+    // ──────────────────────────────────────────────────────────────
+    //  1. Portfolio Cover — IDENTICAL to single-property cover, with
+    //     the portfolio name on the overlay. Same .rpt-cover-page +
+    //     .rpt-cover-bg + .rpt-cover-overlay chrome and same hosted
+    //     cover image. Honors the Cover Page section toggle.
+    // ──────────────────────────────────────────────────────────────
+    if (st.cover){
+      sections.push(
+        '<div class="rpt-cover-page">'
+        + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg','class="rpt-cover-bg"',1100)
+        + '<div class="rpt-cover-overlay">'
+          + '<div style="font-family:\'DM Sans\',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600">Water Enhancement &amp; Cost Saving Assessment</div>'
+          + '<div style="margin-top:10px;font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:3px;color:#fff;line-height:1.1">' + esc(pName) + '</div>'
+          + '<div style="margin-top:8px;font-family:\'DM Sans\',sans-serif;font-size:12px;color:#7db8cc">' + ((Number(roll.property_count)||states.length) + ' Properties · ' + today) + '</div>'
+        + '</div>'
+      + '</div>'
+      );
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  2. Portfolio Executive Summary — rolled-up exec narrative across
+    //     the whole portfolio. Sits RIGHT AFTER the cover so reps see
+    //     the executive view before any per-property detail. Per-property
+    //     exec summaries are suppressed in the capture loop below to
+    //     prevent duplication.
+    // ──────────────────────────────────────────────────────────────
+    if (st.execSummary && states.length){
+      var portfolioExecHtml = buildPortfolioExecSummaryPageHtml(pName, states, roll, today);
+      if (portfolioExecHtml) sections.push(portfolioExecHtml);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3. Portfolio Assessment — single page summarizing the whole
+    //     portfolio. Uses the same .rpt chrome as single-property's
+    //     Assessment page. Slots BEFORE Property Profiles / Pool
+    //     Profiles so the list pages populate below the Assessment.
+    //     Honors the Portfolio Assessment toggle so the rep can
+    //     suppress it if they want bare per-property pages only.
+    // ──────────────────────────────────────────────────────────────
+    if (st.perProperty && states.length){
+      var portfolioAssessmentHtml = buildPortfolioAssessmentPageHtml(pName, states, roll, today);
+      if (portfolioAssessmentHtml) sections.push(portfolioAssessmentHtml);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3a. Portfolio Property Profiles — one card per property, or a
+    //      list grouped by country. Independent of per-property capture.
+    // ──────────────────────────────────────────────────────────────
+    if (st.propertyProfile && states.length){
+      var propLayout = (st.propertyProfileLayout === 'list-by-country') ? 'list-by-country' : 'cards';
+      var propPages = buildPropertyProfilesPages(pName, states, today, propLayout);
+      for (var ppi = 0; ppi < propPages.length; ppi++) sections.push(propPages[ppi]);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  2b. Portfolio Pool Profiles — LIST mode bypasses per-property
+    //      capture and renders a compact list grouped by property,
+    //      paginated ~24 rows per page. (Cards mode flows through the
+    //      capture loop below so each property's pool profile pages
+    //      are pixel-identical to single-property — and now max 10
+    //      cards per page.)
+    // ──────────────────────────────────────────────────────────────
+    var poolProfilesUseList = (st.poolProfiles && st.poolProfilesLayout === 'list');
+    if (poolProfilesUseList){
+      var plPages = buildPortfolioPoolProfilesListPages(pName, states, today);
+      for (var pli = 0; pli < plPages.length; pli++) sections.push(plPages[pli]);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3. Per-Property Pages — hydrate each property's state into the
+    //     global S/EX, run generateReport in capture mode, harvest
+    //     the resulting HTML. Each property produces its full Pool
+    //     Profile + Assessment (and optionally Exec Summary) pages
+    //     IDENTICAL to a single-property report — same .rpt-head,
+    //     .rpt-kpis, .rpt-stat, .rpt-foot chrome, exact page sizes,
+    //     exact page breaks, exact NSF badge, exact CTA bar.
+    //
+    //     We force per-property cover/quote/back-cover OFF — those
+    //     belong at the portfolio level. Exec Summary inherits the
+    //     portfolio's execSummary toggle so the rep can choose
+    //     between portfolio-level only vs portfolio + per-property.
+    //     Pool Profiles in capture flow is suppressed when the rep
+    //     selected the List layout (rendered above).
+    // ──────────────────────────────────────────────────────────────
+    var poolProfilesUseCapture = (st.poolProfiles && st.poolProfilesLayout !== 'list');
+    if (poolProfilesUseCapture || st.perProperty){
+      // Split buckets: pool profile pages get grouped together (right after
+      // Property Profiles), then per-property Assessment / Exec pages follow.
+      var _capPoolPages = [];
+      var _capRestPages = [];
+      // Snapshot the live state — this is critical, we restore on every
+      // exit path including failures.
+      var savedS  = JSON.parse(JSON.stringify(S));
+      var savedEX = JSON.parse(JSON.stringify(EX));
+      var savedQ  = JSON.parse(JSON.stringify(Q));
+      var savedR  = (typeof R !== 'undefined') ? JSON.parse(JSON.stringify(R)) : null;
+      // Helper — reset live S/EX to the saved snapshot baseline between
+      // properties so stale keys from property A don't leak into B.
+      function _resetToSnapshot(){
+        for (var dk in S){ if (S.hasOwnProperty(dk) && !(dk in savedS))  delete S[dk]; }
+        for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+        for (var dek in EX){ if (EX.hasOwnProperty(dek) && !(dek in savedEX)) delete EX[dek]; }
+        for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+      }
+      try {
+        for (var pi = 0; pi < states.length; pi++){
+          var prop = states[pi];
+          // Reset to baseline THEN overlay this property's state — clean slate
+          // between properties prevents stale keys (e.g. bodies from a prior
+          // property carrying over) from corrupting the render.
+          _resetToSnapshot();
+          if (prop.state_json && typeof prop.state_json === 'object'){
+            for (var k1 in prop.state_json){ if (prop.state_json.hasOwnProperty(k1)) S[k1] = prop.state_json[k1]; }
+          }
+          if (prop.ex_json && typeof prop.ex_json === 'object'){
+            for (var k2 in prop.ex_json){ if (prop.ex_json.hasOwnProperty(k2)) EX[k2] = prop.ex_json[k2]; }
+          }
+          // Override per-property sections that belong at the portfolio level
+          EX.inclCover         = false;
+          EX.inclLsCover       = false;
+          EX.inclBackCover     = false;
+          EX.inclLsBackCover   = false;
+          EX.inclQuote         = false;
+          EX.inclQuoteTerms    = false;
+          EX.inclQuotePayment  = false;
+          // Per-property exec summary is suppressed — the portfolio-level
+          // Exec Summary above (rendered after Cover) covers the executive
+          // narrative. Keeping per-property exec on here would produce
+          // duplicate exec pages later in the doc.
+          EX.inclExecSummary   = false;
+          EX.inclLsExecSummary = false;                   // portrait only
+          EX.inclPoolProfiles  = !!poolProfilesUseCapture; // Cards mode only; List mode is rendered separately above
+          EX.layout            = 'portrait';
+          EX._captureMode      = true;
+          // Property name flows through S.propertyName for the per-property
+          // header band ("Cost Savings Assessment · [Property Name]").
+          if (prop.property_name) S.propertyName = prop.property_name;
+          window.__pfCapturedHtml = '';
+          try { generateReport(); } catch(genErr){
+            console.warn('[Portfolio Report] property capture failed:', prop.property_name, genErr);
+            window.__pfCapturedHtml = '';
+          }
+          if (window.__pfCapturedHtml){
+            // Split the captured HTML into Pool Profile pages vs everything
+            // else, so Pool Profiles for ALL properties group together
+            // BEFORE per-property Assessment / Exec pages. Honors the user's
+            // ordering: Cover → Exec → Assessment → Property Profiles →
+            // Pool Profiles → Per-Property Assessments → Quote → Terms → Back.
+            try {
+              var capTmp = document.createElement('div');
+              capTmp.innerHTML = window.__pfCapturedHtml;
+              var ppEls = capTmp.querySelectorAll('.rpt-pp-page');
+              for (var pe = 0; pe < ppEls.length; pe++){
+                _capPoolPages.push(ppEls[pe].outerHTML);
+                ppEls[pe].parentNode.removeChild(ppEls[pe]);
+              }
+              var rest = capTmp.innerHTML;
+              if (rest && rest.trim()) _capRestPages.push(rest);
+            } catch(splitErr){
+              // Defensive: if split fails, append the whole capture verbatim
+              _capRestPages.push(window.__pfCapturedHtml);
+            }
+          }
+        }
+      } finally {
+        // ALWAYS restore live state — even if capture threw mid-loop.
+        EX._captureMode = false;
+        // Restore S
+        for (var dk in S){ if (S.hasOwnProperty(dk) && !(dk in savedS)) delete S[dk]; }
+        for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+        // Restore EX
+        for (var dek in EX){ if (EX.hasOwnProperty(dek) && !(dek in savedEX)) delete EX[dek]; }
+        for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+        // Restore Q
+        for (var dqk in Q){ if (Q.hasOwnProperty(dqk) && !(dqk in savedQ)) delete Q[dqk]; }
+        for (var sqk in savedQ){ if (savedQ.hasOwnProperty(sqk)) Q[sqk] = savedQ[sqk]; }
+        // Restore R (best-effort — calcROI will recompute)
+        if (savedR && typeof R !== 'undefined'){
+          for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
+        }
+      }
+      // Append in the user-specified order: all Pool Profile pages first
+      // (grouped together right after Property Profiles), then per-property
+      // Assessment / Exec Summary pages.
+      // Per-property capture only contributes Pool Profile pages now.
+      // The Assessment page is owned by the portfolio-level builder
+      // (buildPortfolioAssessmentPageHtml) — appending the per-property
+      // Assessment captures here would duplicate it in the output.
+      for (var cpp = 0; cpp < _capPoolPages.length; cpp++) sections.push(_capPoolPages[cpp]);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3. Portfolio Quote — uses the EXACT single-property quote
+    //     chrome (.rpt-es-head header, .rpt-q-top-row Seller / Buyer /
+    //     Meta band, .rpt-q-tbl line items with section bands,
+    //     .rpt-q-totals subtotal/discount/tax/shipping/total stack,
+    //     .rpt-foot.rpt-es-foot footer). Data swapped for portfolio
+    //     roll-ups: line items aggregated across all properties,
+    //     buyer block from the Portfolio Quote builder, totals
+    //     respecting portfolio discount/tax/shipping.
+    // ──────────────────────────────────────────────────────────────
+    if (st.quote && quote){
+      sections.push(buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today));
+      // Purchase Terms — separate page IFF the rep has content. Same chrome
+      // as the single-property terms page (rpt-es-page + rpt-q-page-terms)
+      // so it gets full-page height + footer-pinned layout.
+      var pt = (quote.purchaseTerms || '').trim();
+      if (pt){
+        sections.push(buildPortfolioPurchaseTermsPageHtml(pName, quote, pt, today));
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  4. Portfolio Back Cover — IDENTICAL to single-property back
+    //     cover, same hosted image. .rpt-fs-img-page + .rpt-back-cover-page.
+    // ──────────────────────────────────────────────────────────────
+    if (st.backCover){
+      sections.push(
+        '<div class="rpt-fs-img-page rpt-back-cover-page">'
+        + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fd65a10e9889939b9b992d_Back-Cover_Portrait-v2.png','',1100)
+      + '</div>'
+      );
+    }
+
+    if (!sections.length){
+      alert('No sections enabled — toggle at least one section on the Export panel to generate the report.');
+      return;
+    }
+    // Mount into #ar2-report and use the same hide-body + window.print()
+    // pipeline single-property uses. Produces a native browser PDF with
+    // the @page sizing and page breaks already wired into .rpt-* CSS.
+    renderPortfolioReportToDOM(pName, sections, mode);
+  });
+}
+
+/* P7+: Portfolio Assessment page.
+   Mirrors the single-property Assessment page structure pixel-for-pixel
+   (.rpt + .rpt-head + .rpt-kpis + .rpt-body + .rpt-cta-bar + .rpt-foot)
+   with portfolio-rolled data:
+     • Header band: "Cost Savings Assessment" subtitle, portfolio name on right
+     • KPI strip (5 columns): Properties/Pools (X/Y) · Devices · Monthly Savings ·
+       Annual Savings · Purchase Payback
+     • "Property Configuration" section (replaces single's "Pool Configuration"):
+       one row per property — name, pool count, total gallons + a Total row
+     • "AquaRev Devices Required (on Return Pipes)" section: rolled-up device
+       counts across all properties + total investment
+     • Investment & Return Profile chart (reuses buildInvestmentChart) */
+/* P7+: Portfolio Assessment page — REUSE single-property generateReport().
+   Synthesizes a portfolio-aggregate S/EX, calls generateReport() in capture
+   mode to harvest the full assessment HTML (header band, KPI strip, Body
+   Row A/Row B, Property Images + Video Resources media row, comments,
+   disclaimer, CTA bar, footer, multi-page cascade rules — all of it),
+   then runs ONLY the two label edits the user asked for:
+     • "Pool Configuration" → "Property Configuration" (with per-property rows)
+     • KPI strip gets a NEW first cell: "Properties / Pools" (X/Y)
+   Everything else stays byte-identical to single-property output, so layout
+   rules + page breaks + design language are preserved.
+   Always restores live S/EX/R in a finally — no live-state side effects. */
+/* P7+: Portfolio Executive Summary page(s).
+   Same capture-based approach as Portfolio Assessment — hydrate a portfolio-
+   aggregate S/EX, run generateReport in capture mode with inclExecSummary=true,
+   then extract ONLY the .rpt-es-page blocks. Renders at the TOP of the
+   document (right after Cover) so reps see the rolled-up executive narrative
+   before any per-property detail. */
+function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
+  if (!states || !states.length) return '';
+  if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
+  // Aggregate the same totals the Assessment page uses
+  var deviceTotals = {};
+  for (var p0=0; p0<PIPES.length; p0++) deviceTotals[PIPES[p0].k] = 0;
+  var totalGal = 0, totalPools = 0;
+  for (var i=0; i<states.length; i++){
+    var sj = states[i].state_json || {};
+    if (sj.manualVolume){
+      totalPools += Math.max(1, Number(sj.manualPoolCount) || 1);
+      totalGal += Number(sj.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj.bodies)){
+      totalPools += sj.bodies.length;
+      for (var b=0; b<sj.bodies.length; b++){
+        totalGal += (typeof bodyGallons === 'function') ? bodyGallons(sj.bodies[b]) : (Number(sj.bodies[b].gallons) || 0);
+      }
+    }
+    for (var pi=0; pi<PIPES.length; pi++){
+      var k = PIPES[pi].k;
+      deviceTotals[k] += Number(sj[k]) || 0;
+    }
+  }
+  // Snapshot live state
+  var savedS  = JSON.parse(JSON.stringify(S));
+  var savedEX = JSON.parse(JSON.stringify(EX));
+  var savedR  = null;
+  try { savedR = (typeof R !== 'undefined' && R) ? JSON.parse(JSON.stringify(R)) : null; } catch(_){}
+  var captured = '';
+  try {
+    for (var dk in S){ if (S.hasOwnProperty(dk)) delete S[dk]; }
+    for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+    S.propertyName          = pName;
+    S.bodies                = [];
+    S.manualVolume          = false;
+    S.manualPoolCount       = totalPools;       // exec summary references this for "pool count" copy
+    S.manualTotalGallons    = 0;
+    S.pool_gallons          = totalGal;
+    S.chlorine_pool_gallons = totalGal;
+    S.co2_pool_gallons      = 0;
+    S.devicesByPool         = false;
+    S.propertiesCount       = states.length;    // exec summary references this in "X Property / Y Feature Pools" copy
+    for (var pi2=0; pi2<PIPES.length; pi2++){
+      S[PIPES[pi2].k] = deviceTotals[PIPES[pi2].k];
+    }
+    // EX: only Exec Summary renders
+    for (var dek in EX){ if (EX.hasOwnProperty(dek)) delete EX[dek]; }
+    for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+    EX.inclCover          = false;
+    EX.inclLsCover        = false;
+    EX.inclExecSummary    = true;
+    EX.inclLsExecSummary  = false;
+    EX.inclPoolProfiles   = false;
+    EX.inclBackCover      = false;
+    EX.inclLsBackCover    = false;
+    EX.inclQuote          = false;
+    EX.inclQuoteTerms     = false;
+    EX.inclQuotePayment   = false;
+    EX.layout             = 'portrait';
+    EX.images             = [];
+    // Populate Video Resources with DEFAULT_YT_URLS so the media row renders
+    // (it's the bottom-pinned slot — without it the body collapses and the
+    // page doesn't fill the full 11" sheet). Mirrors what initDefaultYt does
+    // on a fresh single-property session.
+    EX.ytEntries          = [];
+    try {
+      if (typeof DEFAULT_YT_URLS !== 'undefined' && typeof ytVideoId === 'function'){
+        DEFAULT_YT_URLS.forEach(function(url){
+          var vid = ytVideoId(url);
+          if (vid) EX.ytEntries.push({ id:'yt-'+vid, url:url, videoId:vid, comment:'' });
+        });
+      }
+    } catch(_){}
+    EX.comments           = '';
+    EX._captureMode       = true;
+    window.__pfCapturedHtml = '';
+    try { generateReport(); } catch(genErr){
+      try { console.warn('[Portfolio Exec Summary] capture failed:', genErr); } catch(_){}
+      window.__pfCapturedHtml = '';
+    }
+    captured = window.__pfCapturedHtml || '';
+  } finally {
+    if (typeof EX !== 'undefined' && EX) EX._captureMode = false;
+    for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS))  delete S[dks]; }
+    for (var sks in savedS){  if (savedS.hasOwnProperty(sks))  S[sks]  = savedS[sks]; }
+    for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX)) delete EX[dke]; }
+    for (var sek2 in savedEX){ if (savedEX.hasOwnProperty(sek2)) EX[sek2] = savedEX[sek2]; }
+    if (savedR && typeof R !== 'undefined' && R){
+      for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
+    }
+  }
+  if (!captured) return '';
+  // Extract ONLY the Exec Summary pages — the capture also includes the
+  // (unwanted) Assessment block. .rpt-es-page is the exec-only marker.
+  try {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = captured;
+    var esEls = tmp.querySelectorAll('.rpt-es-page');
+    if (!esEls.length) return '';
+    var out = '';
+    for (var ei=0; ei<esEls.length; ei++) out += esEls[ei].outerHTML;
+    return out;
+  } catch(extractErr){
+    return '';
+  }
+}
+
+function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
+  if (!states || !states.length) return '';
+  if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
+
+  // Aggregate device counts, total gallons, total pools, per-property roster
+  var deviceTotals = {};
+  for (var p0=0; p0<PIPES.length; p0++) deviceTotals[PIPES[p0].k] = 0;
+  var totalGal = 0, totalPools = 0, propRows = [];
+  for (var i=0; i<states.length; i++){
+    var sj = states[i].state_json || {};
+    var pGal = 0, pPools = 0;
+    if (sj.manualVolume){
+      pPools = Math.max(1, Number(sj.manualPoolCount) || 1);
+      pGal = Number(sj.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj.bodies)){
+      pPools = sj.bodies.length;
+      for (var b=0; b<sj.bodies.length; b++){
+        pGal += (typeof bodyGallons === 'function') ? bodyGallons(sj.bodies[b]) : (Number(sj.bodies[b].gallons) || 0);
+      }
+    }
+    totalGal += pGal;
+    totalPools += pPools;
+    propRows.push({ name: states[i].property_name || 'Property', poolCount: pPools, gal: pGal });
+    for (var pi=0; pi<PIPES.length; pi++){
+      var k = PIPES[pi].k;
+      deviceTotals[k] += Number(sj[k]) || 0;
+    }
+  }
+  var propCount = states.length;
+
+  // Snapshot live state — restored unconditionally in finally
+  var savedS  = JSON.parse(JSON.stringify(S));
+  var savedEX = JSON.parse(JSON.stringify(EX));
+  var savedR  = null;
+  try { savedR = (typeof R !== 'undefined' && R) ? JSON.parse(JSON.stringify(R)) : null; } catch(_){}
+
+  var captured = '';
+  try {
+    // Hydrate S with portfolio aggregate. S.bodies stays empty so the
+    // captured Pool Configuration section renders ONLY its Total Volume
+    // strong row — we then inject per-property rows via post-process.
+    for (var dk in S){ if (S.hasOwnProperty(dk)) delete S[dk]; }
+    for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+    S.propertyName           = pName;
+    S.bodies                 = [];
+    S.manualVolume           = false;
+    S.manualPoolCount        = 1;
+    S.manualTotalGallons     = 0;
+    S.pool_gallons           = totalGal;
+    S.chlorine_pool_gallons  = totalGal;
+    S.co2_pool_gallons       = 0;
+    S.devicesByPool          = false;
+    for (var pi2=0; pi2<PIPES.length; pi2++){
+      S[PIPES[pi2].k] = deviceTotals[PIPES[pi2].k];
+    }
+    // EX: hide every section EXCEPT Assessment (which renders unconditionally).
+    // Wipe images/videos/comments since portfolio doesn't have those at the
+    // portfolio level; the media row stays in the layout but renders empty,
+    // preserving the bottom-pinned slot that the page-break rules reserve.
+    for (var dek in EX){ if (EX.hasOwnProperty(dek)) delete EX[dek]; }
+    for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+    EX.inclCover          = false;
+    EX.inclLsCover        = false;
+    EX.inclExecSummary    = false;
+    EX.inclLsExecSummary  = false;
+    EX.inclPoolProfiles   = false;
+    EX.inclBackCover      = false;
+    EX.inclLsBackCover    = false;
+    EX.inclQuote          = false;
+    EX.inclQuoteTerms     = false;
+    EX.inclQuotePayment   = false;
+    EX.layout             = 'portrait';
+    EX.images             = [];
+    // Populate Video Resources with DEFAULT_YT_URLS so the media row renders
+    // (it's the bottom-pinned slot — without it the body collapses and the
+    // page doesn't fill the full 11" sheet). Mirrors what initDefaultYt does
+    // on a fresh single-property session.
+    EX.ytEntries          = [];
+    try {
+      if (typeof DEFAULT_YT_URLS !== 'undefined' && typeof ytVideoId === 'function'){
+        DEFAULT_YT_URLS.forEach(function(url){
+          var vid = ytVideoId(url);
+          if (vid) EX.ytEntries.push({ id:'yt-'+vid, url:url, videoId:vid, comment:'' });
+        });
+      }
+    } catch(_){}
+    EX.comments           = '';
+    EX._captureMode       = true;
+    window.__pfCapturedHtml = '';
+    try { generateReport(); } catch(genErr){
+      try { console.warn('[Portfolio Assessment] generateReport capture failed:', genErr); } catch(_){}
+      window.__pfCapturedHtml = '';
+    }
+    captured = window.__pfCapturedHtml || '';
+  } finally {
+    // Restore live state — even on capture failure
+    if (typeof EX !== 'undefined' && EX) EX._captureMode = false;
+    for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS))  delete S[dks]; }
+    for (var sks in savedS){  if (savedS.hasOwnProperty(sks))  S[sks]  = savedS[sks]; }
+    for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX)) delete EX[dke]; }
+    for (var sek2 in savedEX){ if (savedEX.hasOwnProperty(sek2)) EX[sek2] = savedEX[sek2]; }
+    if (savedR && typeof R !== 'undefined' && R){
+      for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
+    }
+  }
+  if (!captured) return '';
+
+  // ── Post-process: only the two label changes the user asked for ──
+  // (1) "Pool Configuration" header → "Property Configuration" + per-property rows
+  var propRowsHtml = propRows.map(function(p){
+    return '<div class="rpt-row">'
+      + '<span class="k">' + esc(p.name) + ' <em style="color:#999;font-size:10px">' + p.poolCount + ' pool' + (p.poolCount===1?'':'s') + '</em></span>'
+      + '<span class="v">' + fn(Math.round(p.gal)) + ' gal</span>'
+    + '</div>';
+  }).join('');
+  captured = captured.replace(
+    /<div class="rpt-stitle">Pool Configuration<\/div>/g,
+    '<div class="rpt-stitle">Property Configuration</div>' + propRowsHtml
+  );
+  // The "Total Volume" strong row immediately follows the (now empty) pool
+  // rows in the captured HTML. It already shows the portfolio's pool_gallons
+  // total because we set S.pool_gallons = totalGal before capture.
+
+  // (2) KPI strip — prepend "Properties / Pools" cell + bump to 5-col grid
+  var newKpi = '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Properties / Pools</div><div class="rpt-kpi-val teal">' + propCount + '/' + totalPools + '</div></div>';
+  captured = captured.replace(
+    /<div class="rpt-kpis(?:\s+rpt-kpis-5)?">/,
+    '<div class="rpt-kpis rpt-kpis-5">' + newKpi
+  );
+
+  return captured;
+}
+
+function buildPortfolioAssessmentPageHtml_OLD_DELETED(pName, states, roll, today){
+  if (!states || !states.length) return '';
+  // Roll-up KPIs (same fields the per-property assessment uses)
+  var propCount    = Number(roll.property_count) || states.length;
+  var totalInv     = Number(roll.total_inv)      || 0;
+  var totalMo      = Number(roll.total_mo)       || 0;
+  var totalYr      = Number(roll.total_yr)       || 0;
+  var totalDev     = Number(roll.total_dev)      || 0;
+  var totalPoolGal = Number(roll.total_pool_gal) || 0;
+  var blendedPb    = Number(roll.blended_payback_mo) || 0;
+  // Tally pool count + per-SKU device counts across all properties (rollup
+  // doesn't break down SKU counts, so compute directly from state_json).
+  var totalPools = 0;
+  var deviceTotals = {}; if (typeof PIPES !== 'undefined'){ for (var p0=0;p0<PIPES.length;p0++) deviceTotals[PIPES[p0].k] = 0; }
+  for (var i=0; i<states.length; i++){
+    var sj = states[i].state_json || {};
+    if (sj.manualVolume){
+      totalPools += Math.max(1, Number(sj.manualPoolCount) || 1);
+    } else if (Array.isArray(sj.bodies)){
+      totalPools += sj.bodies.length;
+    }
+    if (typeof PIPES !== 'undefined'){
+      for (var pi=0; pi<PIPES.length; pi++){
+        var k = PIPES[pi].k;
+        deviceTotals[k] += Number(sj[k]) || 0;
+      }
+    }
+  }
+  // Property Configuration rows — name, pools, gallons per property
+  var propConfigRows = '';
+  for (var pj=0; pj<states.length; pj++){
+    var st = states[pj];
+    var sj2 = st.state_json || {};
+    var pPoolCount = 0;
+    var pGal = 0;
+    if (sj2.manualVolume){
+      pPoolCount = Math.max(1, Number(sj2.manualPoolCount) || 1);
+      pGal = Number(sj2.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj2.bodies)){
+      pPoolCount = sj2.bodies.length;
+      for (var bb=0; bb<sj2.bodies.length; bb++){
+        pGal += (typeof bodyGallons === 'function') ? bodyGallons(sj2.bodies[bb]) : (Number(sj2.bodies[bb].gallons) || 0);
+      }
+    }
+    propConfigRows += '<div class="rpt-row"><span class="k">' + esc(st.property_name || 'Property') + ' <em style="color:#999;font-size:10px;font-style:normal">' + pPoolCount + ' pool' + (pPoolCount===1?'':'s') + '</em></span><span class="v">' + fn(Math.round(pGal)) + ' gal</span></div>';
+  }
+  // Device rows — one per SKU with rolled-up qty and line cost
+  var devRows = '';
+  if (typeof PIPES !== 'undefined'){
+    for (var pk=0; pk<PIPES.length; pk++){
+      var spec = PIPES[pk];
+      var qty = deviceTotals[spec.k] || 0;
+      if (qty <= 0) continue;
+      devRows += '<div class="rpt-row"><span class="k">' + qty + ' × ' + spec.sz + ' AquaRev' + (qty>1?' Devices':' Device') + '</span><span class="v">' + fc(spec.price*qty, 0) + '</span></div>';
+    }
+  }
+  if (!devRows){ devRows = '<div class="rpt-row"><span class="k" style="color:#999;font-style:italic">No devices configured across the portfolio yet</span><span class="v">—</span></div>'; }
+  // Header
+  var head = '<div class="rpt-head">'
+    + '<div class="rpt-head-left">'
+      + '<div class="rpt-logo">Cost Savings Assessment — Portfolio</div>'
+      + '<div class="rpt-logo-sub">AQUAREV WATER</div>'
+    + '</div>'
+    + '<div class="rpt-head-right">'
+      + '<div class="rpt-prop-name">' + esc(pName) + '</div>'
+      + '<div class="rpt-prop-date">' + esc(today) + '</div>'
+      + '<span class="rpt-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+    + '</div>'
+  + '</div>';
+  // KPI strip — first KPI: Properties/Pools (X/Y), then Devices, Monthly, Annual, Payback
+  var kpis = '<div class="rpt-kpis rpt-kpis-5">'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Properties / Pools</div><div class="rpt-kpi-val teal">' + propCount + '/' + totalPools + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Devices</div><div class="rpt-kpi-val teal">' + totalDev + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Monthly Savings</div><div class="rpt-kpi-val green">' + fc(totalMo, 0) + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Annual Savings</div><div class="rpt-kpi-val green">' + fc(totalYr, 0) + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Purchase Payback</div><div class="rpt-kpi-val teal">' + (blendedPb>0?Math.round(blendedPb)+' mo':'N/A') + '</div></div>'
+  + '</div>';
+  // Investment chart — reuse the same builder single-property uses. SVG
+  // gradient ID is unique per call so the portfolio's Assessment chart
+  // and any per-property Exec Summary charts don't collide.
+  // Roll up R-style values across all properties by hydrating each property
+  // into the globals + calling calcROI(). Same snapshot/restore pattern the
+  // per-property capture loop uses, but in isolation here.
+  var portfolioR = { items: [], inv: totalInv, total_mo: totalMo, total_yr: totalYr, total_dev: totalDev,
+                     adv_mo: 0, adv_net_mo: 0, adv_net_yr: 0, adv_net_5: 0,
+                     net5: 0, roi5: 0, payback: blendedPb,
+                     gal_saved_5yr: 0, disc_amt: 0 };
+  var itemsAccum = {};
+  var savedS_a  = JSON.parse(JSON.stringify(S));
+  var savedEX_a = JSON.parse(JSON.stringify(EX));
+  try {
+    for (var ai=0; ai<states.length; ai++){
+      var aProp = states[ai];
+      for (var dk1 in S){ if (S.hasOwnProperty(dk1) && !(dk1 in savedS_a))  delete S[dk1]; }
+      for (var sk1 in savedS_a){ if (savedS_a.hasOwnProperty(sk1)) S[sk1] = savedS_a[sk1]; }
+      if (aProp.state_json && typeof aProp.state_json === 'object'){
+        for (var kk in aProp.state_json){ if (aProp.state_json.hasOwnProperty(kk)) S[kk] = aProp.state_json[kk]; }
+      }
+      var aR = null;
+      try { aR = (typeof calcROI === 'function') ? calcROI() : null; } catch(_){ aR = null; }
+      if (!aR) continue;
+      portfolioR.adv_mo        += Number(aR.adv_mo)        || 0;
+      portfolioR.gal_saved_5yr += Number(aR.gal_saved_5yr) || 0;
+      portfolioR.disc_amt      += Number(aR.disc_amt)      || 0;
+      if (Array.isArray(aR.items)){
+        for (var it=0; it<aR.items.length; it++){
+          var line = aR.items[it];
+          var lbl = line.lbl || 'Unknown';
+          if (!itemsAccum[lbl]) itemsAccum[lbl] = { lbl: lbl, sav: 0, pct: 0 };
+          itemsAccum[lbl].sav += Number(line.sav) || 0;
+        }
+      }
+    }
+  } finally {
+    for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS_a))  delete S[dks]; }
+    for (var sks in savedS_a){  if (savedS_a.hasOwnProperty(sks))  S[sks]  = savedS_a[sks]; }
+    for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX_a)) delete EX[dke]; }
+    for (var ske in savedEX_a){ if (savedEX_a.hasOwnProperty(ske)) EX[ske] = savedEX_a[ske]; }
+  }
+  portfolioR.items = Object.keys(itemsAccum).map(function(k){ return itemsAccum[k]; });
+  portfolioR.items.sort(function(a,b){ return b.sav - a.sav; });
+  var totalSavCheck = portfolioR.items.reduce(function(s,x){ return s + x.sav; }, 0) || 1;
+  portfolioR.items.forEach(function(x){ x.pct = x.sav / totalSavCheck; });
+  portfolioR.net5       = (portfolioR.total_mo * 60) - portfolioR.inv;
+  portfolioR.roi5       = portfolioR.inv > 0 ? portfolioR.net5 / portfolioR.inv : 0;
+  portfolioR.adv_net_mo = portfolioR.total_mo - portfolioR.adv_mo;
+  portfolioR.adv_net_yr = portfolioR.adv_net_mo * 12;
+  portfolioR.adv_net_5  = portfolioR.adv_net_yr * 5;
+  // Scenario visibility (mirrors single-property)
+  var showAdv = (typeof EX !== 'undefined') ? (EX.bothScenarios || EX.scenario === 'advantage') : true;
+  var showPur = (typeof EX !== 'undefined') ? (EX.bothScenarios || EX.scenario === 'purchase')  : true;
+  // Purchase + Advantage scenario boxes — same .rpt-sbox markup as single
+  var advBox = '', purBox = '';
+  if (showAdv){
+    advBox = '<div class="rpt-sbox">'
+      + '<div class="rpt-sbox-title">Advantage Plan · 60 Month Finance</div>'
+      + '<div class="rpt-row"><span class="k">60 Month Finance</span><span class="v">' + fc(portfolioR.adv_mo, 0) + '/mo</span></div>'
+      + '<div class="rpt-row"><span class="k">Net Monthly Savings</span><span class="v ' + (portfolioR.adv_net_mo>=0?'pos':'neg') + '">' + fc(portfolioR.adv_net_mo, 0) + '</span></div>'
+      + '<div class="rpt-row"><span class="k">Net Annual Savings</span><span class="v ' + (portfolioR.adv_net_yr>=0?'pos':'neg') + '">' + fc(portfolioR.adv_net_yr, 0) + '</span></div>'
+      + '<div class="rpt-row strong"><span class="k">5-Year Net Savings</span><span class="v ' + (portfolioR.adv_net_5>=0?'pos':'neg') + '">' + fc(portfolioR.adv_net_5, 0) + '</span></div>'
+    + '</div>';
+  }
+  if (showPur){
+    purBox = '<div class="rpt-sbox pur">'
+      + '<div class="rpt-sbox-title">Purchase · One-Time Investment</div>'
+      + '<div class="rpt-row"><span class="k">Total Investment</span><span class="v">' + fc(portfolioR.inv, 0) + '</span></div>'
+      + '<div class="rpt-row"><span class="k">Payback Period</span><span class="v teal">' + Math.round(portfolioR.payback) + ' months</span></div>'
+      + '<div class="rpt-row"><span class="k">5-Year Net Savings</span><span class="v pos">' + fc(portfolioR.net5, 0) + '</span></div>'
+      + '<div class="rpt-row strong"><span class="k">5-Year ROI</span><span class="v pos">' + (typeof fp === 'function' ? fp(portfolioR.roi5) : (Math.round(portfolioR.roi5*100)+'%')) + '</span></div>'
+    + '</div>';
+  }
+  // Monthly Savings Breakdown — same inline-bar table single-property uses
+  var maxSav = portfolioR.items.length ? Math.max.apply(null, portfolioR.items.map(function(x){return x.sav;})) : 1;
+  var bkRows = portfolioR.items.map(function(x){
+    var pct = Math.max(3, Math.round((x.sav/maxSav)*100));
+    return '<tr>'
+      + '<td><div class="rpt-bar-wrap">'
+        + '<span style="min-width:120px;display:inline-block">' + esc(x.lbl) + '</span>'
+        + '<div class="rpt-bar-bg"><div class="rpt-bar-fill" style="width:' + pct + '%"></div></div>'
+      + '</div></td>'
+      + '<td>' + fc(x.sav) + '</td>'
+      + '<td>' + (typeof fp === 'function' ? fp(x.pct) : Math.round(x.pct*100)+'%') + '</td>'
+    + '</tr>';
+  }).join('');
+  // Water Conservation 5-year total
+  var waterHtml = '';
+  if (typeof EX !== 'undefined' && EX.inclWater && portfolioR.gal_saved_5yr > 0){
+    waterHtml = '<div>'
+      + '<div class="rpt-stitle">Water Conservation — 5 Years</div>'
+      + '<div class="rpt-stat-grid">'
+        + '<div class="rpt-stat" style="grid-column:1/-1"><div class="rpt-stat-val">' + fn(Math.round(portfolioR.gal_saved_5yr)) + '</div><div class="rpt-stat-lbl">5-Year Water Conservation Total (Gallons)</div></div>'
+      + '</div>'
+    + '</div>';
+  }
+  // Savings projection weight (from current S.savings_weight if set)
+  var savWeightVal = (typeof S !== 'undefined' && S.savings_weight != null) ? Math.round(Number(S.savings_weight) * 100) : null;
+  // Investment chart — reuse the same builder single-property uses.
+  var chartHtml = '';
+  if (typeof buildInvestmentChart === 'function'){
+    try { chartHtml = buildInvestmentChart(portfolioR.inv, portfolioR.total_mo, portfolioR.payback, portfolioR.net5); } catch(_){ chartHtml = ''; }
+  }
+  // Body — Property Configuration | AquaRev Devices Required + chart
+  var body = '<div class="rpt-body">'
+    // Row A: Property Configuration (left) | Devices Required (right)
+    + '<div class="rpt-sec rpt-cols">'
+      + '<div>'
+        + '<div class="rpt-stitle">Property Configuration</div>'
+        + propConfigRows
+        + '<div class="rpt-row strong"><span class="k">Total Pool Volume</span><span class="v">' + fn(Math.round(totalPoolGal)) + ' gal</span></div>'
+        + '<div class="rpt-row"><span class="k">Total Properties</span><span class="v">' + propCount + '</span></div>'
+        + '<div class="rpt-row"><span class="k">Total Pools</span><span class="v">' + totalPools + '</span></div>'
+      + '</div>'
+      + '<div>'
+        + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+        + devRows
+        + (portfolioR.disc_amt > 0 ? '<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">-' + fc(portfolioR.disc_amt, 0) + '</span></div>' : '')
+        + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">' + fc(portfolioR.inv, 0) + '</span></div>'
+      + '</div>'
+    + '</div>'
+    // Row B: Purchase Options + Advantage (stacked left) | Monthly Savings
+    // Breakdown table + Water Conservation (right). Same layout as the
+    // single-property portrait Assessment page.
+    + '<div class="rpt-sec rpt-cols">'
+      + '<div>'
+        + '<div class="rpt-stitle">Purchase Options</div>'
+        + purBox + advBox
+      + '</div>'
+      + '<div>'
+        + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+        + '<table class="rpt-tbl">'
+          + '<thead><tr><th>Category</th><th>Monthly Savings</th><th>% of Total</th></tr></thead>'
+          + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>' + fc(portfolioR.total_mo) + '</td><td>100%</td></tr></tbody>'
+        + '</table>'
+        + (savWeightVal != null ? '<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">' + savWeightVal + '%</span></div>' : '')
+        + (waterHtml ? '<div style="margin-top:10px">' + waterHtml + '</div>' : '')
+      + '</div>'
+    + '</div>'
+    // Row C: Investment chart (full width)
+    + (chartHtml ? '<div class="rpt-sec">' + chartHtml + '</div>' : '')
+    + '<div class="rpt-disc">Portfolio aggregates rolled up from ' + propCount + ' propert' + (propCount===1?'y':'ies') + '. Per-property breakdowns follow on subsequent pages. Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T.</div>'
+  + '</div>';
+  // CTA bar + footer match single-property
+  var cta = '<div class="rpt-cta-bar">'
+    + '<span class="cta-label">AquaRev Reference Information</span>'
+    + '<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
+  + '</div>';
+  var foot = '<div class="rpt-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  return '<div class="rpt">' + head + kpis + body + cta + foot + '</div>';
+}
+
+/* P7+: Portfolio Property Profiles page(s).
+   Two layouts:
+     • cards          — one card per property (image stand-in + KPIs)
+     • list-by-country — compact table grouped by country header
+   Honors the 10-per-page rule for cards; list view paginates by row count. */
+function buildPropertyProfilesPages(pName, states, today, layout){
+  if (!states || !states.length) return [];
+  function ppHeader(subtitle){
+    return '<div class="rpt-es-head rpt-pp-es-head">'
+      + '<div class="rpt-es-head-left">'
+        + '<div class="rpt-es-logo">Property Profiles</div>'
+        + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
+      + '</div>'
+      + '<div class="rpt-es-head-right">'
+        + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+        + '<div class="rpt-es-prop-date">' + esc(today) + ' · ' + states.length + ' propert' + (states.length===1?'y':'ies') + (subtitle?' · ' + esc(subtitle):'') + '</div>'
+        + '<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+      + '</div>'
+    + '</div>';
+  }
+  var ppFooter = '<div class="rpt-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Build a card per property — same .rpt-pp-card chrome single uses, so
+  // the layout / typography / pagination are pixel-identical to pool profiles.
+  function cardHtml(p){
+    var k = p.computed_kpis || {};
+    var sj = p.state_json || {};
+    var bodies = sj.bodies || [];
+    var poolCount = bodies.length || Number(sj.manualPoolCount) || 0;
+    var totalGal = 0;
+    for (var b=0;b<bodies.length;b++) totalGal += Number(bodyGallons ? bodyGallons(bodies[b]) : bodies[b].gallons) || 0;
+    if (!totalGal) totalGal = Number(sj.manualTotalGallons) || 0;
+    var inv = Number(k.inv) || 0;
+    var mo  = Number(k.total_mo) || 0;
+    var pb  = k.payback ? Math.round(Number(k.payback)) : null;
+    var country = p.country || '';
+    var addr = p.formatted_address || '';
+    // Image stand-in — same .rpt-pp-img-empty SVG as pool cards so visual
+    // weight matches the pool profiles pages exactly.
+    var img = '<div class="rpt-pp-img rpt-pp-img-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7db8cc" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V8l4-3v16"/><path d="M9 21V5l8-2v18"/><path d="M9 9h0M9 13h0M9 17h0M13 7h0M13 11h0M13 15h0M13 19h0"/></svg><div class="rpt-pp-img-empty-lbl">Property</div></div>';
+    return '<div class="rpt-pp-card">'
+      + img
+      + '<div class="rpt-pp-info">'
+        + '<div class="rpt-pp-head">'
+          + '<div class="rpt-pp-name">' + esc(p.property_name || 'Property') + '</div>'
+          + (country ? '<span class="rpt-pp-pill" style="background:#0891b2;color:#fff;border-color:#0891b2">' + esc(country) + '</span>' : '')
+        + '</div>'
+        + '<div class="rpt-pp-rows">'
+          + (addr ? '<div class="rpt-pp-row"><span class="k">Address</span><span class="v" style="font-size:9.5px;text-align:right">' + esc(addr) + '</span></div>' : '')
+          + '<div class="rpt-pp-row"><span class="k">Pools</span><span class="v">' + poolCount + '</span></div>'
+          + '<div class="rpt-pp-row"><span class="k">Total Volume</span><span class="v">' + fn(Math.round(totalGal)) + ' gal</span></div>'
+          + '<div class="rpt-pp-row"><span class="k">Investment</span><span class="v">' + (inv?fc(inv,0):'—') + '</span></div>'
+          + '<div class="rpt-pp-row strong"><span class="k">Monthly Plan</span><span class="v pos">' + (mo?fc(mo,0) + ' / mo':'—') + '</span></div>'
+          + (pb!=null ? '<div class="rpt-pp-row"><span class="k">Payback</span><span class="v">' + pb + ' mo</span></div>' : '')
+        + '</div>'
+      + '</div>'
+    + '</div>';
+  }
+  // List-by-country: compact table grouped under country headers. ~24 rows
+  // per page comfortably fits in a 8.5×11 portrait layout.
+  if (layout === 'list-by-country'){
+    var byCountry = {};
+    var order = [];
+    for (var i=0; i<states.length; i++){
+      var c = (states[i].country && String(states[i].country).trim()) || 'Other';
+      if (!byCountry[c]){ byCountry[c] = []; order.push(c); }
+      byCountry[c].push(states[i]);
+    }
+    order.sort();
+    var rowsHtml = '';
+    for (var ci=0; ci<order.length; ci++){
+      var cc = order[ci];
+      var props = byCountry[cc];
+      rowsHtml += '<tr class="rpt-ppl-country-row"><td colspan="5">' + esc(cc) + ' <span style="font-weight:400;opacity:.7">· ' + props.length + ' propert' + (props.length===1?'y':'ies') + '</span></td></tr>';
+      for (var pi=0; pi<props.length; pi++){
+        var pp = props[pi];
+        var kk = pp.computed_kpis || {};
+        var sjj = pp.state_json || {};
+        var bb = sjj.bodies || [];
+        var ppPools = bb.length || Number(sjj.manualPoolCount) || 0;
+        var ppInv = Number(kk.inv) || 0;
+        var ppMo  = Number(kk.total_mo) || 0;
+        var ppPb  = kk.payback ? Math.round(Number(kk.payback)) : null;
+        rowsHtml += '<tr class="rpt-ppl-row">'
+          + '<td>' + esc(pp.property_name || 'Property') + (pp.formatted_address?'<div class="rpt-ppl-addr">' + esc(pp.formatted_address) + '</div>':'') + '</td>'
+          + '<td class="num">' + ppPools + '</td>'
+          + '<td class="num">' + (ppInv?fc(ppInv,0):'—') + '</td>'
+          + '<td class="num">' + (ppMo?fc(ppMo,0) + ' / mo':'—') + '</td>'
+          + '<td class="num">' + (ppPb!=null?ppPb + ' mo':'—') + '</td>'
+        + '</tr>';
+      }
+    }
+    return ['<div class="rpt-pp-page">'
+      + ppHeader('List by Country')
+      + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
+        + '<table class="rpt-ppl-tbl">'
+          + '<thead><tr><th>Property</th><th class="num">Pools</th><th class="num">Investment</th><th class="num">Monthly Plan</th><th class="num">Payback</th></tr></thead>'
+          + '<tbody>' + rowsHtml + '</tbody>'
+        + '</table>'
+      + '</div>'
+      + ppFooter
+    + '</div>'];
+  }
+  // Cards: chunk 10 per page (matches the pool profile cards limit).
+  var cardsArr = states.map(cardHtml);
+  var PER_PAGE = 10;
+  var total = Math.max(1, Math.ceil(cardsArr.length / PER_PAGE));
+  var pages = [];
+  for (var pp=0; pp<total; pp++){
+    var slice = cardsArr.slice(pp*PER_PAGE, (pp+1)*PER_PAGE).join('');
+    pages.push(
+      '<div class="rpt-pp-page">'
+      + ppHeader(total>1 ? ('Page ' + (pp+1) + ' of ' + total) : '')
+      + '<div class="rpt-pp-grid">' + slice + '</div>'
+      + ppFooter
+    + '</div>'
+    );
+  }
+  return pages;
+}
+
+/* P7+: Portfolio Pool Profiles "List" view — compact rows grouped under
+   per-property headers. Used when poolProfilesLayout === 'list' on the
+   Export panel. ~22-24 rows per page in portrait. */
+function buildPortfolioPoolProfilesListPages(pName, states, today){
+  if (!states || !states.length) return [];
+  function ppHeader(subtitle){
+    return '<div class="rpt-es-head rpt-pp-es-head">'
+      + '<div class="rpt-es-head-left">'
+        + '<div class="rpt-es-logo">Pool Profiles</div>'
+        + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
+      + '</div>'
+      + '<div class="rpt-es-head-right">'
+        + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+        + '<div class="rpt-es-prop-date">' + esc(today) + ' · ' + states.length + ' propert' + (states.length===1?'y':'ies') + (subtitle?' · ' + esc(subtitle):'') + '</div>'
+        + '<span class="rpt-es-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+      + '</div>'
+    + '</div>';
+  }
+  var ppFooter = '<div class="rpt-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Flatten into a list of "row items": one per pool, with a sentinel-style
+  // "header row" preceding each property block.
+  var items = [];
+  for (var pi=0; pi<states.length; pi++){
+    var p = states[pi];
+    var sj = p.state_json || {};
+    var bodies = sj.bodies || [];
+    var poolCount = bodies.length;
+    items.push({ kind:'property', name:p.property_name||'Property', count:poolCount, country:p.country||'' });
+    if (bodies.length){
+      for (var b=0; b<bodies.length; b++){
+        var body = bodies[b];
+        var g = (typeof bodyGallons === 'function') ? bodyGallons(body) : (Number(body.gallons)||0);
+        items.push({
+          kind: 'pool',
+          label: body.label || ('Pool ' + (b+1)),
+          type:  (body.poolType === 'saltwater') ? 'Saltwater' : 'Chlorine',
+          dims:  (body.inputMode !== 'gallons' && body.length && body.width && body.depth) ? (body.length+'×'+body.width+'×'+body.depth+' ft') : '',
+          gal:   Math.round(g),
+          co2:   !!body.co2Use
+        });
+      }
+    } else if (sj.manualVolume){
+      // Manual mode — synthesize one row showing the manual aggregate
+      var nMan = Math.max(1, Number(sj.manualPoolCount) || 1);
+      var gMan = Math.round(Number(sj.manualTotalGallons) || 0);
+      items.push({ kind:'pool', label:nMan + ' pool' + (nMan===1?'':'s') + ' (manual estimate)', type:'Manual', dims:'', gal:gMan, co2:false });
+    }
+  }
+  // Paginate — ~24 rows per page in portrait.
+  var ROWS_PER_PAGE = 24;
+  var pages = [];
+  var total = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
+  for (var pgi=0; pgi<total; pgi++){
+    var chunk = items.slice(pgi*ROWS_PER_PAGE, (pgi+1)*ROWS_PER_PAGE);
+    var rowsHtml = '';
+    for (var ri=0; ri<chunk.length; ri++){
+      var it = chunk[ri];
+      if (it.kind === 'property'){
+        rowsHtml += '<tr class="rpt-ppl-country-row"><td colspan="4">' + esc(it.name) + (it.country?' <span style="opacity:.7;font-weight:400">· ' + esc(it.country) + '</span>':'') + ' <span style="opacity:.7;font-weight:400">· ' + it.count + ' pool' + (it.count===1?'':'s') + '</span></td></tr>';
+      } else {
+        rowsHtml += '<tr class="rpt-ppl-row">'
+          + '<td>' + esc(it.label) + (it.dims?'<div class="rpt-ppl-addr">' + esc(it.dims) + '</div>':'') + (it.co2?' <span class="rpt-pp-pill" style="background:#ecfeff;color:#0891b2;border-color:#a5f3fc;font-size:8.5px;padding:1px 5px">CO₂</span>':'') + '</td>'
+          + '<td>' + esc(it.type) + '</td>'
+          + '<td class="num">' + fn(it.gal) + ' gal</td>'
+          + '<td></td>'
+        + '</tr>';
+      }
+    }
+    pages.push(
+      '<div class="rpt-pp-page">'
+      + ppHeader(total>1 ? ('Page ' + (pgi+1) + ' of ' + total) : '')
+      + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
+        + '<table class="rpt-ppl-tbl">'
+          + '<thead><tr><th>Pool</th><th>Type</th><th class="num">Volume</th><th></th></tr></thead>'
+          + '<tbody>' + rowsHtml + '</tbody>'
+        + '</table>'
+      + '</div>'
+      + ppFooter
+    + '</div>'
+    );
+  }
+  return pages;
+}
+
+/* P7: Portfolio quote page — replicates the single-property quote chrome
+   (Seller / Prepared For / Quote-meta top row + Equipment line items table
+   + subtotal stack + footer) but with portfolio-rolled data. */
+function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
+  var qDate = today;
+  // Header band — matches Executive Summary look (.rpt-es-head).
+  var qHeader = '<div class="rpt-es-head">'
+    + '<div class="rpt-es-head-left">'
+      + '<div class="rpt-es-logo">PORTFOLIO QUOTE</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
+    + '</div>'
+    + '<div class="rpt-es-head-right">'
+      + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+      + '<div class="rpt-es-prop-date">' + esc(qDate) + ' · ' + states.length + ' propert' + (states.length===1?'y':'ies') + '</div>'
+    + '</div>'
+  + '</div>';
+  var qFooter = '<div class="rpt-foot rpt-es-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  var SELLER_BLOCK = 'KD Enterprises LLC, dba AquaRev Water\n4348 - Waialae Ave. #621\nHonolulu, HI, 96816, USA\nt. (832) 979-6758\ne. water@aquarevwater.us';
+  var buyerLines = [];
+  buyerLines.push(quote.buyerName || pName);
+  if (quote.billTo)     buyerLines.push(quote.billTo);
+  if (quote.buyerPhone) buyerLines.push('t. ' + quote.buyerPhone);
+  if (quote.buyerEmail) buyerLines.push('e. ' + quote.buyerEmail);
+  var BUYER_BLOCK = buyerLines.join('\n');
+  // Top row — Seller / Buyer / Meta — same .rpt-q-top-row chrome single uses.
+  var topRow = '<div class="rpt-q-top-row">'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Seller</div>'
+      + '<div class="rpt-q-block-text">' + esc(SELLER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
+      + '<div class="rpt-q-block-text">' + esc(BUYER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">PORTFOLIO QUOTE</div>'
+      + '<div class="rpt-q-top-card-body">'
+        + '<dl class="rpt-q-meta-rows">'
+          + '<dt>Date</dt><dd>' + esc(qDate) + '</dd>'
+          + '<dt>Properties</dt><dd>' + states.length + '</dd>'
+          + '<dt>Currency</dt><dd>USD</dd>'
+          + (quote.shippingTerm ? '<dt>Shipping</dt><dd>' + esc(quote.shippingTerm) + '</dd>' : '')
+        + '</dl>'
+      + '</div>'
+    + '</div>'
+  + '</div>';
+  // Equipment line items — same .rpt-q-tbl chrome + .rpt-q-section-row band.
+  var rowsHtml = '<tr class="rpt-q-section-row"><td colspan="5">EQUIPMENT</td></tr>';
+  if (lineItems && lineItems.length){
+    rowsHtml += lineItems.map(function(L){
+      return '<tr>'
+        + '<td>' + esc(L.label) + (L.flow?' <span style="color:#888;font-size:9.5px">— ' + esc(L.flow) + '</span>':'') + '</td>'
+        + '<td class="rpt-q-num">' + L.qty + '</td>'
+        + '<td class="rpt-q-num">$' + fn(L.price) + '</td>'
+        + '<td class="rpt-q-num">$' + fn(L.total) + '</td>'
+        + '<td class="rpt-q-num"></td>'
+      + '</tr>';
+    }).join('');
+  } else {
+    rowsHtml += '<tr><td colspan="5" style="text-align:center;font-style:italic;color:#888;padding:14px 8px">No line items rolled up. Add devices on at least one property.</td></tr>';
+  }
+  // If shipping > 0 add a SHIPPING section row + line
+  var ship = Number(quote.shippingCost) || 0;
+  if (ship > 0){
+    rowsHtml += '<tr class="rpt-q-section-row"><td colspan="5">SHIPPING</td></tr>'
+      + '<tr>'
+        + '<td>Consolidated Shipping' + (quote.shippingTerm?' (' + esc(quote.shippingTerm) + ')':'') + '</td>'
+        + '<td class="rpt-q-num">1</td>'
+        + '<td class="rpt-q-num">$' + fn(ship) + '</td>'
+        + '<td class="rpt-q-num">$' + fn(ship) + '</td>'
+        + '<td class="rpt-q-num"></td>'
+      + '</tr>';
+  }
+  // Totals — match the single-property buildQuoteTotals layout (rpt-q-totals)
+  var liSubtotal = (lineItems||[]).reduce(function(s,L){ return s + (L.total||0); }, 0);
+  var disc       = Number(quote.discountPct) || 0;
+  var discAmt    = liSubtotal * (disc/100);
+  var afterDisc  = liSubtotal - discAmt;
+  var taxRate    = Number(quote.taxRate) || 0;
+  var taxAmt     = (afterDisc + ship) * (taxRate/100);
+  var grandTotal = afterDisc + ship + taxAmt;
+  var depositPct = Number(quote.depositPct) || 0;
+  var depositAmt = grandTotal * (depositPct/100);
+  var totalsBlock = '<dl class="rpt-q-totals-table">'
+    + '<dt>Subtotal</dt><dd>$' + fn(liSubtotal) + '</dd>'
+    + (disc>0   ? '<dt>Discount (' + disc + '%)</dt><dd>-$' + fn(discAmt) + '</dd>' : '')
+    + (ship>0   ? '<dt>Shipping</dt><dd>$' + fn(ship) + '</dd>' : '')
+    + (taxRate>0? '<dt>Tax (' + taxRate + '%)</dt><dd>$' + fn(taxAmt) + '</dd>' : '')
+    + '<div class="strong"><dt>Total</dt><dd>$' + fn(grandTotal) + '</dd></div>'
+    + (depositPct>0 ? '<dt>Deposit (' + depositPct + '%)</dt><dd>$' + fn(depositAmt) + '</dd>' : '')
+  + '</dl>';
+  var termsBlock = quote.stdTerms ? '<div class="terms"><div class="terms-title">Standard Terms</div>' + esc(quote.stdTerms).replace(/\n/g,'<br>') + '</div>' : '<div class="terms"></div>';
+  var totalsRow = '<div class="rpt-q-totals">' + termsBlock + totalsBlock + '</div>';
+  // Assemble page using .rpt-es-page chrome — this gives us the full
+  // 8.5×11 page height, footer pinned to bottom via flex auto-margin,
+  // and proper @page break behavior. Identical to single-property quote.
+  return '<div class="rpt-es-page rpt-q-page rpt-q-page-order">'
+    + qHeader
+    + '<div class="rpt-q-body" style="flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column">'
+      + topRow
+      + '<table class="rpt-q-tbl" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px;color:#222">'
+        + '<thead><tr style="background:#f5fbff;border-bottom:1.5px solid #48cae4">'
+          + '<th style="text-align:left;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Item</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Qty</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Unit</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Line Total</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540"></th>'
+        + '</tr></thead>'
+        + '<tbody>' + rowsHtml + '</tbody>'
+      + '</table>'
+      + totalsRow
+    + '</div>'
+    + qFooter
+  + '</div>';
+}
+
+/* P7: Portfolio Purchase Terms page — full-page legal block.
+   Uses the EXACT same chrome as single-property: .rpt-es-page +
+   .rpt-q-page-terms with the .rpt-q-terms-body wrapper, .rpt-q-terms-title,
+   .rpt-q-terms-text. Footer pins to the bottom of the page. */
+function buildPortfolioPurchaseTermsPageHtml(pName, quote, termsText, today){
+  // Render plain-text terms as HTML — single-property has an RTE so its
+  // termsHtml is already nicely structured. For the portfolio textarea
+  // input we convert newlines and the standard "N." numbering into the
+  // same .rpt-q-terms-ol structure single uses. Falls back to safe
+  // line-break preservation for free-form text.
+  var bodyHtml;
+  if (typeof renderTermsHtml === 'function'){
+    bodyHtml = renderTermsHtml(termsText);
+  } else {
+    // Fallback: escape + preserve newlines as <br>
+    bodyHtml = esc(termsText).replace(/\n/g, '<br>');
+  }
+  var qHeader = '<div class="rpt-es-head">'
+    + '<div class="rpt-es-head-left">'
+      + '<div class="rpt-es-logo">PURCHASE TERMS</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
+    + '</div>'
+    + '<div class="rpt-es-head-right">'
+      + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+      + '<div class="rpt-es-prop-date">' + esc(today) + '</div>'
+    + '</div>'
+  + '</div>';
+  var qFooter = '<div class="rpt-foot rpt-es-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Top row (Seller / Buyer / Meta) — same as quote page so the rep gets
+  // visual continuity. Reuse SELLER + buyer assembly from the quote builder.
+  var SELLER_BLOCK = 'KD Enterprises LLC, dba AquaRev Water\n4348 - Waialae Ave. #621\nHonolulu, HI, 96816, USA\nt. (832) 979-6758\ne. water@aquarevwater.us';
+  var buyerLines = [];
+  buyerLines.push(quote.buyerName || pName);
+  if (quote.billTo)     buyerLines.push(quote.billTo);
+  if (quote.buyerPhone) buyerLines.push('t. ' + quote.buyerPhone);
+  if (quote.buyerEmail) buyerLines.push('e. ' + quote.buyerEmail);
+  var BUYER_BLOCK = buyerLines.join('\n');
+  var topRow = '<div class="rpt-q-top-row">'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Seller</div>'
+      + '<div class="rpt-q-block-text">' + esc(SELLER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
+      + '<div class="rpt-q-block-text">' + esc(BUYER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Purchase Terms and Conditions</div>'
+      + '<div class="rpt-q-top-card-body">'
+        + '<dl class="rpt-q-meta-rows">'
+          + '<dt>Date</dt><dd>' + esc(today) + '</dd>'
+          + '<dt>Portfolio</dt><dd>' + esc(pName) + '</dd>'
+        + '</dl>'
+      + '</div>'
+    + '</div>'
+  + '</div>';
+  return '<div class="rpt-es-page rpt-q-page rpt-q-page-terms">'
+    + qHeader
+    + '<div class="rpt-q-terms-body">'
+      + topRow
+      + '<div class="rpt-q-terms-title">Purchase Terms and Conditions</div>'
+      + '<div class="rpt-q-terms-text">' + bodyHtml + '</div>'
+    + '</div>'
+    + qFooter
+  + '</div>';
+}
+
+/* Mount portfolio report into #ar2-report and invoke the same print path
+   single-property generateReport uses. Reps see either the same Preview
+   toolbar (Preview mode) or jump straight to Save-as-PDF (Download mode). */
+function renderPortfolioReportToDOM(pName, sections, mode){
+  var rEl = document.getElementById('ar2-report');
+  if (!rEl){
+    alert('Report mount not found — refresh and try again.');
+    return;
+  }
+  // Every section returned by buildPortfolioReportPreview is already wrapped
+  // in proper .rpt-cover-page / .rpt-es-page / .rpt-pp-page / .rpt / .rpt-fs-img-page
+  // chrome — same classes single-property uses — so the existing print CSS
+  // handles page breaks + page sizes correctly. We just concatenate.
+  rEl.innerHTML = sections.join('');
+
+  // Force portrait letter (8.5×11) for the portfolio report — matches the
+  // single-property portrait layout so reps don't get jarring size shifts.
+  var orientEl = document.getElementById('ar2-orient');
+  if (!orientEl){ orientEl = document.createElement('style'); orientEl.id = 'ar2-orient'; document.head.appendChild(orientEl); }
+  orientEl.textContent = '@media print{@page{size:portrait;margin:0mm;}}';
+
+  // Hide all body children except #ar2-report (matches generateReport flow)
+  var hiddenEls = [];
+  var bodyKids = document.body.children;
+  for (var bi = 0; bi < bodyKids.length; bi++){
+    if (bodyKids[bi].id !== 'ar2-report' && bodyKids[bi].id !== 'ar2-orient'){
+      hiddenEls.push({ el: bodyKids[bi], prev: bodyKids[bi].style.cssText });
+      bodyKids[bi].style.cssText += 'display:none!important;';
+    }
+  }
+  var rElParent = rEl.parentNode;
+  var rElNext   = rEl.nextSibling;
+  document.body.appendChild(rEl);
+  rEl.style.cssText = 'display:block;';
+
+  var origDocTitle = document.title;
+  document.title = pName + ' — Portfolio';
+
+  function restoreApp(){
+    document.title = origDocTitle;
+    rEl.style.cssText = 'display:none;';
+    if (rElNext) rElParent.insertBefore(rEl, rElNext);
+    else rElParent.appendChild(rEl);
+    for (var ri = 0; ri < hiddenEls.length; ri++){
+      hiddenEls[ri].el.style.cssText = hiddenEls[ri].prev;
+    }
+    window.scrollTo(0, 0);
+  }
+
+  // Wait for fonts + images, then either show the preview toolbar
+  // (Preview mode) or print directly (Download mode).
+  var fontReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+  fontReady.then(function(){
+    var imgs = rEl.querySelectorAll('img');
+    var imgPromises = [];
+    for (var ii = 0; ii < imgs.length; ii++){
+      if (!imgs[ii].complete){
+        imgPromises.push(new Promise(function(resolve){
+          var im = imgs[ii];
+          im.onload = resolve;
+          im.onerror = resolve;
+        }));
+      }
+    }
+    Promise.all(imgPromises).then(function(){
+      setTimeout(function(){
+        var restored = false;
+        function doRestore(){ if (restored) return; restored = true; restoreApp(); }
+        if (mode === 'exp-preview'){
+          var tb = document.createElement('div');
+          tb.id = 'ar2-preview-toolbar';
+          tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
+          tb.innerHTML = '<button id="ar2-pf-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Return to Portfolio</button>'
+            + '<div style="color:#fff;font-size:13px;font-weight:600">' + escHtml(pName) + ' — Portfolio Preview</div>'
+            + '<button id="ar2-pf-prev-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Download PDF</button>';
+          document.body.appendChild(tb);
+          rEl.style.paddingTop = '56px';
+          document.getElementById('ar2-pf-prev-back').onclick = function(){
+            document.body.removeChild(tb);
+            rEl.style.paddingTop = '';
+            doRestore();
+          };
+          document.getElementById('ar2-pf-prev-dl').onclick = function(){
+            document.body.removeChild(tb);
+            rEl.style.paddingTop = '';
+            window.addEventListener('afterprint', function onAfter(){
+              window.removeEventListener('afterprint', onAfter);
+              setTimeout(doRestore, 100);
+            });
+            window.print();
+            setTimeout(function(){ if (!restored) doRestore(); }, 3000);
+          };
+        } else if (mode === 'exp-archive'){
+          // Save to Archive — currently a stub. We still want the rep to
+          // SEE the report (so they know what was archived) so we run the
+          // preview path. Real DB persistence of the rendered portfolio PDF
+          // is a follow-up; for now this confirms the data + flow.
+          alert('Portfolio report preview generated. Real archive persistence (PDF blob saved to Supabase Storage) is a follow-up; for now the preview is open so you can verify the output.');
+          var tb2 = document.createElement('div');
+          tb2.id = 'ar2-preview-toolbar';
+          tb2.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
+          tb2.innerHTML = '<button id="ar2-pf-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Return to Portfolio</button>'
+            + '<div style="color:#fff;font-size:13px;font-weight:600">' + escHtml(pName) + ' — Archive preview</div>'
+            + '<button id="ar2-pf-prev-dl" style="background:linear-gradient(135deg,#22c55e,#4ade80);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">Download PDF</button>';
+          document.body.appendChild(tb2);
+          rEl.style.paddingTop = '56px';
+          document.getElementById('ar2-pf-prev-back').onclick = function(){
+            document.body.removeChild(tb2);
+            rEl.style.paddingTop = '';
+            doRestore();
+          };
+          document.getElementById('ar2-pf-prev-dl').onclick = function(){
+            document.body.removeChild(tb2);
+            rEl.style.paddingTop = '';
+            window.addEventListener('afterprint', function onAfter(){
+              window.removeEventListener('afterprint', onAfter);
+              setTimeout(doRestore, 100);
+            });
+            window.print();
+            setTimeout(function(){ if (!restored) doRestore(); }, 3000);
+          };
+        } else {
+          // Download mode — print directly
+          window.addEventListener('afterprint', function onAfter(){
+            window.removeEventListener('afterprint', onAfter);
+            setTimeout(doRestore, 100);
+          });
+          window.print();
+          setTimeout(function(){ if (!restored) doRestore(); }, 3000);
+        }
+      }, 500);
+    });
+  });
+}
+// Tiny helpers used by buildPortfolioReportPreview
+function kpiCard(lbl, val){
+  return '<div style="padding:12px 14px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px">'
+    + '<div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:4px">' + escHtml(lbl) + '</div>'
+    + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;color:#fff;font-weight:700">' + (typeof val==='string'?escHtml(val):val) + '</div>'
+    + '</div>';
+}
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ── P2: orphan-data fix ────────────────────────────────────────────────
+   When the rep is mid-trace on Map Pools and flips the "Portfolio" radio,
+   this function fires AFTER the New Portfolio modal succeeds. It captures
+   the live calculator + map state and writes it directly into a brand-new
+   property inside the just-created portfolio — then enters property mode
+   so the rep keeps working without losing anything.
+
+   Falls back to the Portfolio Overview (empty roster) on insert failure
+   so the rep can re-add manually if anything goes wrong.
+   ──────────────────────────────────────────────────────────────────────── */
+function seedFirstPropertyFromMapPools(newPortfolio){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){
+    alert('Portfolio created, but cloud is unavailable to save the current property. Add it manually from the Portfolio Overview.');
+    if (window.AR2_PF) AR2_PF.openPortfolio(newPortfolio.id);
+    var bankBtn = document.getElementById('ar2-bank-nav');
+    if (bankBtn) bankBtn.click();
+    return;
+  }
+  // Resolve a property name from whatever the rep has provided so far —
+  // calculator state first, Map Pools input second, generic fallback last.
+  var mapName = '';
+  try { if (window.AR2_MAP && AR2_MAP.getPropertyName) mapName = AR2_MAP.getPropertyName() || ''; } catch(_){}
+  var propName = (S.propertyName && String(S.propertyName).trim()) ||
+                 (mapName && String(mapName).trim()) ||
+                 'New Property';
+  // Snapshot the live state. cloneJson lives in AR2_PF's IIFE so we
+  // duplicate inline here — defensive deep clone.
+  var stateJson = JSON.parse(JSON.stringify(S));
+  var exJson    = JSON.parse(JSON.stringify(EX));
+  var poolMeasureJson = null;
+  try { if (window.AR2_MAP && AR2_MAP.exportSnapshot) poolMeasureJson = AR2_MAP.exportSnapshot() || null; } catch(_){}
+  // Capture the map-resolved formatted address (if the rep located the
+  // property via Google search). Persists to portfolio_properties.formatted_address
+  // so it surfaces in the Property Profiles roster + can drive future
+  // grouping (country headers, ship-to auto-populate, etc.).
+  var formattedAddr = '';
+  try { if (window.AR2_MAP && AR2_MAP.getFormattedAddress) formattedAddr = AR2_MAP.getFormattedAddress() || ''; } catch(_){}
+  // Ensure the property name is reflected in the persisted state too —
+  // so the calc reads it back consistently on re-entry.
+  if (propName && !stateJson.propertyName) stateJson.propertyName = propName;
+  // Also mirror the address into S.formattedAddress so it survives a
+  // round-trip through enterProperty / saveCurrentProperty.
+  if (formattedAddr && !stateJson.formattedAddress) stateJson.formattedAddress = formattedAddr;
+
+  c.from('portfolio_properties').insert({
+    portfolio_id: newPortfolio.id,
+    property_name: propName,
+    order_index: 0,
+    formatted_address: formattedAddr || null,
+    state_json: stateJson,
+    ex_json: exJson,
+    pool_measure_json: poolMeasureJson
+  }).select('id').single().then(function(rs){
+    if (rs.error){
+      alert('Portfolio created but the current property could not be saved: ' +
+            (rs.error.message || 'unknown error') +
+            '. Add it manually from the Portfolio Overview.');
+      AR2_PF.openPortfolio(newPortfolio.id);
+      var bb = document.getElementById('ar2-bank-nav');
+      if (bb) bb.click();
+      return;
+    }
+    // Invalidate the AR2_PF property-list cache for this portfolio so the
+    // Overview roster shows the new property immediately.
+    try {
+      if (AR2_PF._state){
+        AR2_PF._state.properties[newPortfolio.id] = null;
+        AR2_PF._state.rollup[newPortfolio.id]     = null;
+      }
+    } catch(_){}
+    // Enter property mode for the new property. enterProperty fetches the
+    // full row, snapshots the user's prior session, hydrates S/EX from
+    // state_json, and loads pool_measure_json into AR2_MAP. The rep ends
+    // up on Map Pools with their work intact, now bound to this portfolio.
+    AR2_PF.enterProperty(rs.data.id);
+  }).catch(function(e){
+    alert('Portfolio created but the current property could not be saved: ' +
+          (e.message || 'unknown error') +
+          '. Add it manually from the Portfolio Overview.');
+    AR2_PF.openPortfolio(newPortfolio.id);
+    var bb = document.getElementById('ar2-bank-nav');
+    if (bb) bb.click();
+  });
+}
+
+(function(){
+  var picker, pickerSel, pickerHint, pickerChip, pickerChipName;
+  function $els(){
+    picker         = picker         || document.getElementById('ap-pf-picker');
+    pickerSel      = pickerSel      || document.getElementById('ap-pf-picker-select');
+    pickerHint     = pickerHint     || document.getElementById('ap-pf-picker-hint');
+    pickerChip     = pickerChip     || document.getElementById('ap-pf-picker-chip');
+    pickerChipName = pickerChipName || document.getElementById('ap-pf-picker-chip-name');
+  }
+  function getRadio(value){
+    return document.querySelector('input[name="ap-create-mode"][value="'+value+'"]');
+  }
+  function checkRadio(value){
+    var r = getRadio(value);
+    if (r) r.checked = true;
+  }
+  function showPicker(show){
+    $els();
+    if (!picker) return;
+    picker.classList.toggle('is-active', !!show);
+  }
+  function setChip(name){
+    $els();
+    if (!pickerChip) return;
+    if (name){
+      if (pickerChipName) pickerChipName.textContent = name;
+      pickerChip.classList.add('is-active');
+    } else {
+      pickerChip.classList.remove('is-active');
+    }
+  }
+  function clearTarget(){
+    window.AR2_MAP_PF_TARGET = null;
+    setChip(null);
+  }
+  function setTarget(id, name){
+    window.AR2_MAP_PF_TARGET = { id: id, name: name };
+    setChip(name);
+  }
+
+  // Populate the <select> from AR2_PF.portfolios(). RLS already scopes the
+  // list to what the signed-in user can see, so we don't filter client-side.
+  function populatePicker(){
+    $els();
+    if (!pickerSel) return;
+    var list = (window.AR2_PF && AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+    var sel = pickerSel;
+    sel.disabled = false;
+    // Rebuild options. First item is always the placeholder; last item is
+    // the "+ New portfolio…" pivot. Existing portfolios sit in between.
+    var html = '<option value="" disabled selected>'
+      + (list.length ? '— Select a portfolio —' : '— No portfolios yet —')
+      + '</option>';
+    for (var i = 0; i < list.length; i++){
+      var p = list[i];
+      html += '<option value="'+p.id+'">'+ (p.name || 'Untitled') +'</option>';
+    }
+    html += '<option value="__new__">+ New portfolio…</option>';
+    sel.innerHTML = html;
+    if (pickerHint){
+      var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+      pickerHint.textContent = list.length
+        ? (isAdmin
+            ? 'Admin view — showing all portfolios across users.'
+            : 'Showing portfolios you own.')
+        : 'No portfolios yet — choose "+ New portfolio…" to create one.';
+    }
+  }
+
+  // Load portfolios from Supabase if we haven't yet. Shows a "Loading…"
+  // state on the <select> while the fetch is in flight.
+  function loadAndPopulate(){
+    $els();
+    if (!pickerSel) return;
+    if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+      pickerSel.innerHTML = '<option value="" disabled selected>Portfolios unavailable</option>';
+      pickerSel.disabled = true;
+      if (pickerHint) pickerHint.textContent = 'Portfolios are not available in this account.';
+      return;
+    }
+    pickerSel.disabled = true;
+    pickerSel.innerHTML = '<option value="" disabled selected>Loading…</option>';
+    if (pickerHint) pickerHint.textContent = 'Loading your portfolios…';
+    AR2_PF.loadPortfolios().then(function(){ populatePicker(); })
+      .catch(function(e){
+        pickerSel.disabled = false;
+        pickerSel.innerHTML = '<option value="" disabled selected>— Couldn\'t load —</option>';
+        if (pickerHint) pickerHint.textContent = (e && e.message) || 'Load failed. Try again.';
+      });
+  }
+
+  // After New Portfolio modal closes, this watches for the modal node being
+  // removed from <body>. On removal: if the portfolios count grew, we treat
+  // it as a successful create and act accordingly per the caller's context.
+  function watchPortfolioModal(onCreated, onCancelled){
+    var modal = document.getElementById('ar-pf-new-modal');
+    if (!modal || !window.MutationObserver){
+      if (onCancelled) onCancelled();
+      return;
+    }
+    var before = (window.AR2_PF && AR2_PF.portfolios && AR2_PF.portfolios().length) || 0;
+    var obs = new MutationObserver(function(){
+      if (document.getElementById('ar-pf-new-modal')) return;
+      obs.disconnect();
+      var after = (window.AR2_PF && AR2_PF.portfolios && AR2_PF.portfolios().length) || 0;
+      if (after > before){
+        // Newest portfolio is prepended to the array (see createPortfolio
+        // in AR2_PF — line where pfState.portfolios is updated).
+        var list = AR2_PF.portfolios();
+        var newest = list && list[0];
+        if (onCreated) onCreated(newest);
+      } else {
+        if (onCancelled) onCancelled();
+      }
+    });
+    obs.observe(document.body, { childList: true });
+  }
+
+  // Main radio change handler.
+  function onModeChange(e){
+    var t = e.target;
+    if (!t || t.name !== 'ap-create-mode') return;
+    var mode = t.value;
+
+    // Mode: "property" — clear any portfolio binding, hide picker.
+    if (mode === 'property'){
+      clearTarget();
+      showPicker(false);
+      return;
+    }
+
+    // Both portfolio modes require AR2_PF to be enabled.
+    if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+      alert('Portfolios are not available in this account.');
+      checkRadio('property');
+      clearTarget();
+      showPicker(false);
+      return;
+    }
+
+    // Mode: "add-to-portfolio" — show picker, populate it.
+    if (mode === 'add-to-portfolio'){
+      showPicker(true);
+      loadAndPopulate();
+      return;
+    }
+
+    // Mode: "portfolio" — open New Portfolio modal. On Create, lock in the
+    // rep's CURRENT Map Pools work by creating the first property inside the
+    // new portfolio with state_json/ex_json/pool_measure_json pre-loaded
+    // from the live calculator + map snapshot. Then enter property mode for
+    // that property so the rep keeps working seamlessly.
+    //
+    // This closes the orphan-data loop — before this fix, flipping the radio
+    // mid-trace would create the portfolio + dump the rep in Archive while
+    // silently losing the polygons they just drew.
+    if (mode === 'portfolio'){
+      AR2_PF.openNewPortfolioModal();
+      watchPortfolioModal(
+        function onCreated(newPortfolio){
+          checkRadio('property');
+          clearTarget();
+          showPicker(false);
+          if (newPortfolio && newPortfolio.id){
+            seedFirstPropertyFromMapPools(newPortfolio);
+          } else {
+            // Defensive fallback — shouldn't happen since onCreated only
+            // fires when watchPortfolioModal saw the portfolios cache grow.
+            try { AR2_PF.setActiveTab('portfolios'); } catch(_){}
+            var bankBtn = document.getElementById('ar2-bank-nav');
+            if (bankBtn) bankBtn.click();
+          }
+        },
+        function onCancelled(){
+          checkRadio('property');
+          clearTarget();
+          showPicker(false);
+        }
+      );
+      return;
+    }
+  }
+
+  // Picker <select> change — bind to a portfolio, or pivot to "+ New portfolio…"
+  function onPickerChange(e){
+    var sel = e.target;
+    if (!sel || sel.id !== 'ap-pf-picker-select') return;
+    var v = sel.value;
+    if (!v) return;
+    if (v === '__new__'){
+      // Reset the select so it doesn't stay stuck on "+ New portfolio…"
+      // — this way after the modal closes the user can pick from the list.
+      sel.value = '';
+      AR2_PF.openNewPortfolioModal();
+      watchPortfolioModal(
+        function onCreated(newest){
+          // Auto-bind to the just-created portfolio. Repopulate so the
+          // new row appears in the <select>, then select it.
+          populatePicker();
+          if (newest){
+            sel.value = newest.id;
+            setTarget(newest.id, newest.name);
+          }
+        },
+        function onCancelled(){
+          // User backed out — leave the select on the placeholder.
+        }
+      );
+      return;
+    }
+    // Picked an existing portfolio. Look up the name from AR2_PF cache.
+    var list = (AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+    var match = null;
+    for (var i = 0; i < list.length; i++){ if (list[i].id === v){ match = list[i]; break; } }
+    if (match) setTarget(match.id, match.name);
+  }
+
+  // Chip "×" — clear the bound portfolio. Drop back to Property mode.
+  function onChipClear(e){
+    var btn = e.target && e.target.closest && e.target.closest('#ap-pf-picker-chip-clear');
+    if (!btn) return;
+    e.preventDefault();
+    clearTarget();
+    var sel = document.getElementById('ap-pf-picker-select');
+    if (sel) sel.value = '';
+    checkRadio('property');
+    showPicker(false);
+  }
+
+  document.addEventListener('change', function(e){
+    onModeChange(e);
+    onPickerChange(e);
+  });
+  document.addEventListener('click', onChipClear);
+})();
+
+/* ── Init the role-gated UI on login ────────────────────────────────────
+   AR2_PF.init() is normally lazy — it runs the first time the Archive is
+   opened. For the Map Pools radios to know the role from the first paint,
+   we need to run init() the moment cloud auth is ready.
+
+   IMPORTANT: AR2_PF.init() is idempotent via pfState.initialized — if we
+   call it before AR2_CLOUD.isReady() is true, it marks itself initialized
+   and returns early, leaving pfState.enabled forever undefined. So we MUST
+   poll for cloud-ready first, then call init() exactly once. */
+(function(){
+  function applyPfBody(){
+    try {
+      if (window.AR2_PF && AR2_PF.init){ AR2_PF.init(); }
+    } catch(_){}
+    var enabled = !!(window.AR2_PF && AR2_PF.isEnabled && AR2_PF.isEnabled());
+    document.body.classList.toggle('pf-enabled', enabled);
+    // Preload portfolios so the picker opens instantly when the rep flips
+    // the radio (no spinner on first interaction).
+    if (enabled && AR2_PF.loadPortfolios){
+      try { AR2_PF.loadPortfolios(); } catch(_){}
+    }
+  }
+  // Poll for cloud-ready every 500ms (up to ~2 min cap). The moment the
+  // user finishes gateLogin, AR2_CLOUD.isReady() flips true; we then call
+  // init() ONCE and stop polling. This avoids the early-init race where
+  // AR2_PF.init() bails out and locks pfState.initialized=true.
+  var ticks = 0;
+  var iv = setInterval(function(){
+    ticks++;
+    if (ticks > 240) { clearInterval(iv); return; }
+    if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
+    clearInterval(iv);
+    applyPfBody();
+  }, 500);
+  // Safety net: re-evaluate whenever the Archive is opened. Covers
+  // sign-out/sign-in within the same session and any oddball race.
+  document.addEventListener('click', function(e){
+    var btn = e.target && e.target.closest && e.target.closest('[data-action="view-bank"]');
+    if (btn) setTimeout(applyPfBody, 60);
+  });
+})();
+
 function bankGetIndex(){
   return window.storage.get(BANK_IDX)
     .then(function(r){if(!r)return[];var s=typeof r==='string'?r:r.value;return s?JSON.parse(s):[];})
     .catch(function(){return [];});
+}
+
+/* P1.5 — Unified Archive index.
+   Returns a Promise resolving to a merged list of [single assessments + portfolios],
+   sorted DESC by saved date. Each entry has `archiveType: 'single' | 'portfolio'`
+   so renderCards can branch on row type.
+
+   For clients / non-PF mode this falls through to bankGetIndex unchanged.
+   Portfolio rollup KPIs are fetched in parallel per portfolio. RLS already
+   scopes the list (users see own; admins see all). */
+function getArchiveListIndex(){
+  if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+    return bankGetIndex().then(function(idx){
+      return idx.map(function(e){ e.archiveType = 'single'; return e; });
+    });
+  }
+  var singlesP = bankGetIndex().then(function(idx){
+    return (idx || []).map(function(e){ e.archiveType = 'single'; return e; });
+  });
+  var portsP = AR2_PF.loadPortfolios().then(function(list){
+    if (!list || !list.length) return [];
+    var rollupPromises = list.map(function(p){
+      return AR2_PF.getRollup(p.id).then(function(r){ return { p:p, r:r||{} }; },
+                                          function(){   return { p:p, r:{}    }; });
+    });
+    return Promise.all(rollupPromises).then(function(items){
+      return items.map(function(it){
+        var p = it.p, r = it.r;
+        return {
+          id: p.id,
+          propertyName: p.name || 'Untitled Portfolio',
+          savedAt: p.last_modified_at || p.created_at,
+          archiveType: 'portfolio',
+          portfolioStatus: p.status || 'draft',
+          summary: {
+            monthly:      Number(r.total_mo)       || 0,
+            annual:       Number(r.total_yr)       || 0,
+            inv:          Number(r.total_inv)      || 0,
+            devices:      Number(r.property_count) || 0, // "devices" col reused for property count
+            poolGallons:  Number(r.total_pool_gal) || 0,
+            payback:      r.blended_payback_mo ? Math.round(Number(r.blended_payback_mo)) : 0,
+            savingsWeight: null
+          }
+        };
+      });
+    });
+  }).catch(function(){ return []; });
+  return Promise.all([singlesP, portsP]).then(function(arr){
+    var merged = arr[0].concat(arr[1]);
+    merged.sort(function(a,b){
+      var ta = new Date(a.savedAt).getTime() || 0;
+      var tb = new Date(b.savedAt).getTime() || 0;
+      return tb - ta;
+    });
+    return merged;
+  });
 }
 
 function bankSaveReport(){
@@ -1684,10 +5771,21 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
    per user) using EST-bucketed daily counts. */
 function populateAdminDashboard(){
   if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())) return;
-  AR2_CLOUD.statsLast30Days().then(function(s){
-    var totalEl=document.getElementById('ar-admin-30d-total');
-    if(totalEl) totalEl.textContent = s.total;
-  }).catch(function(){});
+  // 6-card KPI grid — assessments + portfolios + properties + pools + value
+  // + last-7-day record count. Excludes hard-deleted records automatically.
+  if (AR2_CLOUD.statsAdminKpis){
+    AR2_CLOUD.statsAdminKpis().then(function(k){
+      var set = function(id, val){ var el = document.getElementById(id); if (el) el.textContent = val; };
+      set('ar-admin-kpi-7d',    String(k.recordsLast7Days));
+      set('ar-admin-kpi-ass',   String(k.assessmentsTotal));
+      set('ar-admin-kpi-pf',    String(k.portfoliosTotal));
+      set('ar-admin-kpi-prop',  String(k.propertiesTotal));
+      set('ar-admin-kpi-pools', (typeof fn==='function'?fn(k.poolsTotal):String(k.poolsTotal)));
+      set('ar-admin-kpi-value', (typeof fc==='function'?fc(Math.round(k.valueTotal),0):('$'+Math.round(k.valueTotal))));
+    }).catch(function(err){
+      try { console.warn('[admin KPI] load failed', err); } catch(_){}
+    });
+  }
   // User-stats table — replaces the old chip list. Shows per-user lifetime
   // login count + 30-day record count + 30-day login count.
   AR2_CLOUD.adminUserStats().then(function(rows){
@@ -1861,30 +5959,70 @@ function showDuplicateConfirmModal(propName, onConfirm){
 }
 
 /* ── Render Archive view ── */
-function renderBank(){
-  var el=document.getElementById('ar2-bank');
+/* ── renderArchive — Phase 1 entry point for the Archive view ─────
+   When AR2_PF is enabled (User + Admin roles in sandbox builds), this
+   wraps renderBank's output with a tab strip and provides a Portfolios
+   tab alongside the existing Single Assessments view. When AR2_PF is
+   disabled (Client role, or production calculator without AR2_PF code
+   loaded), it falls through to renderBank() directly — identical UX to
+   production. Important: showView('bank') calls renderArchive(), but
+   every OTHER caller of renderBank() across the codebase (admin actions
+   that refresh the archive after delete/restore/reassign, etc.) still
+   calls renderBank() directly. Those callers usually want to refresh
+   only the singles list; when AR2_PF is active we route them through
+   renderArchive so the tabs/state stay correct.                       */
+function renderArchive(){
+  var el = document.getElementById('ar2-bank');
+  if (!el) return;
+  if (!window.AR2_PF || !AR2_PF.isEnabled()) {
+    // Feature disabled (Client / no-PF): production behavior, single assessments only.
+    return renderBank();
+  }
+  // Portfolio drill-down views — Overview, Export panel, or Quote builder.
+  // Routed via pfState.viewMode + selectedPortfolioId. Each shares the same
+  // archive wrap mount so the chrome (back navigation, archive width) stays
+  // consistent.
+  var vm = AR2_PF.viewMode && AR2_PF.viewMode();
+  if ((vm === 'overview' || vm === 'export' || vm === 'quote-builder') &&
+      AR2_PF.selectedPortfolioId && AR2_PF.selectedPortfolioId()){
+    el.innerHTML = '<div class="ar-pf-archive-wrap"><div id="ar2-bank-overview-mount"></div></div>';
+    AR2_PF.renderPortfoliosPanel(document.getElementById('ar2-bank-overview-mount'));
+    return;
+  }
+  // Unified list — singles + portfolios mixed, sorted by date. No tabs.
+  // renderBank below pulls its data from getArchiveListIndex() instead of
+  // bankGetIndex() when AR2_PF is enabled, so the same renderer powers both
+  // types. The list lives directly in #ar2-bank.
+  renderBank();
+}
+
+// Accepts optional `targetId` (string) so the Portfolio tabs wrapper can
+// redirect renderBank's output into a sub-container (#ar2-bank-singles).
+// Defaults to '#ar2-bank' so every existing caller works unchanged.
+function renderBank(targetId){
+  var el=document.getElementById(targetId || 'ar2-bank');
   if(!el)return;
   // Cloud-mode flags drive the admin dashboard + Created By column.
   var isCloudReady = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
   var isAdmin      = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin());
   el.innerHTML='<div class="ar-bank-wrap"><div class="ar-bank-hero">'
-    +'<div class="ar-bank-title">Saved Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+'</div>'
+    +'<div class="ar-bank-title">Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+'</div>'
     +'<button class="ar-bank-act primary no-print" data-action="view-form">'
       +I.back+' Back to Calculator'
     +'</button>'
   +'</div><div class="ar-bank-loading">Loading\u2026</div></div>';
 
-  bankGetIndex().then(function(idx){
+  getArchiveListIndex().then(function(idx){
     var wrap=el.querySelector('.ar-bank-wrap');
     if(!idx||idx.length===0){
       wrap.innerHTML='<div class="ar-bank-hero">'
-        +'<div class="ar-bank-title">Saved Assessments</div>'
+        +'<div class="ar-bank-title">Assessments</div>'
         +'<button class="ar-bank-act primary no-print" data-action="view-form">'+I.back+' Back to Calculator</button>'
       +'</div>'
       +'<div class="ar-bank-empty">'
         +I.bank
-        +'<div style="font-size:15px;color:#fff;margin-bottom:8px">No saved assessments yet</div>'
-        +'Complete an assessment and click <strong style="color:var(--t)">Archive</strong> to store it here.'
+        +'<div style="font-size:15px;color:#fff;margin-bottom:8px">No saved assessments or portfolios yet</div>'
+        +'Complete an assessment and click <strong style="color:var(--t)">Archive</strong>, or create a Portfolio from Map Pools to get started.'
       +'</div>';
       return;
     }
@@ -1903,7 +6041,17 @@ function renderBank(){
         var mo=s.monthly||0;
         var clr=mo>2000?'green':mo>500?'gold':'teal';
         var isSel=!!selected[entry.id];
+        var isPortfolio = entry.archiveType === 'portfolio';
+        // Type indicator \u2014 a small icon-only marker before the record name.
+        // Singles get a single-page document icon in teal; portfolios get a
+        // stacked-layers icon in green. The visual differentiation is the
+        // icon SHAPE + COLOR \u2014 no text pills. Combined with a left-edge
+        // accent stripe on the row itself (CSS) for fast scan-pattern.
+        var typeBadge = isPortfolio
+          ? '<span class="ar-bank-typeicon portfolio" title="Portfolio" aria-label="Portfolio"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M2 4.5h7l1.5 1.5h.5"/><rect x="2" y="4" width="10" height="8" rx="1.2"/><path d="M3 7h8"/></svg></span>'
+          : '<span class="ar-bank-typeicon single" title="Single Assessment" aria-label="Single Assessment"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3.5 1.5h5L11 4v8.5H3.5z"/><path d="M8.5 1.5V4H11"/><path d="M5 7h4M5 9h4M5 11h2.5"/></svg></span>';
         // Created By cell \u2014 admin-only. Highlights the row owner's name + role.
+        // Portfolios don't carry user joins yet, so the cell shows "\u2014" for them.
         var createdByCell = '';
         if(isAdmin){
           var nm = entry.createdByName || '\u2014';
@@ -1913,32 +6061,53 @@ function renderBank(){
             + (rl?'<div class="role'+(rl==='admin'?' admin':'')+'">'+esc(rl)+'</div>':'')
           + '</div>';
         }
-        // Reassign button \u2014 admin-only, shown alongside the existing actions.
-        var reassignBtn = isAdmin
+        // Reassign button \u2014 admin-only, applies to singles only for now.
+        // Portfolio reassign needs its own RPC; tracked for a later pass.
+        var reassignBtn = (isAdmin && !isPortfolio)
           ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">\u2192</button>'
           : '';
-        var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'');
-        return '<div class="'+classes+'" data-row-id="'+entry.id+'">'
-          +(selectMode?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':'')
+        // Per-row actions branch by type:
+        //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
+        //   Portfolios \u2014 open (recall) \u00b7 delete  (PDF + duplicate live at portfolio level)
+        // Per-row actions branch by type. Portfolios get duplicate + reassign
+        // parity with singles (plus the new "open" + delete already wired);
+        // singles get a new "Copy to Portfolio" action that opens a picker
+        // letting the rep add this assessment to an existing portfolio.
+        var actions = isPortfolio
+          ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
+            +(isAdmin?'<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Reassign portfolio to another user">→</button>':'')
+            +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
+          : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="copy-to-portfolio" data-bank-id="'+entry.id+'" title="Copy to portfolio">+☰</button>'
+            +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
+            +reassignBtn
+            +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>';
+        var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'') + (isPortfolio?' is-portfolio':'');
+        // "Devices" column header is reused for property count when the row
+        // is a portfolio \u2014 same numeric scale, different meaning. Tooltip
+        // clarifies on hover.
+        var countLabel = isPortfolio
+          ? (s.devices||0) + (s.devices===1?' prop':' props')
+          : (s.devices||'\u2014');
+        return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'">'
+          +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
-            +'<div class="ar-bank-prop">'+esc(entry.propertyName)+'</div>'
+            +'<div class="ar-bank-prop">'+typeBadge+esc(entry.propertyName)+'</div>'
             +'<div class="ar-bank-date">'+dateStr+'</div>'
           +'</div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+fc(s.annual,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.inv?fc(s.inv,0):'\u2014')+'</div></div>'
-          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.savingsWeight!=null?Math.round(s.savingsWeight*100)+'%':'\u2014')+'</div></div>'
-          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.devices||'\u2014')+'</div></div>'
+          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(isPortfolio?'\u2014':(s.savingsWeight!=null?Math.round(s.savingsWeight*100)+'%':'\u2014'))+'</div></div>'
+          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val" title="'+(isPortfolio?'Property count':'Device count')+'">'+countLabel+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.poolGallons?fn(s.poolGallons):'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
           +createdByCell
           +'<div class="ar-bank-actions">'
-            +'<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
-            +reassignBtn
-            +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>'
+            +actions
           +'</div>'
         +'</div>';
       }).join('');
@@ -1981,8 +6150,8 @@ function renderBank(){
     // Admin gets an extra "Created By" header column. Class .admin-cols
     // shifts the grid template (CSS) to fit it.
     var thead='<div class="ar-bank-thead'+(isAdmin?' admin-cols':'')+'" id="ar-bank-thead">'
-      +'<div>Property</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div>'
-      +(isAdmin?'<div>Created By</div>':'')
+      +'<div>Record</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div>'
+      +(isAdmin?'<div class="ar-bank-th-createdby">Created By</div>':'')
       +'<div></div>'
     +'</div>';
     // Admin dashboard panel \u2014 placeholder; populated async after first list.
@@ -2001,10 +6170,16 @@ function renderBank(){
             +'<div class="ar-admin-dash-toggle" aria-label="Toggle dashboard">\u203a</div>'
           +'</div>'
           +'<div class="ar-admin-dash-body">'
-            +'<div class="ar-admin-kpi-card" style="margin-bottom:14px">'
-              +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
-              +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
-              +'<div class="ar-admin-kpi-sub">Across all users</div>'
+            // 6-card KPI grid at the top of the dashboard. Hard-deleted
+            // records are excluded automatically (the underlying queries
+            // only return live rows).
+            +'<div class="ar-admin-kpis-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px">'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Records \u00b7 7 Days</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-7d" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Assessments</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-ass" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Portfolios</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pf" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Properties</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-prop" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
             +'</div>'
             +'<div class="ar-admin-userstats-card">'
               +'<div class="ar-admin-userstats-title-row">'
@@ -2022,7 +6197,7 @@ function renderBank(){
         +'</div>'
       : '';
     wrap.innerHTML='<div class="ar-bank-hero">'
-      +'<div class="ar-bank-title">Saved Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+' <span>\u00b7 '+idx.length+'</span></div>'
+      +'<div class="ar-bank-title">Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+' <span>\u00b7 '+idx.length+'</span></div>'
       +'<div style="display:flex;align-items:center;gap:8px">'
         +'<button class="ar-bank-act" data-action="bank-toggle-select" title="Select multiple">'+I.check+' Select</button>'
         +'<button class="ar-bank-act primary no-print" data-action="view-form">'+I.back+' Back to Calculator</button>'
@@ -2177,7 +6352,9 @@ function showView(v){
   var barActs=document.getElementById('ar2-bar-actions');
   if(v==='bank'){
     if(mainLayout)mainLayout.style.display='none';
-    if(bankEl){bankEl.style.display='block';renderBank();}
+    // renderArchive() routes through AR2_PF tab UI when enabled; otherwise
+    // identical to a direct renderBank() call. Defaults preserve prod UX.
+    if(bankEl){bankEl.style.display='block';renderArchive();}
     // Force-hide Map Pools panel and clear the map-step class so the calculator's
     // CSS rules (#ar2.map-step #ap2{display:block}) don't surface the map below
     // the Archive list when the user is on Step 0 (Map Pools).
@@ -2565,15 +6742,17 @@ function renderStepper(){
   for(var i=0;i<STEP_LBLS.length;i++){
     var dc=i<S.step?'done':i===S.step?'active':'idle';
     var dot=i<S.step?I.check:String(i+1);
-    // Quote step (index 3) is hidden for Client users — add a marker so CSS
-    // can hide both the dot and its connector line via the .app-client class.
+    // Quote step (index 3) is hidden for two modes:
+    //   • Client users  → via .app-client + [data-client-hide]
+    //   • Portfolio property mode → via body.pf-property-mode + [data-pf-prop-hide]
+    // Both markers are stamped on the dot, the label, and the connector line.
     var stepId = STEPS[i];
-    var clientHide = (stepId === 'quote') ? ' data-client-hide' : '';
-    h+='<div class="ar-si"'+clientHide+'>'
+    var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide' : '';
+    h+='<div class="ar-si"'+hideAttr+'>'
       +'<div class="ar-dot '+dc+'">'+dot+'</div>'
       +'<span class="ar-sl '+dc+'">'+STEP_LBLS[i]+'</span>'
       +'</div>';
-    if(i<STEP_LBLS.length-1)h+='<div class="ar-sc '+(i<S.step?'done':'')+'"'+clientHide+'></div>';
+    if(i<STEP_LBLS.length-1)h+='<div class="ar-sc '+(i<S.step?'done':'')+'"'+hideAttr+'></div>';
   }
   h+='<button class="ar-step-arrow" data-step-nav="next"'+(S.step>=STEPS.length-1?' disabled':'')+'>\u2192</button>';
   el.innerHTML=h;
@@ -2589,6 +6768,65 @@ function renderMapPool(){ return ''; }
    Runs when the user clicks Continue on Step 0. Drops the default "Pool 1"
    skeleton if the bridge returned registered bodies; otherwise leaves S.bodies
    alone (user either hit Skip or didn't register anything). */
+
+/* ── Name-required gate ─────────────────────────────────────────────────
+   Pops a modal with instructions if the user tries to advance from Step 2
+   (Pool & System, S.step===1) to Step 3 (Pricing, S.step===2) without a
+   Property Name. Returns true if the advance can proceed, false if blocked
+   (modal shown). Hooked into both [data-nav="next"] and the step-arrow
+   [data-step-nav="next"] handlers so all paths converge through it. */
+function requireNameOrPopup(direction){
+  if (direction !== 'next') return true;
+  if (S.step !== 1) return true; // only gates the Step 2 → Step 3 jump
+  var name = (S.propertyName || '').trim();
+  if (name) return true;
+  showNameRequiredModal();
+  return false;
+}
+function showNameRequiredModal(){
+  if (document.getElementById('ar-name-required-modal')) return;
+  var bd = document.createElement('div');
+  bd.id = 'ar-name-required-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.innerHTML =
+    '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-name-req-title">'
+    + '<div class="ar-pf-modal-title" id="ar-name-req-title" style="color:var(--gr);letter-spacing:2.5px">Property Name Required</div>'
+    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin:4px 0 14px">'
+    +   'Every assessment needs a unique Property Name before pricing.'
+    +   ' This prevents duplicate entries in your Archive.'
+    + '</div>'
+    + '<div style="font-size:12px;color:#7db8cc;line-height:1.7;margin-bottom:14px">'
+    +   '<b style="color:var(--tx)">How to fix:</b>'
+    +   '<ol style="margin:6px 0 0 18px;padding:0">'
+    +     '<li>Type the property name in the <b>Property Name</b> field at the top of this step, <i>or</i></li>'
+    +     '<li>Go back to <b>Map Pools</b> and enter the name in the <b>Name</b> field on the top card.</li>'
+    +   '</ol>'
+    + '</div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn primary" data-name-req-action="ok" type="button">Got it</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+  function close(){
+    if (bd.parentNode) bd.parentNode.removeChild(bd);
+    // Move focus to the Property Name input so the rep can start typing.
+    var inp = document.querySelector('#ar2-form [data-f="propertyName"]');
+    if (inp){ try { inp.focus(); inp.select && inp.select(); } catch(_){} }
+  }
+  bd.addEventListener('click', function(e){
+    if (e.target === bd) { close(); return; }
+    var act = e.target.closest('[data-name-req-action]');
+    if (act && act.getAttribute('data-name-req-action') === 'ok') close();
+  });
+  bd.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' || e.key === 'Enter') close();
+  });
+  setTimeout(function(){
+    var ok = bd.querySelector('[data-name-req-action="ok"]');
+    if (ok) try { ok.focus(); } catch(_){}
+  }, 30);
+}
+
 function consumeMapPoolBodies(){
   if(!window.AR2_MAP || !AR2_MAP.getBodies) return;
   var mapped=AR2_MAP.getBodies();
@@ -2749,11 +6987,6 @@ function renderStep0(){
     +'<div class="ar-field">'
       +'<label class="ar-lbl">Property Name</label>'
       +'<input class="ar-inp" type="text" data-f="propertyName" value="'+esc(S.propertyName)+'" placeholder="Client Property Name" autocomplete="organization" />'
-    +'</div>'
-    // Number of Properties — for Exec Summary "Portfolio Snapshot"
-    +'<div class="ar-field" style="display:flex;align-items:center;gap:12px">'
-      +'<label class="ar-lbl" style="margin:0;flex:1">Number of Properties <span style="font-weight:400;color:var(--mu)">(for Exec Summary)</span></label>'
-      +'<input class="ar-inp" type="number" min="1" max="999" step="1" data-f="propertiesCount" value="'+(S.propertiesCount||1)+'" style="max-width:100px" onfocus="this.select()" />'
     +'</div>'
     // Devices by Pool toggle
     +'<div class="ar-manual-lede" data-sw-s="devicesByPool" style="margin-bottom:12px">'
@@ -3447,6 +7680,19 @@ function renderResults(){
     +(R.disc_amt>0?'<div class="ar-note" style="margin-top:10px">Discount applied: '+fc(R.disc_amt,0)+' off list price of '+fc(R.inv_full,0)+'</div>':'')
   +'</div>';
 
+  // 5-Year Water Conservation card — surfaces the rolled-up water loss
+  // reduction total. Sits above Monthly Savings Breakdown so reps can see
+  // the headline conservation number at a glance.
+  var water5 = Number(R.gal_saved_5yr) || 0;
+  var water = '<div class="ar-card" style="background:linear-gradient(145deg,rgba(34,197,94,.06),rgba(72,202,228,.04));border:1px solid rgba(34,197,94,.28)">'
+    +'<div style="font-size:11px;font-weight:600;color:#7db8cc;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">5-Year Water Conservation</div>'
+    +'<div style="display:flex;align-items:baseline;gap:10px">'
+      +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:700;color:var(--gr);line-height:1">'+fn(Math.round(water5))+'</div>'
+      +'<div style="font-size:12px;color:var(--mu)">gallons</div>'
+    +'</div>'
+    +'<div style="font-size:11px;color:#7db8cc;margin-top:6px;line-height:1.45">5-Year Water Loss Reduction Total</div>'
+  +'</div>';
+
   // Breakdown table
   var bkRows=R.items.map(function(x){
     return '<tr><td>'+x.lbl+'</td><td>'+fc(x.sav)+'</td><td style="color:var(--mu)">'+fp(x.pct)+'</td></tr>';
@@ -3472,7 +7718,7 @@ function renderResults(){
 
   el.innerHTML=kpi
     +'<div class="ar-card" style="padding:14px 14px 16px">'+tabs+advPanel+purPanel+'</div>'
-    +bk+badges+disc;
+    +water+bk+badges+disc;
 }
 
 /* ── Nav ── */
@@ -3485,25 +7731,49 @@ function renderNav(){
   el.style.display='';
   var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
   var isLast=S.step===STEPS.length-1;
-  // Step 1 gates Continue on at least one device selected.
+  // Step 1 (Pool & System) gates the Continue button visually on having
+  // at least one device selected — the device picker is right above so the
+  // disabled state pairs cleanly with the rep's eye line.
+  // The Property Name requirement is enforced separately by the nav-handler
+  // popup (see requireNameOrPopup below), so reps who try to advance without
+  // a name get explicit instructions instead of a silently-disabled button.
+  var nameOK = !!(S.propertyName && String(S.propertyName).trim());
   var disableNext=S.step===1 && !hasDevices;
+  // Tailored hint so the rep knows what's missing before they click.
+  var navHint = '';
+  if (S.step===1){
+    if (!nameOK && !hasDevices) navHint = 'Enter a Property Name and select a device to continue';
+    else if (!nameOK)            navHint = 'A Property Name is required to continue';
+    else if (!hasDevices)        navHint = 'Select a device above to continue';
+  }
   // Continue button is omitted on the final step — Export panel below is the action.
   // Clients skip the Quote step (index 3) \u2014 labels swap accordingly so they
   // see "Continue \u2192 Export" from Pricing and "\u2190 Pricing & Settings" from Export.
   var isClientNav = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
+  // Portfolio property mode also skips the Quote step \u2014 Quote lives at the
+  // portfolio level, not per-property. Treat it the same as client nav for
+  // label purposes so reps see "Continue \u2192 Export" / "\u2190 Pricing & Settings"
+  // instead of references to a step they'll never visit.
+  var inPfProp = !!(window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode());
+  var skipQuote = isClientNav || inPfProp;
   var nextLabel='Continue \u2192';
   if(S.step===1) nextLabel='Continue \u2192 Pricing';
-  else if(S.step===2) nextLabel = isClientNav ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
+  else if(S.step===2) nextLabel = skipQuote ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
   else if(S.step===3) nextLabel='Continue \u2192 Export';
   var backLabel='\u2190 Back';
   if(S.step===1) backLabel='\u2190 Map Pools';
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
-  else if(S.step===4) backLabel = isClientNav ? '\u2190 Pricing & Settings' : '\u2190 Quote';
+  else if(S.step===4) backLabel = skipQuote ? '\u2190 Pricing & Settings' : '\u2190 Quote';
   var html='<div class="ar-nav-stack">'
     +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
+    // Step 5 (Export) gets a second Archive entrypoint above the Back button
+    // so the rep doesn't have to scroll to the Export panel just to save.
+    // Hidden in portfolio property mode — saves happen via "Save & Close",
+    // not the single-property Archive flow.
+    +(isLast && !inPfProp?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Save to Archive</button>':'')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
-    +(disableNext?'<div class="ar-nav-hint">Select a device above to continue</div>':'')
+    +(navHint?'<div class="ar-nav-hint">'+navHint+'</div>':'')
   +'</div>';
   el.innerHTML=html;
 }
@@ -3591,6 +7861,15 @@ function render(){
   renderResults();
   // Re-initialize map canvas dimensions after visibility toggles
   if(S.step===0 && window.AR2_MAP && AR2_MAP.resize){ setTimeout(function(){ AR2_MAP.resize(); },60); }
+  // Portfolio property mode (sandbox): every render() means state may
+  // have changed — debounced autosave to portfolio_properties. No-op
+  // when AR2_PF isn't loaded or the user isn't in property mode.
+  if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+    try { AR2_PF.scheduleAutosave(); } catch(_){}
+    // Re-render the subbar so the breadcrumb picks up live edits to
+    // S.propertyName the moment the user types in the name field.
+    try { AR2_PF._renderSubbar(); } catch(_){}
+  }
 }
 
 /* ── Generate printable PDF report ── */
@@ -3659,8 +7938,8 @@ function buildQuoteHtml(){
   // not to the commercial quote).
   var qHeader = '<div class="rpt-es-head">'
     + '<div class="rpt-es-head-left">'
-      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
-      + '<div class="rpt-es-logo-sub">' + docKindLabel + '</div>'
+      + '<div class="rpt-es-logo">' + docKindLabel + '</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
     + '</div>'
     + '<div class="rpt-es-head-right">'
       + '<div class="rpt-es-prop-name">' + esc(Q.buyerName || prop) + '</div>'
@@ -3844,7 +8123,7 @@ function buildQuoteHtml(){
     var wireChecked = (Q.paymentMethod==='wire') ? '☒' : '☐';
     var checkChecked = (Q.paymentMethod==='check') ? '☒' : '☐';
     pagePay = '<div class="rpt-es-page rpt-q-page rpt-q-page-pay">'
-      + qHeader.replace('<div class="rpt-es-logo-sub">' + docKindLabel + '</div>', '<div class="rpt-es-logo-sub">PAYMENT FORM</div>')
+      + qHeader.replace('<div class="rpt-es-logo">' + docKindLabel + '</div>', '<div class="rpt-es-logo">PAYMENT FORM</div>')
       + '<div class="rpt-q-pay-body">'
         + quoteTopRowHtml('Payment Form')
         + '<div class="rpt-q-pay-method-strip">'
@@ -4073,8 +8352,15 @@ function generateReport(){
     var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
     var yTicks=[];
     for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
+    // Unique gradient ID per chart instance — portfolio reports may stack
+    // multiple Exec Summary charts in the same DOM (one per property), and
+    // duplicate `id` attributes break fill="url(#…)" resolution after the
+    // first match. Random suffix is collision-safe across reasonable chart
+    // counts. Also belt-and-suspenders: SVG IDs that include underscores
+    // and a base-36 suffix avoid clashing with any other inline SVGs.
+    var chartId = 'invFill_' + Math.floor(Math.random()*1e9).toString(36);
     var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
-      +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
+      +'<defs><linearGradient id="'+chartId+'" x1="0" y1="0" x2="0" y2="1">'
         +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
         +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
       +'</linearGradient></defs>';
@@ -4089,9 +8375,24 @@ function generateReport(){
     svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
     svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
     svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
-    var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
-    svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
-    svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
+    // The data line goes from (x0,y0) below zero up to (x60,y60) above zero.
+    // Filling the wedge between the line and the zero baseline as ONE polygon
+    // creates a self-intersection at the payback crossing — print engines
+    // render the self-intersecting polygon inconsistently (PDF often drops
+    // most of the fill while screen happens to look right). Splitting at
+    // paybackX into two non-crossing triangles renders identically in both.
+    //   • negWedge: investment-recovery period (below zero baseline)
+    //   • posWedge: net-benefit period (above zero baseline)
+    // When payback is outside [0,60], paybackX clamps to a boundary and one
+    // triangle degenerates harmlessly to zero area.
+    var negWedge = 'M '+x0+' '+yZero+' L '+x0+' '+y0+' L '+paybackX+' '+yZero+' Z';
+    var posWedge = 'M '+paybackX+' '+yZero+' L '+x60+' '+y60+' L '+x60+' '+yZero+' Z';
+    svg+='<path d="'+negWedge+'" fill="url(#'+chartId+')" fill-opacity="0.55"/>';
+    svg+='<path d="'+posWedge+'" fill="url(#'+chartId+')"/>';
+    // Data line drawn on top of the wedges so it's always visible regardless
+    // of fill rendering. Stroke uses an explicit color so it never depends on
+    // gradient ID resolution.
+    svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2" stroke-linecap="round"/>';
     if(payback>0 && payback<=60){
       svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
       svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
@@ -4147,15 +8448,16 @@ function generateReport(){
     +'</div>';
 
     // Page 1 header band (Assessment-style logo + property name)
-    // Client mode: replace the AQUAREV WATER wordmark with the Client's
-    // uploaded logo (max 36px tall to fit the existing header band).
-    var esHeaderLeftMark = clientLogo
-      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:36px;max-width:200px;display:block;margin-bottom:2px" />'
-      : '<div class="rpt-es-logo">AQUAREV WATER</div>';
+    // Title/subtitle order is reversed across all reports: the section
+    // name owns the large position; the brand (AQUAREV WATER wordmark or
+    // the client's logo in client mode) sits in the smaller subtitle slot.
+    var esHeaderBrand = clientLogo
+      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:18px;max-width:160px;display:block;margin-top:4px" />'
+      : '<div class="rpt-es-logo-sub">AQUAREV WATER</div>';
     var esHeader='<div class="rpt-es-head">'
       +'<div class="rpt-es-head-left">'
-        +esHeaderLeftMark
-        +'<div class="rpt-es-logo-sub">Executive Summary</div>'
+        +'<div class="rpt-es-logo">Executive Summary</div>'
+        +esHeaderBrand
       +'</div>'
       +'<div class="rpt-es-head-right">'
         +'<div class="rpt-es-prop-name">'+esPropName+'</div>'
@@ -4362,8 +8664,8 @@ function generateReport(){
     // Reusable header band for all 3 landscape Exec Summary pages
     var lsHeader='<div class="rpt-es-head rpt-ls-es-head">'
       +'<div class="rpt-es-head-left">'
-        +'<div class="rpt-es-logo">AQUAREV WATER</div>'
-        +'<div class="rpt-es-logo-sub">Executive Summary</div>'
+        +'<div class="rpt-es-logo">Executive Summary</div>'
+        +'<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
       +'</div>'
       +'<div class="rpt-es-head-right">'
         +'<div class="rpt-es-prop-name">'+lsPropName+'</div>'
@@ -4679,8 +8981,8 @@ function generateReport(){
       // on the left; property name + date + pool count + NSF badge on the right.
       var ppHeader='<div class="rpt-es-head rpt-pp-es-head">'
         +'<div class="rpt-es-head-left">'
-          +'<div class="rpt-es-logo">AQUAREV WATER</div>'
-          +'<div class="rpt-es-logo-sub">Pool Profile</div>'
+          +'<div class="rpt-es-logo">Pool Profile</div>'
+          +'<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
         +'</div>'
         +'<div class="rpt-es-head-right">'
           +'<div class="rpt-es-prop-name">'+esc(propName)+'</div>'
@@ -4689,10 +8991,11 @@ function generateReport(){
         +'</div>'
       +'</div>';
       // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
-      // Landscape: 12 cards/page (3 cols × 4 rows). Portrait: 8 cards/page (2 cols × 4 rows).
+      // Landscape: 15 cards/page (3 cols × 5 rows). Portrait: 10 cards/page (2 cols × 5 rows).
+      // Bumped from 12/8 → 15/10 (2026-05-13) for tighter presentation density.
       // Each page renders its own header band (with "Page X of Y" subtitle when paginated)
       // and its own footer band. Cards listed in user-defined order.
-      var CARDS_PER_PAGE=(EX.layout==='landscape')?12:8;
+      var CARDS_PER_PAGE=(EX.layout==='landscape')?15:10;
       var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
       poolProfilesHtml='';
       for(var ppPi=0; ppPi<totalPpPages; ppPi++){
@@ -4764,10 +9067,10 @@ function generateReport(){
     // see — Cover Page + Exec Summary toggles are hidden for them).
     +'<div class="rpt-head">'
       +'<div class="rpt-head-left">'
+        +'<div class="rpt-logo">Cost Savings Assessment</div>'
         +(clientLogo
-          ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:42px;max-width:220px;display:block;margin-bottom:3px" />'
-          : '<div class="rpt-logo">AQUAREV WATER</div>')
-        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+          ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:20px;max-width:200px;display:block;margin-top:5px" />'
+          : '<div class="rpt-logo-sub">AQUAREV WATER</div>')
       +'</div>'
       +'<div class="rpt-head-right">'
         +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
@@ -4800,7 +9103,7 @@ function generateReport(){
           +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
         +'</div>'
         +'<div>'
-          +'<div class="rpt-stitle">Device Selection</div>'
+          +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
           +devRows
           +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
           +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
@@ -4936,14 +9239,16 @@ function generateReport(){
       +'<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
     +'</div>';
 
-    // Client mode: swap wordmark for uploaded logo on the multi-page Assessment header.
-    var assessHeaderLeftMark = clientLogo
-      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:42px;max-width:220px;display:block;margin-bottom:3px" />'
-      : '<div class="rpt-logo">AQUAREV WATER</div>';
+    // Title/subtitle reversed across all reports: section name in the large
+    // position, brand (or client logo when in client mode) in the smaller
+    // subtitle position.
+    var assessHeaderBrand = clientLogo
+      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:20px;max-width:200px;display:block;margin-top:5px" />'
+      : '<div class="rpt-logo-sub">AQUAREV WATER</div>';
     var assessHeader='<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +assessHeaderLeftMark
-        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+        +'<div class="rpt-logo">Cost Savings Assessment</div>'
+        +assessHeaderBrand
       +'</div>'
       +'<div class="rpt-head-right">'
         +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
@@ -4954,8 +9259,8 @@ function generateReport(){
 
     var assessHeaderCont='<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +assessHeaderLeftMark
-        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+        +'<div class="rpt-logo">Cost Savings Assessment</div>'
+        +assessHeaderBrand
       +'</div>'
       +'<div class="rpt-head-right">'
         +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
@@ -4986,7 +9291,7 @@ function generateReport(){
             + poolRowsArr.slice(0, POOL_P1_FILL).join('')
           + '</div>'
           + '<div>'
-            + '<div class="rpt-stitle">Device Selection</div>'
+            + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
             + devRows
             + (R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">-'+fc(R.disc_amt,0)+'</span></div>':'')
             + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
@@ -5104,6 +9409,16 @@ function generateReport(){
   html+=lsBackCoverHtml;
   // (presentationDeckHtml removed)
 
+  // ── P7-pp: capture mode short-circuit ──
+  // When the portfolio report builder is hydrating per-property state and
+  // calling generateReport just to harvest its HTML output, EX._captureMode
+  // is set. Hand the HTML back via window.__pfCapturedHtml and exit before
+  // mount/print — the caller is responsible for restoring document.title.
+  if (EX._captureMode){
+    window.__pfCapturedHtml = html;
+    document.title = origDocTitle;
+    return;
+  }
   // ── Mount report and print ──
   var rEl=document.getElementById('ar2-report');
   if(!rEl)return;
@@ -5242,6 +9557,25 @@ function generateReport(){
 
 /* ── Export section render (shown in results on review step) ── */
 function renderExportSection(){
+  // Portfolio property mode replaces the per-property export panel with a
+  // single "Save & Close" card. Quote + PDF + roll-up happen at the
+  // portfolio level — there's no per-property PDF in this mode, so the
+  // Preview / Download / Archive trio is replaced with one action that
+  // returns the rep to the Portfolio Overview. Autosave has already
+  // persisted any pending state, so this button is purely navigational.
+  if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+    var lp = (AR2_PF.loadedProperty && AR2_PF.loadedProperty()) || null;
+    var propName = (lp && lp.property_name) || S.propertyName || 'this property';
+    return '<div class="ar-card ar-fu ar-export">'
+      +'<div class="ar-card-title" style="display:flex;align-items:center;gap:8px;color:var(--gr)">'+I.check+' Property complete</div>'
+      +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin:10px 0 16px">'
+        +'All calculator data for <b style="color:#fff">'+esc(propName)+'</b> has been saved to the portfolio.'
+        +'<br><br>'
+        +'<span style="color:#7db8cc">The <b style="color:var(--tx)">Portfolio Quote</b>, consolidated discounts, shipping, and PDF export all live at the <b style="color:var(--tx)">portfolio level</b>. Return to the Portfolio Overview to keep working.</span>'
+      +'</div>'
+      +'<button class="ar-gen-btn" data-pf-action="save-and-close" style="width:100%;background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);font-weight:700;letter-spacing:1px">Save &amp; Close → Portfolio Overview</button>'
+    +'</div>';
+  }
   return '<div class="ar-card ar-fu ar-export">'
     +'<div class="ar-card-title" style="display:flex;align-items:center;gap:8px">'+I.file+' Export Assessment Report</div>'
 
@@ -5428,7 +9762,7 @@ function renderExportSection(){
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">'
       +'<button class="ar-gen-btn" data-action="preview-report"'+(EX.exporting?' disabled':'')+' style="background:linear-gradient(135deg,#7ed6e8,#48cae4)">Preview</button>'
       +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download</button>'
-      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--go),#f7c948)"'+(EX.saving?' disabled':'')+'>Archive</button>'
+      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv)"'+(EX.saving?' disabled':'')+'>Save</button>'
     +'</div>'
     +'<div class="ar-save-toast'+(EX.saveStatus?(' show'+(EX.saveStatus==='error'?' err':'')):'')+'">'+I.check+' '+(EX.saveStatus==='error'?'Save failed \u2014 try again':'Saved to Archive')+'</div>'
   +'</div>';
@@ -5605,6 +9939,14 @@ function handleClick(e){
   // Reset / New Assessment
   var resetBtn=e.target.closest('[data-action="reset-app"]');
   if(resetBtn){
+    // In portfolio property mode, "New" doesn't make sense — there's no
+    // new-assessment workflow inside a property. Exit property mode first,
+    // saving the current property's state, and return to the Portfolio
+    // Overview where the user can pick "Add Property" instead.
+    if (window.AR2_PF && AR2_PF.inPropertyMode()){
+      AR2_PF.exitProperty();
+      return;
+    }
     if(confirm('Start a new assessment? Unsaved data will be cleared.')) resetApp();
     return;
   }
@@ -5662,6 +10004,167 @@ function handleClick(e){
   // Quick-add 4" device from empty state
   var qaBtn=e.target.closest('[data-action="quick-add-4in"]');
   if(qaBtn){ S.pipe_4in=(S.pipe_4in||0)+1; render(); return; }
+  // ── Portfolio tool (sandbox) — tab switch + actions ────────────
+  // All AR2_PF interactions route through this branch. Production
+  // calculator doesn't load AR2_PF code, so these early-returns are
+  // dead code paths there.
+  if (window.AR2_PF) {
+    var pfTabBtn = e.target.closest('[data-pf-tab]');
+    if (pfTabBtn) { AR2_PF.setActiveTab(pfTabBtn.getAttribute('data-pf-tab')); return; }
+    var pfAct = e.target.closest('[data-pf-action]');
+    if (pfAct) {
+      var act = pfAct.getAttribute('data-pf-action');
+      // List view — new portfolio
+      if (act === 'new-portfolio')    { AR2_PF.openNewPortfolioModal();    return; }
+      if (act === 'modal-cancel')     { AR2_PF.closeNewPortfolioModal();   return; }
+      if (act === 'modal-create')     { AR2_PF.submitNewPortfolio();       return; }
+      // Overview view — navigation + properties (Phase 1b)
+      if (act === 'back-to-list')     { AR2_PF.backToPortfoliosList();     return; }
+      if (act === 'new-property')     { AR2_PF.openAddPropertyModal();     return; }
+      if (act === 'add-prop-cancel')  { AR2_PF.closeAddPropertyModal();    return; }
+      if (act === 'add-prop-create')  { AR2_PF.submitNewProperty();        return; }
+      // Property mode subbar (Phase 1c)
+      if (act === 'exit-property')    { AR2_PF.exitProperty();             return; }
+      if (act === 'save-and-close')   { AR2_PF.exitProperty();             return; }
+      // P3: Portfolio Overview action buttons — Quote + Export entrypoints
+      if (act === 'open-quote')       { AR2_PF.openQuoteBuilder();         return; }
+      if (act === 'open-export')      { AR2_PF.openExport();               return; }
+      // CSV bulk-import — drag-and-drop modal that creates multiple portfolio
+      // properties from a single uploaded template.
+      if (act === 'import-csv')       { openImportCsvModal(AR2_PF.selectedPortfolioId()); return; }
+      // P3: Export panel nav + Quote builder nav
+      if (act === 'back-to-overview') { AR2_PF.backToOverview();           return; }
+      if (act === 'back-from-quote')  { AR2_PF.backFromQuoteBuilder();     return; }
+      // P7-lite: Export panel actions — Preview opens an HTML preview in a
+      // new window using rolled-up data + per-property pages. Download +
+      // Archive route to the same builder but with PDF / archive notes
+      // (full html2canvas→jspdf integration in a follow-up; this delivers
+      // visible output reps can verify against today).
+      if (act === 'exp-preview' || act === 'exp-download' || act === 'exp-archive'){
+        var pidE = AR2_PF.selectedPortfolioId();
+        if (!pidE) return;
+        buildPortfolioReportPreview(pidE, act).catch(function(err){
+          alert('Could not build portfolio report: ' + ((err && err.message) || 'unknown error'));
+        });
+        return;
+      }
+      // P4: Quote builder Save actions — write to portfolio_quotes table.
+      // Save Draft → status='draft', stays on builder. Save & Return →
+      // status='ready', flips Export section to toggleable, navigates back.
+      if (act === 'quote-save-draft' || act === 'quote-save-return'){
+        var pid = AR2_PF.selectedPortfolioId();
+        if (!pid) return;
+        var isReturn = (act === 'quote-save-return');
+        var q = AR2_PF.getQuoteState(pid);
+        q.status = isReturn ? 'ready' : 'draft';
+        // Optimistic UI — flip the Export section to ready/on immediately;
+        // if the save fails we revert below.
+        var st = AR2_PF.getExportState(pid);
+        var prevReady = st.quoteReady;
+        var prevOn    = st.quote;
+        st.quoteReady = true;
+        if (isReturn) st.quote = true;
+        var btn = e.target.closest('[data-pf-action="' + act + '"]');
+        var origLbl = btn ? btn.textContent : '';
+        if (btn){ btn.disabled = true; btn.textContent = isReturn ? 'Saving…' : 'Saving…'; }
+        AR2_PF.saveQuote(pid, q).then(function(){
+          if (btn){ btn.textContent = isReturn ? 'Saved ✓' : 'Saved ✓'; }
+          setTimeout(function(){
+            if (isReturn){
+              AR2_PF.backFromQuoteBuilder();
+            } else if (btn){
+              btn.textContent = origLbl;
+              btn.disabled = false;
+            }
+          }, 600);
+        }).catch(function(err){
+          // Revert optimistic Export state on failure
+          st.quoteReady = prevReady;
+          st.quote = prevOn;
+          if (btn){ btn.textContent = origLbl; btn.disabled = false; }
+          alert('Quote could not be saved: ' + ((err && err.message) || 'unknown error'));
+        });
+        return;
+      }
+      // P3: Export section toggle — .ar-sw-track click flips the section's
+      // boolean state. The toggle's visual "on" class comes from the
+      // re-render, so we always re-render after the state mutation.
+      if (act === 'exp-toggle'){
+        e.preventDefault();
+        e.stopPropagation();
+        var pidT = AR2_PF.selectedPortfolioId();
+        var key = pfAct.getAttribute('data-exp-key');
+        if (pidT && key){
+          var stCur = AR2_PF.getExportState(pidT);
+          AR2_PF.setExportSection(pidT, key, !stCur[key]);
+          var live = document.getElementById('ar2-bank-overview-mount');
+          // viewMode is a closure inside AR2_PF — read it via the public
+          // accessor, never `pfState.viewMode` from this outer scope (that
+          // would be a ReferenceError and silently kill the re-render).
+          if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'export') AR2_PF.renderPortfolioExport(live);
+        }
+        return;
+      }
+      // P7+: Layout sub-radio (Cards / List for Pool Profiles, Cards /
+      // List-by-Country for Property Profiles). Pills are <span> elements
+      // — not <input>/<label> — to avoid nested-label conflicts with the
+      // outer .ar-pf-exp-row label (which would otherwise toggle the row's
+      // checkbox every time the inner pill was clicked). Value comes from
+      // data-layout-value, NOT .value (spans have no value property).
+      // stopPropagation prevents the click from bubbling up to the row's
+      // <label>, which would toggle the parent checkbox.
+      if (act === 'exp-set-layout'){
+        e.preventDefault();
+        e.stopPropagation();
+        var pidL = AR2_PF.selectedPortfolioId();
+        var lk = pfAct.getAttribute('data-layout-key');
+        var lv = pfAct.getAttribute('data-layout-value');
+        if (pidL && lk && lv){
+          var stL = AR2_PF.getExportState(pidL);
+          stL[lk] = lv;
+          var live = document.getElementById('ar2-bank-overview-mount');
+          if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'export') AR2_PF.renderPortfolioExport(live);
+        }
+        return;
+      }
+      // P6: Ship-To mode toggle (split vs consolidated). Re-render the
+      // Quote builder so the body section swaps between modes.
+      if (act === 'ship-mode'){
+        var pidS = AR2_PF.selectedPortfolioId();
+        if (pidS){
+          var qS = AR2_PF.getQuoteState(pidS);
+          if (!qS.shipTos) qS.shipTos = { mode:'split', perProp:{}, consolidated:{address:'',notes:''} };
+          qS.shipTos.mode = pfAct.value === 'consolidated' ? 'consolidated' : 'split';
+          qS.status = 'draft';
+          var live = document.getElementById('ar2-bank-overview-mount');
+          if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'quote-builder') AR2_PF.renderQuoteBuilder(live);
+        }
+        return;
+      }
+      if (act === 'save-property')    {
+        AR2_PF.saveCurrentProperty().catch(function(){ /* error surfaced in subbar */ });
+        return;
+      }
+      // Prev/Next property navigation (Phase 1d)
+      if (act === 'prev-property')    { AR2_PF.prevProperty(); return; }
+      if (act === 'next-property')    { AR2_PF.nextProperty(); return; }
+    }
+    var pfRow = e.target.closest('[data-pf-portfolio]');
+    if (pfRow) {
+      AR2_PF.openPortfolio(pfRow.getAttribute('data-pf-portfolio'));
+      return;
+    }
+    var pfProp = e.target.closest('[data-pf-property]');
+    if (pfProp) {
+      // Phase 1c — open the property in the existing calculator step flow.
+      // AR2_PF.enterProperty loads state_json/ex_json into S/EX, shows the
+      // breadcrumb subbar, and routes the user to the calculator.
+      AR2_PF.enterProperty(pfProp.getAttribute('data-pf-property')).catch(function(err){
+        alert('Could not open property: ' + (err && err.message || err));
+      });
+      return;
+    }
+  }
   // Toggle view: form ↔ bank (password-gated first time per session).
   // In cloud mode the user is already authenticated by the calculator gate,
   // so the legacy archive passcode is skipped — single sign-in to the cloud
@@ -5669,6 +10172,18 @@ function handleClick(e){
   var viewBank=e.target.closest('[data-action="view-bank"]');
   if(viewBank){
     var inCloud = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
+    // In portfolio property mode, the Archive button doubles as a "back
+    // to portfolio" shortcut — saves the property and exits to the
+    // Portfolio Overview. Without this branch, clicking Archive while
+    // in property mode would leave the property state half-loaded.
+    if (window.AR2_PF && AR2_PF.inPropertyMode()){
+      AR2_PF.exitProperty();
+      return;
+    }
+    // Lazy-init the Portfolio Tool the moment the archive is opened.
+    // Idempotent — safe to call every time. Becomes enabled iff Cloud
+    // is ready AND the signed-in user role is NOT 'client'.
+    if (inCloud && window.AR2_PF) { try { AR2_PF.init(); } catch(_){} }
     if(VIEW==='bank'){ showView('form'); }
     else if(inCloud || ARCHIVE_UNLOCKED){ if(inCloud) ARCHIVE_UNLOCKED=true; showView('bank'); }
     else { showArchivePasswordModal(function(){ ARCHIVE_UNLOCKED=true; showView('bank'); }); }
@@ -5676,11 +10191,70 @@ function handleClick(e){
   }
   var viewForm=e.target.closest('[data-action="view-form"]');
   if(viewForm){ showView('form'); return; }
+  // Unified Archive — title click opens the record. Title is .ar-bank-prop;
+  // clicking anywhere else on the row does NOT open it (per UX decision).
+  // Portfolio rows route to AR2_PF.openPortfolio; singles use the existing
+  // bankAction(recall) path.
+  var bankProp = e.target.closest('.ar-bank-prop');
+  if (bankProp && !e.target.closest('[data-bank-action]')){
+    var card = bankProp.closest('.ar-bank-card[data-row-id]');
+    // In multi-select mode the inner renderBank handler owns row clicks
+    // (toggles the row's selected state). Skip the title-open behavior so
+    // both handlers don't race.
+    if (card && !card.classList.contains('selmode')){
+      var rowId = card.dataset.rowId;
+      var rowType = card.dataset.archiveType;
+      if (rowType === 'portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
+        AR2_PF.openPortfolio(rowId);
+      } else {
+        bankAction(rowId, 'recall');
+      }
+      return;
+    }
+  }
   // Archive card actions
   var bankBtn=e.target.closest('[data-bank-action]');
   if(bankBtn){
     var bAct=bankBtn.dataset.bankAction;
     var bId=bankBtn.dataset.bankId;
+    var bType=bankBtn.dataset.bankType; // 'portfolio' on portfolio rows; undefined for singles
+    // Portfolio recall — open the Portfolio Overview drill-down view.
+    if (bAct==='recall' && bType==='portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
+      AR2_PF.openPortfolio(bId);
+      return;
+    }
+    // Portfolio duplicate — clones the portfolio + properties under a new name.
+    if (bAct==='duplicate' && bType==='portfolio'){
+      duplicatePortfolio(bId).then(function(){ renderArchive(); })
+        .catch(function(err){ alert('Could not duplicate portfolio: ' + ((err && err.message) || 'unknown error')); });
+      return;
+    }
+    // Portfolio reassign (admin only) — surface a "coming soon" until the
+    // dedicated reassign RPC for portfolios lands.
+    if (bAct==='reassign' && bType==='portfolio'){
+      alert('Portfolio reassign — coming in the next sandbox ship.');
+      return;
+    }
+    // Copy a single assessment to a portfolio — opens the picker modal.
+    if (bAct==='copy-to-portfolio'){
+      openCopyToPortfolioModal(bId);
+      return;
+    }
+    // Portfolio delete — cascades to portfolio_properties + portfolio_quotes
+    // via the FK ON DELETE CASCADE in the schema. RLS gates ownership.
+    if (bAct==='delete' && bType==='portfolio'){
+      if (!window.AR2_PF || !AR2_PF.deletePortfolio){
+        alert('Portfolio delete not available — refresh and retry.');
+        return;
+      }
+      if (!confirm('Delete this portfolio? All properties inside it will be deleted. This cannot be undone.')) return;
+      AR2_PF.deletePortfolio(bId).then(function(){
+        renderArchive();
+      }).catch(function(err){
+        alert('Could not delete portfolio: ' + ((err && err.message) || 'unknown error'));
+      });
+      return;
+    }
     if(bAct==='delete'){
       if(confirm('Delete this saved assessment? This cannot be undone.')) bankDeleteReport(bId);
     } else {
@@ -5815,11 +10389,14 @@ function handleClick(e){
     }
     return;
   }
-  // Helper — Clients don't see the Quote step (index 3). When their nav
-  // would land on it, skip in the same direction. Returns the resolved step.
+  // Helper — Two modes skip the Quote step (index 3):
+  //   • Client users (Quote is rep-only)
+  //   • Portfolio property mode (Quote lives at the portfolio level)
+  // When nav would land on Quote, skip in the same direction.
   function resolveStepForClient(target, direction){
     var isClient = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
-    if(!isClient || target !== 3) return target;
+    var inPfProp = !!(window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode());
+    if(!(isClient || inPfProp) || target !== 3) return target;
     if(direction === 'next') return Math.min(STEPS.length - 1, target + 1);
     if(direction === 'back') return Math.max(0, target - 1);
     return target;
@@ -5828,7 +10405,10 @@ function handleClick(e){
   var stepNav=e.target.closest('[data-step-nav]');
   if(stepNav){
     var sdir=stepNav.dataset.stepNav;
-    if(sdir==='next'&&S.step<STEPS.length-1){S.step=resolveStepForClient(S.step+1,'next');render();}
+    if(sdir==='next'&&S.step<STEPS.length-1){
+      if(!requireNameOrPopup('next')) return;
+      S.step=resolveStepForClient(S.step+1,'next');render();
+    }
     else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
     return;
   }
@@ -5836,7 +10416,10 @@ function handleClick(e){
   var navBtn=e.target.closest('[data-nav]');
   if(navBtn){
     var dir=navBtn.dataset.nav;
-    if(dir==='next'&&S.step<STEPS.length-1){S.step=resolveStepForClient(S.step+1,'next');render();}
+    if(dir==='next'&&S.step<STEPS.length-1){
+      if(!requireNameOrPopup('next')) return;
+      S.step=resolveStepForClient(S.step+1,'next');render();
+    }
     else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
     return;
   }
@@ -5863,6 +10446,106 @@ function handleClick(e){
 
 function handleInput(e){
   var el=e.target;
+  // P3: Quote builder field — write back to pfState quote draft.
+  if (el.dataset && el.dataset.qbKey && window.AR2_PF && AR2_PF.selectedPortfolioId){
+    var pidQ = AR2_PF.selectedPortfolioId();
+    if (pidQ){
+      var qSt = AR2_PF.getQuoteState(pidQ);
+      var keyQ = el.dataset.qbKey;
+      var valQ = el.value;
+      // Numeric coercion for the fields we know are numeric
+      if (keyQ === 'discountPct' || keyQ === 'taxRate' || keyQ === 'shippingCost' || keyQ === 'depositPct'){
+        valQ = parseFloat(valQ) || 0;
+      }
+      qSt[keyQ] = valQ;
+      // Mark dirty so the Export panel knows quote needs (re-)saving
+      qSt.status = 'draft';
+    }
+    return;
+  }
+  // P6: Ship-To inputs — per-property and consolidated.
+  if (el.dataset && window.AR2_PF && AR2_PF.selectedPortfolioId){
+    var pidSh = AR2_PF.selectedPortfolioId();
+    if (pidSh){
+      if (el.dataset.qbShipProp){
+        var qShP = AR2_PF.getQuoteState(pidSh);
+        if (!qShP.shipTos) qShP.shipTos = { mode:'split', perProp:{}, consolidated:{address:'',notes:''} };
+        if (!qShP.shipTos.perProp) qShP.shipTos.perProp = {};
+        var propId = el.dataset.qbShipProp;
+        var fld    = el.dataset.qbShipField; // 'override' | 'notes'
+        if (!qShP.shipTos.perProp[propId]) qShP.shipTos.perProp[propId] = { override:'', notes:'' };
+        qShP.shipTos.perProp[propId][fld] = el.value;
+        qShP.status = 'draft';
+        return;
+      }
+      if (el.dataset.qbShipCons){
+        var qShC = AR2_PF.getQuoteState(pidSh);
+        if (!qShC.shipTos) qShC.shipTos = { mode:'consolidated', perProp:{}, consolidated:{address:'',notes:''} };
+        if (!qShC.shipTos.consolidated) qShC.shipTos.consolidated = { address:'', notes:'' };
+        qShC.shipTos.consolidated[el.dataset.qbShipCons] = el.value;
+        qShC.status = 'draft';
+        return;
+      }
+    }
+  }
+  // P5: Line item override input (qty or unit price per SKU). Empty string
+  // clears the override (= "use auto"); any number sticks. Live-recompute
+  // the line total by re-rendering only the section. Full re-render of the
+  // Quote builder would steal input focus mid-typing, so we patch in place.
+  if (el.dataset && el.dataset.qbOverrideSku && window.AR2_PF && AR2_PF.selectedPortfolioId){
+    var pidL = AR2_PF.selectedPortfolioId();
+    if (pidL){
+      var qStL = AR2_PF.getQuoteState(pidL);
+      if (!qStL.lineOverrides) qStL.lineOverrides = {};
+      var sku = el.dataset.qbOverrideSku;
+      var field = el.dataset.qbOverrideField; // 'qty' | 'price'
+      if (!qStL.lineOverrides[sku]) qStL.lineOverrides[sku] = { qty: null, price: null };
+      var raw = el.value;
+      qStL.lineOverrides[sku][field] = (raw === '' || raw == null) ? null : (parseFloat(raw) || 0);
+      qStL.status = 'draft';
+      // Patch only the line total + subtotal — leave the input alone so
+      // the cursor doesn't jump. Find the row by walking up.
+      var rowEl = el.closest('.ar-pf-li-row');
+      if (rowEl){
+        var states = (window.AR2_PF._state && AR2_PF._state.propertyStates && AR2_PF._state.propertyStates[pidL] && AR2_PF._state.propertyStates[pidL].rows) || [];
+        // Recompute just this SKU's row total
+        var rowRoll = (function(){
+          if (typeof PIPES === 'undefined') return null;
+          var spec = null;
+          for (var i=0;i<PIPES.length;i++){ if (PIPES[i].k === sku){ spec = PIPES[i]; break; } }
+          if (!spec) return null;
+          var autoQty = 0;
+          for (var j=0;j<states.length;j++){
+            var sj = states[j].state_json || {};
+            autoQty += Number(sj[sku]) || 0;
+          }
+          var ov = qStL.lineOverrides[sku] || {};
+          var qty   = (ov.qty   != null) ? ov.qty   : autoQty;
+          var price = (ov.price != null) ? ov.price : spec.price;
+          return { qty: qty, price: price, total: qty * price };
+        })();
+        if (rowRoll){
+          var totalCell = rowEl.querySelectorAll('.ar-pf-li-cell.num b');
+          if (totalCell.length){
+            totalCell[totalCell.length-1].textContent = '$' + fn(rowRoll.total);
+          }
+          // Update subtotal across all rows
+          var all = document.querySelectorAll('.ar-pf-li-row');
+          var sum = 0;
+          for (var k=0;k<all.length;k++){
+            var tEl = all[k].querySelector('.ar-pf-li-cell.num b');
+            if (tEl){
+              var v = (tEl.textContent || '').replace(/[^0-9.\-]/g, '');
+              sum += parseFloat(v) || 0;
+            }
+          }
+          var subEl = document.querySelector('.ar-pf-li-subtotal b');
+          if (subEl) subEl.textContent = '$' + fn(sum);
+        }
+      }
+    }
+    return;
+  }
   // Per-body device count (devices by pool)
   if(el.dataset&&el.dataset.bpipe){
     var bpKey=el.dataset.bpipe;
@@ -5980,12 +10663,31 @@ function handleInput(e){
     S.propertiesCount=pn;
     return;
   }
+  // Map Pools "Name" input (Step 1) — mirror typed value into S.propertyName
+  // so the Step 2 form pre-fills, and so the Step 2 → Step 3 gate sees the
+  // name immediately (without waiting for save / step transition).
+  if(el.id==='ap-name'){
+    S.propertyName = el.value;
+    var stepInput = document.querySelector('#ar2-form [data-f="propertyName"]');
+    if(stepInput && stepInput !== el) stepInput.value = el.value;
+    try { renderNav(); } catch(_){}
+    return;
+  }
   // Generic calculator field
   if(el.dataset.f){
     var key=el.dataset.f;
     var raw=el.value;
-    // String fields (propertyName)
-    if(key==='propertyName'){ S.propertyName=raw; return; }
+    // Property Name (Step 2) — mirror back to the persistent Map Pools input
+    // so navigating back to Step 1 shows the same value, and refresh the
+    // nav so the Continue → Pricing gate updates as the rep types.
+    if(key==='propertyName'){
+      S.propertyName=raw;
+      var apName = document.getElementById('ap-name');
+      if(apName && apName !== el) apName.value = raw;
+      try { if(window.AR2_MAP && AR2_MAP.setPropertyName) AR2_MAP.setPropertyName(raw); } catch(_){}
+      try { renderNav(); } catch(_){}
+      return;
+    }
     if(el.dataset.pct){
       S[key]=(parseFloat(raw)||0)/100;
     } else {

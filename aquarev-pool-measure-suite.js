@@ -3105,6 +3105,11 @@ window.AR2_MAP = {
   // Property name input exposed so the calculator can sync it both ways.
   getPropertyName() { return ($('ap-name')?.value || '').trim(); },
   setPropertyName(n) { if ($('ap-name')) $('ap-name').value = n || ''; },
+  // Last resolved address — populated when the rep picks a search result.
+  // The Locate step writes Google's formatted_address into #ap-query, so
+  // we surface that value for the calculator to persist with the record.
+  getFormattedAddress() { return ($('ap-query')?.value || '').trim(); },
+  setFormattedAddress(a) { if ($('ap-query')) $('ap-query').value = a || ''; },
   // Full reset — called by the calculator's "New" button to release map
   // state when starting a fresh assessment. Without this, pools / boundary
   // / pool numbers stay on the map and continue numbering from the last
