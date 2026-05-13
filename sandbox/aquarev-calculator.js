@@ -1962,21 +1962,47 @@ window.AR2_PF = (function(){
         if (live && pfState.viewMode === 'export') renderPortfolioExport(live);
       }).catch(function(_){});
     }
+    // Builds an .ar-toggle-row using the same chrome single-property uses
+    // (.ar-sw-track + .ar-sw-thumb). meta is shown as a small dimmed
+    // sub-line under the title. The toggle itself carries the data-pf-action.
+    function _expRow(key, title, meta, isOn){
+      return '<div class="ar-toggle-row" style="align-items:center">'
+        + '<label style="flex:1;line-height:1.3">'
+          + '<div>' + esc(title) + '</div>'
+          + (meta ? '<div style="font-size:11px;color:var(--mu);font-weight:400;margin-top:2px">' + meta + '</div>' : '')
+        + '</label>'
+        + '<div class="ar-sw-track' + (isOn?' on':'') + '" data-pf-action="exp-toggle" data-exp-key="' + key + '" role="switch" aria-checked="' + (!!isOn) + '"><div class="ar-sw-thumb"></div></div>'
+      + '</div>';
+    }
+    // Sub-options strip — sits below a parent toggle row when that section
+    // has Cards/List style choices.
+    function _expSubRow(layoutKey, options, currentValue){
+      var pills = options.map(function(opt){
+        var active = (currentValue === opt.value) || (!currentValue && opt.value === options[0].value);
+        return '<span class="ar-pf-exp-radio' + (active?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="' + layoutKey + '" data-layout-value="' + opt.value + '" role="radio" aria-checked="' + active + '">' + esc(opt.label) + '</span>';
+      }).join('');
+      return '<div class="ar-pf-exp-sub-row"><span class="ar-pf-exp-radio-group" role="radiogroup">' + pills + '</span></div>';
+    }
+    // Quote row — same .ar-toggle-row chrome, but the toggle stays visually
+    // disabled until the rep configures the Quote. A right-side action button
+    // surfaces "Unlock & Configure" when locked or "Edit" when ready.
     var quoteRow;
     if (st.quoteReady){
-      quoteRow =
-          '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.quote?' checked':'') +
-              ' data-pf-action="exp-toggle" data-exp-key="quote">'
-        + '<span class="ar-pf-exp-row-text">Portfolio Quote'
-        +   '<span class="ar-pf-exp-row-meta">✓ Configured · <button class="ar-pf-exp-edit" type="button" data-pf-action="open-quote">Edit</button></span>'
-        + '</span></label>';
+      quoteRow = '<div class="ar-toggle-row" style="align-items:center">'
+        + '<label style="flex:1;line-height:1.3">'
+          + '<div>Portfolio Quote</div>'
+          + '<div style="font-size:11px;color:var(--gr);font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px">✓ Configured <button class="ar-pf-exp-edit" type="button" data-pf-action="open-quote">Edit</button></div>'
+        + '</label>'
+        + '<div class="ar-sw-track' + (st.quote?' on':'') + '" data-pf-action="exp-toggle" data-exp-key="quote" role="switch" aria-checked="' + !!st.quote + '"><div class="ar-sw-thumb"></div></div>'
+      + '</div>';
     } else {
-      quoteRow =
-          '<label class="ar-pf-exp-row locked">'
-        + '<input type="checkbox" disabled>'
-        + '<span class="ar-pf-exp-row-text">Portfolio Quote'
-        +   '<span class="ar-pf-exp-row-meta">🔒 <button class="ar-pf-exp-unlock" type="button" data-pf-action="open-quote">Unlock &amp; Configure →</button></span>'
-        + '</span></label>';
+      quoteRow = '<div class="ar-toggle-row" style="align-items:center;opacity:.92">'
+        + '<label style="flex:1;line-height:1.3">'
+          + '<div>Portfolio Quote</div>'
+          + '<div style="font-size:11px;color:var(--mu);font-weight:400;margin-top:2px;display:flex;align-items:center;gap:8px">🔒 Locked <button class="ar-pf-exp-unlock" type="button" data-pf-action="open-quote">Unlock &amp; Configure →</button></div>'
+        + '</label>'
+        + '<div class="ar-sw-track" style="opacity:.45;pointer-events:none" aria-disabled="true"><div class="ar-sw-thumb"></div></div>'
+      + '</div>';
     }
     mount.innerHTML =
       '<div class="ar-pf-ov-hero">'
@@ -1989,24 +2015,16 @@ window.AR2_PF = (function(){
       + '<div class="ar-pf-exp-wrap">'
       +   '<div class="ar-pf-exp-card">'
       +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.cover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="cover"><span class="ar-pf-exp-row-text">Cover Page<span class="ar-pf-exp-row-meta">Portfolio name + buyer info</span></span></label>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.execSummary?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="execSummary"><span class="ar-pf-exp-row-text">Executive Summary<span class="ar-pf-exp-row-meta">Rolled-up KPIs across all properties</span></span></label>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.propertyProfile?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="propertyProfile"><span class="ar-pf-exp-row-text">Property Profiles<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list'
-      +       '<span class="ar-pf-exp-radio-group" role="radiogroup">'
-      +         '<span class="ar-pf-exp-radio' + (st.propertyProfileLayout!=='list-by-country'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout" data-layout-value="cards" role="radio" aria-checked="' + (st.propertyProfileLayout!=='list-by-country') + '">Cards</span>'
-      +         '<span class="ar-pf-exp-radio' + (st.propertyProfileLayout==='list-by-country'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="propertyProfileLayout" data-layout-value="list-by-country" role="radio" aria-checked="' + (st.propertyProfileLayout==='list-by-country') + '">List by Country</span>'
-      +       '</span>'
-      +     '</span></span></label>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.poolProfiles?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="poolProfiles"><span class="ar-pf-exp-row-text">Property Pool Profiles<span class="ar-pf-exp-row-meta">Pool detail grouped by property — cards or compact list'
-      +       '<span class="ar-pf-exp-radio-group" role="radiogroup">'
-      +         '<span class="ar-pf-exp-radio' + (st.poolProfilesLayout!=='list'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout" data-layout-value="cards" role="radio" aria-checked="' + (st.poolProfilesLayout!=='list') + '">Cards</span>'
-      +         '<span class="ar-pf-exp-radio' + (st.poolProfilesLayout==='list'?' active':'') + '" data-pf-action="exp-set-layout" data-layout-key="poolProfilesLayout" data-layout-value="list" role="radio" aria-checked="' + (st.poolProfilesLayout==='list') + '">List</span>'
-      +       '</span>'
-      +     '</span></span></label>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.perProperty?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="perProperty"><span class="ar-pf-exp-row-text">Per-Property Assessments<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback</span></span></label>'
+      +     _expRow('cover',           'Cover Page',           'Portfolio name + buyer info',                                                                       st.cover)
+      +     _expRow('execSummary',     'Executive Summary',    'Rolled-up KPIs across all properties',                                                              st.execSummary)
+      +     _expRow('propertyProfile', 'Property Profiles',    propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list',           st.propertyProfile)
+      +     _expSubRow('propertyProfileLayout', [{value:'cards',label:'Cards'},{value:'list-by-country',label:'List by Country'}], st.propertyProfileLayout)
+      +     _expRow('poolProfiles',    'Property Pool Profiles','Pool detail grouped by property — cards or compact list',                                          st.poolProfiles)
+      +     _expSubRow('poolProfilesLayout',    [{value:'cards',label:'Cards'},{value:'list',label:'List'}],                                  st.poolProfilesLayout)
+      +     _expRow('perProperty',     'Per-Property Assessments', propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback',                    st.perProperty)
       +     quoteRow
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.stdTerms?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="stdTerms"><span class="ar-pf-exp-row-text">Purchase Terms and Conditions<span class="ar-pf-exp-row-meta">Pulls from Quote section 6 if configured</span></span></label>'
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.backCover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="backCover"><span class="ar-pf-exp-row-text">Back Cover</span></label>'
+      +     _expRow('stdTerms',        'Purchase Terms and Conditions', 'Pulls from Quote section 6 if configured',                                                st.stdTerms)
+      +     _expRow('backCover',       'Back Cover',           '',                                                                                                  st.backCover)
       +   '</div>'
       +   '<div class="ar-pf-exp-actions">'
       +     '<button class="ar-pf-exp-btn" type="button" data-pf-action="exp-preview">Preview PDF</button>'
@@ -9594,14 +9612,21 @@ function handleClick(e){
         });
         return;
       }
-      // P3: Export section toggle — capture each checkbox change in state.
+      // P3: Export section toggle — .ar-sw-track click flips the section's
+      // boolean state. The toggle's visual "on" class comes from the
+      // re-render, so we always re-render after the state mutation.
       if (act === 'exp-toggle'){
+        e.preventDefault();
+        e.stopPropagation();
         var pidT = AR2_PF.selectedPortfolioId();
         var key = pfAct.getAttribute('data-exp-key');
         if (pidT && key){
-          AR2_PF.setExportSection(pidT, key, !!pfAct.checked);
+          var stCur = AR2_PF.getExportState(pidT);
+          AR2_PF.setExportSection(pidT, key, !stCur[key]);
+          var live = document.getElementById('ar2-bank-overview-mount');
+          if (live && pfState.viewMode === 'export') AR2_PF.renderPortfolioExport(live);
         }
-        return; // Don't re-render — the checkbox already reflects new state.
+        return;
       }
       // P7+: Layout sub-radio (Cards / List for Pool Profiles, Cards /
       // List-by-Country for Property Profiles). Pills are <span> elements

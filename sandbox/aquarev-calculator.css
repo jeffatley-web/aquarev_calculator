@@ -2135,6 +2135,10 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-exp-row input[type=checkbox]{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;accent-color:var(--t);}
 #ar2 .ar-pf-exp-row-text{display:flex;flex-direction:column;gap:2px;font-size:14px;color:#e0f4fa;font-weight:500;line-height:1.35;}
 #ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+/* Sub-options strip — sits just below a parent .ar-toggle-row when the
+   section has Cards/List style choices. Negative top margin merges the
+   strip visually with its parent row so it reads as part of the same group. */
+#ar2 .ar-pf-exp-sub-row{margin:-6px 0 9px;padding:6px 13px 8px;display:flex;justify-content:flex-end;border-left:1px solid rgba(0,180,216,.12);border-right:1px solid rgba(0,180,216,.12);border-bottom:1px solid rgba(0,180,216,.12);border-bottom-left-radius:9px;border-bottom-right-radius:9px;background:rgba(7,22,40,.25);}
 /* Inline radio sub-control under an Export section row (Cards vs List).
    Rendered as <span> elements (not native radios) to avoid nested-label
    click bubbling that would toggle the parent row's checkbox. */
