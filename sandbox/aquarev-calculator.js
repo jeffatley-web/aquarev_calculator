@@ -1467,7 +1467,12 @@ window.AR2_PF = (function(){
     var statusClass = ((p && p.status) || 'draft').toLowerCase();
     var statusLabel = ((p && p.status) || 'draft').replace('_',' ');
 
-    // Hero: back btn + portfolio name + status + Add Property CTA
+    // Hero: back btn + portfolio name + status + action group
+    // Action group (right-pinned via margin-left:auto): Quote · Export · + Add Property.
+    // Order matches the natural workflow — capture properties (right), prepare
+    // the quote (middle), package the export (left). Quote + Export wire up in
+    // the next sandbox pass (P3); for now they show a "coming soon" placeholder
+    // so the layout is visible and testable.
     var hero = '<div class="ar-pf-ov-hero">'
       +   '<button class="ar-pf-back" data-pf-action="back-to-list" type="button" aria-label="Back to portfolios">&#x2190; Portfolios</button>'
       +   '<div class="ar-pf-ov-title-wrap">'
@@ -1476,7 +1481,11 @@ window.AR2_PF = (function(){
       +       '<span class="ar-pf-row-status ' + statusClass + '">' + esc(statusLabel) + '</span>'
       +     '</div>'
       +   '</div>'
-      +   '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add Property</button>'
+      +   '<div class="ar-pf-ov-actions">'
+      +     '<button class="ar-pf-actbtn" data-pf-action="open-quote" type="button" title="Configure the Portfolio Quote">Quote</button>'
+      +     '<button class="ar-pf-actbtn primary" data-pf-action="open-export" type="button" title="Package the portfolio for export and distribution">Export &rarr;</button>'
+      +     '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add Property</button>'
+      +   '</div>'
       + '</div>';
 
     // KPI strip — pulls aggregates from getRollup(). Renders a "loading"
@@ -7165,6 +7174,19 @@ function handleClick(e){
       // Property mode subbar (Phase 1c)
       if (act === 'exit-property')    { AR2_PF.exitProperty();             return; }
       if (act === 'save-and-close')   { AR2_PF.exitProperty();             return; }
+      // Portfolio Overview action buttons — placeholders until P3 lands
+      // the Portfolio Export panel and Quote builder. Showing explicit
+      // "in development" messaging beats a silent no-op while reps test.
+      if (act === 'open-quote')       {
+        alert('Portfolio Quote builder — coming in the next sandbox ship. ' +
+              'For now, quote prep happens at the property level on Step 4.');
+        return;
+      }
+      if (act === 'open-export')      {
+        alert('Portfolio Export panel — coming in the next sandbox ship. ' +
+              'It will include section toggles (Cover, Exec Summary, Per-Property pages, Portfolio Quote, Back Cover) and the "Unlock Quote" affordance.');
+        return;
+      }
       if (act === 'save-property')    {
         AR2_PF.saveCurrentProperty().catch(function(){ /* error surfaced in subbar */ });
         return;

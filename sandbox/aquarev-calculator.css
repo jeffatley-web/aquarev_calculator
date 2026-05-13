@@ -2119,6 +2119,14 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    Portfolio Overview (Phase 1b) — hero + KPI strip + property roster
    ════════════════════════════════════════════════════════════════════ */
 #ar2 .ar-pf-ov-hero{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:18px;}
+/* Portfolio Overview action group — pinned right via margin-left:auto so
+   Quote / Export / + Property sit as a unit on the right side of the hero,
+   regardless of how long the portfolio title runs. */
+#ar2 .ar-pf-ov-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;}
+#ar2 .ar-pf-actbtn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.32);background:transparent;color:var(--t);font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .18s,background .18s,border-color .18s,color .18s;}
+#ar2 .ar-pf-actbtn:hover{background:rgba(0,180,216,.10);border-color:var(--t);color:#fff;}
+#ar2 .ar-pf-actbtn.primary{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);border-color:transparent;}
+#ar2 .ar-pf-actbtn.primary:hover{filter:brightness(1.1);background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);}
 #ar2 .ar-pf-back{background:transparent;border:1px solid rgba(0,180,216,.22);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .15s,border-color .15s;}
 #ar2 .ar-pf-back:hover{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.4);color:var(--t);}
 #ar2 .ar-pf-ov-title-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:14px;}
