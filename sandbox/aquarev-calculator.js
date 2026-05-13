@@ -2017,11 +2017,11 @@ window.AR2_PF = (function(){
       +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
       +     _expRow('cover',           'Cover Page',           'Portfolio name + buyer info',                                                                       st.cover)
       +     _expRow('execSummary',     'Executive Summary',    'Rolled-up KPIs across all properties',                                                              st.execSummary)
+      +     _expRow('perProperty',     'Portfolio Assessment', 'Portfolio summary + per-property assessment pages',                                                 st.perProperty)
       +     _expRow('propertyProfile', 'Property Profiles',    propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list',           st.propertyProfile)
       +     _expSubRow('propertyProfileLayout', [{value:'cards',label:'Cards'},{value:'list-by-country',label:'List by Country'}], st.propertyProfileLayout)
       +     _expRow('poolProfiles',    'Property Pool Profiles','Pool detail grouped by property — cards or compact list',                                          st.poolProfiles)
       +     _expSubRow('poolProfilesLayout',    [{value:'cards',label:'Cards'},{value:'list',label:'List'}],                                  st.poolProfilesLayout)
-      +     _expRow('perProperty',     'Per-Property Assessments', propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback',                    st.perProperty)
       +     quoteRow
       +     _expRow('stdTerms',        'Purchase Terms and Conditions', 'Pulls from Quote section 6 if configured',                                                st.stdTerms)
       +     _expRow('backCover',       'Back Cover',           '',                                                                                                  st.backCover)
