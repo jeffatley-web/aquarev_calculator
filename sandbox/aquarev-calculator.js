@@ -815,8 +815,13 @@ var Cloud = (function(){
     var c = getClient();
     if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
     var since7 = new Date(Date.now() - 7*86400000).toISOString();
+    // Assessments table stores the full session under `snapshot` jsonb
+    // (snapshot.state.bodies, snapshot.state.manualPoolCount, etc.).
+    // Older versions of this query asked for a top-level `state` column —
+    // that doesn't exist on the schema, which makes the whole Promise reject
+    // and leaves the dashboard KPIs at their em-dash placeholder.
     return Promise.all([
-      c.from('assessments').select('id,created_at,summary,state').eq('app_id', APP_ID),
+      c.from('assessments').select('id,created_at,summary,snapshot').eq('app_id', APP_ID),
       c.from('portfolios').select('id,created_at'),
       c.from('portfolio_properties').select('id,state_json,computed_kpis,excluded_from_rollup,created_at')
     ]).then(function(arr){
@@ -829,7 +834,10 @@ var Cloud = (function(){
       var poolsTotal = 0, valueTotal = 0;
       ass.forEach(function(r){
         if (r.created_at && r.created_at >= since7) recordsLast7Days++;
-        var st = r.state || {};
+        // snapshot.state holds the bodies array; legacy records may have
+        // bodies directly on snapshot. Try both for robustness.
+        var snap = r.snapshot || {};
+        var st = snap.state || snap || {};
         var bodies = Array.isArray(st.bodies) ? st.bodies : [];
         if (st.manualVolume) poolsTotal += Math.max(1, Number(st.manualPoolCount) || 1);
         else                 poolsTotal += bodies.length;
