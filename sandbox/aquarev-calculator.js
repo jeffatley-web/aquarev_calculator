@@ -1152,6 +1152,33 @@ window.AR2_PF = (function(){
     return loadPortfolios();
   }
 
+  // Delete a portfolio (and cascade-delete all properties via FK ON DELETE
+  // CASCADE in the schema). RLS already gates this so users can only delete
+  // their own; admins can delete any.
+  function deletePortfolio(portfolioId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    if (!portfolioId) return Promise.reject(new Error('portfolio id required'));
+    return c.from('portfolios').delete().eq('id', portfolioId).then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      // Drop from local caches so the Archive re-renders without the row.
+      if (Array.isArray(pfState.portfolios)){
+        pfState.portfolios = pfState.portfolios.filter(function(p){ return p.id !== portfolioId; });
+      }
+      if (pfState.properties)      pfState.properties[portfolioId]      = null;
+      if (pfState.rollup)          pfState.rollup[portfolioId]          = null;
+      if (pfState.propertyStates)  pfState.propertyStates[portfolioId]  = null;
+      if (pfState.quoteState)      pfState.quoteState[portfolioId]      = null;
+      if (pfState.exportState)     pfState.exportState[portfolioId]     = null;
+      // If the deleted portfolio was selected, drop back to the list view.
+      if (pfState.selectedPortfolioId === portfolioId){
+        pfState.selectedPortfolioId = null;
+        pfState.viewMode = 'list';
+      }
+      return true;
+    });
+  }
+
   // Create a new portfolio. Returns the inserted row.
   function createPortfolio(name){
     var c = client();
@@ -2668,6 +2695,7 @@ window.AR2_PF = (function(){
     loadPortfolios: loadPortfolios,
     refreshPortfolios: refreshPortfolios,
     createPortfolio: createPortfolio,
+    deletePortfolio: deletePortfolio,
     rollup: rollup,
     openNewPortfolioModal: openNewPortfolioModal,
     closeNewPortfolioModal: closeNewPortfolioModal,
@@ -2912,38 +2940,152 @@ function buildPortfolioReportPreview(pid, mode){
       );
     }
 
-    // Open the report in a new window so the rep sees a "PDF preview" the
-    // same way they would if printing. Full PDF rasterization (html2canvas
-    // → jspdf) lands in a follow-up that just feeds this HTML to the same
-    // pipeline single-property already uses.
-    var modeLabel = mode === 'exp-preview' ? 'Preview' : (mode === 'exp-download' ? 'Download' : 'Archive');
-    var html = ''
-      + '<!doctype html><html><head>'
-      + '<meta charset="utf-8"><title>' + escHtml(pName) + ' — Portfolio ' + modeLabel + '</title>'
-      + '<style>'
-      + 'body{margin:0;padding:24px;background:#040f1e;font-family:\'DM Sans\',sans-serif;color:#e0f4fa}'
-      + '.wrap{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:24px}'
-      + '.rpt-page,.rpt-cover-page,.rpt-es-page,.rpt-pp-page{border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.45);position:relative}'
-      + '.note{font-size:11.5px;color:#7db8cc;text-align:center;padding:12px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.2);border-radius:8px}'
-      + 'h1{font-family:\'Bebas Neue\',sans-serif;letter-spacing:4px;font-size:18px;color:#00b4d8;text-align:center;margin:0 0 6px}'
-      + '@media print{body{background:#fff;padding:0} .note,h1{display:none}}'
-      + '</style>'
-      + '</head><body>'
-      + '<div class="wrap">'
-      +   '<h1>' + escHtml(pName) + ' — Portfolio ' + escHtml(modeLabel) + '</h1>'
-      +   '<div class="note">P7-lite preview · Real PDF rasterization (full single-property–style output) lands in a follow-up. Use your browser\'s Print → Save as PDF to capture this view today.</div>'
-      +   sections.join('')
-      + '</div>'
-      + '</body></html>';
-    var w = window.open('', '_blank');
-    if (!w){
-      alert('Pop-up blocked — allow pop-ups on this page to preview the portfolio report.');
-      return;
+    // P7: route the portfolio report through the SAME pipeline the
+    // single-property generateReport uses — mount into #ar2-report, hide
+    // siblings, wait for fonts/images, window.print(). This gives reps a
+    // native browser-quality PDF with proper @page sizing and page breaks,
+    // identical to what they already get from single assessments.
+    renderPortfolioReportToDOM(pName, sections, mode);
+  });
+}
+
+/* Mount portfolio report into #ar2-report and invoke the same print path
+   single-property generateReport uses. Reps see either the same Preview
+   toolbar (Preview mode) or jump straight to Save-as-PDF (Download mode). */
+function renderPortfolioReportToDOM(pName, sections, mode){
+  var rEl = document.getElementById('ar2-report');
+  if (!rEl){
+    alert('Report mount not found — refresh and try again.');
+    return;
+  }
+  // Each section becomes its own .rpt-page so the existing print CSS
+  // pages-breaks correctly. Wrap with .rpt-pf-report so we can target
+  // portfolio-specific print rules without disturbing single-property.
+  var pagesHtml = sections.map(function(s){
+    // If the section already declares .rpt-cover-page or .rpt-es-page or
+    // .rpt-pp-page or .rpt-page, leave it alone; else wrap.
+    if (/class="rpt-(cover|es|pp|fs|ls)/.test(s) || /class="rpt-page/.test(s)) return s;
+    return '<div class="rpt-page rpt-pf-page">' + s + '</div>';
+  }).join('');
+  rEl.innerHTML = '<div class="rpt-pf-report" data-portfolio-name="' + escHtml(pName) + '">' + pagesHtml + '</div>';
+
+  // Force portrait letter (8.5×11) for the portfolio report — matches the
+  // single-property portrait layout so reps don't get jarring size shifts.
+  var orientEl = document.getElementById('ar2-orient');
+  if (!orientEl){ orientEl = document.createElement('style'); orientEl.id = 'ar2-orient'; document.head.appendChild(orientEl); }
+  orientEl.textContent = '@media print{@page{size:portrait;margin:0mm;}}';
+
+  // Hide all body children except #ar2-report (matches generateReport flow)
+  var hiddenEls = [];
+  var bodyKids = document.body.children;
+  for (var bi = 0; bi < bodyKids.length; bi++){
+    if (bodyKids[bi].id !== 'ar2-report' && bodyKids[bi].id !== 'ar2-orient'){
+      hiddenEls.push({ el: bodyKids[bi], prev: bodyKids[bi].style.cssText });
+      bodyKids[bi].style.cssText += 'display:none!important;';
     }
-    w.document.open(); w.document.write(html); w.document.close();
-    // Auto-trigger the browser print dialog for the Download path so reps
-    // can immediately "Save as PDF" from the system print sheet.
-    if (mode === 'exp-download'){ setTimeout(function(){ try { w.print(); } catch(_){} }, 400); }
+  }
+  var rElParent = rEl.parentNode;
+  var rElNext   = rEl.nextSibling;
+  document.body.appendChild(rEl);
+  rEl.style.cssText = 'display:block;';
+
+  var origDocTitle = document.title;
+  document.title = pName + ' — Portfolio';
+
+  function restoreApp(){
+    document.title = origDocTitle;
+    rEl.style.cssText = 'display:none;';
+    if (rElNext) rElParent.insertBefore(rEl, rElNext);
+    else rElParent.appendChild(rEl);
+    for (var ri = 0; ri < hiddenEls.length; ri++){
+      hiddenEls[ri].el.style.cssText = hiddenEls[ri].prev;
+    }
+    window.scrollTo(0, 0);
+  }
+
+  // Wait for fonts + images, then either show the preview toolbar
+  // (Preview mode) or print directly (Download mode).
+  var fontReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+  fontReady.then(function(){
+    var imgs = rEl.querySelectorAll('img');
+    var imgPromises = [];
+    for (var ii = 0; ii < imgs.length; ii++){
+      if (!imgs[ii].complete){
+        imgPromises.push(new Promise(function(resolve){
+          var im = imgs[ii];
+          im.onload = resolve;
+          im.onerror = resolve;
+        }));
+      }
+    }
+    Promise.all(imgPromises).then(function(){
+      setTimeout(function(){
+        var restored = false;
+        function doRestore(){ if (restored) return; restored = true; restoreApp(); }
+        if (mode === 'exp-preview'){
+          var tb = document.createElement('div');
+          tb.id = 'ar2-preview-toolbar';
+          tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
+          tb.innerHTML = '<button id="ar2-pf-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Return to Portfolio</button>'
+            + '<div style="color:#fff;font-size:13px;font-weight:600">' + escHtml(pName) + ' — Portfolio Preview</div>'
+            + '<button id="ar2-pf-prev-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Download PDF</button>';
+          document.body.appendChild(tb);
+          rEl.style.paddingTop = '56px';
+          document.getElementById('ar2-pf-prev-back').onclick = function(){
+            document.body.removeChild(tb);
+            rEl.style.paddingTop = '';
+            doRestore();
+          };
+          document.getElementById('ar2-pf-prev-dl').onclick = function(){
+            document.body.removeChild(tb);
+            rEl.style.paddingTop = '';
+            window.addEventListener('afterprint', function onAfter(){
+              window.removeEventListener('afterprint', onAfter);
+              setTimeout(doRestore, 100);
+            });
+            window.print();
+            setTimeout(function(){ if (!restored) doRestore(); }, 3000);
+          };
+        } else if (mode === 'exp-archive'){
+          // Save to Archive — currently a stub. We still want the rep to
+          // SEE the report (so they know what was archived) so we run the
+          // preview path. Real DB persistence of the rendered portfolio PDF
+          // is a follow-up; for now this confirms the data + flow.
+          alert('Portfolio report preview generated. Real archive persistence (PDF blob saved to Supabase Storage) is a follow-up; for now the preview is open so you can verify the output.');
+          var tb2 = document.createElement('div');
+          tb2.id = 'ar2-preview-toolbar';
+          tb2.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
+          tb2.innerHTML = '<button id="ar2-pf-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Return to Portfolio</button>'
+            + '<div style="color:#fff;font-size:13px;font-weight:600">' + escHtml(pName) + ' — Archive preview</div>'
+            + '<button id="ar2-pf-prev-dl" style="background:linear-gradient(135deg,#22c55e,#4ade80);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">Download PDF</button>';
+          document.body.appendChild(tb2);
+          rEl.style.paddingTop = '56px';
+          document.getElementById('ar2-pf-prev-back').onclick = function(){
+            document.body.removeChild(tb2);
+            rEl.style.paddingTop = '';
+            doRestore();
+          };
+          document.getElementById('ar2-pf-prev-dl').onclick = function(){
+            document.body.removeChild(tb2);
+            rEl.style.paddingTop = '';
+            window.addEventListener('afterprint', function onAfter(){
+              window.removeEventListener('afterprint', onAfter);
+              setTimeout(doRestore, 100);
+            });
+            window.print();
+            setTimeout(function(){ if (!restored) doRestore(); }, 3000);
+          };
+        } else {
+          // Download mode — print directly
+          window.addEventListener('afterprint', function onAfter(){
+            window.removeEventListener('afterprint', onAfter);
+            setTimeout(doRestore, 100);
+          });
+          window.print();
+          setTimeout(function(){ if (!restored) doRestore(); }, 3000);
+        }
+      }, 500);
+    });
   });
 }
 // Tiny helpers used by buildPortfolioReportPreview
@@ -8341,13 +8483,19 @@ function handleClick(e){
       AR2_PF.openPortfolio(bId);
       return;
     }
-    // Portfolio delete — different confirm copy + different RPC.
+    // Portfolio delete — cascades to portfolio_properties + portfolio_quotes
+    // via the FK ON DELETE CASCADE in the schema. RLS gates ownership.
     if (bAct==='delete' && bType==='portfolio'){
-      if(confirm('Delete this portfolio? All properties inside it will be deleted. This cannot be undone.')){
-        // Stub — portfolio delete RPC lands in a later pass. For now, surface
-        // a clear "not implemented" message rather than silently failing.
-        alert('Portfolio delete will land in the next sandbox pass. Use Supabase to remove for now.');
+      if (!window.AR2_PF || !AR2_PF.deletePortfolio){
+        alert('Portfolio delete not available — refresh and retry.');
+        return;
       }
+      if (!confirm('Delete this portfolio? All properties inside it will be deleted. This cannot be undone.')) return;
+      AR2_PF.deletePortfolio(bId).then(function(){
+        renderArchive();
+      }).catch(function(err){
+        alert('Could not delete portfolio: ' + ((err && err.message) || 'unknown error'));
+      });
       return;
     }
     if(bAct==='delete'){
