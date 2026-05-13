@@ -3954,6 +3954,65 @@ function renderMapPool(){ return ''; }
    Runs when the user clicks Continue on Step 0. Drops the default "Pool 1"
    skeleton if the bridge returned registered bodies; otherwise leaves S.bodies
    alone (user either hit Skip or didn't register anything). */
+
+/* ── Name-required gate ─────────────────────────────────────────────────
+   Pops a modal with instructions if the user tries to advance from Step 2
+   (Pool & System, S.step===1) to Step 3 (Pricing, S.step===2) without a
+   Property Name. Returns true if the advance can proceed, false if blocked
+   (modal shown). Hooked into both [data-nav="next"] and the step-arrow
+   [data-step-nav="next"] handlers so all paths converge through it. */
+function requireNameOrPopup(direction){
+  if (direction !== 'next') return true;
+  if (S.step !== 1) return true; // only gates the Step 2 → Step 3 jump
+  var name = (S.propertyName || '').trim();
+  if (name) return true;
+  showNameRequiredModal();
+  return false;
+}
+function showNameRequiredModal(){
+  if (document.getElementById('ar-name-required-modal')) return;
+  var bd = document.createElement('div');
+  bd.id = 'ar-name-required-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.innerHTML =
+    '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-name-req-title">'
+    + '<div class="ar-pf-modal-title" id="ar-name-req-title" style="color:var(--gr);letter-spacing:2.5px">Property Name Required</div>'
+    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin:4px 0 14px">'
+    +   'Every assessment needs a unique Property Name before pricing.'
+    +   ' This prevents duplicate entries in your Archive.'
+    + '</div>'
+    + '<div style="font-size:12px;color:#7db8cc;line-height:1.7;margin-bottom:14px">'
+    +   '<b style="color:var(--tx)">How to fix:</b>'
+    +   '<ol style="margin:6px 0 0 18px;padding:0">'
+    +     '<li>Type the property name in the <b>Property Name</b> field at the top of this step, <i>or</i></li>'
+    +     '<li>Go back to <b>Map Pools</b> and enter the name in the <b>Name</b> field on the top card.</li>'
+    +   '</ol>'
+    + '</div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn primary" data-name-req-action="ok" type="button">Got it</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+  function close(){
+    if (bd.parentNode) bd.parentNode.removeChild(bd);
+    // Move focus to the Property Name input so the rep can start typing.
+    var inp = document.querySelector('#ar2-form [data-f="propertyName"]');
+    if (inp){ try { inp.focus(); inp.select && inp.select(); } catch(_){} }
+  }
+  bd.addEventListener('click', function(e){
+    if (e.target === bd) { close(); return; }
+    var act = e.target.closest('[data-name-req-action]');
+    if (act && act.getAttribute('data-name-req-action') === 'ok') close();
+  });
+  bd.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' || e.key === 'Enter') close();
+  });
+  setTimeout(function(){
+    var ok = bd.querySelector('[data-name-req-action="ok"]');
+    if (ok) try { ok.focus(); } catch(_){}
+  }, 30);
+}
+
 function consumeMapPoolBodies(){
   if(!window.AR2_MAP || !AR2_MAP.getBodies) return;
   var mapped=AR2_MAP.getBodies();
@@ -4845,18 +4904,19 @@ function renderNav(){
   el.style.display='';
   var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
   var isLast=S.step===STEPS.length-1;
-  // Step 1 (Pool & System) gates Continue on:
-  //   (a) at least one device selected, AND
-  //   (b) a Property Name entered (either on the Map Pools step or here).
-  // The name requirement enforces that every property has a defined name
-  // before pricing — prevents un-named duplicates landing in the Archive.
+  // Step 1 (Pool & System) gates the Continue button visually on having
+  // at least one device selected — the device picker is right above so the
+  // disabled state pairs cleanly with the rep's eye line.
+  // The Property Name requirement is enforced separately by the nav-handler
+  // popup (see requireNameOrPopup below), so reps who try to advance without
+  // a name get explicit instructions instead of a silently-disabled button.
   var nameOK = !!(S.propertyName && String(S.propertyName).trim());
-  var disableNext=S.step===1 && (!hasDevices || !nameOK);
-  // Tailored hint so the rep knows exactly what's missing.
+  var disableNext=S.step===1 && !hasDevices;
+  // Tailored hint so the rep knows what's missing before they click.
   var navHint = '';
   if (S.step===1){
     if (!nameOK && !hasDevices) navHint = 'Enter a Property Name and select a device to continue';
-    else if (!nameOK)            navHint = 'Enter a Property Name to continue';
+    else if (!nameOK)            navHint = 'A Property Name is required to continue';
     else if (!hasDevices)        navHint = 'Select a device above to continue';
   }
   // Continue button is omitted on the final step — Export panel below is the action.
@@ -7278,7 +7338,10 @@ function handleClick(e){
   var stepNav=e.target.closest('[data-step-nav]');
   if(stepNav){
     var sdir=stepNav.dataset.stepNav;
-    if(sdir==='next'&&S.step<STEPS.length-1){S.step=resolveStepForClient(S.step+1,'next');render();}
+    if(sdir==='next'&&S.step<STEPS.length-1){
+      if(!requireNameOrPopup('next')) return;
+      S.step=resolveStepForClient(S.step+1,'next');render();
+    }
     else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
     return;
   }
@@ -7286,7 +7349,10 @@ function handleClick(e){
   var navBtn=e.target.closest('[data-nav]');
   if(navBtn){
     var dir=navBtn.dataset.nav;
-    if(dir==='next'&&S.step<STEPS.length-1){S.step=resolveStepForClient(S.step+1,'next');render();}
+    if(dir==='next'&&S.step<STEPS.length-1){
+      if(!requireNameOrPopup('next')) return;
+      S.step=resolveStepForClient(S.step+1,'next');render();
+    }
     else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
     return;
   }
