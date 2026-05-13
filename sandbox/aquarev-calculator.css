@@ -2198,28 +2198,11 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-ship-row-input,#ar2 .ar-pf-ship-row-notes{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.22);border-radius:7px;padding:8px 10px;color:#e0f4fa;font-family:inherit;font-size:12.5px;outline:none;transition:border-color .15s;resize:vertical;}
 #ar2 .ar-pf-ship-row-input:focus,#ar2 .ar-pf-ship-row-notes:focus{border-color:var(--t);}
 #ar2 .ar-pf-ship-consolid{display:flex;flex-direction:column;gap:10px;}
-/* P7: Portfolio report page sizing + page breaks. Mirrors the single-property
-   .rpt-page rules so the print output is byte-identical (8.5×11 portrait,
-   one page per section, no orphans). */
-#ar2-report .rpt-pf-page{
-  page-break-after:always;break-after:page;
-  page-break-inside:avoid;break-inside:avoid;
-  width:8.5in;min-height:11in;
-  margin:0 auto;
-  background:#0a1828;color:#e0f4fa;
-  overflow:hidden;
-  position:relative;
-  -webkit-print-color-adjust:exact;print-color-adjust:exact;
-}
-#ar2-report .rpt-pf-page:last-child{page-break-after:auto;break-after:auto;}
-@media screen{
-  #ar2-report .rpt-pf-report{display:flex;flex-direction:column;gap:18px;padding:24px 0;background:#040f1e;}
-  #ar2-report .rpt-pf-page{box-shadow:0 8px 32px rgba(0,0,0,.45);border-radius:6px;}
-}
-@media print{
-  #ar2-report .rpt-pf-report{display:block;gap:0;padding:0;background:#fff;}
-  #ar2-report .rpt-pf-page{box-shadow:none;border-radius:0;margin:0;}
-}
+/* P7: Portfolio report reuses single-property .rpt-* page chrome exactly.
+   No portfolio-specific page-size CSS needed — the captured per-property
+   HTML carries .rpt / .rpt-cover-page / .rpt-es-page / .rpt-pp-page / etc.
+   which already have @page sizing, page-break rules, and print-color-adjust
+   wired in higher up in this stylesheet. */
 /* Portfolio Overview action group — pinned right via margin-left:auto so
    Quote / Export / + Property sit as a unit on the right side of the hero,
    regardless of how long the portfolio title runs. */

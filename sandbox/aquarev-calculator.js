@@ -2759,20 +2759,21 @@ window.AR2_PF = (function(){
    ────────────────────────────────────────────────────────────────────── */
 window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
 
-/* ── P7-lite: Portfolio Report Preview ─────────────────────────────────
-   Builds an HTML preview of the portfolio in a new window using existing
-   .rpt-* styles. Honors the Export panel's section toggles. Real PDF
-   rasterization (html2canvas → jspdf) is a thin follow-up that just feeds
-   this HTML to the same pipeline the single-property report uses.
+/* ── P7: Portfolio Report (pixel-perfect, reuses single-property design) ──
+   Strategy: hydrate each portfolio property's state_json/ex_json into the
+   global S/EX, call generateReport() in capture mode, and harvest the
+   resulting HTML. Each property's pages render identically to a single-
+   property report — same .rpt-head, .rpt-kpis, .rpt-stat, .rpt-foot, exact
+   page sizes (8.5×11), exact page breaks, exact NSF badges, exact CTA bar.
 
-   Sections (toggleable from the Export panel):
-     • cover        — portfolio name + buyer info from the Quote
-     • execSummary  — rolled-up KPIs from portfolio_rollup
-     • poolProfiles — per-property pool counts + volumes
-     • perProperty  — per-property savings + payback summary
-     • quote        — Portfolio Quote breakdown (only when Ready)
-     • stdTerms     — Standard Terms textarea content
-     • backCover    — closing page
+   The portfolio shell wraps these per-property pages with:
+     • Portfolio Cover — identical .rpt-cover-page chrome (same cover BG image),
+       portfolio name in the overlay
+     • Portfolio Quote — .rpt-es-head + .rpt-q-top-row + .rpt-q-tbl chrome
+       with rolled-up SKU line items across all properties
+     • Portfolio Back Cover — identical .rpt-back-cover-page image
+
+   All section toggles from the Export panel are honored.
    ─────────────────────────────────────────────────────────────────────── */
 function buildPortfolioReportPreview(pid, mode){
   if (!window.AR2_PF) return Promise.reject(new Error('AR2_PF not loaded'));
@@ -2782,8 +2783,7 @@ function buildPortfolioReportPreview(pid, mode){
 
   // Pull what we need in parallel: full property states + rollup + quote
   var loadStatesP = AR2_PF.loadProperties(pid).then(function(){
-    return AR2_PF._loadPropertyStates ? AR2_PF._loadPropertyStates(pid) :
-      (AR2_PF.loadPropertyStates ? AR2_PF.loadPropertyStates(pid) : Promise.resolve([]));
+    return AR2_PF.loadPropertyStates ? AR2_PF.loadPropertyStates(pid) : Promise.resolve([]);
   });
   var rollupP = AR2_PF.getRollup(pid).catch(function(){ return null; });
   var quoteP  = (st.quoteReady ? AR2_PF.loadQuote(pid).catch(function(){ return null; }) : Promise.resolve(null));
@@ -2792,161 +2792,274 @@ function buildPortfolioReportPreview(pid, mode){
     var states = arr[0] || [];
     var roll   = arr[1] || {};
     var quote  = arr[2] || null;
+    var today  = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
     // Compute line items if quote is ready — same logic the Quote builder uses.
-    var lineItems = quote && AR2_PF._state ?
-      (AR2_PF.computeLineItemsRollup ? AR2_PF.computeLineItemsRollup(states, quote.lineOverrides || {}) : []) :
-      [];
+    var lineItems = (quote && AR2_PF.computeLineItemsRollup) ?
+      AR2_PF.computeLineItemsRollup(states, quote.lineOverrides || {}) : [];
 
     var sections = [];
 
-    // — Cover —
+    // ──────────────────────────────────────────────────────────────
+    //  1. Portfolio Cover — IDENTICAL to single-property cover, with
+    //     the portfolio name on the overlay. Same .rpt-cover-page +
+    //     .rpt-cover-bg + .rpt-cover-overlay chrome and same hosted
+    //     cover image. Honors the Cover Page section toggle.
+    // ──────────────────────────────────────────────────────────────
     if (st.cover){
       sections.push(
-        '<div class="rpt-cover-page" style="padding:60px 48px;background:linear-gradient(135deg,#071628,#0a2540);color:#fff;min-height:520px;">'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:6px;color:#00b4d8;margin-bottom:18px">AQUAREV WATER · PORTFOLIO ASSESSMENT</div>'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:46px;letter-spacing:2px;color:#fff;line-height:1.1;margin-bottom:14px">' + escHtml(pName) + '</div>'
-        + (quote && quote.buyerName ? '<div style="font-size:14px;color:#cfe2eb;margin-bottom:4px">Prepared for <b>' + escHtml(quote.buyerName) + '</b></div>' : '')
-        + (quote && quote.buyerEmail ? '<div style="font-size:12px;color:#7db8cc">' + escHtml(quote.buyerEmail) + '</div>' : '')
-        + '<div style="position:absolute;bottom:32px;left:48px;font-size:11px;color:#7db8cc;letter-spacing:1.5px">' + new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + '</div>'
+        '<div class="rpt-cover-page">'
+        + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg','class="rpt-cover-bg"',1100)
+        + '<div class="rpt-cover-overlay">'
+          + '<div style="font-family:\'DM Sans\',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#48cae4;font-weight:600">Portfolio · Water Enhancement &amp; Cost Saving Assessment</div>'
+          + '<div style="margin-top:10px;font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:3px;color:#fff;line-height:1.1">' + esc(pName) + '</div>'
+          + '<div style="margin-top:8px;font-family:\'DM Sans\',sans-serif;font-size:12px;color:#7db8cc">' + ((Number(roll.property_count)||states.length) + ' Properties · ' + today) + '</div>'
         + '</div>'
+      + '</div>'
       );
     }
 
-    // — Exec Summary —
-    if (st.execSummary){
-      var totalInv  = Number(roll.total_inv)         || 0;
-      var totalMo   = Number(roll.total_mo)          || 0;
-      var totalYr   = Number(roll.total_yr)          || 0;
-      var propCount = Number(roll.property_count)    || states.length;
-      var totalGal  = Number(roll.total_pool_gal)    || 0;
-      var payback   = roll.blended_payback_mo ? Math.round(Number(roll.blended_payback_mo)) : null;
-      var roi5      = roll.blended_roi_5yr_pct ? Math.round(Number(roll.blended_roi_5yr_pct)) : null;
-      sections.push(
-        '<div class="rpt-es-page" style="padding:40px 48px;background:#0a1828;color:#e0f4fa;">'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:4px;color:#00b4d8;margin-bottom:18px">EXECUTIVE SUMMARY</div>'
-        + '<p style="font-size:13px;line-height:1.6;color:#cfe2eb;margin-bottom:20px">'
-        +   escHtml(pName) + ' represents <b>' + propCount + '</b> propert' + (propCount===1?'y':'ies') + ' with a combined estimated investment of <b>$' + fn(totalInv) + '</b> and projected monthly operating savings of <b>$' + fn(Math.round(totalMo)) + '</b>.'
-        + '</p>'
-        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">'
-        +   kpiCard('Properties',          propCount)
-        +   kpiCard('Total Investment',    '$' + fn(totalInv))
-        +   kpiCard('Total Pool Volume',   fn(totalGal) + ' gal')
-        +   kpiCard('Monthly Savings',     '$' + fn(Math.round(totalMo)))
-        +   kpiCard('Annual Savings',      '$' + fn(Math.round(totalYr)))
-        +   kpiCard('Blended Payback',     payback != null ? payback + ' mo' : '—')
-        + '</div>'
-        + (roi5 != null ? '<div style="font-size:12px;color:#7db8cc">Blended 5-year ROI: <b style="color:#22c55e">' + roi5 + '%</b></div>' : '')
-        + '</div>'
-      );
+    // ──────────────────────────────────────────────────────────────
+    //  2. Per-Property Pages — hydrate each property's state into the
+    //     global S/EX, run generateReport in capture mode, harvest
+    //     the resulting HTML. Each property produces its full Pool
+    //     Profile + Assessment (and optionally Exec Summary) pages
+    //     IDENTICAL to a single-property report — same .rpt-head,
+    //     .rpt-kpis, .rpt-stat, .rpt-foot chrome, exact page sizes,
+    //     exact page breaks, exact NSF badge, exact CTA bar.
+    //
+    //     We force per-property cover/quote/back-cover OFF — those
+    //     belong at the portfolio level. Exec Summary inherits the
+    //     portfolio's execSummary toggle so the rep can choose
+    //     between portfolio-level only vs portfolio + per-property.
+    // ──────────────────────────────────────────────────────────────
+    if (st.poolProfiles || st.perProperty || st.execSummary){
+      // Snapshot the live state — this is critical, we restore on every
+      // exit path including failures.
+      var savedS  = JSON.parse(JSON.stringify(S));
+      var savedEX = JSON.parse(JSON.stringify(EX));
+      var savedQ  = JSON.parse(JSON.stringify(Q));
+      var savedR  = (typeof R !== 'undefined') ? JSON.parse(JSON.stringify(R)) : null;
+      // Helper — reset live S/EX to the saved snapshot baseline between
+      // properties so stale keys from property A don't leak into B.
+      function _resetToSnapshot(){
+        for (var dk in S){ if (S.hasOwnProperty(dk) && !(dk in savedS))  delete S[dk]; }
+        for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+        for (var dek in EX){ if (EX.hasOwnProperty(dek) && !(dek in savedEX)) delete EX[dek]; }
+        for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+      }
+      try {
+        for (var pi = 0; pi < states.length; pi++){
+          var prop = states[pi];
+          // Reset to baseline THEN overlay this property's state — clean slate
+          // between properties prevents stale keys (e.g. bodies from a prior
+          // property carrying over) from corrupting the render.
+          _resetToSnapshot();
+          if (prop.state_json && typeof prop.state_json === 'object'){
+            for (var k1 in prop.state_json){ if (prop.state_json.hasOwnProperty(k1)) S[k1] = prop.state_json[k1]; }
+          }
+          if (prop.ex_json && typeof prop.ex_json === 'object'){
+            for (var k2 in prop.ex_json){ if (prop.ex_json.hasOwnProperty(k2)) EX[k2] = prop.ex_json[k2]; }
+          }
+          // Override per-property sections that belong at the portfolio level
+          EX.inclCover         = false;
+          EX.inclLsCover       = false;
+          EX.inclBackCover     = false;
+          EX.inclLsBackCover   = false;
+          EX.inclQuote         = false;
+          EX.inclQuoteTerms    = false;
+          EX.inclQuotePayment  = false;
+          EX.inclExecSummary   = !!st.execSummary;   // honor portfolio toggle
+          EX.inclLsExecSummary = false;              // portrait only
+          EX.inclPoolProfiles  = !!st.poolProfiles;  // honor portfolio toggle
+          EX.layout            = 'portrait';
+          EX._captureMode      = true;
+          // Property name flows through S.propertyName for the per-property
+          // header band ("Cost Savings Assessment · [Property Name]").
+          if (prop.property_name) S.propertyName = prop.property_name;
+          window.__pfCapturedHtml = '';
+          try { generateReport(); } catch(genErr){
+            console.warn('[Portfolio Report] property capture failed:', prop.property_name, genErr);
+            window.__pfCapturedHtml = '';
+          }
+          if (window.__pfCapturedHtml){
+            sections.push(window.__pfCapturedHtml);
+          }
+        }
+      } finally {
+        // ALWAYS restore live state — even if capture threw mid-loop.
+        EX._captureMode = false;
+        // Restore S
+        for (var dk in S){ if (S.hasOwnProperty(dk) && !(dk in savedS)) delete S[dk]; }
+        for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+        // Restore EX
+        for (var dek in EX){ if (EX.hasOwnProperty(dek) && !(dek in savedEX)) delete EX[dek]; }
+        for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+        // Restore Q
+        for (var dqk in Q){ if (Q.hasOwnProperty(dqk) && !(dqk in savedQ)) delete Q[dqk]; }
+        for (var sqk in savedQ){ if (savedQ.hasOwnProperty(sqk)) Q[sqk] = savedQ[sqk]; }
+        // Restore R (best-effort — calcROI will recompute)
+        if (savedR && typeof R !== 'undefined'){
+          for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
+        }
+      }
     }
 
-    // — Pool Profiles —
-    if (st.poolProfiles && states.length){
-      var poolRows = states.map(function(r){
-        var sj = r.state_json || {};
-        var bodies = sj.bodies || [];
-        var poolCount = bodies.length || (sj.manualPoolCount || 0) || 0;
-        var totalGal2 = 0;
-        for (var b=0;b<bodies.length;b++) totalGal2 += Number(bodies[b].gallons) || 0;
-        if (!totalGal2) totalGal2 = Number(sj.manualTotalGallons) || 0;
-        return '<tr><td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08)">' + escHtml(r.property_name||'Property') + '</td><td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);text-align:right">' + poolCount + '</td><td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">' + fn(totalGal2) + '</td></tr>';
-      }).join('');
-      sections.push(
-        '<div class="rpt-pp-page" style="padding:40px 48px;background:#0a1828;color:#e0f4fa;">'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:3px;color:#00b4d8;margin-bottom:18px">PROPERTY POOL PROFILES</div>'
-        + '<table style="width:100%;border-collapse:collapse;font-size:13px;color:#e0f4fa">'
-        +   '<thead><tr style="border-bottom:2px solid #00b4d8"><th style="text-align:left;padding:8px 12px;letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:#7db8cc">Property</th><th style="text-align:right;padding:8px 12px;letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:#7db8cc">Pools</th><th style="text-align:right;padding:8px 12px;letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:#7db8cc">Volume (gal)</th></tr></thead>'
-        +   '<tbody>' + poolRows + '</tbody>'
-        + '</table>'
-        + '</div>'
-      );
-    }
-
-    // — Per-Property Assessments —
-    if (st.perProperty){
-      sections.push.apply(sections, states.map(function(r){
-        var k = (r.computed_kpis = r.computed_kpis || {}) || {};
-        var sj = r.state_json || {};
-        var inv = Number(k.inv) || 0;
-        var mo  = Number(k.total_mo) || 0;
-        var yr  = Number(k.total_yr) || 0;
-        var pb  = k.payback ? Math.round(Number(k.payback)) : null;
-        return '<div class="rpt-page" style="padding:36px 48px;background:#0a1828;color:#e0f4fa;border-top:3px solid #00b4d8">'
-          + '<div style="font-size:11px;letter-spacing:2px;color:#7db8cc;text-transform:uppercase;margin-bottom:6px">Property</div>'
-          + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:18px">' + escHtml(r.property_name||'Property') + '</div>'
-          + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px">'
-          +   kpiCard('Investment', '$' + fn(Math.round(inv)))
-          +   kpiCard('Monthly',    '$' + fn(Math.round(mo)))
-          +   kpiCard('Annual',     '$' + fn(Math.round(yr)))
-          +   kpiCard('Payback',    pb != null ? pb + ' mo' : '—')
-          + '</div>'
-          + (r.formatted_address ? '<div style="font-size:11px;color:#7db8cc;margin-top:14px">' + escHtml(r.formatted_address) + '</div>' : '')
-          + '</div>';
-      }));
-    }
-
-    // — Portfolio Quote —
+    // ──────────────────────────────────────────────────────────────
+    //  3. Portfolio Quote — uses the EXACT single-property quote
+    //     chrome (.rpt-es-head header, .rpt-q-top-row Seller / Buyer /
+    //     Meta band, .rpt-q-tbl line items with section bands,
+    //     .rpt-q-totals subtotal/discount/tax/shipping/total stack,
+    //     .rpt-foot.rpt-es-foot footer). Data swapped for portfolio
+    //     roll-ups: line items aggregated across all properties,
+    //     buyer block from the Portfolio Quote builder, totals
+    //     respecting portfolio discount/tax/shipping.
+    // ──────────────────────────────────────────────────────────────
     if (st.quote && quote){
-      var liRows = lineItems.map(function(L){
-        return '<tr><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08)">' + escHtml(L.label) + '</td><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">' + L.qty + '</td><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(L.price) + '</td><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(L.total) + '</td></tr>';
-      }).join('');
-      var liSubtotal = lineItems.reduce(function(s,L){ return s + L.total; }, 0);
-      var disc       = Number(quote.discountPct) || 0;
-      var discAmt    = liSubtotal * (disc/100);
-      var afterDisc  = liSubtotal - discAmt;
-      var taxRate    = Number(quote.taxRate)     || 0;
-      var taxAmt     = afterDisc * (taxRate/100);
-      var ship       = Number(quote.shippingCost) || 0;
-      var grandTotal = afterDisc + taxAmt + ship;
-      sections.push(
-        '<div class="rpt-page" style="padding:36px 48px;background:#0a1828;color:#e0f4fa;border-top:3px solid #22c55e">'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:3px;color:#22c55e;margin-bottom:18px">PORTFOLIO QUOTE</div>'
-        + (quote.buyerName ? '<div style="font-size:13px;color:#cfe2eb;margin-bottom:6px"><b>Recipient:</b> ' + escHtml(quote.buyerName) + (quote.buyerEmail ? ' &middot; ' + escHtml(quote.buyerEmail) : '') + '</div>' : '')
-        + (quote.billTo ? '<div style="font-size:12px;color:#7db8cc;margin-bottom:14px;white-space:pre-line">' + escHtml(quote.billTo) + '</div>' : '')
-        + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;color:#e0f4fa;margin-bottom:14px">'
-        +   '<thead><tr style="border-bottom:1px solid #22c55e"><th style="text-align:left;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">SKU</th><th style="text-align:right;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">Qty</th><th style="text-align:right;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">Unit</th><th style="text-align:right;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">Line Total</th></tr></thead>'
-        +   '<tbody>' + (liRows || '<tr><td colspan="4" style="padding:10px;color:#7db8cc;font-style:italic">No line items.</td></tr>') + '</tbody>'
-        + '</table>'
-        + '<div style="display:flex;justify-content:flex-end"><table style="font-size:12.5px;color:#e0f4fa">'
-        +   '<tr><td style="padding:3px 12px;color:#7db8cc">Subtotal</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(liSubtotal) + '</td></tr>'
-        +   (disc>0 ? '<tr><td style="padding:3px 12px;color:#7db8cc">Discount (' + disc + '%)</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">-$' + fn(discAmt) + '</td></tr>' : '')
-        +   (taxRate>0 ? '<tr><td style="padding:3px 12px;color:#7db8cc">Tax (' + taxRate + '%)</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(taxAmt) + '</td></tr>' : '')
-        +   (ship>0 ? '<tr><td style="padding:3px 12px;color:#7db8cc">Shipping' + (quote.shippingTerm?' ('+escHtml(quote.shippingTerm)+')':'') + '</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(ship) + '</td></tr>' : '')
-        +   '<tr style="border-top:1px solid #22c55e"><td style="padding:7px 12px;font-weight:700">Total</td><td style="padding:7px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:15px;color:#22c55e;font-weight:700">$' + fn(grandTotal) + '</td></tr>'
-        + '</table></div>'
-        + '</div>'
-      );
+      sections.push(buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today));
     }
 
-    // — Standard Terms —
-    if (st.stdTerms && quote && (quote.stdTerms || '').trim()){
-      sections.push(
-        '<div class="rpt-page" style="padding:36px 48px;background:#0a1828;color:#e0f4fa;">'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:3px;color:#7db8cc;margin-bottom:14px">STANDARD TERMS</div>'
-        + '<div style="font-size:12px;color:#cfe2eb;line-height:1.6;white-space:pre-line">' + escHtml(quote.stdTerms) + '</div>'
-        + '</div>'
-      );
-    }
-
-    // — Back Cover —
+    // ──────────────────────────────────────────────────────────────
+    //  4. Portfolio Back Cover — IDENTICAL to single-property back
+    //     cover, same hosted image. .rpt-fs-img-page + .rpt-back-cover-page.
+    // ──────────────────────────────────────────────────────────────
     if (st.backCover){
       sections.push(
-        '<div class="rpt-page" style="padding:80px 48px;background:linear-gradient(135deg,#071628,#0a2540);color:#fff;text-align:center;min-height:380px">'
-        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;letter-spacing:6px;color:#00b4d8;margin-bottom:24px">AQUAREV WATER</div>'
-        + '<div style="font-size:13px;color:#cfe2eb;letter-spacing:1.5px">www.aquarevwater.com</div>'
-        + '<div style="position:absolute;bottom:48px;left:0;right:0;font-size:10px;color:#7db8cc;letter-spacing:1.5px;text-transform:uppercase">NSF/ANSI 50 · NSF-372 Lead-Free · 3 U.S. Patents · Lifetime Warranty</div>'
-        + '</div>'
+        '<div class="rpt-fs-img-page rpt-back-cover-page">'
+        + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fd65a10e9889939b9b992d_Back-Cover_Portrait-v2.png','',1100)
+      + '</div>'
       );
     }
 
-    // P7: route the portfolio report through the SAME pipeline the
-    // single-property generateReport uses — mount into #ar2-report, hide
-    // siblings, wait for fonts/images, window.print(). This gives reps a
-    // native browser-quality PDF with proper @page sizing and page breaks,
-    // identical to what they already get from single assessments.
+    if (!sections.length){
+      alert('No sections enabled — toggle at least one section on the Export panel to generate the report.');
+      return;
+    }
+    // Mount into #ar2-report and use the same hide-body + window.print()
+    // pipeline single-property uses. Produces a native browser PDF with
+    // the @page sizing and page breaks already wired into .rpt-* CSS.
     renderPortfolioReportToDOM(pName, sections, mode);
   });
+}
+
+/* P7: Portfolio quote page — replicates the single-property quote chrome
+   (Seller / Prepared For / Quote-meta top row + Equipment line items table
+   + subtotal stack + footer) but with portfolio-rolled data. */
+function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
+  var qDate = today;
+  // Header band — matches Executive Summary look (.rpt-es-head).
+  var qHeader = '<div class="rpt-es-head">'
+    + '<div class="rpt-es-head-left">'
+      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
+      + '<div class="rpt-es-logo-sub">PORTFOLIO QUOTE</div>'
+    + '</div>'
+    + '<div class="rpt-es-head-right">'
+      + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+      + '<div class="rpt-es-prop-date">' + esc(qDate) + ' · ' + states.length + ' propert' + (states.length===1?'y':'ies') + '</div>'
+    + '</div>'
+  + '</div>';
+  var qFooter = '<div class="rpt-foot rpt-es-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  var SELLER_BLOCK = 'KD Enterprises LLC, dba AquaRev Water\n4348 - Waialae Ave. #621\nHonolulu, HI, 96816, USA\nt. (832) 979-6758\ne. water@aquarevwater.us';
+  var buyerLines = [];
+  buyerLines.push(quote.buyerName || pName);
+  if (quote.billTo)     buyerLines.push(quote.billTo);
+  if (quote.buyerPhone) buyerLines.push('t. ' + quote.buyerPhone);
+  if (quote.buyerEmail) buyerLines.push('e. ' + quote.buyerEmail);
+  var BUYER_BLOCK = buyerLines.join('\n');
+  // Top row — Seller / Buyer / Meta — same .rpt-q-top-row chrome single uses.
+  var topRow = '<div class="rpt-q-top-row">'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Seller</div>'
+      + '<div class="rpt-q-block-text">' + esc(SELLER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
+      + '<div class="rpt-q-block-text">' + esc(BUYER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">PORTFOLIO QUOTE</div>'
+      + '<div class="rpt-q-top-card-body">'
+        + '<dl class="rpt-q-meta-rows">'
+          + '<dt>Date</dt><dd>' + esc(qDate) + '</dd>'
+          + '<dt>Properties</dt><dd>' + states.length + '</dd>'
+          + '<dt>Currency</dt><dd>USD</dd>'
+          + (quote.shippingTerm ? '<dt>Shipping</dt><dd>' + esc(quote.shippingTerm) + '</dd>' : '')
+        + '</dl>'
+      + '</div>'
+    + '</div>'
+  + '</div>';
+  // Equipment line items — same .rpt-q-tbl chrome + .rpt-q-section-row band.
+  var rowsHtml = '<tr class="rpt-q-section-row"><td colspan="5">EQUIPMENT</td></tr>';
+  if (lineItems && lineItems.length){
+    rowsHtml += lineItems.map(function(L){
+      return '<tr>'
+        + '<td>' + esc(L.label) + (L.flow?' <span style="color:#888;font-size:9.5px">— ' + esc(L.flow) + '</span>':'') + '</td>'
+        + '<td class="rpt-q-num">' + L.qty + '</td>'
+        + '<td class="rpt-q-num">$' + fn(L.price) + '</td>'
+        + '<td class="rpt-q-num">$' + fn(L.total) + '</td>'
+        + '<td class="rpt-q-num"></td>'
+      + '</tr>';
+    }).join('');
+  } else {
+    rowsHtml += '<tr><td colspan="5" style="text-align:center;font-style:italic;color:#888;padding:14px 8px">No line items rolled up. Add devices on at least one property.</td></tr>';
+  }
+  // If shipping > 0 add a SHIPPING section row + line
+  var ship = Number(quote.shippingCost) || 0;
+  if (ship > 0){
+    rowsHtml += '<tr class="rpt-q-section-row"><td colspan="5">SHIPPING</td></tr>'
+      + '<tr>'
+        + '<td>Consolidated Shipping' + (quote.shippingTerm?' (' + esc(quote.shippingTerm) + ')':'') + '</td>'
+        + '<td class="rpt-q-num">1</td>'
+        + '<td class="rpt-q-num">$' + fn(ship) + '</td>'
+        + '<td class="rpt-q-num">$' + fn(ship) + '</td>'
+        + '<td class="rpt-q-num"></td>'
+      + '</tr>';
+  }
+  // Totals — match the single-property buildQuoteTotals layout (rpt-q-totals)
+  var liSubtotal = (lineItems||[]).reduce(function(s,L){ return s + (L.total||0); }, 0);
+  var disc       = Number(quote.discountPct) || 0;
+  var discAmt    = liSubtotal * (disc/100);
+  var afterDisc  = liSubtotal - discAmt;
+  var taxRate    = Number(quote.taxRate) || 0;
+  var taxAmt     = (afterDisc + ship) * (taxRate/100);
+  var grandTotal = afterDisc + ship + taxAmt;
+  var depositPct = Number(quote.depositPct) || 0;
+  var depositAmt = grandTotal * (depositPct/100);
+  var totalsBlock = '<dl class="rpt-q-totals-table">'
+    + '<dt>Subtotal</dt><dd>$' + fn(liSubtotal) + '</dd>'
+    + (disc>0   ? '<dt>Discount (' + disc + '%)</dt><dd>-$' + fn(discAmt) + '</dd>' : '')
+    + (ship>0   ? '<dt>Shipping</dt><dd>$' + fn(ship) + '</dd>' : '')
+    + (taxRate>0? '<dt>Tax (' + taxRate + '%)</dt><dd>$' + fn(taxAmt) + '</dd>' : '')
+    + '<div class="strong"><dt>Total</dt><dd>$' + fn(grandTotal) + '</dd></div>'
+    + (depositPct>0 ? '<dt>Deposit (' + depositPct + '%)</dt><dd>$' + fn(depositAmt) + '</dd>' : '')
+  + '</dl>';
+  var termsBlock = quote.stdTerms ? '<div class="terms"><div class="terms-title">Standard Terms</div>' + esc(quote.stdTerms).replace(/\n/g,'<br>') + '</div>' : '<div class="terms"></div>';
+  var totalsRow = '<div class="rpt-q-totals">' + termsBlock + totalsBlock + '</div>';
+  // Assemble page — uses .rpt structure so .rpt-page CSS picks up page break + size.
+  return '<div class="rpt rpt-q-page">'
+    + qHeader
+    + '<div style="padding:12px 28px 0">'
+      + topRow
+      + '<table class="rpt-q-tbl" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px">'
+        + '<thead><tr style="background:#f5fbff;border-bottom:1.5px solid #48cae4">'
+          + '<th style="text-align:left;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Item</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Qty</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Unit</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Line Total</th>'
+          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540"></th>'
+        + '</tr></thead>'
+        + '<tbody>' + rowsHtml + '</tbody>'
+      + '</table>'
+      + totalsRow
+    + '</div>'
+    + qFooter
+  + '</div>';
 }
 
 /* Mount portfolio report into #ar2-report and invoke the same print path
@@ -2958,16 +3071,11 @@ function renderPortfolioReportToDOM(pName, sections, mode){
     alert('Report mount not found — refresh and try again.');
     return;
   }
-  // Each section becomes its own .rpt-page so the existing print CSS
-  // pages-breaks correctly. Wrap with .rpt-pf-report so we can target
-  // portfolio-specific print rules without disturbing single-property.
-  var pagesHtml = sections.map(function(s){
-    // If the section already declares .rpt-cover-page or .rpt-es-page or
-    // .rpt-pp-page or .rpt-page, leave it alone; else wrap.
-    if (/class="rpt-(cover|es|pp|fs|ls)/.test(s) || /class="rpt-page/.test(s)) return s;
-    return '<div class="rpt-page rpt-pf-page">' + s + '</div>';
-  }).join('');
-  rEl.innerHTML = '<div class="rpt-pf-report" data-portfolio-name="' + escHtml(pName) + '">' + pagesHtml + '</div>';
+  // Every section returned by buildPortfolioReportPreview is already wrapped
+  // in proper .rpt-cover-page / .rpt-es-page / .rpt-pp-page / .rpt / .rpt-fs-img-page
+  // chrome — same classes single-property uses — so the existing print CSS
+  // handles page breaks + page sizes correctly. We just concatenate.
+  rEl.innerHTML = sections.join('');
 
   // Force portrait letter (8.5×11) for the portfolio report — matches the
   // single-property portrait layout so reps don't get jarring size shifts.
@@ -7714,6 +7822,16 @@ function generateReport(){
   html+=lsBackCoverHtml;
   // (presentationDeckHtml removed)
 
+  // ── P7-pp: capture mode short-circuit ──
+  // When the portfolio report builder is hydrating per-property state and
+  // calling generateReport just to harvest its HTML output, EX._captureMode
+  // is set. Hand the HTML back via window.__pfCapturedHtml and exit before
+  // mount/print — the caller is responsible for restoring document.title.
+  if (EX._captureMode){
+    window.__pfCapturedHtml = html;
+    document.title = origDocTitle;
+    return;
+  }
   // ── Mount report and print ──
   var rEl=document.getElementById('ar2-report');
   if(!rEl)return;
