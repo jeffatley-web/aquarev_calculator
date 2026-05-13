@@ -1448,6 +1448,88 @@ window.AR2_PF = (function(){
     });
   }
 
+  /* ── P4: portfolio_quotes load + save ──────────────────────────────
+     Loads the existing quote row for a portfolio (or null), and upserts
+     it back. The schema has dedicated columns for the most-used fields
+     (buyer_name, buyer_email, portfolio_discount_pct, tax_rate,
+     shipping_cost, shipping_term, notes) and a quote_state jsonb for
+     everything else (phone, bill-to, deposit, balance terms, std terms,
+     status). loadQuote merges both halves into a flat in-memory shape
+     that matches getQuoteState().
+     ─────────────────────────────────────────────────────────────────── */
+  function loadQuote(portfolioId){
+    var c = client();
+    if (!c || !portfolioId) return Promise.resolve(null);
+    return c.from('portfolio_quotes')
+      .select('id,portfolio_id,quote_state,portfolio_discount_pct,shipping_cost,shipping_term,tax_rate,buyer_name,buyer_email,notes')
+      .eq('portfolio_id', portfolioId)
+      .maybeSingle()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        if (!rs.data) return null;
+        var qs = rs.data.quote_state || {};
+        var q = _defaultQuoteState();
+        q.buyerName       = rs.data.buyer_name || '';
+        q.buyerEmail      = rs.data.buyer_email || '';
+        q.buyerPhone      = qs.buyerPhone || '';
+        q.billTo          = qs.billTo || '';
+        q.discountPct     = Number(rs.data.portfolio_discount_pct) || 0;
+        q.taxRate         = Number(rs.data.tax_rate) || 0;
+        q.shippingCost    = Number(rs.data.shipping_cost) || 0;
+        q.shippingTerm    = rs.data.shipping_term || '';
+        q.depositPct      = Number(qs.depositPct) || 0;
+        q.depositDueDate  = qs.depositDueDate || '';
+        q.balanceDueTerms = qs.balanceDueTerms || '';
+        q.stdTerms        = qs.stdTerms || '';
+        q.notes           = rs.data.notes || '';
+        q.status          = qs.status || 'draft';
+        // Cache into pfState so renderQuoteBuilder picks it up.
+        if (!pfState.quoteState) pfState.quoteState = {};
+        pfState.quoteState[portfolioId] = q;
+        // If a quote row exists, mark the Export panel section as Ready
+        // so it can be toggled on without re-saving from scratch.
+        if (!pfState.exportState) pfState.exportState = {};
+        if (!pfState.exportState[portfolioId]) pfState.exportState[portfolioId] = _defaultExportState();
+        pfState.exportState[portfolioId].quoteReady = true;
+        return q;
+      });
+  }
+  function saveQuote(portfolioId, q){
+    var c = client();
+    if (!c || !portfolioId) return Promise.reject(new Error('cloud not ready'));
+    // Pack non-column fields into quote_state jsonb
+    var quoteState = {
+      buyerPhone:      q.buyerPhone || '',
+      billTo:          q.billTo || '',
+      depositPct:      Number(q.depositPct) || 0,
+      depositDueDate:  q.depositDueDate || '',
+      balanceDueTerms: q.balanceDueTerms || '',
+      stdTerms:        q.stdTerms || '',
+      status:          q.status || 'draft'
+    };
+    var payload = {
+      portfolio_id:           portfolioId,
+      buyer_name:             q.buyerName || '',
+      buyer_email:            q.buyerEmail || '',
+      portfolio_discount_pct: Number(q.discountPct) || 0,
+      tax_rate:               Number(q.taxRate) || 0,
+      shipping_cost:          Number(q.shippingCost) || 0,
+      shipping_term:          q.shippingTerm || '',
+      notes:                  q.notes || '',
+      quote_state:            quoteState
+    };
+    // Upsert by portfolio_id (UNIQUE constraint in the schema makes this
+    // safe). Returns the row so we can confirm the write.
+    return c.from('portfolio_quotes')
+      .upsert(payload, { onConflict: 'portfolio_id' })
+      .select('id,portfolio_id')
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return rs.data;
+      });
+  }
+
   // ── Navigation: list ↔ overview ↔ export ↔ quote-builder ──────
   function openPortfolio(portfolioId){
     if (!portfolioId) return;
@@ -1507,6 +1589,17 @@ window.AR2_PF = (function(){
     }
     pfState.viewMode = 'quote-builder';
     if (typeof renderArchive === 'function') renderArchive();
+    // Hydrate from the DB after the first paint so existing values land in
+    // the form. We don't await this — the builder renders defaults first,
+    // then re-renders with persisted values when the load completes.
+    var pid = pfState.selectedPortfolioId;
+    if (pid){
+      loadQuote(pid).then(function(q){
+        if (!q) return;
+        var mount = document.getElementById('ar2-bank-overview-mount');
+        if (mount && pfState.viewMode === 'quote-builder') renderQuoteBuilder(mount);
+      }).catch(function(_){});
+    }
   }
   function backFromQuoteBuilder(){
     pfState.viewMode = 'export';
@@ -1702,6 +1795,18 @@ window.AR2_PF = (function(){
         var live = document.getElementById('ar2-bank-overview-mount');
         if (live && pfState.viewMode === 'export') renderPortfolioExport(live);
       });
+    }
+    // Check the DB once for an existing quote row — if there is one, the
+    // Quote section flips from Locked to Ready without the rep having to
+    // re-open the builder. Cheap: maybeSingle on a UNIQUE-indexed column.
+    if (!pfState._quoteProbed) pfState._quoteProbed = {};
+    if (!pfState._quoteProbed[pid] && !st.quoteReady){
+      pfState._quoteProbed[pid] = true;
+      loadQuote(pid).then(function(q){
+        if (!q) return;
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live && pfState.viewMode === 'export') renderPortfolioExport(live);
+      }).catch(function(_){});
     }
     var quoteRow;
     if (st.quoteReady){
@@ -2360,6 +2465,8 @@ window.AR2_PF = (function(){
     getExportState: getExportState,
     setExportSection: setExportSection,
     getQuoteState: getQuoteState,
+    loadQuote: loadQuote,
+    saveQuote: saveQuote,
     renderPortfolioOverview: renderPortfolioOverview,
     renderPortfolioExport: renderPortfolioExport,
     renderQuoteBuilder: renderQuoteBuilder,
@@ -7637,31 +7744,42 @@ function handleClick(e){
       if (act === 'exp-preview')      { alert('Preview PDF — Portfolio templates land in P7.');  return; }
       if (act === 'exp-download')     { alert('Download PDF — Portfolio templates land in P7.'); return; }
       if (act === 'exp-archive')      { alert('Save to Archive — Portfolio templates land in P7.'); return; }
-      // P3: Quote builder Save actions. Save Draft just persists in-memory
-      // (P4 wires up the DB write to portfolio_quotes); Save & Return also
-      // flips the Export quote section to "Ready" so it can be toggled on.
+      // P4: Quote builder Save actions — write to portfolio_quotes table.
+      // Save Draft → status='draft', stays on builder. Save & Return →
+      // status='ready', flips Export section to toggleable, navigates back.
       if (act === 'quote-save-draft' || act === 'quote-save-return'){
         var pid = AR2_PF.selectedPortfolioId();
-        if (pid){
-          var st = AR2_PF.getExportState(pid);
-          st.quoteReady = true;
-          st.quote = true; // default-on once configured
-          // Status update for the Quote state itself.
-          var q = AR2_PF.getQuoteState(pid);
-          q.status = act === 'quote-save-return' ? 'ready' : 'draft';
-        }
-        if (act === 'quote-save-return'){
-          AR2_PF.backFromQuoteBuilder();
-        } else {
-          // Save Draft — stay on the builder, brief flash on the button.
-          var btn = e.target.closest('[data-pf-action="quote-save-draft"]');
-          if (btn){
-            var orig = btn.textContent;
-            btn.textContent = 'Saved ✓';
-            btn.disabled = true;
-            setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1200);
-          }
-        }
+        if (!pid) return;
+        var isReturn = (act === 'quote-save-return');
+        var q = AR2_PF.getQuoteState(pid);
+        q.status = isReturn ? 'ready' : 'draft';
+        // Optimistic UI — flip the Export section to ready/on immediately;
+        // if the save fails we revert below.
+        var st = AR2_PF.getExportState(pid);
+        var prevReady = st.quoteReady;
+        var prevOn    = st.quote;
+        st.quoteReady = true;
+        if (isReturn) st.quote = true;
+        var btn = e.target.closest('[data-pf-action="' + act + '"]');
+        var origLbl = btn ? btn.textContent : '';
+        if (btn){ btn.disabled = true; btn.textContent = isReturn ? 'Saving…' : 'Saving…'; }
+        AR2_PF.saveQuote(pid, q).then(function(){
+          if (btn){ btn.textContent = isReturn ? 'Saved ✓' : 'Saved ✓'; }
+          setTimeout(function(){
+            if (isReturn){
+              AR2_PF.backFromQuoteBuilder();
+            } else if (btn){
+              btn.textContent = origLbl;
+              btn.disabled = false;
+            }
+          }, 600);
+        }).catch(function(err){
+          // Revert optimistic Export state on failure
+          st.quoteReady = prevReady;
+          st.quote = prevOn;
+          if (btn){ btn.textContent = origLbl; btn.disabled = false; }
+          alert('Quote could not be saved: ' + ((err && err.message) || 'unknown error'));
+        });
         return;
       }
       // P3: Export section toggle — capture each checkbox change in state.
