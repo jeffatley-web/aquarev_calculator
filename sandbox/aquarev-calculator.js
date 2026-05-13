@@ -3022,7 +3022,139 @@ function buildPortfolioReportPreview(pid, mode){
      • "AquaRev Devices Required (on Return Pipes)" section: rolled-up device
        counts across all properties + total investment
      • Investment & Return Profile chart (reuses buildInvestmentChart) */
+/* P7+: Portfolio Assessment page — REUSE single-property generateReport().
+   Synthesizes a portfolio-aggregate S/EX, calls generateReport() in capture
+   mode to harvest the full assessment HTML (header band, KPI strip, Body
+   Row A/Row B, Property Images + Video Resources media row, comments,
+   disclaimer, CTA bar, footer, multi-page cascade rules — all of it),
+   then runs ONLY the two label edits the user asked for:
+     • "Pool Configuration" → "Property Configuration" (with per-property rows)
+     • KPI strip gets a NEW first cell: "Properties / Pools" (X/Y)
+   Everything else stays byte-identical to single-property output, so layout
+   rules + page breaks + design language are preserved.
+   Always restores live S/EX/R in a finally — no live-state side effects. */
 function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
+  if (!states || !states.length) return '';
+  if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
+
+  // Aggregate device counts, total gallons, total pools, per-property roster
+  var deviceTotals = {};
+  for (var p0=0; p0<PIPES.length; p0++) deviceTotals[PIPES[p0].k] = 0;
+  var totalGal = 0, totalPools = 0, propRows = [];
+  for (var i=0; i<states.length; i++){
+    var sj = states[i].state_json || {};
+    var pGal = 0, pPools = 0;
+    if (sj.manualVolume){
+      pPools = Math.max(1, Number(sj.manualPoolCount) || 1);
+      pGal = Number(sj.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj.bodies)){
+      pPools = sj.bodies.length;
+      for (var b=0; b<sj.bodies.length; b++){
+        pGal += (typeof bodyGallons === 'function') ? bodyGallons(sj.bodies[b]) : (Number(sj.bodies[b].gallons) || 0);
+      }
+    }
+    totalGal += pGal;
+    totalPools += pPools;
+    propRows.push({ name: states[i].property_name || 'Property', poolCount: pPools, gal: pGal });
+    for (var pi=0; pi<PIPES.length; pi++){
+      var k = PIPES[pi].k;
+      deviceTotals[k] += Number(sj[k]) || 0;
+    }
+  }
+  var propCount = states.length;
+
+  // Snapshot live state — restored unconditionally in finally
+  var savedS  = JSON.parse(JSON.stringify(S));
+  var savedEX = JSON.parse(JSON.stringify(EX));
+  var savedR  = null;
+  try { savedR = (typeof R !== 'undefined' && R) ? JSON.parse(JSON.stringify(R)) : null; } catch(_){}
+
+  var captured = '';
+  try {
+    // Hydrate S with portfolio aggregate. S.bodies stays empty so the
+    // captured Pool Configuration section renders ONLY its Total Volume
+    // strong row — we then inject per-property rows via post-process.
+    for (var dk in S){ if (S.hasOwnProperty(dk)) delete S[dk]; }
+    for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+    S.propertyName           = pName;
+    S.bodies                 = [];
+    S.manualVolume           = false;
+    S.manualPoolCount        = 1;
+    S.manualTotalGallons     = 0;
+    S.pool_gallons           = totalGal;
+    S.chlorine_pool_gallons  = totalGal;
+    S.co2_pool_gallons       = 0;
+    S.devicesByPool          = false;
+    for (var pi2=0; pi2<PIPES.length; pi2++){
+      S[PIPES[pi2].k] = deviceTotals[PIPES[pi2].k];
+    }
+    // EX: hide every section EXCEPT Assessment (which renders unconditionally).
+    // Wipe images/videos/comments since portfolio doesn't have those at the
+    // portfolio level; the media row stays in the layout but renders empty,
+    // preserving the bottom-pinned slot that the page-break rules reserve.
+    for (var dek in EX){ if (EX.hasOwnProperty(dek)) delete EX[dek]; }
+    for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+    EX.inclCover          = false;
+    EX.inclLsCover        = false;
+    EX.inclExecSummary    = false;
+    EX.inclLsExecSummary  = false;
+    EX.inclPoolProfiles   = false;
+    EX.inclBackCover      = false;
+    EX.inclLsBackCover    = false;
+    EX.inclQuote          = false;
+    EX.inclQuoteTerms     = false;
+    EX.inclQuotePayment   = false;
+    EX.layout             = 'portrait';
+    EX.images             = [];
+    EX.ytEntries          = [];
+    EX.comments           = '';
+    EX._captureMode       = true;
+    window.__pfCapturedHtml = '';
+    try { generateReport(); } catch(genErr){
+      try { console.warn('[Portfolio Assessment] generateReport capture failed:', genErr); } catch(_){}
+      window.__pfCapturedHtml = '';
+    }
+    captured = window.__pfCapturedHtml || '';
+  } finally {
+    // Restore live state — even on capture failure
+    if (typeof EX !== 'undefined' && EX) EX._captureMode = false;
+    for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS))  delete S[dks]; }
+    for (var sks in savedS){  if (savedS.hasOwnProperty(sks))  S[sks]  = savedS[sks]; }
+    for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX)) delete EX[dke]; }
+    for (var sek2 in savedEX){ if (savedEX.hasOwnProperty(sek2)) EX[sek2] = savedEX[sek2]; }
+    if (savedR && typeof R !== 'undefined' && R){
+      for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
+    }
+  }
+  if (!captured) return '';
+
+  // ── Post-process: only the two label changes the user asked for ──
+  // (1) "Pool Configuration" header → "Property Configuration" + per-property rows
+  var propRowsHtml = propRows.map(function(p){
+    return '<div class="rpt-row">'
+      + '<span class="k">' + esc(p.name) + ' <em style="color:#999;font-size:10px">' + p.poolCount + ' pool' + (p.poolCount===1?'':'s') + '</em></span>'
+      + '<span class="v">' + fn(Math.round(p.gal)) + ' gal</span>'
+    + '</div>';
+  }).join('');
+  captured = captured.replace(
+    /<div class="rpt-stitle">Pool Configuration<\/div>/g,
+    '<div class="rpt-stitle">Property Configuration</div>' + propRowsHtml
+  );
+  // The "Total Volume" strong row immediately follows the (now empty) pool
+  // rows in the captured HTML. It already shows the portfolio's pool_gallons
+  // total because we set S.pool_gallons = totalGal before capture.
+
+  // (2) KPI strip — prepend "Properties / Pools" cell + bump to 5-col grid
+  var newKpi = '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Properties / Pools</div><div class="rpt-kpi-val teal">' + propCount + '/' + totalPools + '</div></div>';
+  captured = captured.replace(
+    /<div class="rpt-kpis(?:\s+rpt-kpis-5)?">/,
+    '<div class="rpt-kpis rpt-kpis-5">' + newKpi
+  );
+
+  return captured;
+}
+
+function buildPortfolioAssessmentPageHtml_OLD_DELETED(pName, states, roll, today){
   if (!states || !states.length) return '';
   // Roll-up KPIs (same fields the per-property assessment uses)
   var propCount    = Number(roll.property_count) || states.length;
