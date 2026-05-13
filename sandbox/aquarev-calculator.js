@@ -1398,7 +1398,7 @@ window.AR2_PF = (function(){
     slot.loading = true;
     pfState.propertyStates[portfolioId] = slot;
     return c.from('portfolio_properties')
-      .select('id,property_name,state_json,excluded_from_rollup')
+      .select('id,property_name,state_json,formatted_address,excluded_from_rollup')
       .eq('portfolio_id', portfolioId)
       .order('order_index', { ascending: true })
       .order('created_at',  { ascending: true })
@@ -1551,6 +1551,7 @@ window.AR2_PF = (function(){
         q.notes           = rs.data.notes || '';
         q.status          = qs.status || 'draft';
         q.lineOverrides   = qs.lineOverrides || {};
+        q.shipTos         = qs.shipTos || { mode:'split', perProp:{}, consolidated:{address:'',notes:''} };
         // Cache into pfState so renderQuoteBuilder picks it up.
         if (!pfState.quoteState) pfState.quoteState = {};
         pfState.quoteState[portfolioId] = q;
@@ -1574,7 +1575,8 @@ window.AR2_PF = (function(){
       balanceDueTerms: q.balanceDueTerms || '',
       stdTerms:        q.stdTerms || '',
       status:          q.status || 'draft',
-      lineOverrides:   q.lineOverrides || {}
+      lineOverrides:   q.lineOverrides || {},
+      shipTos:         q.shipTos || { mode:'split', perProp:{}, consolidated:{address:'',notes:''} }
     };
     var payload = {
       portfolio_id:           portfolioId,
@@ -1947,6 +1949,81 @@ window.AR2_PF = (function(){
     if (!pfState.quoteState[pid]) pfState.quoteState[pid] = _defaultQuoteState();
     return pfState.quoteState[pid];
   }
+  /* P6: Ship-To list — one destination per property by default, populated
+     from portfolio_properties.formatted_address. Reps can override per-row,
+     add notes per destination, or flip to "consolidated" mode for a single
+     ship-to.
+     State shape on quote_state:
+       q.shipTos = {
+         mode: 'split' | 'consolidated',
+         perProp: { [propId]: { override: '', notes: '' } },
+         consolidated: { address: '', notes: '' }
+       }
+     ─────────────────────────────────────────────────────────────────── */
+  function _ensureShipTosState(q){
+    if (!q.shipTos) q.shipTos = { mode: 'split', perProp: {}, consolidated: { address: '', notes: '' } };
+    if (!q.shipTos.perProp) q.shipTos.perProp = {};
+    if (!q.shipTos.consolidated) q.shipTos.consolidated = { address: '', notes: '' };
+    return q.shipTos;
+  }
+  function renderShipTosSection(pid, q){
+    if (!pid) return '';
+    var st = _ensureShipTosState(q);
+    var states = (pfState.propertyStates && pfState.propertyStates[pid] && pfState.propertyStates[pid].rows) || null;
+    if (!states){
+      // loadPropertyStates already kicked off by Section 3; this just waits.
+      return ''
+        + '<div class="ar-pf-qb-card">'
+        +   '<div class="ar-pf-qb-section-num">2</div>'
+        +   '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
+        +   '<div class="ar-pf-qb-placeholder">Loading property addresses…</div>'
+        + '</div>';
+    }
+    var modeToggle = ''
+      + '<div class="ar-pf-ship-mode">'
+      +   '<label class="ar-pf-ship-mode-radio"><input type="radio" name="ship-mode" value="split" ' + (st.mode!=='consolidated'?'checked':'') + ' data-pf-action="ship-mode"> Split — one per property</label>'
+      +   '<label class="ar-pf-ship-mode-radio"><input type="radio" name="ship-mode" value="consolidated" ' + (st.mode==='consolidated'?'checked':'') + ' data-pf-action="ship-mode"> Consolidated — single destination</label>'
+      + '</div>';
+
+    var body;
+    if (st.mode === 'consolidated'){
+      body = ''
+        + '<div class="ar-pf-ship-consolid">'
+        +   '<label class="ar-pf-qb-field full"><span>Consolidated Ship-To Address</span><textarea rows="3" data-qb-ship-cons="address" placeholder="Single delivery destination for the whole portfolio">' + esc(st.consolidated.address || '') + '</textarea></label>'
+        +   '<label class="ar-pf-qb-field full"><span>Notes</span><input type="text" data-qb-ship-cons="notes" value="' + esc(st.consolidated.notes || '') + '" placeholder="e.g. Receiver: Operations, weekday delivery only"></label>'
+        + '</div>';
+    } else {
+      body = '<div class="ar-pf-ship-list">';
+      for (var i = 0; i < states.length; i++){
+        var r = states[i];
+        var pp = st.perProp[r.id] || { override: '', notes: '' };
+        // Auto address comes from formatted_address — when override is empty
+        // we show the auto value as a placeholder.
+        var autoAddr = r.formatted_address || '';
+        body += ''
+          + '<div class="ar-pf-ship-row">'
+          +   '<div class="ar-pf-ship-row-head">'
+          +     '<span class="ar-pf-ship-row-name">' + esc(r.property_name || 'Property') + '</span>'
+          +     (autoAddr ? '<span class="ar-pf-ship-row-auto">' + esc(autoAddr) + '</span>' : '<span class="ar-pf-ship-row-auto missing">No address captured</span>')
+          +   '</div>'
+          +   '<textarea rows="2" class="ar-pf-ship-row-input" data-qb-ship-prop="' + esc(r.id) + '" data-qb-ship-field="override" placeholder="' + (autoAddr ? esc('Auto: ' + autoAddr) : 'Enter ship-to address') + '">' + esc(pp.override || '') + '</textarea>'
+          +   '<input type="text" class="ar-pf-ship-row-notes" data-qb-ship-prop="' + esc(r.id) + '" data-qb-ship-field="notes" placeholder="Notes (optional)" value="' + esc(pp.notes || '') + '">'
+          + '</div>';
+      }
+      body += '</div>';
+      if (!states.length){
+        body = '<div class="ar-pf-qb-placeholder">No properties yet — add properties to populate destinations.</div>';
+      }
+    }
+    return ''
+      + '<div class="ar-pf-qb-card">'
+      +   '<div class="ar-pf-qb-section-num">2</div>'
+      +   '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
+      +   modeToggle
+      +   body
+      + '</div>';
+  }
+
   /* P5: Line Items section renderer. Reads cached property states + the
      quote's lineOverrides map, runs computeLineItemsRollup, and emits the
      SKU rows with expandable per-property breakdowns. Empty rows include
@@ -2062,11 +2139,7 @@ window.AR2_PF = (function(){
       +   '</div>'
 
       // Section 2/3 placeholders (P5/P6)
-      +   '<div class="ar-pf-qb-card placeholder">'
-      +     '<div class="ar-pf-qb-section-num">2</div>'
-      +     '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
-      +     '<div class="ar-pf-qb-placeholder">Auto-populated list of destinations (one per property) — coming in P6.</div>'
-      +   '</div>'
+      +   renderShipTosSection(pid, q)
       +   renderLineItemsSection(pid, q)
 
       // Section 4 — Adjustments
@@ -7937,6 +8010,20 @@ function handleClick(e){
         }
         return; // Don't re-render — the checkbox already reflects new state.
       }
+      // P6: Ship-To mode toggle (split vs consolidated). Re-render the
+      // Quote builder so the body section swaps between modes.
+      if (act === 'ship-mode'){
+        var pidS = AR2_PF.selectedPortfolioId();
+        if (pidS){
+          var qS = AR2_PF.getQuoteState(pidS);
+          if (!qS.shipTos) qS.shipTos = { mode:'split', perProp:{}, consolidated:{address:'',notes:''} };
+          qS.shipTos.mode = pfAct.value === 'consolidated' ? 'consolidated' : 'split';
+          qS.status = 'draft';
+          var live = document.getElementById('ar2-bank-overview-mount');
+          if (live && pfState.viewMode === 'quote-builder') AR2_PF.renderQuoteBuilder(live);
+        }
+        return;
+      }
       if (act === 'save-property')    {
         AR2_PF.saveCurrentProperty().catch(function(){ /* error surfaced in subbar */ });
         return;
@@ -8235,6 +8322,31 @@ function handleInput(e){
       qSt.status = 'draft';
     }
     return;
+  }
+  // P6: Ship-To inputs — per-property and consolidated.
+  if (el.dataset && window.AR2_PF && AR2_PF.selectedPortfolioId){
+    var pidSh = AR2_PF.selectedPortfolioId();
+    if (pidSh){
+      if (el.dataset.qbShipProp){
+        var qShP = AR2_PF.getQuoteState(pidSh);
+        if (!qShP.shipTos) qShP.shipTos = { mode:'split', perProp:{}, consolidated:{address:'',notes:''} };
+        if (!qShP.shipTos.perProp) qShP.shipTos.perProp = {};
+        var propId = el.dataset.qbShipProp;
+        var fld    = el.dataset.qbShipField; // 'override' | 'notes'
+        if (!qShP.shipTos.perProp[propId]) qShP.shipTos.perProp[propId] = { override:'', notes:'' };
+        qShP.shipTos.perProp[propId][fld] = el.value;
+        qShP.status = 'draft';
+        return;
+      }
+      if (el.dataset.qbShipCons){
+        var qShC = AR2_PF.getQuoteState(pidSh);
+        if (!qShC.shipTos) qShC.shipTos = { mode:'consolidated', perProp:{}, consolidated:{address:'',notes:''} };
+        if (!qShC.shipTos.consolidated) qShC.shipTos.consolidated = { address:'', notes:'' };
+        qShC.shipTos.consolidated[el.dataset.qbShipCons] = el.value;
+        qShC.status = 'draft';
+        return;
+      }
+    }
   }
   // P5: Line item override input (qty or unit price per SKU). Empty string
   // clears the override (= "use auto"); any number sticks. Live-recompute

@@ -2185,6 +2185,19 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-li-subtotal{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,180,216,.25);font-size:13px;color:#cfe2eb;}
 #ar2 .ar-pf-li-subtotal b{color:var(--t);font-family:'JetBrains Mono',monospace;font-size:15px;}
 #ar2 .ar-pf-li-note{font-size:11px;color:var(--mu);margin-top:8px;font-style:italic;line-height:1.45;}
+/* P6: Ship-To list */
+#ar2 .ar-pf-ship-mode{display:flex;gap:14px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(0,180,216,.15);}
+#ar2 .ar-pf-ship-mode-radio{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#cfe2eb;cursor:pointer;}
+#ar2 .ar-pf-ship-mode-radio input{cursor:pointer;accent-color:var(--t);}
+#ar2 .ar-pf-ship-list{display:flex;flex-direction:column;gap:14px;}
+#ar2 .ar-pf-ship-row{background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.14);border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+#ar2 .ar-pf-ship-row-head{display:flex;flex-direction:column;gap:2px;}
+#ar2 .ar-pf-ship-row-name{font-size:12px;color:#e0f4fa;font-weight:600;letter-spacing:.3px;}
+#ar2 .ar-pf-ship-row-auto{font-size:11px;color:var(--mu);line-height:1.4;}
+#ar2 .ar-pf-ship-row-auto.missing{color:#f87171;font-style:italic;}
+#ar2 .ar-pf-ship-row-input,#ar2 .ar-pf-ship-row-notes{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.22);border-radius:7px;padding:8px 10px;color:#e0f4fa;font-family:inherit;font-size:12.5px;outline:none;transition:border-color .15s;resize:vertical;}
+#ar2 .ar-pf-ship-row-input:focus,#ar2 .ar-pf-ship-row-notes:focus{border-color:var(--t);}
+#ar2 .ar-pf-ship-consolid{display:flex;flex-direction:column;gap:10px;}
 /* Portfolio Overview action group — pinned right via margin-left:auto so
    Quote / Export / + Property sit as a unit on the right side of the hero,
    regardless of how long the portfolio title runs. */
