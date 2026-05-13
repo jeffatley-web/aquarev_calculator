@@ -3131,11 +3131,23 @@ function buildPortfolioReportPreview(pid, mode){
     }
 
     // ──────────────────────────────────────────────────────────────
-    //  2. Portfolio Assessment — single page summarizing the whole
+    //  2. Portfolio Executive Summary — rolled-up exec narrative across
+    //     the whole portfolio. Sits RIGHT AFTER the cover so reps see
+    //     the executive view before any per-property detail. Per-property
+    //     exec summaries are suppressed in the capture loop below to
+    //     prevent duplication.
+    // ──────────────────────────────────────────────────────────────
+    if (st.execSummary && states.length){
+      var portfolioExecHtml = buildPortfolioExecSummaryPageHtml(pName, states, roll, today);
+      if (portfolioExecHtml) sections.push(portfolioExecHtml);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3. Portfolio Assessment — single page summarizing the whole
     //     portfolio. Uses the same .rpt chrome as single-property's
     //     Assessment page. Slots BEFORE Property Profiles / Pool
     //     Profiles so the list pages populate below the Assessment.
-    //     Honors the Per-Property Assessments toggle so the rep can
+    //     Honors the Portfolio Assessment toggle so the rep can
     //     suppress it if they want bare per-property pages only.
     // ──────────────────────────────────────────────────────────────
     if (st.perProperty && states.length){
@@ -3184,7 +3196,7 @@ function buildPortfolioReportPreview(pid, mode){
     //     selected the List layout (rendered above).
     // ──────────────────────────────────────────────────────────────
     var poolProfilesUseCapture = (st.poolProfiles && st.poolProfilesLayout !== 'list');
-    if (poolProfilesUseCapture || st.perProperty || st.execSummary){
+    if (poolProfilesUseCapture || st.perProperty){
       // Split buckets: pool profile pages get grouped together (right after
       // Property Profiles), then per-property Assessment / Exec pages follow.
       var _capPoolPages = [];
@@ -3224,7 +3236,11 @@ function buildPortfolioReportPreview(pid, mode){
           EX.inclQuote         = false;
           EX.inclQuoteTerms    = false;
           EX.inclQuotePayment  = false;
-          EX.inclExecSummary   = !!st.execSummary;        // honor portfolio toggle
+          // Per-property exec summary is suppressed — the portfolio-level
+          // Exec Summary above (rendered after Cover) covers the executive
+          // narrative. Keeping per-property exec on here would produce
+          // duplicate exec pages later in the doc.
+          EX.inclExecSummary   = false;
           EX.inclLsExecSummary = false;                   // portrait only
           EX.inclPoolProfiles  = !!poolProfilesUseCapture; // Cards mode only; List mode is rendered separately above
           EX.layout            = 'portrait';
@@ -3350,6 +3366,107 @@ function buildPortfolioReportPreview(pid, mode){
    Everything else stays byte-identical to single-property output, so layout
    rules + page breaks + design language are preserved.
    Always restores live S/EX/R in a finally — no live-state side effects. */
+/* P7+: Portfolio Executive Summary page(s).
+   Same capture-based approach as Portfolio Assessment — hydrate a portfolio-
+   aggregate S/EX, run generateReport in capture mode with inclExecSummary=true,
+   then extract ONLY the .rpt-es-page blocks. Renders at the TOP of the
+   document (right after Cover) so reps see the rolled-up executive narrative
+   before any per-property detail. */
+function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
+  if (!states || !states.length) return '';
+  if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
+  // Aggregate the same totals the Assessment page uses
+  var deviceTotals = {};
+  for (var p0=0; p0<PIPES.length; p0++) deviceTotals[PIPES[p0].k] = 0;
+  var totalGal = 0, totalPools = 0;
+  for (var i=0; i<states.length; i++){
+    var sj = states[i].state_json || {};
+    if (sj.manualVolume){
+      totalPools += Math.max(1, Number(sj.manualPoolCount) || 1);
+      totalGal += Number(sj.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj.bodies)){
+      totalPools += sj.bodies.length;
+      for (var b=0; b<sj.bodies.length; b++){
+        totalGal += (typeof bodyGallons === 'function') ? bodyGallons(sj.bodies[b]) : (Number(sj.bodies[b].gallons) || 0);
+      }
+    }
+    for (var pi=0; pi<PIPES.length; pi++){
+      var k = PIPES[pi].k;
+      deviceTotals[k] += Number(sj[k]) || 0;
+    }
+  }
+  // Snapshot live state
+  var savedS  = JSON.parse(JSON.stringify(S));
+  var savedEX = JSON.parse(JSON.stringify(EX));
+  var savedR  = null;
+  try { savedR = (typeof R !== 'undefined' && R) ? JSON.parse(JSON.stringify(R)) : null; } catch(_){}
+  var captured = '';
+  try {
+    for (var dk in S){ if (S.hasOwnProperty(dk)) delete S[dk]; }
+    for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
+    S.propertyName          = pName;
+    S.bodies                = [];
+    S.manualVolume          = false;
+    S.manualPoolCount       = totalPools;       // exec summary references this for "pool count" copy
+    S.manualTotalGallons    = 0;
+    S.pool_gallons          = totalGal;
+    S.chlorine_pool_gallons = totalGal;
+    S.co2_pool_gallons      = 0;
+    S.devicesByPool         = false;
+    S.propertiesCount       = states.length;    // exec summary references this in "X Property / Y Feature Pools" copy
+    for (var pi2=0; pi2<PIPES.length; pi2++){
+      S[PIPES[pi2].k] = deviceTotals[PIPES[pi2].k];
+    }
+    // EX: only Exec Summary renders
+    for (var dek in EX){ if (EX.hasOwnProperty(dek)) delete EX[dek]; }
+    for (var sek in savedEX){ if (savedEX.hasOwnProperty(sek)) EX[sek] = savedEX[sek]; }
+    EX.inclCover          = false;
+    EX.inclLsCover        = false;
+    EX.inclExecSummary    = true;
+    EX.inclLsExecSummary  = false;
+    EX.inclPoolProfiles   = false;
+    EX.inclBackCover      = false;
+    EX.inclLsBackCover    = false;
+    EX.inclQuote          = false;
+    EX.inclQuoteTerms     = false;
+    EX.inclQuotePayment   = false;
+    EX.layout             = 'portrait';
+    EX.images             = [];
+    EX.ytEntries          = [];
+    EX.comments           = '';
+    EX._captureMode       = true;
+    window.__pfCapturedHtml = '';
+    try { generateReport(); } catch(genErr){
+      try { console.warn('[Portfolio Exec Summary] capture failed:', genErr); } catch(_){}
+      window.__pfCapturedHtml = '';
+    }
+    captured = window.__pfCapturedHtml || '';
+  } finally {
+    if (typeof EX !== 'undefined' && EX) EX._captureMode = false;
+    for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS))  delete S[dks]; }
+    for (var sks in savedS){  if (savedS.hasOwnProperty(sks))  S[sks]  = savedS[sks]; }
+    for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX)) delete EX[dke]; }
+    for (var sek2 in savedEX){ if (savedEX.hasOwnProperty(sek2)) EX[sek2] = savedEX[sek2]; }
+    if (savedR && typeof R !== 'undefined' && R){
+      for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
+    }
+  }
+  if (!captured) return '';
+  // Extract ONLY the Exec Summary pages — the capture also includes the
+  // (unwanted) Assessment block. .rpt-es-page is the exec-only marker.
+  try {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = captured;
+    var esEls = tmp.querySelectorAll('.rpt-es-page');
+    if (!esEls.length) return '';
+    var out = '';
+    for (var ei=0; ei<esEls.length; ei++) out += esEls[ei].outerHTML;
+    return out;
+  } catch(extractErr){
+    return '';
+  }
+}
+
 function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
   if (!states || !states.length) return '';
   if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
