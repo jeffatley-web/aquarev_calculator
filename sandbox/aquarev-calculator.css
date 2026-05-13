@@ -1610,7 +1610,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;color:var(--mu);}
 #ar2 .ar-admin-chart-legend i{display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;}
 /* Admin Created By cell + reassign menu */
-#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:10.5px;text-align:right;}
+#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:10.5px;text-align:left;padding-left:8px;}
+/* Created By thead label — left-aligned to match the row data; overrides
+   the generic "all non-first thead columns are right-aligned" rule. */
+#ar2 .ar-bank-thead > .ar-bank-th-createdby{text-align:left;padding-left:8px;}
 #ar2 .ar-bank-createdby .name{color:var(--tx);font-weight:500;}
 #ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
 #ar2 .ar-bank-createdby .role.admin{color:var(--go);}

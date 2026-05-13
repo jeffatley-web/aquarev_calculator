@@ -6143,7 +6143,7 @@ function renderBank(targetId){
     // shifts the grid template (CSS) to fit it.
     var thead='<div class="ar-bank-thead'+(isAdmin?' admin-cols':'')+'" id="ar-bank-thead">'
       +'<div>Record</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div>'
-      +(isAdmin?'<div>Created By</div>':'')
+      +(isAdmin?'<div class="ar-bank-th-createdby">Created By</div>':'')
       +'<div></div>'
     +'</div>';
     // Admin dashboard panel \u2014 placeholder; populated async after first list.
