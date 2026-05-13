@@ -1202,6 +1202,12 @@ window.AR2_PF = (function(){
   // 'overview' shows the Portfolio Overview for the selected portfolio.
   function renderPortfoliosPanel(mount){
     if (!mount) return;
+    if (pfState.viewMode === 'export' && pfState.selectedPortfolioId){
+      return renderPortfolioExport(mount);
+    }
+    if (pfState.viewMode === 'quote-builder' && pfState.selectedPortfolioId){
+      return renderQuoteBuilder(mount);
+    }
     if (pfState.viewMode === 'overview' && pfState.selectedPortfolioId){
       return renderPortfolioOverview(mount);
     }
@@ -1442,7 +1448,7 @@ window.AR2_PF = (function(){
     });
   }
 
-  // ── Navigation: list ↔ overview ────────────────────────────────
+  // ── Navigation: list ↔ overview ↔ export ↔ quote-builder ──────
   function openPortfolio(portfolioId){
     if (!portfolioId) return;
     pfState.selectedPortfolioId = portfolioId;
@@ -1452,6 +1458,58 @@ window.AR2_PF = (function(){
   function backToPortfoliosList(){
     pfState.viewMode = 'list';
     pfState.selectedPortfolioId = null;
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  // Portfolio Export panel — section toggles + Preview/Download/Archive
+  // CTAs. The Portfolio Quote section is unlocked from here via the
+  // "Unlock & Configure" affordance, which routes into the Quote builder.
+  function openExport(portfolioId){
+    if (portfolioId) pfState.selectedPortfolioId = portfolioId;
+    if (!pfState.selectedPortfolioId) return;
+    pfState.viewMode = 'export';
+    // Lazy-load properties so we can show "X properties" counts in the
+    // section toggles. Roster is already cached when arriving from Overview.
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  function backToOverview(){
+    if (!pfState.selectedPortfolioId){
+      // No portfolio selected — fall all the way back to the list.
+      pfState.viewMode = 'list';
+    } else {
+      pfState.viewMode = 'overview';
+    }
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  // Quote builder — full-screen surface that replaces the Export panel.
+  // The "Back to Export" button returns the rep so the section toggles
+  // can be reviewed with the Quote now unlocked.
+  function openQuoteBuilder(portfolioId){
+    if (portfolioId) pfState.selectedPortfolioId = portfolioId;
+    if (!pfState.selectedPortfolioId) return;
+    // Dirty-state guard — if the rep is in property mode with pending
+    // edits, the Quote rolls up stale data. Save first.
+    if (pfState.propertyMode && pfState.loadedProperty){
+      var ok = confirm(
+        '"' + (pfState.loadedProperty.property_name || 'This property') + '" hasn\'t been saved yet.' +
+        '\n\nThe Portfolio Quote pulls live data from saved properties, so we need to save it first.' +
+        '\n\nSave and continue?'
+      );
+      if (!ok) return;
+      saveCurrentProperty().then(function(){
+        exitProperty().then(function(){
+          pfState.viewMode = 'quote-builder';
+          if (typeof renderArchive === 'function') renderArchive();
+        });
+      }).catch(function(e){
+        alert('Could not save property: ' + ((e && e.message) || 'unknown error'));
+      });
+      return;
+    }
+    pfState.viewMode = 'quote-builder';
+    if (typeof renderArchive === 'function') renderArchive();
+  }
+  function backFromQuoteBuilder(){
+    pfState.viewMode = 'export';
     if (typeof renderArchive === 'function') renderArchive();
   }
 
@@ -1596,6 +1654,204 @@ window.AR2_PF = (function(){
   }
 
   // ── Add Property modal (similar shape to New Portfolio modal) ──
+  /* ── P3: Portfolio Export panel ────────────────────────────────────
+     Section-toggles checklist + action CTAs. Replaces the Overview view
+     when pfState.viewMode === 'export'. The Portfolio Quote section is
+     locked until the rep clicks "Unlock & Configure" — that routes them
+     to the Quote builder, after which they return here with the Quote
+     section toggleable.
+
+     Section state lives in pfState.exportState keyed by portfolio id —
+     in-memory only for now; DB persistence to portfolio_quotes.notes
+     lands in P4 alongside the Quote builder fields.
+     ───────────────────────────────────────────────────────────────── */
+  function _defaultExportState(){
+    return {
+      cover:        true,
+      execSummary:  true,
+      poolProfiles: true,
+      perProperty:  true,
+      quote:        false, // off by default; flips true after Quote unlock
+      stdTerms:     true,
+      backCover:    true,
+      quoteReady:   false  // becomes true once the Quote builder is saved
+    };
+  }
+  function getExportState(pid){
+    if (!pfState.exportState) pfState.exportState = {};
+    if (!pfState.exportState[pid]) pfState.exportState[pid] = _defaultExportState();
+    return pfState.exportState[pid];
+  }
+  function setExportSection(pid, key, value){
+    var st = getExportState(pid);
+    st[key] = !!value;
+  }
+  function renderPortfolioExport(mount){
+    if (!mount) return;
+    var pid = pfState.selectedPortfolioId;
+    if (!pid){ pfState.viewMode = 'list'; return renderPortfoliosPanel(mount); }
+    var p = getPortfolio(pid);
+    var name = p ? (p.name || 'Untitled portfolio') : 'Loading…';
+    var st = getExportState(pid);
+    // Property count for the per-property toggle label
+    var propsSlot = pfState.properties[pid];
+    var propCount = (propsSlot && propsSlot.rows) ? propsSlot.rows.length : 0;
+    // Kick off a load if we don't have the roster yet
+    if (!propsSlot || (!propsSlot.rows && !propsSlot.loading)){
+      loadProperties(pid).then(function(){
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live && pfState.viewMode === 'export') renderPortfolioExport(live);
+      });
+    }
+    var quoteRow;
+    if (st.quoteReady){
+      quoteRow =
+          '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.quote?' checked':'') +
+              ' data-pf-action="exp-toggle" data-exp-key="quote">'
+        + '<span class="ar-pf-exp-row-text">Portfolio Quote'
+        +   '<span class="ar-pf-exp-row-meta">✓ Configured · <button class="ar-pf-exp-edit" type="button" data-pf-action="open-quote">Edit</button></span>'
+        + '</span></label>';
+    } else {
+      quoteRow =
+          '<label class="ar-pf-exp-row locked">'
+        + '<input type="checkbox" disabled>'
+        + '<span class="ar-pf-exp-row-text">Portfolio Quote'
+        +   '<span class="ar-pf-exp-row-meta">🔒 <button class="ar-pf-exp-unlock" type="button" data-pf-action="open-quote">Unlock &amp; Configure →</button></span>'
+        + '</span></label>';
+    }
+    mount.innerHTML =
+      '<div class="ar-pf-ov-hero">'
+      +   '<button class="ar-pf-back" data-pf-action="back-to-overview" type="button" aria-label="Back to portfolio overview">&#x2190; Portfolio</button>'
+      +   '<div class="ar-pf-ov-title-wrap">'
+      +     '<div class="ar-pf-ov-title">' + esc(name) + ' — Export</div>'
+      +     '<div class="ar-pf-ov-meta"><span class="ar-pf-row-status draft">Configure sections to include in the PDF</span></div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="ar-pf-exp-wrap">'
+      +   '<div class="ar-pf-exp-card">'
+      +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.cover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="cover"><span class="ar-pf-exp-row-text">Cover Page<span class="ar-pf-exp-row-meta">Portfolio name + buyer info</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.execSummary?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="execSummary"><span class="ar-pf-exp-row-text">Executive Summary<span class="ar-pf-exp-row-meta">Rolled-up KPIs across all properties</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.poolProfiles?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="poolProfiles"><span class="ar-pf-exp-row-text">Property Pool Profiles<span class="ar-pf-exp-row-meta">One block per property — pools + volumes</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.perProperty?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="perProperty"><span class="ar-pf-exp-row-text">Per-Property Assessments<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback</span></span></label>'
+      +     quoteRow
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.stdTerms?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="stdTerms"><span class="ar-pf-exp-row-text">Standard Terms<span class="ar-pf-exp-row-meta">Pulls from Quote section 6 if configured</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.backCover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="backCover"><span class="ar-pf-exp-row-text">Back Cover</span></label>'
+      +   '</div>'
+      +   '<div class="ar-pf-exp-actions">'
+      +     '<button class="ar-pf-exp-btn" type="button" data-pf-action="exp-preview">Preview PDF</button>'
+      +     '<button class="ar-pf-exp-btn primary" type="button" data-pf-action="exp-download">Download PDF</button>'
+      +     '<button class="ar-pf-exp-btn archive" type="button" data-pf-action="exp-archive">Save to Archive</button>'
+      +   '</div>'
+      +   '<div class="ar-pf-exp-note">Preview · Download · Archive will hook into the Portfolio PDF templates in the next sandbox pass (P7).</div>'
+      + '</div>';
+  }
+
+  /* ── P3: Quote builder shell ───────────────────────────────────────
+     Full-screen surface replacing the Export panel while the rep is
+     configuring the Portfolio Quote. Sections 1, 4, 5, 6 (Recipient,
+     Adjustments, Deposit & Terms, Standard Terms / Notes) render as
+     manual forms — DB persistence wires up in P4. Sections 2 + 3
+     (Ship-To list, Line Items roll-up) are P5+/P6.
+     ───────────────────────────────────────────────────────────────── */
+  function _defaultQuoteState(){
+    return {
+      // 1. Recipient
+      buyerName: '', buyerEmail: '', buyerPhone: '', billTo: '',
+      // 4. Adjustments
+      discountPct: 0, taxRate: 0, shippingCost: 0, shippingTerm: '',
+      // 5. Deposit & Terms
+      depositPct: 0, depositDueDate: '', balanceDueTerms: '',
+      // 6. Standard Terms & Notes
+      stdTerms: '', notes: '',
+      // status flag (used by Export panel to flip quote section to "Ready")
+      status: 'draft'
+    };
+  }
+  function getQuoteState(pid){
+    if (!pfState.quoteState) pfState.quoteState = {};
+    if (!pfState.quoteState[pid]) pfState.quoteState[pid] = _defaultQuoteState();
+    return pfState.quoteState[pid];
+  }
+  function renderQuoteBuilder(mount){
+    if (!mount) return;
+    var pid = pfState.selectedPortfolioId;
+    if (!pid){ pfState.viewMode = 'list'; return renderPortfoliosPanel(mount); }
+    var p = getPortfolio(pid);
+    var name = p ? (p.name || 'Untitled portfolio') : 'Loading…';
+    var q = getQuoteState(pid);
+    mount.innerHTML =
+      '<div class="ar-pf-ov-hero">'
+      +   '<button class="ar-pf-back" data-pf-action="back-from-quote" type="button" aria-label="Back to export">&#x2190; Export</button>'
+      +   '<div class="ar-pf-ov-title-wrap">'
+      +     '<div class="ar-pf-ov-title">' + esc(name) + ' — Quote</div>'
+      +     '<div class="ar-pf-ov-meta"><span class="ar-pf-row-status draft">Configure the Portfolio Quote</span></div>'
+      +   '</div>'
+      +   '<div class="ar-pf-ov-actions">'
+      +     '<button class="ar-pf-actbtn" type="button" data-pf-action="quote-save-draft">Save Draft</button>'
+      +     '<button class="ar-pf-actbtn primary" type="button" data-pf-action="quote-save-return">Save &amp; Return →</button>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="ar-pf-qb-wrap">'
+
+      // Section 1 — Recipient
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">1</div>'
+      +     '<div class="ar-pf-qb-card-title">Recipient</div>'
+      +     '<div class="ar-pf-qb-grid two">'
+      +       '<label class="ar-pf-qb-field"><span>Buyer Name</span><input type="text" data-qb-key="buyerName" value="' + esc(q.buyerName) + '" placeholder="Property group / entity name"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Buyer Email</span><input type="email" data-qb-key="buyerEmail" value="' + esc(q.buyerEmail) + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Phone</span><input type="tel" data-qb-key="buyerPhone" value="' + esc(q.buyerPhone) + '"></label>'
+      +       '<label class="ar-pf-qb-field full"><span>Bill-To Address</span><textarea data-qb-key="billTo" rows="2" placeholder="Street, City, State / Country, Postal">' + esc(q.billTo) + '</textarea></label>'
+      +     '</div>'
+      +   '</div>'
+
+      // Section 2/3 placeholders (P5/P6)
+      +   '<div class="ar-pf-qb-card placeholder">'
+      +     '<div class="ar-pf-qb-section-num">2</div>'
+      +     '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
+      +     '<div class="ar-pf-qb-placeholder">Auto-populated list of destinations (one per property) — coming in P6.</div>'
+      +   '</div>'
+      +   '<div class="ar-pf-qb-card placeholder">'
+      +     '<div class="ar-pf-qb-section-num">3</div>'
+      +     '<div class="ar-pf-qb-card-title">Line Items</div>'
+      +     '<div class="ar-pf-qb-placeholder">Rolled-up SKUs across all properties with per-property breakdown — coming in P5.</div>'
+      +   '</div>'
+
+      // Section 4 — Adjustments
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">4</div>'
+      +     '<div class="ar-pf-qb-card-title">Adjustments</div>'
+      +     '<div class="ar-pf-qb-grid two">'
+      +       '<label class="ar-pf-qb-field"><span>Portfolio Discount (%)</span><input type="number" min="0" max="100" step="0.5" data-qb-key="discountPct" value="' + q.discountPct + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Tax Rate (%)</span><input type="number" min="0" max="100" step="0.01" data-qb-key="taxRate" value="' + q.taxRate + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Consolidated Shipping ($)</span><input type="number" min="0" step="0.01" data-qb-key="shippingCost" value="' + q.shippingCost + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Shipping Term</span><input type="text" data-qb-key="shippingTerm" value="' + esc(q.shippingTerm) + '" placeholder="e.g. EXW Origin, FOB Destination"></label>'
+      +     '</div>'
+      +   '</div>'
+
+      // Section 5 — Deposit & Terms
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">5</div>'
+      +     '<div class="ar-pf-qb-card-title">Deposit &amp; Payment Terms</div>'
+      +     '<div class="ar-pf-qb-grid two">'
+      +       '<label class="ar-pf-qb-field"><span>Deposit (%)</span><input type="number" min="0" max="100" step="1" data-qb-key="depositPct" value="' + q.depositPct + '"></label>'
+      +       '<label class="ar-pf-qb-field"><span>Deposit Due Date</span><input type="date" data-qb-key="depositDueDate" value="' + esc(q.depositDueDate) + '"></label>'
+      +       '<label class="ar-pf-qb-field full"><span>Balance Due Terms</span><input type="text" data-qb-key="balanceDueTerms" value="' + esc(q.balanceDueTerms) + '" placeholder="e.g. Net 30 from delivery"></label>'
+      +     '</div>'
+      +   '</div>'
+
+      // Section 6 — Standard Terms & Notes
+      +   '<div class="ar-pf-qb-card">'
+      +     '<div class="ar-pf-qb-section-num">6</div>'
+      +     '<div class="ar-pf-qb-card-title">Standard Terms &amp; Notes</div>'
+      +     '<label class="ar-pf-qb-field full" style="margin-top:6px"><span>Standard Terms</span><textarea data-qb-key="stdTerms" rows="3" placeholder="Boilerplate terms that print on the Order page above the signature block">' + esc(q.stdTerms) + '</textarea></label>'
+      +     '<label class="ar-pf-qb-field full"><span>Notes</span><textarea data-qb-key="notes" rows="2" placeholder="Internal notes (won\'t print)">' + esc(q.notes) + '</textarea></label>'
+      +   '</div>'
+
+      + '</div>';
+  }
+
   function openAddPropertyModal(){
     if (document.getElementById('ar-pf-add-prop-modal')) return;
     var backdrop = document.createElement('div');
@@ -2097,7 +2353,16 @@ window.AR2_PF = (function(){
     selectedPortfolioId: function(){ return pfState.selectedPortfolioId; },
     openPortfolio: openPortfolio,
     backToPortfoliosList: backToPortfoliosList,
+    openExport: openExport,
+    backToOverview: backToOverview,
+    openQuoteBuilder: openQuoteBuilder,
+    backFromQuoteBuilder: backFromQuoteBuilder,
+    getExportState: getExportState,
+    setExportSection: setExportSection,
+    getQuoteState: getQuoteState,
     renderPortfolioOverview: renderPortfolioOverview,
+    renderPortfolioExport: renderPortfolioExport,
+    renderQuoteBuilder: renderQuoteBuilder,
     loadProperties: loadProperties,
     refreshProperties: refreshProperties,
     createProperty: createProperty,
@@ -3378,10 +3643,13 @@ function renderArchive(){
     // Feature disabled (Client / no-PF): production behavior, single assessments only.
     return renderBank();
   }
-  // Portfolio Overview drill-down — when a portfolio row was clicked we set
-  // viewMode='overview' + selectedPortfolioId. Render the existing Phase 1b
-  // Overview shell into a mount that lives inside the archive wrap.
-  if (AR2_PF.viewMode && AR2_PF.viewMode() === 'overview' && AR2_PF.selectedPortfolioId && AR2_PF.selectedPortfolioId()){
+  // Portfolio drill-down views — Overview, Export panel, or Quote builder.
+  // Routed via pfState.viewMode + selectedPortfolioId. Each shares the same
+  // archive wrap mount so the chrome (back navigation, archive width) stays
+  // consistent.
+  var vm = AR2_PF.viewMode && AR2_PF.viewMode();
+  if ((vm === 'overview' || vm === 'export' || vm === 'quote-builder') &&
+      AR2_PF.selectedPortfolioId && AR2_PF.selectedPortfolioId()){
     el.innerHTML = '<div class="ar-pf-archive-wrap"><div id="ar2-bank-overview-mount"></div></div>';
     AR2_PF.renderPortfoliosPanel(document.getElementById('ar2-bank-overview-mount'));
     return;
@@ -7359,18 +7627,51 @@ function handleClick(e){
       // Property mode subbar (Phase 1c)
       if (act === 'exit-property')    { AR2_PF.exitProperty();             return; }
       if (act === 'save-and-close')   { AR2_PF.exitProperty();             return; }
-      // Portfolio Overview action buttons — placeholders until P3 lands
-      // the Portfolio Export panel and Quote builder. Showing explicit
-      // "in development" messaging beats a silent no-op while reps test.
-      if (act === 'open-quote')       {
-        alert('Portfolio Quote builder — coming in the next sandbox ship. ' +
-              'For now, quote prep happens at the property level on Step 4.');
+      // P3: Portfolio Overview action buttons — Quote + Export entrypoints
+      if (act === 'open-quote')       { AR2_PF.openQuoteBuilder();         return; }
+      if (act === 'open-export')      { AR2_PF.openExport();               return; }
+      // P3: Export panel nav + Quote builder nav
+      if (act === 'back-to-overview') { AR2_PF.backToOverview();           return; }
+      if (act === 'back-from-quote')  { AR2_PF.backFromQuoteBuilder();     return; }
+      // P3: Export panel actions (P7 wires up the actual PDF generation)
+      if (act === 'exp-preview')      { alert('Preview PDF — Portfolio templates land in P7.');  return; }
+      if (act === 'exp-download')     { alert('Download PDF — Portfolio templates land in P7.'); return; }
+      if (act === 'exp-archive')      { alert('Save to Archive — Portfolio templates land in P7.'); return; }
+      // P3: Quote builder Save actions. Save Draft just persists in-memory
+      // (P4 wires up the DB write to portfolio_quotes); Save & Return also
+      // flips the Export quote section to "Ready" so it can be toggled on.
+      if (act === 'quote-save-draft' || act === 'quote-save-return'){
+        var pid = AR2_PF.selectedPortfolioId();
+        if (pid){
+          var st = AR2_PF.getExportState(pid);
+          st.quoteReady = true;
+          st.quote = true; // default-on once configured
+          // Status update for the Quote state itself.
+          var q = AR2_PF.getQuoteState(pid);
+          q.status = act === 'quote-save-return' ? 'ready' : 'draft';
+        }
+        if (act === 'quote-save-return'){
+          AR2_PF.backFromQuoteBuilder();
+        } else {
+          // Save Draft — stay on the builder, brief flash on the button.
+          var btn = e.target.closest('[data-pf-action="quote-save-draft"]');
+          if (btn){
+            var orig = btn.textContent;
+            btn.textContent = 'Saved ✓';
+            btn.disabled = true;
+            setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1200);
+          }
+        }
         return;
       }
-      if (act === 'open-export')      {
-        alert('Portfolio Export panel — coming in the next sandbox ship. ' +
-              'It will include section toggles (Cover, Exec Summary, Per-Property pages, Portfolio Quote, Back Cover) and the "Unlock Quote" affordance.');
-        return;
+      // P3: Export section toggle — capture each checkbox change in state.
+      if (act === 'exp-toggle'){
+        var pidT = AR2_PF.selectedPortfolioId();
+        var key = pfAct.getAttribute('data-exp-key');
+        if (pidT && key){
+          AR2_PF.setExportSection(pidT, key, !!pfAct.checked);
+        }
+        return; // Don't re-render — the checkbox already reflects new state.
       }
       if (act === 'save-property')    {
         AR2_PF.saveCurrentProperty().catch(function(){ /* error surfaced in subbar */ });
@@ -7654,6 +7955,23 @@ function handleClick(e){
 
 function handleInput(e){
   var el=e.target;
+  // P3: Quote builder field — write back to pfState quote draft.
+  if (el.dataset && el.dataset.qbKey && window.AR2_PF && AR2_PF.selectedPortfolioId){
+    var pidQ = AR2_PF.selectedPortfolioId();
+    if (pidQ){
+      var qSt = AR2_PF.getQuoteState(pidQ);
+      var keyQ = el.dataset.qbKey;
+      var valQ = el.value;
+      // Numeric coercion for the fields we know are numeric
+      if (keyQ === 'discountPct' || keyQ === 'taxRate' || keyQ === 'shippingCost' || keyQ === 'depositPct'){
+        valQ = parseFloat(valQ) || 0;
+      }
+      qSt[keyQ] = valQ;
+      // Mark dirty so the Export panel knows quote needs (re-)saving
+      qSt.status = 'draft';
+    }
+    return;
+  }
   // Per-body device count (devices by pool)
   if(el.dataset&&el.dataset.bpipe){
     var bpKey=el.dataset.bpipe;

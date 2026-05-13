@@ -2126,6 +2126,43 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    Portfolio Overview (Phase 1b) — hero + KPI strip + property roster
    ════════════════════════════════════════════════════════════════════ */
 #ar2 .ar-pf-ov-hero{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:18px;}
+/* P3: Portfolio Export panel */
+#ar2 .ar-pf-exp-wrap{max-width:760px;margin:0 auto;padding:0 0 60px;}
+#ar2 .ar-pf-exp-card{background:linear-gradient(145deg,rgba(13,45,74,.6),rgba(7,22,40,.7));border:1px solid var(--bd);border-radius:14px;padding:20px 22px;}
+#ar2 .ar-pf-exp-card-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:3px;color:var(--t);margin-bottom:14px;}
+#ar2 .ar-pf-exp-row{display:flex;align-items:flex-start;gap:12px;padding:12px 4px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;}
+#ar2 .ar-pf-exp-row:last-child{border-bottom:none;}
+#ar2 .ar-pf-exp-row input[type=checkbox]{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;accent-color:var(--t);}
+#ar2 .ar-pf-exp-row-text{display:flex;flex-direction:column;gap:2px;font-size:14px;color:#e0f4fa;font-weight:500;line-height:1.35;}
+#ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;align-items:center;gap:8px;}
+#ar2 .ar-pf-exp-row.locked{cursor:default;opacity:.85;}
+#ar2 .ar-pf-exp-row.locked input[type=checkbox]{cursor:not-allowed;opacity:.4;}
+#ar2 .ar-pf-exp-unlock{background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:filter .15s;}
+#ar2 .ar-pf-exp-unlock:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-exp-edit{background:transparent;border:1px solid rgba(0,180,216,.4);color:var(--t);border-radius:6px;padding:4px 10px;font-family:inherit;font-size:11px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:background .15s;}
+#ar2 .ar-pf-exp-edit:hover{background:rgba(0,180,216,.12);}
+#ar2 .ar-pf-exp-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:18px;}
+#ar2 .ar-pf-exp-btn{padding:12px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.32);background:transparent;color:var(--t);font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.6px;cursor:pointer;transition:background .15s,border-color .15s;}
+#ar2 .ar-pf-exp-btn:hover{background:rgba(0,180,216,.10);border-color:var(--t);}
+#ar2 .ar-pf-exp-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);border-color:transparent;}
+#ar2 .ar-pf-exp-btn.primary:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-exp-btn.archive{background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border-color:transparent;}
+#ar2 .ar-pf-exp-btn.archive:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-exp-note{margin-top:12px;font-size:11px;color:var(--mu);text-align:center;font-style:italic;}
+/* P3: Quote builder shell */
+#ar2 .ar-pf-qb-wrap{max-width:880px;margin:0 auto;padding:0 0 60px;display:flex;flex-direction:column;gap:14px;}
+#ar2 .ar-pf-qb-card{background:linear-gradient(145deg,rgba(13,45,74,.6),rgba(7,22,40,.7));border:1px solid var(--bd);border-radius:14px;padding:20px 22px;position:relative;}
+#ar2 .ar-pf-qb-card.placeholder{opacity:.6;background:linear-gradient(145deg,rgba(13,45,74,.3),rgba(7,22,40,.4));}
+#ar2 .ar-pf-qb-section-num{position:absolute;top:-12px;left:18px;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--t),var(--aq));color:var(--nv);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+#ar2 .ar-pf-qb-card-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:3px;color:var(--t);margin-bottom:14px;padding-left:34px;}
+#ar2 .ar-pf-qb-grid{display:grid;gap:12px 14px;}
+#ar2 .ar-pf-qb-grid.two{grid-template-columns:1fr 1fr;}
+#ar2 .ar-pf-qb-field{display:flex;flex-direction:column;gap:5px;}
+#ar2 .ar-pf-qb-field.full{grid-column:1/-1;}
+#ar2 .ar-pf-qb-field span{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+#ar2 .ar-pf-qb-field input,#ar2 .ar-pf-qb-field textarea{background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:9px 11px;color:#e0f4fa;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;resize:vertical;}
+#ar2 .ar-pf-qb-field input:focus,#ar2 .ar-pf-qb-field textarea:focus{border-color:var(--t);}
+#ar2 .ar-pf-qb-placeholder{font-size:12px;color:var(--mu);padding:8px 0 4px 34px;line-height:1.5;font-style:italic;}
 /* Portfolio Overview action group — pinned right via margin-left:auto so
    Quote / Export / + Property sit as a unit on the right side of the hero,
    regardless of how long the portfolio title runs. */
