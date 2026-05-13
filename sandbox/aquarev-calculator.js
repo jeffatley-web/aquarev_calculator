@@ -2841,7 +2841,20 @@ function buildPortfolioReportPreview(pid, mode){
     }
 
     // ──────────────────────────────────────────────────────────────
-    //  2a. Portfolio Property Profiles — one card per property, or a
+    //  2. Portfolio Assessment — single page summarizing the whole
+    //     portfolio. Uses the same .rpt chrome as single-property's
+    //     Assessment page. Slots BEFORE Property Profiles / Pool
+    //     Profiles so the list pages populate below the Assessment.
+    //     Honors the Per-Property Assessments toggle so the rep can
+    //     suppress it if they want bare per-property pages only.
+    // ──────────────────────────────────────────────────────────────
+    if (st.perProperty && states.length){
+      var portfolioAssessmentHtml = buildPortfolioAssessmentPageHtml(pName, states, roll, today);
+      if (portfolioAssessmentHtml) sections.push(portfolioAssessmentHtml);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  3a. Portfolio Property Profiles — one card per property, or a
     //      list grouped by country. Independent of per-property capture.
     // ──────────────────────────────────────────────────────────────
     if (st.propertyProfile && states.length){
@@ -2995,6 +3008,139 @@ function buildPortfolioReportPreview(pid, mode){
     // the @page sizing and page breaks already wired into .rpt-* CSS.
     renderPortfolioReportToDOM(pName, sections, mode);
   });
+}
+
+/* P7+: Portfolio Assessment page.
+   Mirrors the single-property Assessment page structure pixel-for-pixel
+   (.rpt + .rpt-head + .rpt-kpis + .rpt-body + .rpt-cta-bar + .rpt-foot)
+   with portfolio-rolled data:
+     • Header band: "Cost Savings Assessment" subtitle, portfolio name on right
+     • KPI strip (5 columns): Properties/Pools (X/Y) · Devices · Monthly Savings ·
+       Annual Savings · Purchase Payback
+     • "Property Configuration" section (replaces single's "Pool Configuration"):
+       one row per property — name, pool count, total gallons + a Total row
+     • "AquaRev Devices Required (on Return Pipes)" section: rolled-up device
+       counts across all properties + total investment
+     • Investment & Return Profile chart (reuses buildInvestmentChart) */
+function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
+  if (!states || !states.length) return '';
+  // Roll-up KPIs (same fields the per-property assessment uses)
+  var propCount    = Number(roll.property_count) || states.length;
+  var totalInv     = Number(roll.total_inv)      || 0;
+  var totalMo      = Number(roll.total_mo)       || 0;
+  var totalYr      = Number(roll.total_yr)       || 0;
+  var totalDev     = Number(roll.total_dev)      || 0;
+  var totalPoolGal = Number(roll.total_pool_gal) || 0;
+  var blendedPb    = Number(roll.blended_payback_mo) || 0;
+  // Tally pool count + per-SKU device counts across all properties (rollup
+  // doesn't break down SKU counts, so compute directly from state_json).
+  var totalPools = 0;
+  var deviceTotals = {}; if (typeof PIPES !== 'undefined'){ for (var p0=0;p0<PIPES.length;p0++) deviceTotals[PIPES[p0].k] = 0; }
+  for (var i=0; i<states.length; i++){
+    var sj = states[i].state_json || {};
+    if (sj.manualVolume){
+      totalPools += Math.max(1, Number(sj.manualPoolCount) || 1);
+    } else if (Array.isArray(sj.bodies)){
+      totalPools += sj.bodies.length;
+    }
+    if (typeof PIPES !== 'undefined'){
+      for (var pi=0; pi<PIPES.length; pi++){
+        var k = PIPES[pi].k;
+        deviceTotals[k] += Number(sj[k]) || 0;
+      }
+    }
+  }
+  // Property Configuration rows — name, pools, gallons per property
+  var propConfigRows = '';
+  for (var pj=0; pj<states.length; pj++){
+    var st = states[pj];
+    var sj2 = st.state_json || {};
+    var pPoolCount = 0;
+    var pGal = 0;
+    if (sj2.manualVolume){
+      pPoolCount = Math.max(1, Number(sj2.manualPoolCount) || 1);
+      pGal = Number(sj2.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj2.bodies)){
+      pPoolCount = sj2.bodies.length;
+      for (var bb=0; bb<sj2.bodies.length; bb++){
+        pGal += (typeof bodyGallons === 'function') ? bodyGallons(sj2.bodies[bb]) : (Number(sj2.bodies[bb].gallons) || 0);
+      }
+    }
+    propConfigRows += '<div class="rpt-row"><span class="k">' + esc(st.property_name || 'Property') + ' <em style="color:#999;font-size:10px;font-style:normal">' + pPoolCount + ' pool' + (pPoolCount===1?'':'s') + '</em></span><span class="v">' + fn(Math.round(pGal)) + ' gal</span></div>';
+  }
+  // Device rows — one per SKU with rolled-up qty and line cost
+  var devRows = '';
+  if (typeof PIPES !== 'undefined'){
+    for (var pk=0; pk<PIPES.length; pk++){
+      var spec = PIPES[pk];
+      var qty = deviceTotals[spec.k] || 0;
+      if (qty <= 0) continue;
+      devRows += '<div class="rpt-row"><span class="k">' + qty + ' × ' + spec.sz + ' AquaRev' + (qty>1?' Devices':' Device') + '</span><span class="v">' + fc(spec.price*qty, 0) + '</span></div>';
+    }
+  }
+  if (!devRows){ devRows = '<div class="rpt-row"><span class="k" style="color:#999;font-style:italic">No devices configured across the portfolio yet</span><span class="v">—</span></div>'; }
+  // Header
+  var head = '<div class="rpt-head">'
+    + '<div class="rpt-head-left">'
+      + '<div class="rpt-logo">AQUAREV WATER</div>'
+      + '<div class="rpt-logo-sub">Cost Savings Assessment — Portfolio</div>'
+    + '</div>'
+    + '<div class="rpt-head-right">'
+      + '<div class="rpt-prop-name">' + esc(pName) + '</div>'
+      + '<div class="rpt-prop-date">' + esc(today) + '</div>'
+      + '<span class="rpt-nsf-badge">NSF/ANSI 50 Certified · IAPMO</span>'
+    + '</div>'
+  + '</div>';
+  // KPI strip — first KPI: Properties/Pools (X/Y), then Devices, Monthly, Annual, Payback
+  var kpis = '<div class="rpt-kpis rpt-kpis-5">'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Properties / Pools</div><div class="rpt-kpi-val teal">' + propCount + '/' + totalPools + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Devices</div><div class="rpt-kpi-val teal">' + totalDev + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Monthly Savings</div><div class="rpt-kpi-val green">' + fc(totalMo, 0) + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Annual Savings</div><div class="rpt-kpi-val green">' + fc(totalYr, 0) + '</div></div>'
+    + '<div class="rpt-kpi"><div class="rpt-kpi-lbl">Purchase Payback</div><div class="rpt-kpi-val teal">' + (blendedPb>0?Math.round(blendedPb)+' mo':'N/A') + '</div></div>'
+  + '</div>';
+  // Investment chart — reuse the same builder single-property uses. SVG
+  // gradient ID is unique per call so the portfolio's Assessment chart
+  // and any per-property Exec Summary charts don't collide.
+  var chartHtml = '';
+  if (typeof buildInvestmentChart === 'function'){
+    var net5 = (totalMo * 60) - totalInv;
+    try { chartHtml = buildInvestmentChart(totalInv, totalMo, blendedPb, net5); } catch(_){ chartHtml = ''; }
+  }
+  // Body — Property Configuration | AquaRev Devices Required + chart
+  var body = '<div class="rpt-body">'
+    // Row A: Property Configuration (left) | Devices Required (right)
+    + '<div class="rpt-sec rpt-cols">'
+      + '<div>'
+        + '<div class="rpt-stitle">Property Configuration</div>'
+        + propConfigRows
+        + '<div class="rpt-row strong"><span class="k">Total Pool Volume</span><span class="v">' + fn(Math.round(totalPoolGal)) + ' gal</span></div>'
+        + '<div class="rpt-row"><span class="k">Total Properties</span><span class="v">' + propCount + '</span></div>'
+        + '<div class="rpt-row"><span class="k">Total Pools</span><span class="v">' + totalPools + '</span></div>'
+      + '</div>'
+      + '<div>'
+        + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+        + devRows
+        + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">' + fc(totalInv, 0) + '</span></div>'
+      + '</div>'
+    + '</div>'
+    // Row B: Investment chart (full width)
+    + (chartHtml ? '<div class="rpt-sec">' + chartHtml + '</div>' : '')
+    + '<div class="rpt-disc">Portfolio aggregates rolled up from ' + propCount + ' propert' + (propCount===1?'y':'ies') + '. Per-property breakdowns follow on subsequent pages. Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T.</div>'
+  + '</div>';
+  // CTA bar + footer match single-property
+  var cta = '<div class="rpt-cta-bar">'
+    + '<span class="cta-label">AquaRev Reference Information</span>'
+    + '<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
+  + '</div>';
+  var foot = '<div class="rpt-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  return '<div class="rpt">' + head + kpis + body + cta + foot + '</div>';
 }
 
 /* P7+: Portfolio Property Profiles page(s).
@@ -7887,7 +8033,7 @@ function generateReport(){
           +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
         +'</div>'
         +'<div>'
-          +'<div class="rpt-stitle">Device Selection</div>'
+          +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
           +devRows
           +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
           +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
@@ -8073,7 +8219,7 @@ function generateReport(){
             + poolRowsArr.slice(0, POOL_P1_FILL).join('')
           + '</div>'
           + '<div>'
-            + '<div class="rpt-stitle">Device Selection</div>'
+            + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
             + devRows
             + (R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">-'+fc(R.disc_amt,0)+'</span></div>':'')
             + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
