@@ -4845,8 +4845,20 @@ function renderNav(){
   el.style.display='';
   var hasDevices=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in>0;
   var isLast=S.step===STEPS.length-1;
-  // Step 1 gates Continue on at least one device selected.
-  var disableNext=S.step===1 && !hasDevices;
+  // Step 1 (Pool & System) gates Continue on:
+  //   (a) at least one device selected, AND
+  //   (b) a Property Name entered (either on the Map Pools step or here).
+  // The name requirement enforces that every property has a defined name
+  // before pricing — prevents un-named duplicates landing in the Archive.
+  var nameOK = !!(S.propertyName && String(S.propertyName).trim());
+  var disableNext=S.step===1 && (!hasDevices || !nameOK);
+  // Tailored hint so the rep knows exactly what's missing.
+  var navHint = '';
+  if (S.step===1){
+    if (!nameOK && !hasDevices) navHint = 'Enter a Property Name and select a device to continue';
+    else if (!nameOK)            navHint = 'Enter a Property Name to continue';
+    else if (!hasDevices)        navHint = 'Select a device above to continue';
+  }
   // Continue button is omitted on the final step — Export panel below is the action.
   // Clients skip the Quote step (index 3) \u2014 labels swap accordingly so they
   // see "Continue \u2192 Export" from Pricing and "\u2190 Pricing & Settings" from Export.
@@ -4866,7 +4878,7 @@ function renderNav(){
     // so the rep doesn't have to scroll to the Export panel just to save.
     +(isLast?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Archive</button>':'')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
-    +(disableNext?'<div class="ar-nav-hint">Select a device above to continue</div>':'')
+    +(navHint?'<div class="ar-nav-hint">'+navHint+'</div>':'')
   +'</div>';
   el.innerHTML=html;
 }
@@ -7418,12 +7430,31 @@ function handleInput(e){
     S.propertiesCount=pn;
     return;
   }
+  // Map Pools "Name" input (Step 1) — mirror typed value into S.propertyName
+  // so the Step 2 form pre-fills, and so the Step 2 → Step 3 gate sees the
+  // name immediately (without waiting for save / step transition).
+  if(el.id==='ap-name'){
+    S.propertyName = el.value;
+    var stepInput = document.querySelector('#ar2-form [data-f="propertyName"]');
+    if(stepInput && stepInput !== el) stepInput.value = el.value;
+    try { renderNav(); } catch(_){}
+    return;
+  }
   // Generic calculator field
   if(el.dataset.f){
     var key=el.dataset.f;
     var raw=el.value;
-    // String fields (propertyName)
-    if(key==='propertyName'){ S.propertyName=raw; return; }
+    // Property Name (Step 2) — mirror back to the persistent Map Pools input
+    // so navigating back to Step 1 shows the same value, and refresh the
+    // nav so the Continue → Pricing gate updates as the rep types.
+    if(key==='propertyName'){
+      S.propertyName=raw;
+      var apName = document.getElementById('ap-name');
+      if(apName && apName !== el) apName.value = raw;
+      try { if(window.AR2_MAP && AR2_MAP.setPropertyName) AR2_MAP.setPropertyName(raw); } catch(_){}
+      try { renderNav(); } catch(_){}
+      return;
+    }
     if(el.dataset.pct){
       S[key]=(parseFloat(raw)||0)/100;
     } else {
