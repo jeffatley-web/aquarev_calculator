@@ -3599,8 +3599,11 @@ function buildPortfolioReportPreview(pid, mode){
       // Append in the user-specified order: all Pool Profile pages first
       // (grouped together right after Property Profiles), then per-property
       // Assessment / Exec Summary pages.
+      // Per-property capture only contributes Pool Profile pages now.
+      // The Assessment page is owned by the portfolio-level builder
+      // (buildPortfolioAssessmentPageHtml) — appending the per-property
+      // Assessment captures here would duplicate it in the output.
       for (var cpp = 0; cpp < _capPoolPages.length; cpp++) sections.push(_capPoolPages[cpp]);
-      for (var crp = 0; crp < _capRestPages.length; crp++) sections.push(_capRestPages[crp]);
     }
 
     // ──────────────────────────────────────────────────────────────
