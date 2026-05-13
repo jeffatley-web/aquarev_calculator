@@ -2686,6 +2686,8 @@ window.AR2_PF = (function(){
     getQuoteState: getQuoteState,
     loadQuote: loadQuote,
     saveQuote: saveQuote,
+    loadPropertyStates: loadPropertyStates,
+    computeLineItemsRollup: computeLineItemsRollup,
     renderPortfolioOverview: renderPortfolioOverview,
     renderPortfolioExport: renderPortfolioExport,
     renderQuoteBuilder: renderQuoteBuilder,
@@ -2728,6 +2730,230 @@ window.AR2_PF = (function(){
    the UI — saves still go to the assessments table.
    ────────────────────────────────────────────────────────────────────── */
 window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
+
+/* ── P7-lite: Portfolio Report Preview ─────────────────────────────────
+   Builds an HTML preview of the portfolio in a new window using existing
+   .rpt-* styles. Honors the Export panel's section toggles. Real PDF
+   rasterization (html2canvas → jspdf) is a thin follow-up that just feeds
+   this HTML to the same pipeline the single-property report uses.
+
+   Sections (toggleable from the Export panel):
+     • cover        — portfolio name + buyer info from the Quote
+     • execSummary  — rolled-up KPIs from portfolio_rollup
+     • poolProfiles — per-property pool counts + volumes
+     • perProperty  — per-property savings + payback summary
+     • quote        — Portfolio Quote breakdown (only when Ready)
+     • stdTerms     — Standard Terms textarea content
+     • backCover    — closing page
+   ─────────────────────────────────────────────────────────────────────── */
+function buildPortfolioReportPreview(pid, mode){
+  if (!window.AR2_PF) return Promise.reject(new Error('AR2_PF not loaded'));
+  var st = AR2_PF.getExportState(pid);
+  var p  = (AR2_PF._state && AR2_PF._state.portfolios && AR2_PF._state.portfolios.filter(function(x){return x.id===pid;})[0]) || null;
+  var pName = (p && p.name) || 'Portfolio';
+
+  // Pull what we need in parallel: full property states + rollup + quote
+  var loadStatesP = AR2_PF.loadProperties(pid).then(function(){
+    return AR2_PF._loadPropertyStates ? AR2_PF._loadPropertyStates(pid) :
+      (AR2_PF.loadPropertyStates ? AR2_PF.loadPropertyStates(pid) : Promise.resolve([]));
+  });
+  var rollupP = AR2_PF.getRollup(pid).catch(function(){ return null; });
+  var quoteP  = (st.quoteReady ? AR2_PF.loadQuote(pid).catch(function(){ return null; }) : Promise.resolve(null));
+
+  return Promise.all([loadStatesP, rollupP, quoteP]).then(function(arr){
+    var states = arr[0] || [];
+    var roll   = arr[1] || {};
+    var quote  = arr[2] || null;
+
+    // Compute line items if quote is ready — same logic the Quote builder uses.
+    var lineItems = quote && AR2_PF._state ?
+      (AR2_PF.computeLineItemsRollup ? AR2_PF.computeLineItemsRollup(states, quote.lineOverrides || {}) : []) :
+      [];
+
+    var sections = [];
+
+    // — Cover —
+    if (st.cover){
+      sections.push(
+        '<div class="rpt-cover-page" style="padding:60px 48px;background:linear-gradient(135deg,#071628,#0a2540);color:#fff;min-height:520px;">'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:6px;color:#00b4d8;margin-bottom:18px">AQUAREV WATER · PORTFOLIO ASSESSMENT</div>'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:46px;letter-spacing:2px;color:#fff;line-height:1.1;margin-bottom:14px">' + escHtml(pName) + '</div>'
+        + (quote && quote.buyerName ? '<div style="font-size:14px;color:#cfe2eb;margin-bottom:4px">Prepared for <b>' + escHtml(quote.buyerName) + '</b></div>' : '')
+        + (quote && quote.buyerEmail ? '<div style="font-size:12px;color:#7db8cc">' + escHtml(quote.buyerEmail) + '</div>' : '')
+        + '<div style="position:absolute;bottom:32px;left:48px;font-size:11px;color:#7db8cc;letter-spacing:1.5px">' + new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) + '</div>'
+        + '</div>'
+      );
+    }
+
+    // — Exec Summary —
+    if (st.execSummary){
+      var totalInv  = Number(roll.total_inv)         || 0;
+      var totalMo   = Number(roll.total_mo)          || 0;
+      var totalYr   = Number(roll.total_yr)          || 0;
+      var propCount = Number(roll.property_count)    || states.length;
+      var totalGal  = Number(roll.total_pool_gal)    || 0;
+      var payback   = roll.blended_payback_mo ? Math.round(Number(roll.blended_payback_mo)) : null;
+      var roi5      = roll.blended_roi_5yr_pct ? Math.round(Number(roll.blended_roi_5yr_pct)) : null;
+      sections.push(
+        '<div class="rpt-es-page" style="padding:40px 48px;background:#0a1828;color:#e0f4fa;">'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:4px;color:#00b4d8;margin-bottom:18px">EXECUTIVE SUMMARY</div>'
+        + '<p style="font-size:13px;line-height:1.6;color:#cfe2eb;margin-bottom:20px">'
+        +   escHtml(pName) + ' represents <b>' + propCount + '</b> propert' + (propCount===1?'y':'ies') + ' with a combined estimated investment of <b>$' + fn(totalInv) + '</b> and projected monthly operating savings of <b>$' + fn(Math.round(totalMo)) + '</b>.'
+        + '</p>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">'
+        +   kpiCard('Properties',          propCount)
+        +   kpiCard('Total Investment',    '$' + fn(totalInv))
+        +   kpiCard('Total Pool Volume',   fn(totalGal) + ' gal')
+        +   kpiCard('Monthly Savings',     '$' + fn(Math.round(totalMo)))
+        +   kpiCard('Annual Savings',      '$' + fn(Math.round(totalYr)))
+        +   kpiCard('Blended Payback',     payback != null ? payback + ' mo' : '—')
+        + '</div>'
+        + (roi5 != null ? '<div style="font-size:12px;color:#7db8cc">Blended 5-year ROI: <b style="color:#22c55e">' + roi5 + '%</b></div>' : '')
+        + '</div>'
+      );
+    }
+
+    // — Pool Profiles —
+    if (st.poolProfiles && states.length){
+      var poolRows = states.map(function(r){
+        var sj = r.state_json || {};
+        var bodies = sj.bodies || [];
+        var poolCount = bodies.length || (sj.manualPoolCount || 0) || 0;
+        var totalGal2 = 0;
+        for (var b=0;b<bodies.length;b++) totalGal2 += Number(bodies[b].gallons) || 0;
+        if (!totalGal2) totalGal2 = Number(sj.manualTotalGallons) || 0;
+        return '<tr><td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08)">' + escHtml(r.property_name||'Property') + '</td><td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);text-align:right">' + poolCount + '</td><td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">' + fn(totalGal2) + '</td></tr>';
+      }).join('');
+      sections.push(
+        '<div class="rpt-pp-page" style="padding:40px 48px;background:#0a1828;color:#e0f4fa;">'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:3px;color:#00b4d8;margin-bottom:18px">PROPERTY POOL PROFILES</div>'
+        + '<table style="width:100%;border-collapse:collapse;font-size:13px;color:#e0f4fa">'
+        +   '<thead><tr style="border-bottom:2px solid #00b4d8"><th style="text-align:left;padding:8px 12px;letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:#7db8cc">Property</th><th style="text-align:right;padding:8px 12px;letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:#7db8cc">Pools</th><th style="text-align:right;padding:8px 12px;letter-spacing:1.5px;text-transform:uppercase;font-size:11px;color:#7db8cc">Volume (gal)</th></tr></thead>'
+        +   '<tbody>' + poolRows + '</tbody>'
+        + '</table>'
+        + '</div>'
+      );
+    }
+
+    // — Per-Property Assessments —
+    if (st.perProperty){
+      sections.push.apply(sections, states.map(function(r){
+        var k = (r.computed_kpis = r.computed_kpis || {}) || {};
+        var sj = r.state_json || {};
+        var inv = Number(k.inv) || 0;
+        var mo  = Number(k.total_mo) || 0;
+        var yr  = Number(k.total_yr) || 0;
+        var pb  = k.payback ? Math.round(Number(k.payback)) : null;
+        return '<div class="rpt-page" style="padding:36px 48px;background:#0a1828;color:#e0f4fa;border-top:3px solid #00b4d8">'
+          + '<div style="font-size:11px;letter-spacing:2px;color:#7db8cc;text-transform:uppercase;margin-bottom:6px">Property</div>'
+          + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:18px">' + escHtml(r.property_name||'Property') + '</div>'
+          + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px">'
+          +   kpiCard('Investment', '$' + fn(Math.round(inv)))
+          +   kpiCard('Monthly',    '$' + fn(Math.round(mo)))
+          +   kpiCard('Annual',     '$' + fn(Math.round(yr)))
+          +   kpiCard('Payback',    pb != null ? pb + ' mo' : '—')
+          + '</div>'
+          + (r.formatted_address ? '<div style="font-size:11px;color:#7db8cc;margin-top:14px">' + escHtml(r.formatted_address) + '</div>' : '')
+          + '</div>';
+      }));
+    }
+
+    // — Portfolio Quote —
+    if (st.quote && quote){
+      var liRows = lineItems.map(function(L){
+        return '<tr><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08)">' + escHtml(L.label) + '</td><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">' + L.qty + '</td><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(L.price) + '</td><td style="padding:6px 10px;border-bottom:1px dashed rgba(255,255,255,.08);text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(L.total) + '</td></tr>';
+      }).join('');
+      var liSubtotal = lineItems.reduce(function(s,L){ return s + L.total; }, 0);
+      var disc       = Number(quote.discountPct) || 0;
+      var discAmt    = liSubtotal * (disc/100);
+      var afterDisc  = liSubtotal - discAmt;
+      var taxRate    = Number(quote.taxRate)     || 0;
+      var taxAmt     = afterDisc * (taxRate/100);
+      var ship       = Number(quote.shippingCost) || 0;
+      var grandTotal = afterDisc + taxAmt + ship;
+      sections.push(
+        '<div class="rpt-page" style="padding:36px 48px;background:#0a1828;color:#e0f4fa;border-top:3px solid #22c55e">'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;letter-spacing:3px;color:#22c55e;margin-bottom:18px">PORTFOLIO QUOTE</div>'
+        + (quote.buyerName ? '<div style="font-size:13px;color:#cfe2eb;margin-bottom:6px"><b>Recipient:</b> ' + escHtml(quote.buyerName) + (quote.buyerEmail ? ' &middot; ' + escHtml(quote.buyerEmail) : '') + '</div>' : '')
+        + (quote.billTo ? '<div style="font-size:12px;color:#7db8cc;margin-bottom:14px;white-space:pre-line">' + escHtml(quote.billTo) + '</div>' : '')
+        + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;color:#e0f4fa;margin-bottom:14px">'
+        +   '<thead><tr style="border-bottom:1px solid #22c55e"><th style="text-align:left;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">SKU</th><th style="text-align:right;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">Qty</th><th style="text-align:right;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">Unit</th><th style="text-align:right;padding:6px 10px;letter-spacing:1px;font-size:10.5px;color:#7db8cc;text-transform:uppercase">Line Total</th></tr></thead>'
+        +   '<tbody>' + (liRows || '<tr><td colspan="4" style="padding:10px;color:#7db8cc;font-style:italic">No line items.</td></tr>') + '</tbody>'
+        + '</table>'
+        + '<div style="display:flex;justify-content:flex-end"><table style="font-size:12.5px;color:#e0f4fa">'
+        +   '<tr><td style="padding:3px 12px;color:#7db8cc">Subtotal</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(liSubtotal) + '</td></tr>'
+        +   (disc>0 ? '<tr><td style="padding:3px 12px;color:#7db8cc">Discount (' + disc + '%)</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">-$' + fn(discAmt) + '</td></tr>' : '')
+        +   (taxRate>0 ? '<tr><td style="padding:3px 12px;color:#7db8cc">Tax (' + taxRate + '%)</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(taxAmt) + '</td></tr>' : '')
+        +   (ship>0 ? '<tr><td style="padding:3px 12px;color:#7db8cc">Shipping' + (quote.shippingTerm?' ('+escHtml(quote.shippingTerm)+')':'') + '</td><td style="padding:3px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace">$' + fn(ship) + '</td></tr>' : '')
+        +   '<tr style="border-top:1px solid #22c55e"><td style="padding:7px 12px;font-weight:700">Total</td><td style="padding:7px 12px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:15px;color:#22c55e;font-weight:700">$' + fn(grandTotal) + '</td></tr>'
+        + '</table></div>'
+        + '</div>'
+      );
+    }
+
+    // — Standard Terms —
+    if (st.stdTerms && quote && (quote.stdTerms || '').trim()){
+      sections.push(
+        '<div class="rpt-page" style="padding:36px 48px;background:#0a1828;color:#e0f4fa;">'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:3px;color:#7db8cc;margin-bottom:14px">STANDARD TERMS</div>'
+        + '<div style="font-size:12px;color:#cfe2eb;line-height:1.6;white-space:pre-line">' + escHtml(quote.stdTerms) + '</div>'
+        + '</div>'
+      );
+    }
+
+    // — Back Cover —
+    if (st.backCover){
+      sections.push(
+        '<div class="rpt-page" style="padding:80px 48px;background:linear-gradient(135deg,#071628,#0a2540);color:#fff;text-align:center;min-height:380px">'
+        + '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;letter-spacing:6px;color:#00b4d8;margin-bottom:24px">AQUAREV WATER</div>'
+        + '<div style="font-size:13px;color:#cfe2eb;letter-spacing:1.5px">www.aquarevwater.com</div>'
+        + '<div style="position:absolute;bottom:48px;left:0;right:0;font-size:10px;color:#7db8cc;letter-spacing:1.5px;text-transform:uppercase">NSF/ANSI 50 · NSF-372 Lead-Free · 3 U.S. Patents · Lifetime Warranty</div>'
+        + '</div>'
+      );
+    }
+
+    // Open the report in a new window so the rep sees a "PDF preview" the
+    // same way they would if printing. Full PDF rasterization (html2canvas
+    // → jspdf) lands in a follow-up that just feeds this HTML to the same
+    // pipeline single-property already uses.
+    var modeLabel = mode === 'exp-preview' ? 'Preview' : (mode === 'exp-download' ? 'Download' : 'Archive');
+    var html = ''
+      + '<!doctype html><html><head>'
+      + '<meta charset="utf-8"><title>' + escHtml(pName) + ' — Portfolio ' + modeLabel + '</title>'
+      + '<style>'
+      + 'body{margin:0;padding:24px;background:#040f1e;font-family:\'DM Sans\',sans-serif;color:#e0f4fa}'
+      + '.wrap{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:24px}'
+      + '.rpt-page,.rpt-cover-page,.rpt-es-page,.rpt-pp-page{border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.45);position:relative}'
+      + '.note{font-size:11.5px;color:#7db8cc;text-align:center;padding:12px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.2);border-radius:8px}'
+      + 'h1{font-family:\'Bebas Neue\',sans-serif;letter-spacing:4px;font-size:18px;color:#00b4d8;text-align:center;margin:0 0 6px}'
+      + '@media print{body{background:#fff;padding:0} .note,h1{display:none}}'
+      + '</style>'
+      + '</head><body>'
+      + '<div class="wrap">'
+      +   '<h1>' + escHtml(pName) + ' — Portfolio ' + escHtml(modeLabel) + '</h1>'
+      +   '<div class="note">P7-lite preview · Real PDF rasterization (full single-property–style output) lands in a follow-up. Use your browser\'s Print → Save as PDF to capture this view today.</div>'
+      +   sections.join('')
+      + '</div>'
+      + '</body></html>';
+    var w = window.open('', '_blank');
+    if (!w){
+      alert('Pop-up blocked — allow pop-ups on this page to preview the portfolio report.');
+      return;
+    }
+    w.document.open(); w.document.write(html); w.document.close();
+    // Auto-trigger the browser print dialog for the Download path so reps
+    // can immediately "Save as PDF" from the system print sheet.
+    if (mode === 'exp-download'){ setTimeout(function(){ try { w.print(); } catch(_){} }, 400); }
+  });
+}
+// Tiny helpers used by buildPortfolioReportPreview
+function kpiCard(lbl, val){
+  return '<div style="padding:12px 14px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px">'
+    + '<div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:4px">' + escHtml(lbl) + '</div>'
+    + '<div style="font-family:\'JetBrains Mono\',monospace;font-size:18px;color:#fff;font-weight:700">' + (typeof val==='string'?escHtml(val):val) + '</div>'
+    + '</div>';
+}
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 /* ── P2: orphan-data fix ────────────────────────────────────────────────
    When the rep is mid-trace on Map Pools and flips the "Portfolio" radio,
@@ -7959,10 +8185,19 @@ function handleClick(e){
       // P3: Export panel nav + Quote builder nav
       if (act === 'back-to-overview') { AR2_PF.backToOverview();           return; }
       if (act === 'back-from-quote')  { AR2_PF.backFromQuoteBuilder();     return; }
-      // P3: Export panel actions (P7 wires up the actual PDF generation)
-      if (act === 'exp-preview')      { alert('Preview PDF — Portfolio templates land in P7.');  return; }
-      if (act === 'exp-download')     { alert('Download PDF — Portfolio templates land in P7.'); return; }
-      if (act === 'exp-archive')      { alert('Save to Archive — Portfolio templates land in P7.'); return; }
+      // P7-lite: Export panel actions — Preview opens an HTML preview in a
+      // new window using rolled-up data + per-property pages. Download +
+      // Archive route to the same builder but with PDF / archive notes
+      // (full html2canvas→jspdf integration in a follow-up; this delivers
+      // visible output reps can verify against today).
+      if (act === 'exp-preview' || act === 'exp-download' || act === 'exp-archive'){
+        var pidE = AR2_PF.selectedPortfolioId();
+        if (!pidE) return;
+        buildPortfolioReportPreview(pidE, act).catch(function(err){
+          alert('Could not build portfolio report: ' + ((err && err.message) || 'unknown error'));
+        });
+        return;
+      }
       // P4: Quote builder Save actions — write to portfolio_quotes table.
       // Save Draft → status='draft', stays on builder. Save & Return →
       // status='ready', flips Export section to toggleable, navigates back.
