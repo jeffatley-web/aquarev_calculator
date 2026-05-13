@@ -1715,10 +1715,9 @@
 #ap2 .ap-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--t),var(--aq));}
 #ap2 .ap-card.ac-go::before{background:linear-gradient(90deg,var(--go),#f7c948);}
 #ap2 .ap-card.ac-gr::before{background:linear-gradient(90deg,var(--gr),#4ade80);}
-/* Start-here variant — bold green border + glow on the top card so users
-   know where to begin on the Map Pools step. */
-#ap2 .ap-card.ap-card-start{border:2px solid var(--gr);box-shadow:0 0 0 1px rgba(34,197,94,.22),0 6px 22px rgba(34,197,94,.18);}
-#ap2 .ap-card.ap-card-start::before{height:3px;background:linear-gradient(90deg,var(--gr),#4ade80);}
+/* Start-here variant — default blue border kept; only the top accent line
+   turns bold green so the rep's eye lands on this card first. */
+#ap2 .ap-card.ap-card-start::before{height:4px;background:linear-gradient(90deg,var(--gr),#4ade80);}
 #ap2 .ap-card-title{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
 /* Property / Add to Portfolio / Portfolio mode toggle (Phase 1d sandbox).
    Radio strip lives on the Map Pools Property card. The "Add to Portfolio"
