@@ -808,6 +808,56 @@ var Cloud = (function(){
     });
   }
 
+  // Admin-only: portfolio-aware totals for the top of the dashboard.
+  // Returns aggregate counts across assessments + portfolios + properties
+  // (hard-deleted records never appear here — Supabase returns only live rows).
+  function statsAdminKpis(){
+    var c = getClient();
+    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    var since7 = new Date(Date.now() - 7*86400000).toISOString();
+    return Promise.all([
+      c.from('assessments').select('id,created_at,summary,state').eq('app_id', APP_ID),
+      c.from('portfolios').select('id,created_at'),
+      c.from('portfolio_properties').select('id,state_json,computed_kpis,excluded_from_rollup,created_at')
+    ]).then(function(arr){
+      var asRes = arr[0], pfRes = arr[1], ppRes = arr[2];
+      if (asRes.error) throw asRes.error;
+      if (pfRes.error) throw pfRes.error;
+      if (ppRes.error) throw ppRes.error;
+      var ass = asRes.data || [], pfs = pfRes.data || [], pps = ppRes.data || [];
+      var recordsLast7Days = 0;
+      var poolsTotal = 0, valueTotal = 0;
+      ass.forEach(function(r){
+        if (r.created_at && r.created_at >= since7) recordsLast7Days++;
+        var st = r.state || {};
+        var bodies = Array.isArray(st.bodies) ? st.bodies : [];
+        if (st.manualVolume) poolsTotal += Math.max(1, Number(st.manualPoolCount) || 1);
+        else                 poolsTotal += bodies.length;
+        var sum = r.summary || {};
+        valueTotal += Number(sum.inv) || 0;
+      });
+      pfs.forEach(function(r){
+        if (r.created_at && r.created_at >= since7) recordsLast7Days++;
+      });
+      pps.forEach(function(r){
+        var sj = r.state_json || {};
+        var bodies = Array.isArray(sj.bodies) ? sj.bodies : [];
+        if (sj.manualVolume) poolsTotal += Math.max(1, Number(sj.manualPoolCount) || 1);
+        else                 poolsTotal += bodies.length;
+        var k = r.computed_kpis || {};
+        valueTotal += Number(k.inv) || 0;
+      });
+      return {
+        recordsLast7Days: recordsLast7Days,
+        assessmentsTotal: ass.length,
+        portfoliosTotal:  pfs.length,
+        propertiesTotal:  pps.length,
+        poolsTotal:       poolsTotal,
+        valueTotal:       valueTotal
+      };
+    });
+  }
+
   function statsLast30Days(){
     var c = getClient();
     if(!c || !user) return Promise.reject(new Error('not_signed_in'));
@@ -985,6 +1035,7 @@ var Cloud = (function(){
     reassignAssessment: reassignAssessment,
     listUsers: listUsers,
     statsLast30Days: statsLast30Days,
+    statsAdminKpis:  statsAdminKpis,
     stats90DailyByUser: stats90DailyByUser,
     adminUserStats: adminUserStats,
     isClient: function(){ return !!user && user.role === 'client'; },
@@ -1954,7 +2005,7 @@ window.AR2_PF = (function(){
       +     '</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.perProperty?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="perProperty"><span class="ar-pf-exp-row-text">Per-Property Assessments<span class="ar-pf-exp-row-meta">' + propCount + ' propert' + (propCount===1?'y':'ies') + ' · savings + payback</span></span></label>'
       +     quoteRow
-      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.stdTerms?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="stdTerms"><span class="ar-pf-exp-row-text">Standard Terms<span class="ar-pf-exp-row-meta">Pulls from Quote section 6 if configured</span></span></label>'
+      +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.stdTerms?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="stdTerms"><span class="ar-pf-exp-row-text">Purchase Terms and Conditions<span class="ar-pf-exp-row-meta">Pulls from Quote section 6 if configured</span></span></label>'
       +     '<label class="ar-pf-exp-row"><input type="checkbox"' + (st.backCover?' checked':'') + ' data-pf-action="exp-toggle" data-exp-key="backCover"><span class="ar-pf-exp-row-text">Back Cover</span></label>'
       +   '</div>'
       +   '<div class="ar-pf-exp-actions">'
@@ -2780,6 +2831,227 @@ window.AR2_PF = (function(){
    ────────────────────────────────────────────────────────────────────── */
 window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
 
+/* ── Duplicate a portfolio — server-side: insert a new portfolios row with
+   suffixed name, then bulk-copy portfolio_properties rows to point at the
+   new portfolio id. RLS already gates this (users → own; admins → all). */
+function duplicatePortfolio(srcId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !srcId) return Promise.reject(new Error('cloud not ready'));
+  return c.from('portfolios').select('*').eq('id', srcId).single().then(function(rs){
+    if (rs.error) throw new Error(rs.error.message);
+    var src = rs.data;
+    var copy = {
+      user_id: src.user_id, // RLS keeps this scoped; admins can also duplicate
+      client_org_id: src.client_org_id,
+      name: (src.name || 'Untitled') + ' (Copy)',
+      client_contact_name: src.client_contact_name,
+      client_contact_email: src.client_contact_email,
+      cover_image_url: src.cover_image_url,
+      brand_logo_data: src.brand_logo_data,
+      status: 'draft',
+      default_currency: src.default_currency,
+      default_discount_pct: src.default_discount_pct,
+      default_savings_weight: src.default_savings_weight,
+      default_advantage_term: src.default_advantage_term,
+      notes: src.notes
+    };
+    return c.from('portfolios').insert(copy).select('id').single().then(function(rs2){
+      if (rs2.error) throw new Error(rs2.error.message);
+      var newId = rs2.data.id;
+      return c.from('portfolio_properties').select('*').eq('portfolio_id', srcId).then(function(pp){
+        if (pp.error) throw new Error(pp.error.message);
+        var rows = (pp.data || []).map(function(p){
+          return {
+            portfolio_id: newId,
+            order_index: p.order_index,
+            property_name: p.property_name,
+            property_brand: p.property_brand,
+            country: p.country,
+            lat: p.lat, lng: p.lng,
+            formatted_address: p.formatted_address,
+            state_json: p.state_json,
+            ex_json: p.ex_json,
+            pool_measure_json: p.pool_measure_json,
+            image_urls: p.image_urls,
+            computed_kpis: p.computed_kpis,
+            is_template: p.is_template,
+            excluded_from_rollup: p.excluded_from_rollup
+          };
+        });
+        if (!rows.length) return newId;
+        return c.from('portfolio_properties').insert(rows).then(function(ins){
+          if (ins.error) throw new Error(ins.error.message);
+          // Invalidate AR2_PF caches so the new portfolio appears
+          if (window.AR2_PF && AR2_PF._state){
+            AR2_PF._state.portfolios = null;
+            AR2_PF._state.properties[newId] = null;
+            AR2_PF._state.rollup[newId] = null;
+          }
+          if (window.AR2_PF && AR2_PF.refreshPortfolios){ try { AR2_PF.refreshPortfolios(); } catch(_){} }
+          return newId;
+        });
+      });
+    });
+  });
+}
+
+/* ── Copy single assessment → portfolio modal.
+   Lets the rep pick a target portfolio + decide between "Add as New Property"
+   (creates a new portfolio_properties row) or "Update Existing Property"
+   (overwrites a property in the portfolio with this assessment's state). */
+function openCopyToPortfolioModal(assessmentId){
+  if (document.getElementById('ar-copy-pf-modal')) return;
+  if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+    alert('Portfolios are not available in this account.');
+    return;
+  }
+  AR2_PF.loadPortfolios().then(function(){
+    var list = (AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+    if (!list.length){
+      alert('No portfolios yet. Create a portfolio first, then copy this assessment to it.');
+      return;
+    }
+    var bd = document.createElement('div');
+    bd.id = 'ar-copy-pf-modal';
+    bd.className = 'ar-pf-modal-backdrop';
+    var pfOptions = list.map(function(p){
+      return '<option value="' + esc(p.id) + '">' + esc(p.name || 'Untitled') + '</option>';
+    }).join('');
+    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-copy-pf-title">'
+      + '<div class="ar-pf-modal-title" id="ar-copy-pf-title">Copy to Portfolio</div>'
+      + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">Add this assessment to a portfolio as a property. You can either create a new property in the portfolio or update an existing one.</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-copy-pf-select">Target portfolio</label>'
+      + '<select class="ar-pf-modal-input" id="ar-copy-pf-select">' + pfOptions + '</select>'
+      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-copy-pf-prop-select">Existing property to update <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(only used by "Save & Update")</span></label>'
+      + '<select class="ar-pf-modal-input" id="ar-copy-pf-prop-select"><option value="">— Loading properties… —</option></select>'
+      + '<div class="ar-pf-modal-err" id="ar-copy-pf-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+        + '<button class="ar-pf-modal-btn" data-copy-pf-action="cancel" type="button">Cancel</button>'
+        + '<button class="ar-pf-modal-btn" data-copy-pf-action="update" type="button">Save &amp; Update</button>'
+        + '<button class="ar-pf-modal-btn primary" data-copy-pf-action="new" type="button">Save as New</button>'
+      + '</div>'
+    + '</div>';
+    document.body.appendChild(bd);
+    bd.dataset.assessmentId = assessmentId;
+    // Load property list for the first portfolio on open, and re-load on change
+    function refreshPropList(pid){
+      var propSel = document.getElementById('ar-copy-pf-prop-select');
+      if (!propSel) return;
+      propSel.innerHTML = '<option value="">— Loading properties… —</option>';
+      AR2_PF.loadProperties(pid).then(function(rows){
+        rows = rows || [];
+        if (!rows.length){ propSel.innerHTML = '<option value="">— No properties in this portfolio —</option>'; return; }
+        propSel.innerHTML = '<option value="">— Select a property —</option>'
+          + rows.map(function(r){ return '<option value="' + esc(r.id) + '">' + esc(r.property_name || 'Untitled') + '</option>'; }).join('');
+      }).catch(function(){
+        propSel.innerHTML = '<option value="">— Could not load —</option>';
+      });
+    }
+    refreshPropList(list[0].id);
+    bd.addEventListener('change', function(e){
+      if (e.target && e.target.id === 'ar-copy-pf-select') refreshPropList(e.target.value);
+    });
+    bd.addEventListener('click', function(e){
+      if (e.target === bd) { closeCopyToPortfolioModal(); return; }
+      var btn = e.target.closest('[data-copy-pf-action]');
+      if (!btn) return;
+      var act = btn.getAttribute('data-copy-pf-action');
+      if (act === 'cancel') { closeCopyToPortfolioModal(); return; }
+      if (act === 'new')    { submitCopyToPortfolio('new'); return; }
+      if (act === 'update') { submitCopyToPortfolio('update'); return; }
+    });
+    bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeCopyToPortfolioModal(); });
+    setTimeout(function(){ var s = document.getElementById('ar-copy-pf-select'); if (s) try { s.focus(); } catch(_){} }, 30);
+  }).catch(function(err){
+    alert('Could not load portfolios: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+function closeCopyToPortfolioModal(){
+  var el = document.getElementById('ar-copy-pf-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+function submitCopyToPortfolio(mode){
+  var bd = document.getElementById('ar-copy-pf-modal');
+  if (!bd) return;
+  var assessmentId = bd.dataset.assessmentId;
+  var pfSel = document.getElementById('ar-copy-pf-select');
+  var propSel = document.getElementById('ar-copy-pf-prop-select');
+  var err = document.getElementById('ar-copy-pf-err');
+  var pid = pfSel && pfSel.value;
+  if (!pid) { if (err) err.textContent = 'Pick a target portfolio.'; return; }
+  if (mode === 'update'){
+    var targetPropId = propSel && propSel.value;
+    if (!targetPropId) { if (err) err.textContent = 'Pick a property to update.'; return; }
+  }
+  if (err) err.textContent = '';
+  var btns = bd.querySelectorAll('[data-copy-pf-action]');
+  for (var b=0;b<btns.length;b++) btns[b].disabled = true;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c) { if (err) err.textContent = 'Cloud unavailable.'; return; }
+  // Fetch the source assessment row (state + summary + property_name)
+  c.from('assessments').select('id,property_name,summary,state,snapshot').eq('id', assessmentId).single().then(function(rs){
+    if (rs.error) throw new Error(rs.error.message);
+    var src = rs.data;
+    // assessments stores state in `state` jsonb; older records may use `snapshot`
+    var stateBlob = src.state || (src.snapshot && src.snapshot.state) || {};
+    var exBlob    = (src.snapshot && src.snapshot.ex) || {};
+    var mapBlob   = (src.snapshot && src.snapshot.mapping) || null;
+    var kpis      = src.summary || {};
+    var propName  = src.property_name || 'Imported Property';
+    if (mode === 'new'){
+      // Insert a new portfolio_properties row
+      return c.from('portfolio_properties').insert({
+        portfolio_id: pid,
+        property_name: propName,
+        order_index: 999, // placed at end; the rep can drag later
+        state_json: stateBlob,
+        ex_json: exBlob,
+        pool_measure_json: mapBlob,
+        computed_kpis: {
+          inv: Number(kpis.inv) || 0,
+          total_mo: Number(kpis.monthly) || 0,
+          total_yr: Number(kpis.annual) || 0,
+          total_dev: Number(kpis.devices) || 0,
+          total_pool_gal: Number(kpis.poolGallons) || 0,
+          payback: Number(kpis.payback) || 0
+        }
+      }).select('id').single();
+    }
+    // mode === 'update' — overwrite the chosen property row
+    var targetPropId = propSel.value;
+    return c.from('portfolio_properties').update({
+      property_name: propName,
+      state_json: stateBlob,
+      ex_json: exBlob,
+      pool_measure_json: mapBlob,
+      computed_kpis: {
+        inv: Number(kpis.inv) || 0,
+        total_mo: Number(kpis.monthly) || 0,
+        total_yr: Number(kpis.annual) || 0,
+        total_dev: Number(kpis.devices) || 0,
+        total_pool_gal: Number(kpis.poolGallons) || 0,
+        payback: Number(kpis.payback) || 0
+      }
+    }).eq('id', targetPropId).select('id').single();
+  }).then(function(rs){
+    if (rs && rs.error) throw new Error(rs.error.message);
+    // Invalidate caches so the portfolio's roster + roll-up reload fresh
+    if (window.AR2_PF && AR2_PF._state){
+      AR2_PF._state.properties[pid] = null;
+      AR2_PF._state.rollup[pid] = null;
+      AR2_PF._state.propertyStates && (AR2_PF._state.propertyStates[pid] = null);
+    }
+    closeCopyToPortfolioModal();
+    alert('Copied to portfolio.');
+    if (typeof renderArchive === 'function') renderArchive();
+  }).catch(function(e){
+    var err2 = document.getElementById('ar-copy-pf-err');
+    if (err2) err2.textContent = (e && e.message) || 'Copy failed.';
+    var btns2 = bd.querySelectorAll('[data-copy-pf-action]');
+    for (var b2=0;b2<btns2.length;b2++) btns2[b2].disabled = false;
+  });
+}
+
 /* ── P7: Portfolio Report (pixel-perfect, reuses single-property design) ──
    Strategy: hydrate each portfolio property's state_json/ex_json into the
    global S/EX, call generateReport() in capture mode, and harvest the
@@ -2895,6 +3167,10 @@ function buildPortfolioReportPreview(pid, mode){
     // ──────────────────────────────────────────────────────────────
     var poolProfilesUseCapture = (st.poolProfiles && st.poolProfilesLayout !== 'list');
     if (poolProfilesUseCapture || st.perProperty || st.execSummary){
+      // Split buckets: pool profile pages get grouped together (right after
+      // Property Profiles), then per-property Assessment / Exec pages follow.
+      var _capPoolPages = [];
+      var _capRestPages = [];
       // Snapshot the live state — this is critical, we restore on every
       // exit path including failures.
       var savedS  = JSON.parse(JSON.stringify(S));
@@ -2944,7 +3220,25 @@ function buildPortfolioReportPreview(pid, mode){
             window.__pfCapturedHtml = '';
           }
           if (window.__pfCapturedHtml){
-            sections.push(window.__pfCapturedHtml);
+            // Split the captured HTML into Pool Profile pages vs everything
+            // else, so Pool Profiles for ALL properties group together
+            // BEFORE per-property Assessment / Exec pages. Honors the user's
+            // ordering: Cover → Exec → Assessment → Property Profiles →
+            // Pool Profiles → Per-Property Assessments → Quote → Terms → Back.
+            try {
+              var capTmp = document.createElement('div');
+              capTmp.innerHTML = window.__pfCapturedHtml;
+              var ppEls = capTmp.querySelectorAll('.rpt-pp-page');
+              for (var pe = 0; pe < ppEls.length; pe++){
+                _capPoolPages.push(ppEls[pe].outerHTML);
+                ppEls[pe].parentNode.removeChild(ppEls[pe]);
+              }
+              var rest = capTmp.innerHTML;
+              if (rest && rest.trim()) _capRestPages.push(rest);
+            } catch(splitErr){
+              // Defensive: if split fails, append the whole capture verbatim
+              _capRestPages.push(window.__pfCapturedHtml);
+            }
           }
         }
       } finally {
@@ -2964,6 +3258,11 @@ function buildPortfolioReportPreview(pid, mode){
           for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
         }
       }
+      // Append in the user-specified order: all Pool Profile pages first
+      // (grouped together right after Property Profiles), then per-property
+      // Assessment / Exec Summary pages.
+      for (var cpp = 0; cpp < _capPoolPages.length; cpp++) sections.push(_capPoolPages[cpp]);
+      for (var crp = 0; crp < _capRestPages.length; crp++) sections.push(_capRestPages[crp]);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -4988,10 +5287,21 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
    per user) using EST-bucketed daily counts. */
 function populateAdminDashboard(){
   if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())) return;
-  AR2_CLOUD.statsLast30Days().then(function(s){
-    var totalEl=document.getElementById('ar-admin-30d-total');
-    if(totalEl) totalEl.textContent = s.total;
-  }).catch(function(){});
+  // 6-card KPI grid — assessments + portfolios + properties + pools + value
+  // + last-7-day record count. Excludes hard-deleted records automatically.
+  if (AR2_CLOUD.statsAdminKpis){
+    AR2_CLOUD.statsAdminKpis().then(function(k){
+      var set = function(id, val){ var el = document.getElementById(id); if (el) el.textContent = val; };
+      set('ar-admin-kpi-7d',    String(k.recordsLast7Days));
+      set('ar-admin-kpi-ass',   String(k.assessmentsTotal));
+      set('ar-admin-kpi-pf',    String(k.portfoliosTotal));
+      set('ar-admin-kpi-prop',  String(k.propertiesTotal));
+      set('ar-admin-kpi-pools', (typeof fn==='function'?fn(k.poolsTotal):String(k.poolsTotal)));
+      set('ar-admin-kpi-value', (typeof fc==='function'?fc(Math.round(k.valueTotal),0):('$'+Math.round(k.valueTotal))));
+    }).catch(function(err){
+      try { console.warn('[admin KPI] load failed', err); } catch(_){}
+    });
+  }
   // User-stats table — replaces the old chip list. Shows per-user lifetime
   // login count + 30-day record count + 30-day login count.
   AR2_CLOUD.adminUserStats().then(function(rows){
@@ -5273,11 +5583,18 @@ function renderBank(targetId){
         // Per-row actions branch by type:
         //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
         //   Portfolios \u2014 open (recall) \u00b7 delete  (PDF + duplicate live at portfolio level)
+        // Per-row actions branch by type. Portfolios get duplicate + reassign
+        // parity with singles (plus the new "open" + delete already wired);
+        // singles get a new "Copy to Portfolio" action that opens a picker
+        // letting the rep add this assessment to an existing portfolio.
         var actions = isPortfolio
           ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
+            +(isAdmin?'<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Reassign portfolio to another user">→</button>':'')
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
           : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="copy-to-portfolio" data-bank-id="'+entry.id+'" title="Copy to portfolio">+☰</button>'
             +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
             +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
             +reassignBtn
@@ -5367,10 +5684,16 @@ function renderBank(targetId){
             +'<div class="ar-admin-dash-toggle" aria-label="Toggle dashboard">\u203a</div>'
           +'</div>'
           +'<div class="ar-admin-dash-body">'
-            +'<div class="ar-admin-kpi-card" style="margin-bottom:14px">'
-              +'<div class="ar-admin-kpi-lbl">Records \u00b7 Last 30 Days</div>'
-              +'<div class="ar-admin-kpi-val" id="ar-admin-30d-total">\u2014</div>'
-              +'<div class="ar-admin-kpi-sub">Across all users</div>'
+            // 6-card KPI grid at the top of the dashboard. Hard-deleted
+            // records are excluded automatically (the underlying queries
+            // only return live rows).
+            +'<div class="ar-admin-kpis-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px">'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Records \u00b7 7 Days</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-7d" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Assessments</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-ass" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Portfolios</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pf" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Properties</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-prop" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
+              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
             +'</div>'
             +'<div class="ar-admin-userstats-card">'
               +'<div class="ar-admin-userstats-title-row">'
@@ -6871,6 +7194,19 @@ function renderResults(){
     +(R.disc_amt>0?'<div class="ar-note" style="margin-top:10px">Discount applied: '+fc(R.disc_amt,0)+' off list price of '+fc(R.inv_full,0)+'</div>':'')
   +'</div>';
 
+  // 5-Year Water Conservation card — surfaces the rolled-up water loss
+  // reduction total. Sits above Monthly Savings Breakdown so reps can see
+  // the headline conservation number at a glance.
+  var water5 = Number(R.gal_saved_5yr) || 0;
+  var water = '<div class="ar-card" style="background:linear-gradient(145deg,rgba(34,197,94,.06),rgba(72,202,228,.04));border:1px solid rgba(34,197,94,.28)">'
+    +'<div style="font-size:11px;font-weight:600;color:#7db8cc;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">5-Year Water Conservation</div>'
+    +'<div style="display:flex;align-items:baseline;gap:10px">'
+      +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:24px;font-weight:700;color:var(--gr);line-height:1">'+fn(Math.round(water5))+'</div>'
+      +'<div style="font-size:12px;color:var(--mu)">gallons</div>'
+    +'</div>'
+    +'<div style="font-size:11px;color:#7db8cc;margin-top:6px;line-height:1.45">5-Year Water Loss Reduction Total</div>'
+  +'</div>';
+
   // Breakdown table
   var bkRows=R.items.map(function(x){
     return '<tr><td>'+x.lbl+'</td><td>'+fc(x.sav)+'</td><td style="color:var(--mu)">'+fp(x.pct)+'</td></tr>';
@@ -6896,7 +7232,7 @@ function renderResults(){
 
   el.innerHTML=kpi
     +'<div class="ar-card" style="padding:14px 14px 16px">'+tabs+advPanel+purPanel+'</div>'
-    +bk+badges+disc;
+    +water+bk+badges+disc;
 }
 
 /* ── Nav ── */
@@ -6949,7 +7285,7 @@ function renderNav(){
     // so the rep doesn't have to scroll to the Export panel just to save.
     // Hidden in portfolio property mode — saves happen via "Save & Close",
     // not the single-property Archive flow.
-    +(isLast && !inPfProp?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Archive</button>':'')
+    +(isLast && !inPfProp?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Save to Archive</button>':'')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
     +(navHint?'<div class="ar-nav-hint">'+navHint+'</div>':'')
   +'</div>';
@@ -8937,7 +9273,7 @@ function renderExportSection(){
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px">'
       +'<button class="ar-gen-btn" data-action="preview-report"'+(EX.exporting?' disabled':'')+' style="background:linear-gradient(135deg,#7ed6e8,#48cae4)">Preview</button>'
       +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download</button>'
-      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv)"'+(EX.saving?' disabled':'')+'>Archive</button>'
+      +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv)"'+(EX.saving?' disabled':'')+'>Save</button>'
     +'</div>'
     +'<div class="ar-save-toast'+(EX.saveStatus?(' show'+(EX.saveStatus==='error'?' err':'')):'')+'">'+I.check+' '+(EX.saveStatus==='error'?'Save failed \u2014 try again':'Saved to Archive')+'</div>'
   +'</div>';
@@ -9383,6 +9719,23 @@ function handleClick(e){
     // Portfolio recall — open the Portfolio Overview drill-down view.
     if (bAct==='recall' && bType==='portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
       AR2_PF.openPortfolio(bId);
+      return;
+    }
+    // Portfolio duplicate — clones the portfolio + properties under a new name.
+    if (bAct==='duplicate' && bType==='portfolio'){
+      duplicatePortfolio(bId).then(function(){ renderArchive(); })
+        .catch(function(err){ alert('Could not duplicate portfolio: ' + ((err && err.message) || 'unknown error')); });
+      return;
+    }
+    // Portfolio reassign (admin only) — surface a "coming soon" until the
+    // dedicated reassign RPC for portfolios lands.
+    if (bAct==='reassign' && bType==='portfolio'){
+      alert('Portfolio reassign — coming in the next sandbox ship.');
+      return;
+    }
+    // Copy a single assessment to a portfolio — opens the picker modal.
+    if (bAct==='copy-to-portfolio'){
+      openCopyToPortfolioModal(bId);
       return;
     }
     // Portfolio delete — cascades to portfolio_properties + portfolio_quotes
