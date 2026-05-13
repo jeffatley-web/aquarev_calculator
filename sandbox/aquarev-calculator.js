@@ -1384,6 +1384,73 @@ window.AR2_PF = (function(){
         return slot.rows;
       });
   }
+  /* P5: fetch full state_json blobs for all properties in a portfolio.
+     loadProperties() omits state_json for roster performance; line items
+     roll-up needs it. Cached separately so the roster fetch stays light. */
+  function loadPropertyStates(portfolioId){
+    if (!portfolioId) return Promise.resolve([]);
+    if (!pfState.propertyStates) pfState.propertyStates = {};
+    var slot = pfState.propertyStates[portfolioId] || {};
+    if (slot.loading) return Promise.resolve(slot.rows || []);
+    if (slot.rows)    return Promise.resolve(slot.rows);
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    slot.loading = true;
+    pfState.propertyStates[portfolioId] = slot;
+    return c.from('portfolio_properties')
+      .select('id,property_name,state_json,excluded_from_rollup')
+      .eq('portfolio_id', portfolioId)
+      .order('order_index', { ascending: true })
+      .order('created_at',  { ascending: true })
+      .then(function(rs){
+        slot.loading = false;
+        if (rs.error){ slot.rows = []; }
+        else         { slot.rows = (rs.data || []).filter(function(r){ return !r.excluded_from_rollup; }); }
+        return slot.rows;
+      }, function(){
+        slot.loading = false;
+        slot.rows = [];
+        return slot.rows;
+      });
+  }
+  /* P5: compute the line items roll-up. PIPES is a flat catalog so we
+     loop it once, summing each property's pipe_Nin field. overrides shape:
+     { pipe_2in: { qty: <num>|null, price: <num>|null } } — null means
+     "use auto"; a number overrides the rolled-up value. */
+  function computeLineItemsRollup(propertyRows, overrides){
+    overrides = overrides || {};
+    if (typeof PIPES === 'undefined') return [];
+    return PIPES.map(function(spec){
+      var ov = overrides[spec.k] || {};
+      // Auto qty: sum the SKU count across all properties' state_json.
+      var autoQty = 0;
+      var perProp = [];
+      for (var i = 0; i < propertyRows.length; i++){
+        var r = propertyRows[i];
+        var sj = r.state_json || {};
+        var n = Number(sj[spec.k]) || 0;
+        if (n > 0){
+          perProp.push({ id: r.id, name: r.property_name || 'Property', qty: n });
+          autoQty += n;
+        }
+      }
+      var qty = (ov.qty != null && ov.qty !== '') ? Number(ov.qty)   : autoQty;
+      var price = (ov.price != null && ov.price !== '') ? Number(ov.price) : spec.price;
+      return {
+        sku: spec.k,
+        label: spec.sz + ' AquaRev Device',
+        flow: spec.flow,
+        autoQty: autoQty,
+        autoPrice: spec.price,
+        qty: qty,
+        price: price,
+        total: qty * price,
+        hasOverride: !!(ov.qty != null && ov.qty !== '') || !!(ov.price != null && ov.price !== ''),
+        breakdown: perProp
+      };
+    }).filter(function(row){ return row.qty > 0 || row.hasOverride; });
+  }
+
   function refreshProperties(portfolioId){
     if (pfState.properties[portfolioId]) pfState.properties[portfolioId].rows = null;
     return loadProperties(portfolioId);
@@ -1483,6 +1550,7 @@ window.AR2_PF = (function(){
         q.stdTerms        = qs.stdTerms || '';
         q.notes           = rs.data.notes || '';
         q.status          = qs.status || 'draft';
+        q.lineOverrides   = qs.lineOverrides || {};
         // Cache into pfState so renderQuoteBuilder picks it up.
         if (!pfState.quoteState) pfState.quoteState = {};
         pfState.quoteState[portfolioId] = q;
@@ -1505,7 +1573,8 @@ window.AR2_PF = (function(){
       depositDueDate:  q.depositDueDate || '',
       balanceDueTerms: q.balanceDueTerms || '',
       stdTerms:        q.stdTerms || '',
-      status:          q.status || 'draft'
+      status:          q.status || 'draft',
+      lineOverrides:   q.lineOverrides || {}
     };
     var payload = {
       portfolio_id:           portfolioId,
@@ -1878,6 +1947,87 @@ window.AR2_PF = (function(){
     if (!pfState.quoteState[pid]) pfState.quoteState[pid] = _defaultQuoteState();
     return pfState.quoteState[pid];
   }
+  /* P5: Line Items section renderer. Reads cached property states + the
+     quote's lineOverrides map, runs computeLineItemsRollup, and emits the
+     SKU rows with expandable per-property breakdowns. Empty rows include
+     all SKUs with zero qty so reps can still type in an override (manual-add).
+     Kicks off loadPropertyStates if not already cached — re-renders on resolve. */
+  function renderLineItemsSection(pid, q){
+    if (!pid) return '';
+    var states = (pfState.propertyStates && pfState.propertyStates[pid] && pfState.propertyStates[pid].rows) || null;
+    // Kick a load if needed; the .then re-renders the builder once states arrive.
+    if (!states){
+      loadPropertyStates(pid).then(function(){
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live && pfState.viewMode === 'quote-builder') renderQuoteBuilder(live);
+      });
+      return ''
+        + '<div class="ar-pf-qb-card">'
+        +   '<div class="ar-pf-qb-section-num">3</div>'
+        +   '<div class="ar-pf-qb-card-title">Line Items</div>'
+        +   '<div class="ar-pf-qb-placeholder">Loading property states…</div>'
+        + '</div>';
+    }
+    var overrides = q.lineOverrides || {};
+    var rows = computeLineItemsRollup(states, overrides);
+    if (!rows.length){
+      return ''
+        + '<div class="ar-pf-qb-card">'
+        +   '<div class="ar-pf-qb-section-num">3</div>'
+        +   '<div class="ar-pf-qb-card-title">Line Items</div>'
+        +   '<div class="ar-pf-qb-placeholder">No devices configured on any property yet. Add devices in property mode (Step 2) to populate line items.</div>'
+        + '</div>';
+    }
+    var subtotal = rows.reduce(function(s,r){ return s + r.total; }, 0);
+    var html = ''
+      + '<div class="ar-pf-qb-card">'
+      +   '<div class="ar-pf-qb-section-num">3</div>'
+      +   '<div class="ar-pf-qb-card-title">Line Items</div>'
+      +   '<div class="ar-pf-li-thead">'
+      +     '<div>SKU</div>'
+      +     '<div class="num">Qty</div>'
+      +     '<div class="num">Unit Price</div>'
+      +     '<div class="num">Line Total</div>'
+      +   '</div>';
+    for (var i = 0; i < rows.length; i++){
+      var r = rows[i];
+      var qtyDisplay   = r.qty;
+      var priceDisplay = r.price;
+      var qtyOverride   = (overrides[r.sku] && overrides[r.sku].qty   != null) ? overrides[r.sku].qty   : '';
+      var priceOverride = (overrides[r.sku] && overrides[r.sku].price != null) ? overrides[r.sku].price : '';
+      html += ''
+        + '<div class="ar-pf-li-row' + (r.hasOverride ? ' has-override' : '') + '">'
+        +   '<div class="ar-pf-li-sku">'
+        +     '<div class="ar-pf-li-sku-label">' + esc(r.label) + '</div>'
+        +     '<div class="ar-pf-li-sku-meta">' + esc(r.flow) + '</div>'
+        +   '</div>'
+        +   '<div class="ar-pf-li-cell num">'
+        +     '<input type="number" min="0" step="1" placeholder="' + r.autoQty + '" value="' + esc(String(qtyOverride)) + '" data-qb-override-sku="' + r.sku + '" data-qb-override-field="qty" title="Auto: ' + r.autoQty + '">'
+        +   '</div>'
+        +   '<div class="ar-pf-li-cell num">'
+        +     '<input type="number" min="0" step="0.01" placeholder="' + r.autoPrice + '" value="' + esc(String(priceOverride)) + '" data-qb-override-sku="' + r.sku + '" data-qb-override-field="price" title="Auto: ' + r.autoPrice + '">'
+        +   '</div>'
+        +   '<div class="ar-pf-li-cell num"><b>$' + fn(r.total) + '</b></div>'
+        + '</div>';
+      if (r.breakdown.length){
+        html += '<details class="ar-pf-li-breakdown"><summary>Per-property breakdown</summary><div class="ar-pf-li-bd-body">';
+        for (var b = 0; b < r.breakdown.length; b++){
+          var bp = r.breakdown[b];
+          html += '<div class="ar-pf-li-bd-row"><span>' + esc(bp.name) + '</span><span class="num">×' + bp.qty + '</span></div>';
+        }
+        html += '</div></details>';
+      }
+    }
+    html += ''
+      +   '<div class="ar-pf-li-subtotal">'
+      +     '<span>Devices subtotal</span>'
+      +     '<b>$' + fn(subtotal) + '</b>'
+      +   '</div>'
+      +   '<div class="ar-pf-li-note">Empty inputs use the auto-rolled value (shown as placeholder). Type a number to override.</div>'
+      + '</div>';
+    return html;
+  }
+
   function renderQuoteBuilder(mount){
     if (!mount) return;
     var pid = pfState.selectedPortfolioId;
@@ -1917,11 +2067,7 @@ window.AR2_PF = (function(){
       +     '<div class="ar-pf-qb-card-title">Ship-To Addresses</div>'
       +     '<div class="ar-pf-qb-placeholder">Auto-populated list of destinations (one per property) — coming in P6.</div>'
       +   '</div>'
-      +   '<div class="ar-pf-qb-card placeholder">'
-      +     '<div class="ar-pf-qb-section-num">3</div>'
-      +     '<div class="ar-pf-qb-card-title">Line Items</div>'
-      +     '<div class="ar-pf-qb-placeholder">Rolled-up SKUs across all properties with per-property breakdown — coming in P5.</div>'
-      +   '</div>'
+      +   renderLineItemsSection(pid, q)
 
       // Section 4 — Adjustments
       +   '<div class="ar-pf-qb-card">'
@@ -8087,6 +8233,64 @@ function handleInput(e){
       qSt[keyQ] = valQ;
       // Mark dirty so the Export panel knows quote needs (re-)saving
       qSt.status = 'draft';
+    }
+    return;
+  }
+  // P5: Line item override input (qty or unit price per SKU). Empty string
+  // clears the override (= "use auto"); any number sticks. Live-recompute
+  // the line total by re-rendering only the section. Full re-render of the
+  // Quote builder would steal input focus mid-typing, so we patch in place.
+  if (el.dataset && el.dataset.qbOverrideSku && window.AR2_PF && AR2_PF.selectedPortfolioId){
+    var pidL = AR2_PF.selectedPortfolioId();
+    if (pidL){
+      var qStL = AR2_PF.getQuoteState(pidL);
+      if (!qStL.lineOverrides) qStL.lineOverrides = {};
+      var sku = el.dataset.qbOverrideSku;
+      var field = el.dataset.qbOverrideField; // 'qty' | 'price'
+      if (!qStL.lineOverrides[sku]) qStL.lineOverrides[sku] = { qty: null, price: null };
+      var raw = el.value;
+      qStL.lineOverrides[sku][field] = (raw === '' || raw == null) ? null : (parseFloat(raw) || 0);
+      qStL.status = 'draft';
+      // Patch only the line total + subtotal — leave the input alone so
+      // the cursor doesn't jump. Find the row by walking up.
+      var rowEl = el.closest('.ar-pf-li-row');
+      if (rowEl){
+        var states = (window.AR2_PF._state && AR2_PF._state.propertyStates && AR2_PF._state.propertyStates[pidL] && AR2_PF._state.propertyStates[pidL].rows) || [];
+        // Recompute just this SKU's row total
+        var rowRoll = (function(){
+          if (typeof PIPES === 'undefined') return null;
+          var spec = null;
+          for (var i=0;i<PIPES.length;i++){ if (PIPES[i].k === sku){ spec = PIPES[i]; break; } }
+          if (!spec) return null;
+          var autoQty = 0;
+          for (var j=0;j<states.length;j++){
+            var sj = states[j].state_json || {};
+            autoQty += Number(sj[sku]) || 0;
+          }
+          var ov = qStL.lineOverrides[sku] || {};
+          var qty   = (ov.qty   != null) ? ov.qty   : autoQty;
+          var price = (ov.price != null) ? ov.price : spec.price;
+          return { qty: qty, price: price, total: qty * price };
+        })();
+        if (rowRoll){
+          var totalCell = rowEl.querySelectorAll('.ar-pf-li-cell.num b');
+          if (totalCell.length){
+            totalCell[totalCell.length-1].textContent = '$' + fn(rowRoll.total);
+          }
+          // Update subtotal across all rows
+          var all = document.querySelectorAll('.ar-pf-li-row');
+          var sum = 0;
+          for (var k=0;k<all.length;k++){
+            var tEl = all[k].querySelector('.ar-pf-li-cell.num b');
+            if (tEl){
+              var v = (tEl.textContent || '').replace(/[^0-9.\-]/g, '');
+              sum += parseFloat(v) || 0;
+            }
+          }
+          var subEl = document.querySelector('.ar-pf-li-subtotal b');
+          if (subEl) subEl.textContent = '$' + fn(sum);
+        }
+      }
     }
     return;
   }

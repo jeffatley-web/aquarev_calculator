@@ -2163,6 +2163,28 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-qb-field input,#ar2 .ar-pf-qb-field textarea{background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:9px 11px;color:#e0f4fa;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s;resize:vertical;}
 #ar2 .ar-pf-qb-field input:focus,#ar2 .ar-pf-qb-field textarea:focus{border-color:var(--t);}
 #ar2 .ar-pf-qb-placeholder{font-size:12px;color:var(--mu);padding:8px 0 4px 34px;line-height:1.5;font-style:italic;}
+/* P5: Line items roll-up — table-style rows + per-property breakdown */
+#ar2 .ar-pf-li-thead{display:grid;grid-template-columns:2fr 90px 110px 110px;gap:10px;padding:6px 0 8px;font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;font-weight:600;border-bottom:1px solid rgba(0,180,216,.18);margin-bottom:6px;}
+#ar2 .ar-pf-li-thead .num{text-align:right;}
+#ar2 .ar-pf-li-row{display:grid;grid-template-columns:2fr 90px 110px 110px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed rgba(0,180,216,.08);}
+#ar2 .ar-pf-li-row.has-override{background:linear-gradient(90deg,rgba(240,165,0,.06),transparent 40%);}
+#ar2 .ar-pf-li-sku{display:flex;flex-direction:column;gap:2px;min-width:0;}
+#ar2 .ar-pf-li-sku-label{font-size:13px;color:#e0f4fa;font-weight:600;}
+#ar2 .ar-pf-li-sku-meta{font-size:11px;color:var(--mu);}
+#ar2 .ar-pf-li-cell{font-size:13px;color:#e0f4fa;}
+#ar2 .ar-pf-li-cell.num{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-pf-li-cell input{width:100%;text-align:right;background:rgba(7,22,40,.5);border:1px solid rgba(0,180,216,.2);border-radius:6px;padding:6px 8px;color:#e0f4fa;font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;transition:border-color .15s;}
+#ar2 .ar-pf-li-cell input:focus{border-color:var(--t);background:rgba(7,22,40,.8);}
+#ar2 .ar-pf-li-cell input::placeholder{color:rgba(125,184,204,.6);}
+#ar2 .ar-pf-li-breakdown{margin:-2px 0 6px 8px;padding:6px 10px;background:rgba(7,22,40,.45);border-left:2px solid rgba(0,180,216,.25);border-radius:4px;}
+#ar2 .ar-pf-li-breakdown summary{font-size:11px;color:var(--t);cursor:pointer;letter-spacing:.5px;padding:2px 0;outline:none;}
+#ar2 .ar-pf-li-breakdown summary:hover{color:#fff;}
+#ar2 .ar-pf-li-bd-body{margin-top:6px;display:flex;flex-direction:column;gap:3px;}
+#ar2 .ar-pf-li-bd-row{display:flex;justify-content:space-between;font-size:11.5px;color:#cfe2eb;padding:2px 0;}
+#ar2 .ar-pf-li-bd-row .num{color:var(--aq);font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-pf-li-subtotal{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,180,216,.25);font-size:13px;color:#cfe2eb;}
+#ar2 .ar-pf-li-subtotal b{color:var(--t);font-family:'JetBrains Mono',monospace;font-size:15px;}
+#ar2 .ar-pf-li-note{font-size:11px;color:var(--mu);margin-top:8px;font-style:italic;line-height:1.45;}
 /* Portfolio Overview action group — pinned right via margin-left:auto so
    Quote / Export / + Property sit as a unit on the right side of the hero,
    regardless of how long the portfolio title runs. */
