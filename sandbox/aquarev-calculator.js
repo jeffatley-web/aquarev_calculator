@@ -7137,8 +7137,15 @@ function generateReport(){
     var paybackX=xCoord(Math.max(0,Math.min(60,payback)));
     var yTicks=[];
     for(var v=yMin; v<=yMax; v+=step) yTicks.push(v);
+    // Unique gradient ID per chart instance — portfolio reports may stack
+    // multiple Exec Summary charts in the same DOM (one per property), and
+    // duplicate `id` attributes break fill="url(#…)" resolution after the
+    // first match. Random suffix is collision-safe across reasonable chart
+    // counts. Also belt-and-suspenders: SVG IDs that include underscores
+    // and a base-36 suffix avoid clashing with any other inline SVGs.
+    var chartId = 'invFill_' + Math.floor(Math.random()*1e9).toString(36);
     var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" class="rpt-es-chart-svg" preserveAspectRatio="xMidYMid meet">'
-      +'<defs><linearGradient id="invFill" x1="0" y1="0" x2="0" y2="1">'
+      +'<defs><linearGradient id="'+chartId+'" x1="0" y1="0" x2="0" y2="1">'
         +'<stop offset="0%" stop-color="#16a34a" stop-opacity="0.95"/>'
         +'<stop offset="100%" stop-color="#4ade80" stop-opacity="0.45"/>'
       +'</linearGradient></defs>';
@@ -7153,9 +7160,24 @@ function generateReport(){
     svg+='<text x="'+x60+'" y="'+(xBase+18)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">60</text>';
     svg+='<text x="14" y="'+(pad.top+plotH/2)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif" transform="rotate(-90 14 '+(pad.top+plotH/2)+')">Cumulative Cash Flow ($)</text>';
     svg+='<text x="'+(pad.left+plotW/2)+'" y="'+(H-10)+'" text-anchor="middle" font-size="11" fill="#222" font-family="DM Sans, sans-serif">Time (Months)</text>';
-    var fillPath='M '+x0+' '+y0+' L '+x60+' '+y60+' L '+x60+' '+yZero+' L '+x0+' '+yZero+' Z';
-    svg+='<path d="'+fillPath+'" fill="url(#invFill)"/>';
-    svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2"/>';
+    // The data line goes from (x0,y0) below zero up to (x60,y60) above zero.
+    // Filling the wedge between the line and the zero baseline as ONE polygon
+    // creates a self-intersection at the payback crossing — print engines
+    // render the self-intersecting polygon inconsistently (PDF often drops
+    // most of the fill while screen happens to look right). Splitting at
+    // paybackX into two non-crossing triangles renders identically in both.
+    //   • negWedge: investment-recovery period (below zero baseline)
+    //   • posWedge: net-benefit period (above zero baseline)
+    // When payback is outside [0,60], paybackX clamps to a boundary and one
+    // triangle degenerates harmlessly to zero area.
+    var negWedge = 'M '+x0+' '+yZero+' L '+x0+' '+y0+' L '+paybackX+' '+yZero+' Z';
+    var posWedge = 'M '+paybackX+' '+yZero+' L '+x60+' '+y60+' L '+x60+' '+yZero+' Z';
+    svg+='<path d="'+negWedge+'" fill="url(#'+chartId+')" fill-opacity="0.55"/>';
+    svg+='<path d="'+posWedge+'" fill="url(#'+chartId+')"/>';
+    // Data line drawn on top of the wedges so it's always visible regardless
+    // of fill rendering. Stroke uses an explicit color so it never depends on
+    // gradient ID resolution.
+    svg+='<line x1="'+x0+'" y1="'+y0+'" x2="'+x60+'" y2="'+y60+'" stroke="#15803d" stroke-width="2" stroke-linecap="round"/>';
     if(payback>0 && payback<=60){
       svg+='<line x1="'+paybackX+'" y1="'+yZero+'" x2="'+paybackX+'" y2="'+(yZero-12)+'" stroke="#15803d" stroke-width="1.2" stroke-dasharray="2,2"/>';
       svg+='<circle cx="'+paybackX+'" cy="'+yZero+'" r="3" fill="#15803d"/>';
