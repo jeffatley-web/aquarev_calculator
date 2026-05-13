@@ -1575,6 +1575,7 @@ window.AR2_PF = (function(){
         q.depositDueDate  = qs.depositDueDate || '';
         q.balanceDueTerms = qs.balanceDueTerms || '';
         q.stdTerms        = qs.stdTerms || '';
+        q.purchaseTerms   = (qs.purchaseTerms != null) ? qs.purchaseTerms : (typeof QUOTE_DEFAULT_TERMS !== 'undefined' ? QUOTE_DEFAULT_TERMS : '');
         q.notes           = rs.data.notes || '';
         q.status          = qs.status || 'draft';
         q.lineOverrides   = qs.lineOverrides || {};
@@ -1601,6 +1602,7 @@ window.AR2_PF = (function(){
       depositDueDate:  q.depositDueDate || '',
       balanceDueTerms: q.balanceDueTerms || '',
       stdTerms:        q.stdTerms || '',
+      purchaseTerms:   q.purchaseTerms || '',
       status:          q.status || 'draft',
       lineOverrides:   q.lineOverrides || {},
       shipTos:         q.shipTos || { mode:'split', perProp:{}, consolidated:{address:'',notes:''} }
@@ -1967,6 +1969,10 @@ window.AR2_PF = (function(){
       depositPct: 0, depositDueDate: '', balanceDueTerms: '',
       // 6. Standard Terms & Notes
       stdTerms: '', notes: '',
+      // 6b. Purchase Terms & Conditions — long legal block, prints on its
+      // own page after the Quote page. Defaults to the same QUOTE_DEFAULT_TERMS
+      // single-property quotes use, so the rep gets a sensible starting point.
+      purchaseTerms: (typeof QUOTE_DEFAULT_TERMS !== 'undefined' ? QUOTE_DEFAULT_TERMS : ''),
       // status flag (used by Export panel to flip quote section to "Ready")
       status: 'draft'
     };
@@ -2192,12 +2198,13 @@ window.AR2_PF = (function(){
       +     '</div>'
       +   '</div>'
 
-      // Section 6 — Standard Terms & Notes
+      // Section 6 — Standard Terms, Purchase Terms & Notes
       +   '<div class="ar-pf-qb-card">'
       +     '<div class="ar-pf-qb-section-num">6</div>'
-      +     '<div class="ar-pf-qb-card-title">Standard Terms &amp; Notes</div>'
-      +     '<label class="ar-pf-qb-field full" style="margin-top:6px"><span>Standard Terms</span><textarea data-qb-key="stdTerms" rows="3" placeholder="Boilerplate terms that print on the Order page above the signature block">' + esc(q.stdTerms) + '</textarea></label>'
-      +     '<label class="ar-pf-qb-field full"><span>Notes</span><textarea data-qb-key="notes" rows="2" placeholder="Internal notes (won\'t print)">' + esc(q.notes) + '</textarea></label>'
+      +     '<div class="ar-pf-qb-card-title">Standard Terms, Purchase Terms &amp; Notes</div>'
+      +     '<label class="ar-pf-qb-field full" style="margin-top:6px"><span>Standard Terms <em style="text-transform:none;letter-spacing:0;color:#7db8cc;font-weight:400">— short, prints on the Quote page above signature</em></span><textarea data-qb-key="stdTerms" rows="3" placeholder="Boilerplate terms that print on the Order page above the signature block">' + esc(q.stdTerms) + '</textarea></label>'
+      +     '<label class="ar-pf-qb-field full"><span>Purchase Terms and Conditions <em style="text-transform:none;letter-spacing:0;color:#7db8cc;font-weight:400">— long-form legal, prints on its own page after the Quote</em></span><textarea data-qb-key="purchaseTerms" rows="12" placeholder="Long-form legal terms — printed on a dedicated Purchase Terms page after the Quote.">' + esc(q.purchaseTerms || '') + '</textarea></label>'
+      +     '<label class="ar-pf-qb-field full"><span>Notes <em style="text-transform:none;letter-spacing:0;color:#7db8cc;font-weight:400">— internal, does not print</em></span><textarea data-qb-key="notes" rows="2" placeholder="Internal notes (won\'t print)">' + esc(q.notes) + '</textarea></label>'
       +   '</div>'
 
       + '</div>';
@@ -2917,6 +2924,13 @@ function buildPortfolioReportPreview(pid, mode){
     // ──────────────────────────────────────────────────────────────
     if (st.quote && quote){
       sections.push(buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today));
+      // Purchase Terms — separate page IFF the rep has content. Same chrome
+      // as the single-property terms page (rpt-es-page + rpt-q-page-terms)
+      // so it gets full-page height + footer-pinned layout.
+      var pt = (quote.purchaseTerms || '').trim();
+      if (pt){
+        sections.push(buildPortfolioPurchaseTermsPageHtml(pName, quote, pt, today));
+      }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -3041,12 +3055,14 @@ function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
   + '</dl>';
   var termsBlock = quote.stdTerms ? '<div class="terms"><div class="terms-title">Standard Terms</div>' + esc(quote.stdTerms).replace(/\n/g,'<br>') + '</div>' : '<div class="terms"></div>';
   var totalsRow = '<div class="rpt-q-totals">' + termsBlock + totalsBlock + '</div>';
-  // Assemble page — uses .rpt structure so .rpt-page CSS picks up page break + size.
-  return '<div class="rpt rpt-q-page">'
+  // Assemble page using .rpt-es-page chrome — this gives us the full
+  // 8.5×11 page height, footer pinned to bottom via flex auto-margin,
+  // and proper @page break behavior. Identical to single-property quote.
+  return '<div class="rpt-es-page rpt-q-page rpt-q-page-order">'
     + qHeader
-    + '<div style="padding:12px 28px 0">'
+    + '<div class="rpt-q-body" style="flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column">'
       + topRow
-      + '<table class="rpt-q-tbl" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px">'
+      + '<table class="rpt-q-tbl" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px;color:#222">'
         + '<thead><tr style="background:#f5fbff;border-bottom:1.5px solid #48cae4">'
           + '<th style="text-align:left;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Item</th>'
           + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Qty</th>'
@@ -3057,6 +3073,79 @@ function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
         + '<tbody>' + rowsHtml + '</tbody>'
       + '</table>'
       + totalsRow
+    + '</div>'
+    + qFooter
+  + '</div>';
+}
+
+/* P7: Portfolio Purchase Terms page — full-page legal block.
+   Uses the EXACT same chrome as single-property: .rpt-es-page +
+   .rpt-q-page-terms with the .rpt-q-terms-body wrapper, .rpt-q-terms-title,
+   .rpt-q-terms-text. Footer pins to the bottom of the page. */
+function buildPortfolioPurchaseTermsPageHtml(pName, quote, termsText, today){
+  // Render plain-text terms as HTML — single-property has an RTE so its
+  // termsHtml is already nicely structured. For the portfolio textarea
+  // input we convert newlines and the standard "N." numbering into the
+  // same .rpt-q-terms-ol structure single uses. Falls back to safe
+  // line-break preservation for free-form text.
+  var bodyHtml;
+  if (typeof renderTermsHtml === 'function'){
+    bodyHtml = renderTermsHtml(termsText);
+  } else {
+    // Fallback: escape + preserve newlines as <br>
+    bodyHtml = esc(termsText).replace(/\n/g, '<br>');
+  }
+  var qHeader = '<div class="rpt-es-head">'
+    + '<div class="rpt-es-head-left">'
+      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
+      + '<div class="rpt-es-logo-sub">PURCHASE TERMS</div>'
+    + '</div>'
+    + '<div class="rpt-es-head-right">'
+      + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
+      + '<div class="rpt-es-prop-date">' + esc(today) + '</div>'
+    + '</div>'
+  + '</div>';
+  var qFooter = '<div class="rpt-foot rpt-es-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+  // Top row (Seller / Buyer / Meta) — same as quote page so the rep gets
+  // visual continuity. Reuse SELLER + buyer assembly from the quote builder.
+  var SELLER_BLOCK = 'KD Enterprises LLC, dba AquaRev Water\n4348 - Waialae Ave. #621\nHonolulu, HI, 96816, USA\nt. (832) 979-6758\ne. water@aquarevwater.us';
+  var buyerLines = [];
+  buyerLines.push(quote.buyerName || pName);
+  if (quote.billTo)     buyerLines.push(quote.billTo);
+  if (quote.buyerPhone) buyerLines.push('t. ' + quote.buyerPhone);
+  if (quote.buyerEmail) buyerLines.push('e. ' + quote.buyerEmail);
+  var BUYER_BLOCK = buyerLines.join('\n');
+  var topRow = '<div class="rpt-q-top-row">'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Seller</div>'
+      + '<div class="rpt-q-block-text">' + esc(SELLER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Prepared For — Buyer</div>'
+      + '<div class="rpt-q-block-text">' + esc(BUYER_BLOCK) + '</div>'
+    + '</div>'
+    + '<div class="rpt-q-top-col">'
+      + '<div class="rpt-q-block-title">Purchase Terms and Conditions</div>'
+      + '<div class="rpt-q-top-card-body">'
+        + '<dl class="rpt-q-meta-rows">'
+          + '<dt>Date</dt><dd>' + esc(today) + '</dd>'
+          + '<dt>Portfolio</dt><dd>' + esc(pName) + '</dd>'
+        + '</dl>'
+      + '</div>'
+    + '</div>'
+  + '</div>';
+  return '<div class="rpt-es-page rpt-q-page rpt-q-page-terms">'
+    + qHeader
+    + '<div class="rpt-q-terms-body">'
+      + topRow
+      + '<div class="rpt-q-terms-title">Purchase Terms and Conditions</div>'
+      + '<div class="rpt-q-terms-text">' + bodyHtml + '</div>'
     + '</div>'
     + qFooter
   + '</div>';
