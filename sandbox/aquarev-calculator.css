@@ -1422,11 +1422,11 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-bank-chk input{width:15px;height:15px;accent-color:var(--t);cursor:pointer;margin:0;}
 /* Table header — Actions column widened from 140px to 200px so icons
    render with breathing room and never overlap adjacent metric columns. */
-#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
-#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
+#ar2 .ar-bank-thead{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;padding:10px 0;font-size:11px;font-weight:500;color:var(--mu);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid rgba(255,255,255,.08);}
+#ar2 .ar-bank-thead.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 260px;}
 /* Admin view adds a Created By column between the metrics and the actions strip. */
-#ar2 .ar-bank-thead.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
-#ar2 .ar-bank-thead.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-thead.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 280px;}
+#ar2 .ar-bank-thead.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 280px;}
 #ar2 .ar-bank-thead>div:not(:first-child){text-align:right;}
 /* Row list */
 #ar2 .ar-bank-list{display:flex;flex-direction:column;gap:0;}
@@ -1617,23 +1617,31 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-bank-act.reassign{background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.28);color:#f0a500;}
 #ar2 .ar-bank-act.reassign:hover{background:rgba(240,165,0,.22);}
 /* Each record row */
-#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 200px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
 #ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
-#ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 220px;}
-#ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 220px;}
+#ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 280px;}
+#ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 280px;}
 #ar2 .ar-bank-card.selected{background:rgba(0,180,216,.06);}
 #ar2 .ar-bank-card:hover{background:rgba(0,180,216,.04);}
 #ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}
 /* Name + date column */
 #ar2 .ar-bank-name{display:flex;flex-direction:column;gap:2px;min-width:0;}
-#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px;cursor:pointer;}
+#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:10px;cursor:pointer;padding-left:10px;}
 #ar2 .ar-bank-prop:hover{color:var(--t);}
 /* Type badge — small pill at the front of each row name distinguishing
    single assessments from portfolios in the unified Archive list. */
-#ar2 .ar-bank-typebadge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:5px;font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;flex-shrink:0;cursor:default;}
-#ar2 .ar-bank-typebadge.single{background:rgba(125,184,204,.18);color:#7db8cc;border:1px solid rgba(125,184,204,.32);}
-#ar2 .ar-bank-typebadge.portfolio{background:rgba(34,197,94,.16);color:var(--gr);border:1px solid rgba(34,197,94,.4);}
-#ar2 .ar-bank-card.is-portfolio{background:linear-gradient(90deg,rgba(34,197,94,.04),transparent 30%);}
+/* Premium type indicator — small icon marker (no text pill) before the
+   record name. Pair with a 3px left-edge accent stripe on the row itself
+   for unmistakable visual differentiation. */
+#ar2 .ar-bank-typeicon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;flex-shrink:0;cursor:default;}
+#ar2 .ar-bank-typeicon.single{color:#48cae4;background:rgba(72,202,228,.10);box-shadow:inset 0 0 0 1px rgba(72,202,228,.22);}
+#ar2 .ar-bank-typeicon.portfolio{color:#4ade80;background:rgba(74,222,128,.10);box-shadow:inset 0 0 0 1px rgba(74,222,128,.28);}
+/* Left-edge accent stripe — pulled into a pseudo-element to avoid affecting
+   layout. 3px wide bar at the leftmost edge of each row, color-coded by
+   type. Singles get a teal stripe, portfolios get a green stripe. */
+#ar2 .ar-bank-card::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:#48cae4;opacity:.65;}
+#ar2 .ar-bank-card.is-portfolio::before{background:#4ade80;opacity:.85;}
+#ar2 .ar-bank-card.is-portfolio{background:linear-gradient(90deg,rgba(74,222,128,.04),transparent 35%);}
 #ar2 .ar-bank-date{font-size:11px;color:var(--mu);font-weight:400;}
 /* Data cells */
 #ar2 .ar-bank-cell{text-align:right;font-variant-numeric:tabular-nums;}

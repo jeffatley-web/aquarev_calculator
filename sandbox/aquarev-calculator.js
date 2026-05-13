@@ -5693,12 +5693,14 @@ function renderBank(targetId){
         var clr=mo>2000?'green':mo>500?'gold':'teal';
         var isSel=!!selected[entry.id];
         var isPortfolio = entry.archiveType === 'portfolio';
-        // Type badge \u2014 small pill before the property name. Singles get a
-        // muted "SINGLE" pill; portfolios get a green "PORTFOLIO" pill so
-        // the type read is fast even in a long mixed list.
+        // Type indicator \u2014 a small icon-only marker before the record name.
+        // Singles get a single-page document icon in teal; portfolios get a
+        // stacked-layers icon in green. The visual differentiation is the
+        // icon SHAPE + COLOR \u2014 no text pills. Combined with a left-edge
+        // accent stripe on the row itself (CSS) for fast scan-pattern.
         var typeBadge = isPortfolio
-          ? '<span class="ar-bank-typebadge portfolio">PORTFOLIO</span>'
-          : '<span class="ar-bank-typebadge single">SINGLE</span>';
+          ? '<span class="ar-bank-typeicon portfolio" title="Portfolio" aria-label="Portfolio"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M2 4.5h7l1.5 1.5h.5"/><rect x="2" y="4" width="10" height="8" rx="1.2"/><path d="M3 7h8"/></svg></span>'
+          : '<span class="ar-bank-typeicon single" title="Single Assessment" aria-label="Single Assessment"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3.5 1.5h5L11 4v8.5H3.5z"/><path d="M8.5 1.5V4H11"/><path d="M5 7h4M5 9h4M5 11h2.5"/></svg></span>';
         // Created By cell \u2014 admin-only. Highlights the row owner's name + role.
         // Portfolios don't carry user joins yet, so the cell shows "\u2014" for them.
         var createdByCell = '';
@@ -5799,7 +5801,7 @@ function renderBank(targetId){
     // Admin gets an extra "Created By" header column. Class .admin-cols
     // shifts the grid template (CSS) to fit it.
     var thead='<div class="ar-bank-thead'+(isAdmin?' admin-cols':'')+'" id="ar-bank-thead">'
-      +'<div>Property</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div>'
+      +'<div>Record</div><div>Monthly</div><div>Annual</div><div>Investment</div><div>Weight</div><div>Devices</div><div>Volume</div><div>Payback</div>'
       +(isAdmin?'<div>Created By</div>':'')
       +'<div></div>'
     +'</div>';
