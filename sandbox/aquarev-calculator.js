@@ -1786,6 +1786,7 @@ window.AR2_PF = (function(){
       +   '<div class="ar-pf-ov-actions">'
       +     '<button class="ar-pf-actbtn" data-pf-action="open-quote" type="button" title="Configure the Portfolio Quote">Quote</button>'
       +     '<button class="ar-pf-actbtn primary" data-pf-action="open-export" type="button" title="Package the portfolio for export and distribution">Export &rarr;</button>'
+      +     '<button class="ar-pf-actbtn" data-pf-action="import-csv" type="button" title="Bulk-import properties from a CSV / Excel template">&uarr; Import CSV</button>'
       +     '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add Property</button>'
       +   '</div>'
       + '</div>';
@@ -2929,6 +2930,297 @@ function duplicatePortfolio(srcId){
    Lets the rep pick a target portfolio + decide between "Add as New Property"
    (creates a new portfolio_properties row) or "Update Existing Property"
    (overwrites a property in the portfolio with this assessment's state). */
+/* ── CSV bulk-import for portfolio properties ──────────────────────────
+   Opens a modal with a drag-and-drop zone + template download. Parses the
+   uploaded CSV, shows a preview table, then bulk-inserts one
+   portfolio_properties row per CSV row into the current portfolio.
+
+   Template columns (case-insensitive headers):
+     property_name      (required)
+     formatted_address  (optional)
+     country            (optional)
+     property_brand     (optional)
+     lat                (optional, numeric)
+     lng                (optional, numeric)
+   Any unknown columns are kept as part of state_json so reps can include
+   custom metadata that survives round-trips.
+   ──────────────────────────────────────────────────────────────────────── */
+function openImportCsvModal(portfolioId){
+  if (document.getElementById('ar-csv-modal')) return;
+  if (!portfolioId){
+    alert('Open a portfolio first, then import properties into it.');
+    return;
+  }
+  var bd = document.createElement('div');
+  bd.id = 'ar-csv-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.dataset.portfolioId = portfolioId;
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-csv-title" style="max-width:640px">'
+    + '<div class="ar-pf-modal-title" id="ar-csv-title">Import Properties from CSV</div>'
+    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">'
+    +   'Drop a CSV / Excel-exported file here, or click to browse. Each row becomes a property in this portfolio. '
+    +   '<button class="ar-pf-exp-edit" type="button" data-pf-action="csv-download-template" style="margin-left:4px">Download template</button>'
+    + '</div>'
+    + '<div class="ar-csv-drop" id="ar-csv-drop" tabindex="0" role="button" aria-label="Drop a CSV file here or click to browse">'
+    +   '<div style="font-size:14px;color:var(--tx);font-weight:600">&uarr; Drop CSV here</div>'
+    +   '<div style="font-size:11.5px;color:var(--mu);margin-top:6px">or click to browse</div>'
+    +   '<input type="file" id="ar-csv-file" accept=".csv,text/csv,application/vnd.ms-excel,text/plain" style="position:absolute;inset:0;opacity:0;cursor:pointer">'
+    + '</div>'
+    + '<div id="ar-csv-preview" style="display:none;margin-top:14px"></div>'
+    + '<div class="ar-pf-modal-err" id="ar-csv-err"></div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn" data-pf-action="csv-cancel" type="button">Cancel</button>'
+    +   '<button class="ar-pf-modal-btn primary" data-pf-action="csv-import" type="button" id="ar-csv-import-btn" disabled>Import 0 properties</button>'
+    + '</div>'
+  + '</div>';
+  document.body.appendChild(bd);
+  var drop = document.getElementById('ar-csv-drop');
+  var fileEl = document.getElementById('ar-csv-file');
+  function loadFile(f){
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      try {
+        var parsed = parseCsvForPortfolioImport(String(e.target.result || ''));
+        renderCsvPreview(parsed);
+        bd.dataset.parsedRows = JSON.stringify(parsed.rows);
+        var btn = document.getElementById('ar-csv-import-btn');
+        if (btn){
+          btn.disabled = !parsed.rows.length;
+          btn.textContent = 'Import ' + parsed.rows.length + ' propert' + (parsed.rows.length===1?'y':'ies');
+        }
+        var errEl = document.getElementById('ar-csv-err');
+        if (errEl) errEl.textContent = parsed.warnings.length ? parsed.warnings.join(' · ') : '';
+      } catch(parseErr){
+        var errEl2 = document.getElementById('ar-csv-err');
+        if (errEl2) errEl2.textContent = (parseErr && parseErr.message) || 'Could not parse file.';
+      }
+    };
+    reader.onerror = function(){
+      var errEl3 = document.getElementById('ar-csv-err');
+      if (errEl3) errEl3.textContent = 'Could not read the file.';
+    };
+    reader.readAsText(f);
+  }
+  fileEl.addEventListener('change', function(){ loadFile(fileEl.files && fileEl.files[0]); });
+  // Drag-and-drop UX — highlight on dragenter, accept on drop.
+  ['dragenter','dragover'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('is-drag'); });
+  });
+  ['dragleave','dragend','drop'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('is-drag'); });
+  });
+  drop.addEventListener('drop', function(e){
+    e.preventDefault();
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  bd.addEventListener('click', function(e){
+    if (e.target === bd) { closeImportCsvModal(); return; }
+    var btn = e.target.closest('[data-pf-action]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-pf-action');
+    if (act === 'csv-cancel')            { closeImportCsvModal(); return; }
+    if (act === 'csv-download-template') { downloadCsvImportTemplate(); return; }
+    if (act === 'csv-import')            { submitImportCsv(); return; }
+  });
+  bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeImportCsvModal(); });
+  setTimeout(function(){ try { drop.focus(); } catch(_){} }, 40);
+}
+function closeImportCsvModal(){
+  var el = document.getElementById('ar-csv-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+/* CSV parser — handles quoted fields (with escaped quotes) and CRLF. Maps
+   recognized columns into a known shape; preserves unknown columns under
+   `extras` so reps can include custom metadata. Skips fully-blank rows. */
+function parseCsvForPortfolioImport(text){
+  if (!text || !text.trim()) throw new Error('File is empty.');
+  // Strip BOM, normalize newlines
+  text = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  var lines = text.split('\n');
+  // Field-aware split (handles "quoted, values" + escaped "" quotes)
+  function splitCsvLine(line){
+    var out = [], cur = '', inQ = false;
+    for (var i=0; i<line.length; i++){
+      var ch = line[i];
+      if (inQ){
+        if (ch === '"' && line[i+1] === '"'){ cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else {
+        if (ch === ',') { out.push(cur); cur = ''; }
+        else if (ch === '"') inQ = true;
+        else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out.map(function(s){ return s.trim(); });
+  }
+  // Find header line — first non-empty
+  var headerLine = '';
+  var startIdx = 0;
+  for (var i=0; i<lines.length; i++){
+    if (lines[i].trim()){ headerLine = lines[i]; startIdx = i + 1; break; }
+  }
+  if (!headerLine) throw new Error('No header row found.');
+  var headers = splitCsvLine(headerLine).map(function(h){ return String(h||'').toLowerCase().replace(/\s+/g,'_'); });
+  // Map header aliases to canonical keys
+  var aliases = {
+    property_name: ['property_name','name','property','hotel','hotel_name','site','site_name'],
+    formatted_address: ['formatted_address','address','full_address','street','street_address'],
+    country: ['country','region'],
+    property_brand: ['property_brand','brand','chain'],
+    lat: ['lat','latitude'],
+    lng: ['lng','long','longitude','lon']
+  };
+  function canonicalize(h){
+    for (var key in aliases){
+      if (aliases[key].indexOf(h) > -1) return key;
+    }
+    return null;
+  }
+  var canonHeaders = headers.map(function(h){ return canonicalize(h) || h; });
+  // Must have at least property_name (under any alias)
+  if (canonHeaders.indexOf('property_name') === -1){
+    throw new Error('CSV missing required column: property_name (or alias: name, property, hotel, hotel_name, site).');
+  }
+  var rows = [];
+  var warnings = [];
+  for (var r=startIdx; r<lines.length; r++){
+    var rawLine = lines[r];
+    if (!rawLine.trim()) continue;
+    var cells = splitCsvLine(rawLine);
+    var row = { extras: {} };
+    for (var c=0; c<headers.length; c++){
+      var key = canonHeaders[c];
+      var val = (cells[c] != null ? cells[c] : '').trim();
+      if (val === '') continue;
+      if (key === 'lat' || key === 'lng'){
+        var n = parseFloat(val);
+        if (!isNaN(n)) row[key] = n;
+        else warnings.push('Row ' + (r+1) + ': ' + key + ' is not numeric, skipped.');
+      } else if (key === 'property_name' || key === 'formatted_address' || key === 'country' || key === 'property_brand'){
+        row[key] = val;
+      } else {
+        row.extras[key || headers[c]] = val;
+      }
+    }
+    if (!row.property_name){
+      warnings.push('Row ' + (r+1) + ': missing property_name, skipped.');
+      continue;
+    }
+    rows.push(row);
+  }
+  if (!rows.length) throw new Error('No valid rows found. Make sure at least one row has a property_name.');
+  return { rows: rows, headers: headers, warnings: warnings };
+}
+
+function renderCsvPreview(parsed){
+  var el = document.getElementById('ar-csv-preview');
+  if (!el) return;
+  var rows = parsed.rows.slice(0, 5);
+  var more = parsed.rows.length - rows.length;
+  var tbl = '<div style="font-size:11px;color:var(--mu);margin-bottom:6px;letter-spacing:.5px;text-transform:uppercase">Preview — first ' + rows.length + ' of ' + parsed.rows.length + ' rows</div>'
+    + '<div style="border:1px solid rgba(0,180,216,.18);border-radius:8px;overflow:auto;max-height:220px">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:11.5px;color:#cfe2eb">'
+    + '<thead><tr style="background:rgba(7,22,40,.6);border-bottom:1px solid rgba(0,180,216,.25)">'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Name</th>'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Address</th>'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Country</th>'
+      + '<th style="text-align:left;padding:6px 10px;letter-spacing:.5px;color:#7db8cc">Brand</th>'
+    + '</tr></thead><tbody>'
+    + rows.map(function(r){
+        return '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
+          + '<td style="padding:6px 10px">' + esc(r.property_name || '') + '</td>'
+          + '<td style="padding:6px 10px;color:var(--mu)">' + esc(r.formatted_address || '—') + '</td>'
+          + '<td style="padding:6px 10px;color:var(--mu)">' + esc(r.country || '—') + '</td>'
+          + '<td style="padding:6px 10px;color:var(--mu)">' + esc(r.property_brand || '—') + '</td>'
+        + '</tr>';
+      }).join('')
+    + '</tbody></table></div>'
+    + (more > 0 ? '<div style="font-size:11px;color:var(--mu);margin-top:6px">+ ' + more + ' more row' + (more===1?'':'s') + ' will be imported</div>' : '');
+  el.innerHTML = tbl;
+  el.style.display = 'block';
+}
+
+function downloadCsvImportTemplate(){
+  var csv = 'property_name,formatted_address,country,property_brand,lat,lng\n'
+    + '"Marriott Marina Bay","2 Bayfront Avenue, Singapore 018972","Singapore","Marriott","",""\n'
+    + '"Hilton Caribbean","123 Coral Drive, Nassau","Bahamas","Hilton","",""\n'
+    + '"Iberostar Punta Cana","Playa Bavaro, Punta Cana 23000","Dominican Republic","Iberostar","",""\n';
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'aquarev_portfolio_import_template.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+function submitImportCsv(){
+  var bd = document.getElementById('ar-csv-modal');
+  if (!bd) return;
+  var pid = bd.dataset.portfolioId;
+  var rawRows = bd.dataset.parsedRows;
+  if (!pid || !rawRows) return;
+  var rows;
+  try { rows = JSON.parse(rawRows); } catch(_){ rows = []; }
+  if (!rows.length) return;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){
+    var errEl = document.getElementById('ar-csv-err');
+    if (errEl) errEl.textContent = 'Cloud unavailable.';
+    return;
+  }
+  var btn = document.getElementById('ar-csv-import-btn');
+  if (btn){ btn.disabled = true; btn.textContent = 'Importing…'; }
+  // Build the rows for portfolio_properties insertion. Each property gets
+  // an empty state_json (rep will fill in pools/devices later), preserving
+  // any non-standard columns under state_json.import_extras.
+  var inserts = rows.map(function(r, idx){
+    var stateJson = { propertyName: r.property_name };
+    if (r.formatted_address) stateJson.formattedAddress = r.formatted_address;
+    if (r.extras && Object.keys(r.extras).length) stateJson.import_extras = r.extras;
+    return {
+      portfolio_id: pid,
+      property_name: r.property_name,
+      order_index: 1000 + idx, // appended at the end; rep can reorder later
+      country: r.country || null,
+      property_brand: r.property_brand || null,
+      formatted_address: r.formatted_address || null,
+      lat: (typeof r.lat === 'number') ? r.lat : null,
+      lng: (typeof r.lng === 'number') ? r.lng : null,
+      state_json: stateJson
+    };
+  });
+  c.from('portfolio_properties').insert(inserts).select('id').then(function(rs){
+    if (rs.error){
+      if (btn){ btn.disabled = false; btn.textContent = 'Import ' + rows.length + ' propert' + (rows.length===1?'y':'ies'); }
+      var errEl2 = document.getElementById('ar-csv-err');
+      if (errEl2) errEl2.textContent = (rs.error.message || 'Insert failed.');
+      return;
+    }
+    // Invalidate caches so the roster + rollup refresh
+    try {
+      if (window.AR2_PF && AR2_PF._state){
+        AR2_PF._state.properties[pid] = null;
+        AR2_PF._state.rollup[pid]     = null;
+        if (AR2_PF._state.propertyStates) AR2_PF._state.propertyStates[pid] = null;
+      }
+    } catch(_){}
+    closeImportCsvModal();
+    alert('Imported ' + (rs.data ? rs.data.length : rows.length) + ' propert' + (rows.length===1?'y':'ies') + ' into the portfolio.');
+    if (typeof renderArchive === 'function') renderArchive();
+  }).catch(function(err){
+    if (btn){ btn.disabled = false; btn.textContent = 'Import ' + rows.length + ' propert' + (rows.length===1?'y':'ies'); }
+    var errEl3 = document.getElementById('ar-csv-err');
+    if (errEl3) errEl3.textContent = (err && err.message) || 'Import failed.';
+  });
+}
+
 function openCopyToPortfolioModal(assessmentId){
   if (document.getElementById('ar-copy-pf-modal')) return;
   if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
@@ -9726,6 +10018,9 @@ function handleClick(e){
       // P3: Portfolio Overview action buttons — Quote + Export entrypoints
       if (act === 'open-quote')       { AR2_PF.openQuoteBuilder();         return; }
       if (act === 'open-export')      { AR2_PF.openExport();               return; }
+      // CSV bulk-import — drag-and-drop modal that creates multiple portfolio
+      // properties from a single uploaded template.
+      if (act === 'import-csv')       { openImportCsvModal(AR2_PF.selectedPortfolioId()); return; }
       // P3: Export panel nav + Quote builder nav
       if (act === 'back-to-overview') { AR2_PF.backToOverview();           return; }
       if (act === 'back-from-quote')  { AR2_PF.backFromQuoteBuilder();     return; }

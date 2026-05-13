@@ -1788,7 +1788,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ap2 .ap-btn-row .ap-btn{flex:1;}
 #ap2 .ap-map-wrap{background:var(--cd);border:1px solid var(--bd);border-radius:14px;overflow:hidden;position:relative;min-height:620px;display:flex;flex-direction:column;}
 #ap2 #ap-map{flex:1;min-height:620px;}
-#ap2 .ap-map-overlay{position:absolute;top:12px;left:12px;display:flex;gap:8px;z-index:5;}
+#ap2 .ap-map-overlay{position:absolute;bottom:12px;left:12px;display:flex;gap:8px;z-index:5;}
 #ap2 .ap-map-overlay .ap-btn{padding:8px 12px;font-size:11px;backdrop-filter:blur(10px);background:rgba(4,15,30,.82);}
 #ap2 .ap-map-hint{position:absolute;bottom:12px;left:12px;right:12px;background:rgba(4,15,30,.85);backdrop-filter:blur(10px);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--tx);z-index:5;display:none;}
 #ap2 .ap-map-hint.show{display:block;}
@@ -2143,6 +2143,12 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-exp-row input[type=checkbox]{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;accent-color:var(--t);}
 #ar2 .ar-pf-exp-row-text{display:flex;flex-direction:column;gap:2px;font-size:14px;color:#e0f4fa;font-weight:500;line-height:1.35;}
 #ar2 .ar-pf-exp-row-meta{font-size:11.5px;color:var(--mu);font-weight:400;display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+/* CSV import — drag-and-drop zone inside the bulk-import modal. */
+#ar2 .ar-csv-drop,
+.ar-pf-modal .ar-csv-drop{position:relative;border:2px dashed rgba(0,180,216,.32);border-radius:10px;padding:28px 18px;text-align:center;background:rgba(7,22,40,.45);transition:background .15s,border-color .15s,transform .12s;outline:none;cursor:pointer;}
+.ar-pf-modal .ar-csv-drop:hover,
+.ar-pf-modal .ar-csv-drop:focus{border-color:var(--t);background:rgba(0,180,216,.06);}
+.ar-pf-modal .ar-csv-drop.is-drag{border-color:var(--gr);background:rgba(34,197,94,.10);transform:scale(1.01);}
 /* Sub-options strip — sits just below a parent .ar-toggle-row when the
    section has Cards/List style choices. Negative top margin merges the
    strip visually with its parent row so it reads as part of the same group. */
