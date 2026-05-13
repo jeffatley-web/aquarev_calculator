@@ -9741,7 +9741,10 @@ function handleClick(e){
           var stCur = AR2_PF.getExportState(pidT);
           AR2_PF.setExportSection(pidT, key, !stCur[key]);
           var live = document.getElementById('ar2-bank-overview-mount');
-          if (live && pfState.viewMode === 'export') AR2_PF.renderPortfolioExport(live);
+          // viewMode is a closure inside AR2_PF — read it via the public
+          // accessor, never `pfState.viewMode` from this outer scope (that
+          // would be a ReferenceError and silently kill the re-render).
+          if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'export') AR2_PF.renderPortfolioExport(live);
         }
         return;
       }
@@ -9763,7 +9766,7 @@ function handleClick(e){
           var stL = AR2_PF.getExportState(pidL);
           stL[lk] = lv;
           var live = document.getElementById('ar2-bank-overview-mount');
-          if (live && pfState.viewMode === 'export') AR2_PF.renderPortfolioExport(live);
+          if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'export') AR2_PF.renderPortfolioExport(live);
         }
         return;
       }
@@ -9777,7 +9780,7 @@ function handleClick(e){
           qS.shipTos.mode = pfAct.value === 'consolidated' ? 'consolidated' : 'split';
           qS.status = 'draft';
           var live = document.getElementById('ar2-bank-overview-mount');
-          if (live && pfState.viewMode === 'quote-builder') AR2_PF.renderQuoteBuilder(live);
+          if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'quote-builder') AR2_PF.renderQuoteBuilder(live);
         }
         return;
       }
