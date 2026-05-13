@@ -2598,6 +2598,18 @@ window.AR2_PF = (function(){
     if (window.AR2_MAP && AR2_MAP.exportSnapshot){
       updatePayload.pool_measure_json = poolMeasureJson;
     }
+    // Same defensive rule for the formatted address — only write when the
+    // map module is loaded (and only when the rep actually typed/picked an
+    // address). Preserves prior value otherwise. Address feeds the Property
+    // Profiles roster, ship-to auto-populate, and country-grouping logic.
+    if (window.AR2_MAP && AR2_MAP.getFormattedAddress){
+      var addrNow = '';
+      try { addrNow = AR2_MAP.getFormattedAddress() || ''; } catch(_){}
+      if (addrNow){
+        updatePayload.formatted_address = addrNow;
+        stateJson.formattedAddress = addrNow; // mirror into state for round-trip
+      }
+    }
     return c.from('portfolio_properties')
       .update(updatePayload)
       .eq('id', prop.id)
@@ -3432,7 +3444,19 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
     EX.inclQuotePayment   = false;
     EX.layout             = 'portrait';
     EX.images             = [];
+    // Populate Video Resources with DEFAULT_YT_URLS so the media row renders
+    // (it's the bottom-pinned slot — without it the body collapses and the
+    // page doesn't fill the full 11" sheet). Mirrors what initDefaultYt does
+    // on a fresh single-property session.
     EX.ytEntries          = [];
+    try {
+      if (typeof DEFAULT_YT_URLS !== 'undefined' && typeof ytVideoId === 'function'){
+        DEFAULT_YT_URLS.forEach(function(url){
+          var vid = ytVideoId(url);
+          if (vid) EX.ytEntries.push({ id:'yt-'+vid, url:url, videoId:vid, comment:'' });
+        });
+      }
+    } catch(_){}
     EX.comments           = '';
     EX._captureMode       = true;
     window.__pfCapturedHtml = '';
@@ -3540,7 +3564,19 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
     EX.inclQuotePayment   = false;
     EX.layout             = 'portrait';
     EX.images             = [];
+    // Populate Video Resources with DEFAULT_YT_URLS so the media row renders
+    // (it's the bottom-pinned slot — without it the body collapses and the
+    // page doesn't fill the full 11" sheet). Mirrors what initDefaultYt does
+    // on a fresh single-property session.
     EX.ytEntries          = [];
+    try {
+      if (typeof DEFAULT_YT_URLS !== 'undefined' && typeof ytVideoId === 'function'){
+        DEFAULT_YT_URLS.forEach(function(url){
+          var vid = ytVideoId(url);
+          if (vid) EX.ytEntries.push({ id:'yt-'+vid, url:url, videoId:vid, comment:'' });
+        });
+      }
+    } catch(_){}
     EX.comments           = '';
     EX._captureMode       = true;
     window.__pfCapturedHtml = '';
@@ -3648,8 +3684,8 @@ function buildPortfolioAssessmentPageHtml_OLD_DELETED(pName, states, roll, today
   // Header
   var head = '<div class="rpt-head">'
     + '<div class="rpt-head-left">'
-      + '<div class="rpt-logo">AQUAREV WATER</div>'
-      + '<div class="rpt-logo-sub">Cost Savings Assessment — Portfolio</div>'
+      + '<div class="rpt-logo">Cost Savings Assessment — Portfolio</div>'
+      + '<div class="rpt-logo-sub">AQUAREV WATER</div>'
     + '</div>'
     + '<div class="rpt-head-right">'
       + '<div class="rpt-prop-name">' + esc(pName) + '</div>'
@@ -3834,8 +3870,8 @@ function buildPropertyProfilesPages(pName, states, today, layout){
   function ppHeader(subtitle){
     return '<div class="rpt-es-head rpt-pp-es-head">'
       + '<div class="rpt-es-head-left">'
-        + '<div class="rpt-es-logo">AQUAREV WATER</div>'
-        + '<div class="rpt-es-logo-sub">Property Profiles</div>'
+        + '<div class="rpt-es-logo">Property Profiles</div>'
+        + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
       + '</div>'
       + '<div class="rpt-es-head-right">'
         + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
@@ -3958,8 +3994,8 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
   function ppHeader(subtitle){
     return '<div class="rpt-es-head rpt-pp-es-head">'
       + '<div class="rpt-es-head-left">'
-        + '<div class="rpt-es-logo">AQUAREV WATER</div>'
-        + '<div class="rpt-es-logo-sub">Pool Profiles</div>'
+        + '<div class="rpt-es-logo">Pool Profiles</div>'
+        + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
       + '</div>'
       + '<div class="rpt-es-head-right">'
         + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
@@ -4048,8 +4084,8 @@ function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
   // Header band — matches Executive Summary look (.rpt-es-head).
   var qHeader = '<div class="rpt-es-head">'
     + '<div class="rpt-es-head-left">'
-      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
-      + '<div class="rpt-es-logo-sub">PORTFOLIO QUOTE</div>'
+      + '<div class="rpt-es-logo">PORTFOLIO QUOTE</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
     + '</div>'
     + '<div class="rpt-es-head-right">'
       + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
@@ -4181,8 +4217,8 @@ function buildPortfolioPurchaseTermsPageHtml(pName, quote, termsText, today){
   }
   var qHeader = '<div class="rpt-es-head">'
     + '<div class="rpt-es-head-left">'
-      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
-      + '<div class="rpt-es-logo-sub">PURCHASE TERMS</div>'
+      + '<div class="rpt-es-logo">PURCHASE TERMS</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
     + '</div>'
     + '<div class="rpt-es-head-right">'
       + '<div class="rpt-es-prop-name">' + esc(pName) + '</div>'
@@ -4410,14 +4446,24 @@ function seedFirstPropertyFromMapPools(newPortfolio){
   var exJson    = JSON.parse(JSON.stringify(EX));
   var poolMeasureJson = null;
   try { if (window.AR2_MAP && AR2_MAP.exportSnapshot) poolMeasureJson = AR2_MAP.exportSnapshot() || null; } catch(_){}
+  // Capture the map-resolved formatted address (if the rep located the
+  // property via Google search). Persists to portfolio_properties.formatted_address
+  // so it surfaces in the Property Profiles roster + can drive future
+  // grouping (country headers, ship-to auto-populate, etc.).
+  var formattedAddr = '';
+  try { if (window.AR2_MAP && AR2_MAP.getFormattedAddress) formattedAddr = AR2_MAP.getFormattedAddress() || ''; } catch(_){}
   // Ensure the property name is reflected in the persisted state too —
   // so the calc reads it back consistently on re-entry.
   if (propName && !stateJson.propertyName) stateJson.propertyName = propName;
+  // Also mirror the address into S.formattedAddress so it survives a
+  // round-trip through enterProperty / saveCurrentProperty.
+  if (formattedAddr && !stateJson.formattedAddress) stateJson.formattedAddress = formattedAddr;
 
   c.from('portfolio_properties').insert({
     portfolio_id: newPortfolio.id,
     property_name: propName,
     order_index: 0,
+    formatted_address: formattedAddr || null,
     state_json: stateJson,
     ex_json: exJson,
     pool_measure_json: poolMeasureJson
@@ -7589,8 +7635,8 @@ function buildQuoteHtml(){
   // not to the commercial quote).
   var qHeader = '<div class="rpt-es-head">'
     + '<div class="rpt-es-head-left">'
-      + '<div class="rpt-es-logo">AQUAREV WATER</div>'
-      + '<div class="rpt-es-logo-sub">' + docKindLabel + '</div>'
+      + '<div class="rpt-es-logo">' + docKindLabel + '</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
     + '</div>'
     + '<div class="rpt-es-head-right">'
       + '<div class="rpt-es-prop-name">' + esc(Q.buyerName || prop) + '</div>'
@@ -7774,7 +7820,7 @@ function buildQuoteHtml(){
     var wireChecked = (Q.paymentMethod==='wire') ? '☒' : '☐';
     var checkChecked = (Q.paymentMethod==='check') ? '☒' : '☐';
     pagePay = '<div class="rpt-es-page rpt-q-page rpt-q-page-pay">'
-      + qHeader.replace('<div class="rpt-es-logo-sub">' + docKindLabel + '</div>', '<div class="rpt-es-logo-sub">PAYMENT FORM</div>')
+      + qHeader.replace('<div class="rpt-es-logo">' + docKindLabel + '</div>', '<div class="rpt-es-logo">PAYMENT FORM</div>')
       + '<div class="rpt-q-pay-body">'
         + quoteTopRowHtml('Payment Form')
         + '<div class="rpt-q-pay-method-strip">'
@@ -8099,15 +8145,16 @@ function generateReport(){
     +'</div>';
 
     // Page 1 header band (Assessment-style logo + property name)
-    // Client mode: replace the AQUAREV WATER wordmark with the Client's
-    // uploaded logo (max 36px tall to fit the existing header band).
-    var esHeaderLeftMark = clientLogo
-      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:36px;max-width:200px;display:block;margin-bottom:2px" />'
-      : '<div class="rpt-es-logo">AQUAREV WATER</div>';
+    // Title/subtitle order is reversed across all reports: the section
+    // name owns the large position; the brand (AQUAREV WATER wordmark or
+    // the client's logo in client mode) sits in the smaller subtitle slot.
+    var esHeaderBrand = clientLogo
+      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:18px;max-width:160px;display:block;margin-top:4px" />'
+      : '<div class="rpt-es-logo-sub">AQUAREV WATER</div>';
     var esHeader='<div class="rpt-es-head">'
       +'<div class="rpt-es-head-left">'
-        +esHeaderLeftMark
-        +'<div class="rpt-es-logo-sub">Executive Summary</div>'
+        +'<div class="rpt-es-logo">Executive Summary</div>'
+        +esHeaderBrand
       +'</div>'
       +'<div class="rpt-es-head-right">'
         +'<div class="rpt-es-prop-name">'+esPropName+'</div>'
@@ -8314,8 +8361,8 @@ function generateReport(){
     // Reusable header band for all 3 landscape Exec Summary pages
     var lsHeader='<div class="rpt-es-head rpt-ls-es-head">'
       +'<div class="rpt-es-head-left">'
-        +'<div class="rpt-es-logo">AQUAREV WATER</div>'
-        +'<div class="rpt-es-logo-sub">Executive Summary</div>'
+        +'<div class="rpt-es-logo">Executive Summary</div>'
+        +'<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
       +'</div>'
       +'<div class="rpt-es-head-right">'
         +'<div class="rpt-es-prop-name">'+lsPropName+'</div>'
@@ -8631,8 +8678,8 @@ function generateReport(){
       // on the left; property name + date + pool count + NSF badge on the right.
       var ppHeader='<div class="rpt-es-head rpt-pp-es-head">'
         +'<div class="rpt-es-head-left">'
-          +'<div class="rpt-es-logo">AQUAREV WATER</div>'
-          +'<div class="rpt-es-logo-sub">Pool Profile</div>'
+          +'<div class="rpt-es-logo">Pool Profile</div>'
+          +'<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
         +'</div>'
         +'<div class="rpt-es-head-right">'
           +'<div class="rpt-es-prop-name">'+esc(propName)+'</div>'
@@ -8717,10 +8764,10 @@ function generateReport(){
     // see — Cover Page + Exec Summary toggles are hidden for them).
     +'<div class="rpt-head">'
       +'<div class="rpt-head-left">'
+        +'<div class="rpt-logo">Cost Savings Assessment</div>'
         +(clientLogo
-          ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:42px;max-width:220px;display:block;margin-bottom:3px" />'
-          : '<div class="rpt-logo">AQUAREV WATER</div>')
-        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+          ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:20px;max-width:200px;display:block;margin-top:5px" />'
+          : '<div class="rpt-logo-sub">AQUAREV WATER</div>')
       +'</div>'
       +'<div class="rpt-head-right">'
         +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
@@ -8889,14 +8936,16 @@ function generateReport(){
       +'<a href="https://www.aquarevwater.us/data" target="_blank">www.aquarevwater.us/data</a>'
     +'</div>';
 
-    // Client mode: swap wordmark for uploaded logo on the multi-page Assessment header.
-    var assessHeaderLeftMark = clientLogo
-      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:42px;max-width:220px;display:block;margin-bottom:3px" />'
-      : '<div class="rpt-logo">AQUAREV WATER</div>';
+    // Title/subtitle reversed across all reports: section name in the large
+    // position, brand (or client logo when in client mode) in the smaller
+    // subtitle position.
+    var assessHeaderBrand = clientLogo
+      ? '<img src="'+clientLogo+'" alt="'+esc(clientName)+' logo" style="max-height:20px;max-width:200px;display:block;margin-top:5px" />'
+      : '<div class="rpt-logo-sub">AQUAREV WATER</div>';
     var assessHeader='<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +assessHeaderLeftMark
-        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+        +'<div class="rpt-logo">Cost Savings Assessment</div>'
+        +assessHeaderBrand
       +'</div>'
       +'<div class="rpt-head-right">'
         +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
@@ -8907,8 +8956,8 @@ function generateReport(){
 
     var assessHeaderCont='<div class="rpt-head">'
       +'<div class="rpt-head-left">'
-        +assessHeaderLeftMark
-        +'<div class="rpt-logo-sub">Cost Savings Assessment</div>'
+        +'<div class="rpt-logo">Cost Savings Assessment</div>'
+        +assessHeaderBrand
       +'</div>'
       +'<div class="rpt-head-right">'
         +'<div class="rpt-prop-name">'+esc(prop)+'</div>'
