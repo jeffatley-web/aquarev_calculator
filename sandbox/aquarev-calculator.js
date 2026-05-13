@@ -2388,6 +2388,62 @@ function bankGetIndex(){
     .catch(function(){return [];});
 }
 
+/* P1.5 — Unified Archive index.
+   Returns a Promise resolving to a merged list of [single assessments + portfolios],
+   sorted DESC by saved date. Each entry has `archiveType: 'single' | 'portfolio'`
+   so renderCards can branch on row type.
+
+   For clients / non-PF mode this falls through to bankGetIndex unchanged.
+   Portfolio rollup KPIs are fetched in parallel per portfolio. RLS already
+   scopes the list (users see own; admins see all). */
+function getArchiveListIndex(){
+  if (!window.AR2_PF || !AR2_PF.isEnabled || !AR2_PF.isEnabled()){
+    return bankGetIndex().then(function(idx){
+      return idx.map(function(e){ e.archiveType = 'single'; return e; });
+    });
+  }
+  var singlesP = bankGetIndex().then(function(idx){
+    return (idx || []).map(function(e){ e.archiveType = 'single'; return e; });
+  });
+  var portsP = AR2_PF.loadPortfolios().then(function(list){
+    if (!list || !list.length) return [];
+    var rollupPromises = list.map(function(p){
+      return AR2_PF.getRollup(p.id).then(function(r){ return { p:p, r:r||{} }; },
+                                          function(){   return { p:p, r:{}    }; });
+    });
+    return Promise.all(rollupPromises).then(function(items){
+      return items.map(function(it){
+        var p = it.p, r = it.r;
+        return {
+          id: p.id,
+          propertyName: p.name || 'Untitled Portfolio',
+          savedAt: p.last_modified_at || p.created_at,
+          archiveType: 'portfolio',
+          portfolioStatus: p.status || 'draft',
+          summary: {
+            monthly:      Number(r.total_mo)       || 0,
+            annual:       Number(r.total_yr)       || 0,
+            inv:          Number(r.total_inv)      || 0,
+            devices:      Number(r.property_count) || 0, // "devices" col reused for property count
+            poolGallons:  Number(r.total_pool_gal) || 0,
+            payback:      r.blended_payback_mo ? Math.round(Number(r.blended_payback_mo)) : 0,
+            savingsWeight: null
+          }
+        };
+      });
+    });
+  }).catch(function(){ return []; });
+  return Promise.all([singlesP, portsP]).then(function(arr){
+    var merged = arr[0].concat(arr[1]);
+    merged.sort(function(a,b){
+      var ta = new Date(a.savedAt).getTime() || 0;
+      var tb = new Date(b.savedAt).getTime() || 0;
+      return tb - ta;
+    });
+    return merged;
+  });
+}
+
 function bankSaveReport(){
   if(EX.saving)return;
   // Sync property name from Map Pools step if it's been entered there but not
@@ -3209,25 +3265,22 @@ function renderArchive(){
   var el = document.getElementById('ar2-bank');
   if (!el) return;
   if (!window.AR2_PF || !AR2_PF.isEnabled()) {
-    // Feature disabled: identical to production behavior.
+    // Feature disabled (Client / no-PF): production behavior, single assessments only.
     return renderBank();
   }
-  // Tabs mode: wrap tabstrip + sub-containers in `.ar-pf-archive-wrap`
-  // which mirrors the existing `.ar-bank-wrap` width (max-width:1320px,
-  // centered). This makes the Portfolio panel and the tab strip span
-  // the same horizontal extent as Single Assessments and the other
-  // calculator pages, instead of going full-bleed.
-  var tab = AR2_PF.activeTab();
-  el.innerHTML = '<div class="ar-pf-archive-wrap">'
-    + AR2_PF.tabStripHtml()
-    + '<div id="ar2-bank-singles"' + (tab==='single'?'':' style="display:none"') + '></div>'
-    + '<div id="ar2-bank-portfolios"' + (tab==='portfolios'?'':' style="display:none"') + '></div>'
-    + '</div>';
-  if (tab === 'single') {
-    renderBank('ar2-bank-singles');
-  } else {
-    AR2_PF.renderPortfoliosPanel(document.getElementById('ar2-bank-portfolios'));
+  // Portfolio Overview drill-down — when a portfolio row was clicked we set
+  // viewMode='overview' + selectedPortfolioId. Render the existing Phase 1b
+  // Overview shell into a mount that lives inside the archive wrap.
+  if (AR2_PF.viewMode && AR2_PF.viewMode() === 'overview' && AR2_PF.selectedPortfolioId && AR2_PF.selectedPortfolioId()){
+    el.innerHTML = '<div class="ar-pf-archive-wrap"><div id="ar2-bank-overview-mount"></div></div>';
+    AR2_PF.renderPortfoliosPanel(document.getElementById('ar2-bank-overview-mount'));
+    return;
   }
+  // Unified list — singles + portfolios mixed, sorted by date. No tabs.
+  // renderBank below pulls its data from getArchiveListIndex() instead of
+  // bankGetIndex() when AR2_PF is enabled, so the same renderer powers both
+  // types. The list lives directly in #ar2-bank.
+  renderBank();
 }
 
 // Accepts optional `targetId` (string) so the Portfolio tabs wrapper can
@@ -3240,23 +3293,23 @@ function renderBank(targetId){
   var isCloudReady = !!(window.AR2_CLOUD && AR2_CLOUD.isReady());
   var isAdmin      = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin());
   el.innerHTML='<div class="ar-bank-wrap"><div class="ar-bank-hero">'
-    +'<div class="ar-bank-title">Saved Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+'</div>'
+    +'<div class="ar-bank-title">Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+'</div>'
     +'<button class="ar-bank-act primary no-print" data-action="view-form">'
       +I.back+' Back to Calculator'
     +'</button>'
   +'</div><div class="ar-bank-loading">Loading\u2026</div></div>';
 
-  bankGetIndex().then(function(idx){
+  getArchiveListIndex().then(function(idx){
     var wrap=el.querySelector('.ar-bank-wrap');
     if(!idx||idx.length===0){
       wrap.innerHTML='<div class="ar-bank-hero">'
-        +'<div class="ar-bank-title">Saved Assessments</div>'
+        +'<div class="ar-bank-title">Assessments</div>'
         +'<button class="ar-bank-act primary no-print" data-action="view-form">'+I.back+' Back to Calculator</button>'
       +'</div>'
       +'<div class="ar-bank-empty">'
         +I.bank
-        +'<div style="font-size:15px;color:#fff;margin-bottom:8px">No saved assessments yet</div>'
-        +'Complete an assessment and click <strong style="color:var(--t)">Archive</strong> to store it here.'
+        +'<div style="font-size:15px;color:#fff;margin-bottom:8px">No saved assessments or portfolios yet</div>'
+        +'Complete an assessment and click <strong style="color:var(--t)">Archive</strong>, or create a Portfolio from Map Pools to get started.'
       +'</div>';
       return;
     }
@@ -3275,7 +3328,15 @@ function renderBank(targetId){
         var mo=s.monthly||0;
         var clr=mo>2000?'green':mo>500?'gold':'teal';
         var isSel=!!selected[entry.id];
+        var isPortfolio = entry.archiveType === 'portfolio';
+        // Type badge \u2014 small pill before the property name. Singles get a
+        // muted "SINGLE" pill; portfolios get a green "PORTFOLIO" pill so
+        // the type read is fast even in a long mixed list.
+        var typeBadge = isPortfolio
+          ? '<span class="ar-bank-typebadge portfolio">PORTFOLIO</span>'
+          : '<span class="ar-bank-typebadge single">SINGLE</span>';
         // Created By cell \u2014 admin-only. Highlights the row owner's name + role.
+        // Portfolios don't carry user joins yet, so the cell shows "\u2014" for them.
         var createdByCell = '';
         if(isAdmin){
           var nm = entry.createdByName || '\u2014';
@@ -3285,32 +3346,46 @@ function renderBank(targetId){
             + (rl?'<div class="role'+(rl==='admin'?' admin':'')+'">'+esc(rl)+'</div>':'')
           + '</div>';
         }
-        // Reassign button \u2014 admin-only, shown alongside the existing actions.
-        var reassignBtn = isAdmin
+        // Reassign button \u2014 admin-only, applies to singles only for now.
+        // Portfolio reassign needs its own RPC; tracked for a later pass.
+        var reassignBtn = (isAdmin && !isPortfolio)
           ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">\u2192</button>'
           : '';
-        var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'');
-        return '<div class="'+classes+'" data-row-id="'+entry.id+'">'
-          +(selectMode?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':'')
+        // Per-row actions branch by type:
+        //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
+        //   Portfolios \u2014 open (recall) \u00b7 delete  (PDF + duplicate live at portfolio level)
+        var actions = isPortfolio
+          ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
+            +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
+          : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
+            +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
+            +reassignBtn
+            +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>';
+        var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'') + (isPortfolio?' is-portfolio':'');
+        // "Devices" column header is reused for property count when the row
+        // is a portfolio \u2014 same numeric scale, different meaning. Tooltip
+        // clarifies on hover.
+        var countLabel = isPortfolio
+          ? (s.devices||0) + (s.devices===1?' prop':' props')
+          : (s.devices||'\u2014');
+        return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'">'
+          +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
-            +'<div class="ar-bank-prop">'+esc(entry.propertyName)+'</div>'
+            +'<div class="ar-bank-prop">'+typeBadge+esc(entry.propertyName)+'</div>'
             +'<div class="ar-bank-date">'+dateStr+'</div>'
           +'</div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+fc(s.annual,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.inv?fc(s.inv,0):'\u2014')+'</div></div>'
-          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.savingsWeight!=null?Math.round(s.savingsWeight*100)+'%':'\u2014')+'</div></div>'
-          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.devices||'\u2014')+'</div></div>'
+          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(isPortfolio?'\u2014':(s.savingsWeight!=null?Math.round(s.savingsWeight*100)+'%':'\u2014'))+'</div></div>'
+          +'<div class="ar-bank-cell"><div class="ar-bank-cell-val" title="'+(isPortfolio?'Property count':'Device count')+'">'+countLabel+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.poolGallons?fn(s.poolGallons):'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
           +createdByCell
           +'<div class="ar-bank-actions">'
-            +'<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
-            +reassignBtn
-            +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>'
+            +actions
           +'</div>'
         +'</div>';
       }).join('');
@@ -3394,7 +3469,7 @@ function renderBank(targetId){
         +'</div>'
       : '';
     wrap.innerHTML='<div class="ar-bank-hero">'
-      +'<div class="ar-bank-title">Saved Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+' <span>\u00b7 '+idx.length+'</span></div>'
+      +'<div class="ar-bank-title">Assessments'+(isCloudReady?' <span style="font-size:11px;color:var(--mu);font-weight:400;letter-spacing:1px;margin-left:8px">'+esc(AR2_CLOUD.user().name)+(isAdmin?' \u00b7 ADMIN':'')+'</span>':'')+' <span>\u00b7 '+idx.length+'</span></div>'
       +'<div style="display:flex;align-items:center;gap:8px">'
         +'<button class="ar-bank-act" data-action="bank-toggle-select" title="Select multiple">'+I.check+' Select</button>'
         +'<button class="ar-bank-act primary no-print" data-action="view-form">'+I.back+' Back to Calculator</button>'
@@ -7237,11 +7312,47 @@ function handleClick(e){
   }
   var viewForm=e.target.closest('[data-action="view-form"]');
   if(viewForm){ showView('form'); return; }
+  // Unified Archive — title click opens the record. Title is .ar-bank-prop;
+  // clicking anywhere else on the row does NOT open it (per UX decision).
+  // Portfolio rows route to AR2_PF.openPortfolio; singles use the existing
+  // bankAction(recall) path.
+  var bankProp = e.target.closest('.ar-bank-prop');
+  if (bankProp && !e.target.closest('[data-bank-action]')){
+    var card = bankProp.closest('.ar-bank-card[data-row-id]');
+    // In multi-select mode the inner renderBank handler owns row clicks
+    // (toggles the row's selected state). Skip the title-open behavior so
+    // both handlers don't race.
+    if (card && !card.classList.contains('selmode')){
+      var rowId = card.dataset.rowId;
+      var rowType = card.dataset.archiveType;
+      if (rowType === 'portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
+        AR2_PF.openPortfolio(rowId);
+      } else {
+        bankAction(rowId, 'recall');
+      }
+      return;
+    }
+  }
   // Archive card actions
   var bankBtn=e.target.closest('[data-bank-action]');
   if(bankBtn){
     var bAct=bankBtn.dataset.bankAction;
     var bId=bankBtn.dataset.bankId;
+    var bType=bankBtn.dataset.bankType; // 'portfolio' on portfolio rows; undefined for singles
+    // Portfolio recall — open the Portfolio Overview drill-down view.
+    if (bAct==='recall' && bType==='portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
+      AR2_PF.openPortfolio(bId);
+      return;
+    }
+    // Portfolio delete — different confirm copy + different RPC.
+    if (bAct==='delete' && bType==='portfolio'){
+      if(confirm('Delete this portfolio? All properties inside it will be deleted. This cannot be undone.')){
+        // Stub — portfolio delete RPC lands in a later pass. For now, surface
+        // a clear "not implemented" message rather than silently failing.
+        alert('Portfolio delete will land in the next sandbox pass. Use Supabase to remove for now.');
+      }
+      return;
+    }
     if(bAct==='delete'){
       if(confirm('Delete this saved assessment? This cannot be undone.')) bankDeleteReport(bId);
     } else {

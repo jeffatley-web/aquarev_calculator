@@ -1626,7 +1626,14 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-bank-card.selected:hover{background:rgba(0,180,216,.08);}
 /* Name + date column */
 #ar2 .ar-bank-name{display:flex;flex-direction:column;gap:2px;min-width:0;}
-#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-bank-prop{font-size:14px;font-weight:600;color:#f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:8px;cursor:pointer;}
+#ar2 .ar-bank-prop:hover{color:var(--t);}
+/* Type badge — small pill at the front of each row name distinguishing
+   single assessments from portfolios in the unified Archive list. */
+#ar2 .ar-bank-typebadge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:5px;font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;flex-shrink:0;cursor:default;}
+#ar2 .ar-bank-typebadge.single{background:rgba(125,184,204,.18);color:#7db8cc;border:1px solid rgba(125,184,204,.32);}
+#ar2 .ar-bank-typebadge.portfolio{background:rgba(34,197,94,.16);color:var(--gr);border:1px solid rgba(34,197,94,.4);}
+#ar2 .ar-bank-card.is-portfolio{background:linear-gradient(90deg,rgba(34,197,94,.04),transparent 30%);}
 #ar2 .ar-bank-date{font-size:11px;color:var(--mu);font-weight:400;}
 /* Data cells */
 #ar2 .ar-bank-cell{text-align:right;font-variant-numeric:tabular-nums;}
