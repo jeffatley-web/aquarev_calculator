@@ -1773,6 +1773,16 @@ window.AR2_PF = (function(){
       // Show calculator (hide archive), then re-render with new S.
       if (typeof showView === 'function') showView('form');
       if (typeof render === 'function') render();
+      // Restore Map Pools state (polygons, boundary, centre, property name).
+      // Done AFTER render() so the persistent #ap2 mount has finished its
+      // own paint cycle and is ready to accept the snapshot.
+      if (prop.pool_measure_json && window.AR2_MAP && AR2_MAP.loadSnapshot){
+        try { AR2_MAP.loadSnapshot(prop.pool_measure_json); } catch(_){}
+      } else if (window.AR2_MAP && AR2_MAP.reset){
+        // No map data for this property — start clean (don't carry the
+        // last property's polygons over).
+        try { AR2_MAP.reset(); } catch(_){}
+      }
     });
   }
 
@@ -1869,18 +1879,30 @@ window.AR2_PF = (function(){
     // to Supabase Storage. For Phase 1c we save inline.
     var stateJson = cloneJson(S);
     var exJson    = cloneJson(EX);
+    // Capture the AR2_MAP snapshot too (pool polygons, boundary, centre).
+    // Without this, every save would erase the map work — reps would trace
+    // pools on entry, navigate forward, then find the map blank on return.
+    var poolMeasureJson = null;
+    try { if (window.AR2_MAP && AR2_MAP.exportSnapshot) poolMeasureJson = AR2_MAP.exportSnapshot(); } catch(_){}
     pfState.saveStatus = 'saving';
     pfState.saveError  = null;
     _renderSubbar();
+    var updatePayload = {
+      state_json: stateJson,
+      ex_json:    exJson,
+      computed_kpis: kpis,
+      // Persist a normalized property_name only if user has entered one
+      // in the calculator (S.propertyName); otherwise keep the existing.
+      property_name: (S.propertyName && String(S.propertyName).trim()) || prop.property_name
+    };
+    // Only overwrite pool_measure_json when AR2_MAP is available — if the
+    // map module hasn't loaded, leave the existing value alone rather than
+    // nuking it.
+    if (window.AR2_MAP && AR2_MAP.exportSnapshot){
+      updatePayload.pool_measure_json = poolMeasureJson;
+    }
     return c.from('portfolio_properties')
-      .update({
-        state_json: stateJson,
-        ex_json:    exJson,
-        computed_kpis: kpis,
-        // Persist a normalized property_name only if user has entered one
-        // in the calculator (S.propertyName); otherwise keep the existing.
-        property_name: (S.propertyName && String(S.propertyName).trim()) || prop.property_name
-      })
+      .update(updatePayload)
       .eq('id', prop.id)
       .select('id,property_name,computed_kpis,updated_at')
       .single()
@@ -2116,6 +2138,82 @@ window.AR2_PF = (function(){
    ────────────────────────────────────────────────────────────────────── */
 window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
 
+/* ── P2: orphan-data fix ────────────────────────────────────────────────
+   When the rep is mid-trace on Map Pools and flips the "Portfolio" radio,
+   this function fires AFTER the New Portfolio modal succeeds. It captures
+   the live calculator + map state and writes it directly into a brand-new
+   property inside the just-created portfolio — then enters property mode
+   so the rep keeps working without losing anything.
+
+   Falls back to the Portfolio Overview (empty roster) on insert failure
+   so the rep can re-add manually if anything goes wrong.
+   ──────────────────────────────────────────────────────────────────────── */
+function seedFirstPropertyFromMapPools(newPortfolio){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){
+    alert('Portfolio created, but cloud is unavailable to save the current property. Add it manually from the Portfolio Overview.');
+    if (window.AR2_PF) AR2_PF.openPortfolio(newPortfolio.id);
+    var bankBtn = document.getElementById('ar2-bank-nav');
+    if (bankBtn) bankBtn.click();
+    return;
+  }
+  // Resolve a property name from whatever the rep has provided so far —
+  // calculator state first, Map Pools input second, generic fallback last.
+  var mapName = '';
+  try { if (window.AR2_MAP && AR2_MAP.getPropertyName) mapName = AR2_MAP.getPropertyName() || ''; } catch(_){}
+  var propName = (S.propertyName && String(S.propertyName).trim()) ||
+                 (mapName && String(mapName).trim()) ||
+                 'New Property';
+  // Snapshot the live state. cloneJson lives in AR2_PF's IIFE so we
+  // duplicate inline here — defensive deep clone.
+  var stateJson = JSON.parse(JSON.stringify(S));
+  var exJson    = JSON.parse(JSON.stringify(EX));
+  var poolMeasureJson = null;
+  try { if (window.AR2_MAP && AR2_MAP.exportSnapshot) poolMeasureJson = AR2_MAP.exportSnapshot() || null; } catch(_){}
+  // Ensure the property name is reflected in the persisted state too —
+  // so the calc reads it back consistently on re-entry.
+  if (propName && !stateJson.propertyName) stateJson.propertyName = propName;
+
+  c.from('portfolio_properties').insert({
+    portfolio_id: newPortfolio.id,
+    property_name: propName,
+    order_index: 0,
+    state_json: stateJson,
+    ex_json: exJson,
+    pool_measure_json: poolMeasureJson
+  }).select('id').single().then(function(rs){
+    if (rs.error){
+      alert('Portfolio created but the current property could not be saved: ' +
+            (rs.error.message || 'unknown error') +
+            '. Add it manually from the Portfolio Overview.');
+      AR2_PF.openPortfolio(newPortfolio.id);
+      var bb = document.getElementById('ar2-bank-nav');
+      if (bb) bb.click();
+      return;
+    }
+    // Invalidate the AR2_PF property-list cache for this portfolio so the
+    // Overview roster shows the new property immediately.
+    try {
+      if (AR2_PF._state){
+        AR2_PF._state.properties[newPortfolio.id] = null;
+        AR2_PF._state.rollup[newPortfolio.id]     = null;
+      }
+    } catch(_){}
+    // Enter property mode for the new property. enterProperty fetches the
+    // full row, snapshots the user's prior session, hydrates S/EX from
+    // state_json, and loads pool_measure_json into AR2_MAP. The rep ends
+    // up on Map Pools with their work intact, now bound to this portfolio.
+    AR2_PF.enterProperty(rs.data.id);
+  }).catch(function(e){
+    alert('Portfolio created but the current property could not be saved: ' +
+          (e.message || 'unknown error') +
+          '. Add it manually from the Portfolio Overview.');
+    AR2_PF.openPortfolio(newPortfolio.id);
+    var bb = document.getElementById('ar2-bank-nav');
+    if (bb) bb.click();
+  });
+}
+
 (function(){
   var picker, pickerSel, pickerHint, pickerChip, pickerChipName;
   function $els(){
@@ -2263,19 +2361,31 @@ window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null
       return;
     }
 
-    // Mode: "portfolio" — open New Portfolio modal. On success, drop the
-    // user into the Archive's Portfolios tab so they can add this property
-    // to the new portfolio. On cancel, flip back to Property.
+    // Mode: "portfolio" — open New Portfolio modal. On Create, lock in the
+    // rep's CURRENT Map Pools work by creating the first property inside the
+    // new portfolio with state_json/ex_json/pool_measure_json pre-loaded
+    // from the live calculator + map snapshot. Then enter property mode for
+    // that property so the rep keeps working seamlessly.
+    //
+    // This closes the orphan-data loop — before this fix, flipping the radio
+    // mid-trace would create the portfolio + dump the rep in Archive while
+    // silently losing the polygons they just drew.
     if (mode === 'portfolio'){
       AR2_PF.openNewPortfolioModal();
       watchPortfolioModal(
-        function onCreated(){
+        function onCreated(newPortfolio){
           checkRadio('property');
           clearTarget();
           showPicker(false);
-          try { AR2_PF.setActiveTab('portfolios'); } catch(_){}
-          var bankBtn = document.getElementById('ar2-bank-nav');
-          if (bankBtn) bankBtn.click();
+          if (newPortfolio && newPortfolio.id){
+            seedFirstPropertyFromMapPools(newPortfolio);
+          } else {
+            // Defensive fallback — shouldn't happen since onCreated only
+            // fires when watchPortfolioModal saw the portfolios cache grow.
+            try { AR2_PF.setActiveTab('portfolios'); } catch(_){}
+            var bankBtn = document.getElementById('ar2-bank-nav');
+            if (bankBtn) bankBtn.click();
+          }
         },
         function onCancelled(){
           checkRadio('property');
