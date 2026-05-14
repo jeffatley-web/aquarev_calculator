@@ -3091,7 +3091,9 @@ window.AR2_MAP = {
       const [drawId] = draw.add(pr.polygon);
       draw.setFeatureProperty(drawId, 'role', 'pool');
       draw.setFeatureProperty(drawId, 'registered', !!pr.registered);
-      const restored = { ...pr, drawId, polygon: draw.get(drawId) };
+      // Snapshot pools don't carry an `id` — mint a fresh one so click /
+      // checkbox handlers (which look up by `data-pool`) can find the row.
+      const restored = { ...pr, id: 'p' + (S.nextId++), drawId, polygon: draw.get(drawId) };
       S.pools.push(restored);
     }
     renumberPools();
