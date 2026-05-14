@@ -10802,34 +10802,43 @@ var HELP_CONTENT = {
   'map-pools': {
     title: 'Map Pools — Step 1 of 5',
     body:
-      '<p>Use this step to identify and measure pools at the property.</p>'
+      '<p>Identify and measure each pool at the property. The first card has a <b style="color:var(--gr)">green top border</b> — that\'s your "start here" anchor.</p>'
      +'<ol>'
-       +'<li><b>Property name</b> — type the hotel/resort name. Suggestions appear as you type.</li>'
-       +'<li><b>Locate on map</b> — searches by name, address, or Plus Code, then centers the satellite map on the property.</li>'
-       +'<li><b>Trace each pool</b> — click <b>Magic Wand</b> and click on a pool to auto-detect its outline, OR click <b>Trace polygon by hand</b> to draw it yourself.</li>'
-       +'<li><b>Confirm details</b> — give it a name, type, and depth, then click <b>Register pool</b>.</li>'
-       +'<li>Repeat for each pool, then click <b>Continue to Pool &amp; System</b>.</li>'
+       +'<li><b>Add Property or Portfolio</b> — pick the record type at the top:'
+         +'<ul>'
+           +'<li><b>Property</b> — single assessment (default).</li>'
+           +'<li><b>Add to Portfolio</b> — attach this property to an existing portfolio. A picker appears with portfolios you can access; pick one, or choose <b>+ New portfolio…</b> to create one inline.</li>'
+           +'<li><b>Portfolio</b> — start a brand-new portfolio. Whatever you\'ve traced so far becomes the portfolio\'s first property automatically.</li>'
+         +'</ul>'
+       +'</li>'
+       +'<li><b>Property name</b> — type the hotel/resort name. Suggestions appear as you type. The name auto-mirrors into Step 2.</li>'
+       +'<li><b>Locate on map</b> — searches by name, address, or Plus Code, then centers the satellite map. The resolved address is saved with the record for grouping + future ship-to use.</li>'
+       +'<li><b>Trace each pool</b> — click <b>Magic Wand</b> and tap a pool for auto-detect, or click <b>Trace polygon by hand</b> to draw it yourself. Centre / Merge mode / Undo controls sit at the bottom-left of the map.</li>'
+       +'<li><b>Confirm details</b> — name, type, depth, then <b>Register pool</b>.</li>'
+       +'<li>Repeat for each pool, then click <b>Continue to Pool &amp; System</b> (top of the right column).</li>'
      +'</ol>'
-     +'<p style="color:var(--mu);font-size:11px">Tip: Click <b>Skip Map Pools</b> at the top to jump straight to manual data entry if you already have pool sizes.</p>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: <b>Skip Map Pools</b> (top of the right column) jumps straight to manual data entry if you already know pool sizes.</p>'
   },
   'pool-system': {
     title: 'Pool &amp; System — Step 2 of 5',
     body:
-      '<p>Enter pool dimensions and pick the right AquaRev devices for each pool.</p>'
+      '<p>Enter pool dimensions and pick the AquaRev devices needed for each pool.</p>'
      +'<ol>'
+       +'<li><b>Property Name</b> — required to advance. Auto-mirrors from Map Pools if you typed it there. Attempting to continue without a name pops an instruction modal.</li>'
        +'<li><b>Pool dimensions</b> — length, width, depth. Total volume calculates automatically.</li>'
-       +'<li><b>Device selection</b> — pick the pipe size of each AquaRev device that will be installed.</li>'
-       +'<li><b>Water Loss / Chemical Costs</b> — adjust expected reduction percentages and per-gallon costs to match the property\'s real numbers.</li>'
+       +'<li><b>AquaRev Devices Required (on Return Pipes)</b> — pick the pipe size of each device that will be installed.</li>'
+       +'<li><b>Water Loss / Chemical Costs</b> — tune the expected reduction percentages and per-gallon costs to match the property\'s real numbers.</li>'
      +'</ol>'
-     +'<p style="color:var(--mu);font-size:11px">Tip: The Results panel on the right updates live as you type — use it to sanity-check the savings.</p>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: The results column on the right updates live as you type — use it to sanity-check the numbers before clicking Continue.</p>'
   },
   'pricing': {
     title: 'Pricing &amp; Settings — Step 3 of 5',
     body:
-      '<p>Apply discount, savings projection weight, and finalize the ROI numbers.</p>'
+      '<p>Apply discount, savings projection, and finalize the ROI before quoting.</p>'
      +'<ul>'
        +'<li><b>Discount slider</b> — discount applied to the equipment subtotal.</li>'
        +'<li><b>Savings Weight</b> — caps projected savings to a conservative percentage of the lab-validated maximum (default 100%).</li>'
+       +'<li><b>5-Year Water Conservation</b> card — totals the 5-year water loss reduction in gallons, shown right above the Monthly Savings Breakdown.</li>'
      +'</ul>'
      +'<p>When the numbers look right, click <b>Continue → Quote</b> to build the proposal.</p>'
   },
@@ -10839,43 +10848,91 @@ var HELP_CONTENT = {
       '<p>Build the formal commercial document — Quote, Purchase Order, or Invoice.</p>'
      +'<ol>'
        +'<li><b>Document Type</b> — pick Quote, Purchase Order, or Invoice. The PDF header updates accordingly.</li>'
-       +'<li><b>Header / Buyer</b> — fill in the buyer\'s name, address, and contact. Use the <b>Same as Buyer</b> toggle to copy buyer info into Ship-To.</li>'
-       +'<li><b>Line Items</b> — equipment auto-pulls from Step 2. Add-ons (Warranty / Services / Shipping) can be toggled <b>Included</b> to print "INCLUDED" without adding to the total.</li>'
-       +'<li><b>Standard Terms / Purchase Terms &amp; Conditions</b> — boilerplate is pre-filled; edit per deal as needed.</li>'
-       +'<li><b>Payment Method</b> — pick CC / Wire / Check (the PDF shows all three options on the Payment Form page).</li>'
+       +'<li><b>Header / Buyer</b> — buyer name, address, contact. Use the <b>Same as Buyer</b> toggle to copy buyer info into Ship-To.</li>'
+       +'<li><b>Line Items</b> — equipment auto-pulls from Step 2. Warranty / Services / Shipping can be toggled <b>Included</b> to print "INCLUDED" without adding to the total.</li>'
+       +'<li><b>Standard Terms</b> — short legal block on the Quote page. <b>Purchase Terms &amp; Conditions</b> — long-form legal, prints on its own page.</li>'
+       +'<li><b>Payment Method</b> — CC / Wire / Check (the PDF shows all three on the Payment Form page).</li>'
        +'<li><b>Preview Quote PDF</b> — see exactly what the customer will receive.</li>'
      +'</ol>'
+     +'<p style="color:var(--mu);font-size:11px">Portfolio assessments skip this step entirely — quote prep happens at the portfolio level in the Archive.</p>'
   },
   'export': {
     title: 'Export — Step 5 of 5',
     body:
-      '<p>Pick which pages to include in the final PDF, add property images / videos, and download.</p>'
+      '<p>Pick which pages go into the final PDF, add property images / videos, and download.</p>'
      +'<ul>'
-       +'<li><b>Toggles on the left</b> — Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover. Toggle off any page you don\'t want.</li>'
+       +'<li><b>Sections to include</b> — Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover. Toggle any page off you don\'t want.</li>'
        +'<li><b>Property Images</b> — upload up to 4 photos to appear on the Pool Profiles page.</li>'
-       +'<li><b>YouTube Videos</b> — paste up to 4 video URLs to appear on the Exec Summary page.</li>'
-       +'<li><b>Preview</b> — see the entire PDF in browser. <b>Download</b> generates a print-ready PDF. <b>Archive</b> saves a copy for later.</li>'
+       +'<li><b>YouTube Videos</b> — paste up to 4 URLs to appear on the Exec Summary page.</li>'
+       +'<li><b>Preview</b> — see the entire PDF in browser. <b>Download</b> generates a print-ready PDF.</li>'
+       +'<li><b>Save</b> (middle column) and <b>Save to Archive</b> (right column nav) — both store the assessment to your archive for later.</li>'
      +'</ul>'
+     +'<p style="color:var(--mu);font-size:11px">In portfolio property mode this step collapses to a single <b>Save &amp; Close → Portfolio Overview</b> action — the portfolio handles PDF generation at the portfolio level.</p>'
   },
   'archive': {
-    title: 'Archive',
+    title: 'Assessments',
     body:
-      '<p>Saved assessments live here. You can recall, duplicate, regenerate PDFs, or delete records.</p>'
+      '<p>Every saved record — single assessments and portfolios — lives here in one unified list.</p>'
      +'<ul>'
-       +'<li><b>Recall</b> — load this assessment back into the calculator to edit it.</li>'
-       +'<li><b>Duplicate</b> — clone the record to start a new "Copy of" version (original stays untouched).</li>'
-       +'<li><b>Portrait / Landscape PDF</b> — instantly regenerate the PDF without recalling.</li>'
-       +'<li><b>Delete</b> — permanently remove. Cannot be undone.</li>'
+       +'<li><b>Type indicator</b> — single rows have a teal document icon + teal left-edge stripe; portfolios have a green stack icon + green stripe. Scan-pattern at a glance.</li>'
+       +'<li><b>Title click</b> opens the record. Singles load into the calculator; portfolios open the Portfolio Overview.</li>'
+       +'<li><b>Per-row buttons</b> — Open · Duplicate · Copy to Portfolio (singles only) · Portrait / Landscape PDF · Reassign (admin) · Delete.</li>'
+       +'<li><b>Copy to Portfolio</b> — takes a single assessment and adds it to an existing portfolio. Choose Save as New (new property in the portfolio) or Save &amp; Update (overwrite an existing property).</li>'
+       +'<li><b>Search</b> — filters by record name across both types.</li>'
+       +'<li><b>Select</b> — at the top, enables bulk delete.</li>'
      +'</ul>'
-     +'<p style="color:var(--mu);font-size:11px">Tip: Use <b>Select</b> at the top to bulk-delete multiple records at once.</p>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: Need to import a list of properties from a hotel-chain CSV? Open the portfolio first, then click <b>↑ Import CSV</b> on the Overview to bulk-create properties.</p>'
+  },
+  'portfolio-overview': {
+    title: 'Portfolio Overview',
+    body:
+      '<p>Manage the properties in this portfolio, prepare the quote, and package the export.</p>'
+     +'<ul>'
+       +'<li><b>KPI strip</b> — properties count, total investment, total monthly / annual savings, blended payback.</li>'
+       +'<li><b>+ Add Property</b> — adds one property manually. Drops you into property mode on the Map Pools step to fill it in.</li>'
+       +'<li><b>↑ Import CSV</b> — bulk-import properties from a hotel-chain CSV (drag-and-drop or click). Use the <b>Download template</b> link in the modal for the recognized header format.</li>'
+       +'<li><b>Quote</b> — opens the Portfolio Quote builder (Recipient, Ship-Tos, Line Items, Adjustments, Deposit &amp; Terms, Purchase Terms, Notes).</li>'
+       +'<li><b>Export →</b> — opens the Portfolio Export panel with section toggles for the final PDF.</li>'
+       +'<li><b>Property roster</b> — click any row to enter property mode and edit that property\'s pools / devices / savings.</li>'
+     +'</ul>'
+     +'<p style="color:var(--mu);font-size:11px">RLS gates portfolio data: users see their own portfolios; admins see every portfolio across the team.</p>'
+  },
+  'portfolio-export': {
+    title: 'Portfolio Export',
+    body:
+      '<p>Pick which sections go into the portfolio PDF, then Preview, Download, or Save to Archive.</p>'
+     +'<ul>'
+       +'<li><b>Cover Page</b> — portfolio name + buyer info.</li>'
+       +'<li><b>Executive Summary</b> — rolled-up KPIs across all properties.</li>'
+       +'<li><b>Portfolio Assessment</b> — single page summarizing the entire portfolio (Property Configuration, AquaRev Devices Required roll-up, Purchase Options, Monthly Savings Breakdown, Water Conservation, Investment chart).</li>'
+       +'<li><b>Property Profiles</b> — one card per property (Cards mode) or a compact table grouped by country (List by Country mode).</li>'
+       +'<li><b>Property Pool Profiles</b> — pool detail grouped by property. Cards (full per-pool cards) or List (compact row table).</li>'
+       +'<li><b>Portfolio Quote</b> — locked until you configure it. Click <b>Unlock &amp; Configure →</b> to open the Quote builder, then return here with the section toggleable.</li>'
+       +'<li><b>Purchase Terms and Conditions</b> — long-form legal page (pulls from Quote section 6).</li>'
+       +'<li><b>Back Cover</b> — closing branded page.</li>'
+     +'</ul>'
+  },
+  'quote-builder': {
+    title: 'Portfolio Quote',
+    body:
+      '<p>Configure the portfolio-wide quote. All sections persist automatically.</p>'
+     +'<ol>'
+       +'<li><b>Recipient</b> — buyer name, email, phone, bill-to address.</li>'
+       +'<li><b>Ship-To Addresses</b> — split (one per property, auto-populated from property addresses) or consolidated (single destination).</li>'
+       +'<li><b>Line Items</b> — auto-rolled SKUs across all properties. Override qty or unit price per SKU; expand <b>Per-property breakdown</b> to see attribution.</li>'
+       +'<li><b>Adjustments</b> — portfolio discount %, tax rate, consolidated shipping cost + term.</li>'
+       +'<li><b>Deposit &amp; Payment Terms</b> — deposit %, due date, balance due terms.</li>'
+       +'<li><b>Standard Terms &amp; Purchase Terms and Conditions</b> — short terms on the Quote page + long-form legal on its own page. Notes are internal-only.</li>'
+     +'</ol>'
+     +'<p><b>Save Draft</b> keeps you on the builder; <b>Save &amp; Return →</b> writes to the portfolio quote table and drops you back at Export with the Quote section now toggleable.</p>'
   },
   'admin': {
     title: 'Admin Dashboard',
     body:
-      '<p>Admins (Jeff, Rob, Dinesh) see this drawer in the Archive view.</p>'
+      '<p>Admins see this drawer at the top of the Assessments page.</p>'
      +'<ul>'
-       +'<li><b>Records · Last 30 Days</b> — total records created across all users in the last 30 days.</li>'
-       +'<li><b>User Activity table</b> — per-user lifetime login count, 30-day records, 30-day logins, and last login date.</li>'
+       +'<li><b>KPI grid</b> — six cards across the top: Records · 7 Days · Assessments Total · Portfolios Total · Properties Total · Pools Total · Value Total. Deleted records are excluded automatically.</li>'
+       +'<li><b>User Activity table</b> — per-user lifetime login count, 30-day records, 30-day logins, last login date.</li>'
        +'<li><b>90-Day Chart</b> — daily records created, broken out per user, in EST.</li>'
        +'<li><b>Created By column</b> — every record shows who saved it. Use the orange ⇒ button to reassign records between users.</li>'
      +'</ul>'
@@ -10883,6 +10940,15 @@ var HELP_CONTENT = {
 };
 
 function helpKeyForCurrentView(){
+  // Portfolio surfaces take precedence — the rep is inside a portfolio context.
+  try {
+    if (window.AR2_PF && AR2_PF.viewMode){
+      var vm = AR2_PF.viewMode();
+      if (vm === 'export')        return 'portfolio-export';
+      if (vm === 'quote-builder') return 'quote-builder';
+      if (vm === 'overview')      return 'portfolio-overview';
+    }
+  } catch(_){}
   // Bank/Archive view trumps the calculator step
   try { if(typeof VIEW !== 'undefined' && VIEW === 'bank') return 'archive'; } catch(_){}
   try {
