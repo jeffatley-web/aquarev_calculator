@@ -1570,9 +1570,13 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    highlights the spotlight area, and a coach-mark card carries the step copy
    + controls. Outside the bands, clicks pass through to the highlighted
    element so the user can actually interact with what's being explained. */
-.ar2-tour-mask{position:fixed;background:rgba(4,15,30,.72);z-index:999996;pointer-events:auto;transition:all .18s ease;}
-.ar2-tour-ring{position:fixed;z-index:999997;pointer-events:none;border-radius:8px;box-shadow:0 0 0 3px rgba(0,180,216,.85),0 0 24px rgba(0,180,216,.45);transition:all .18s ease;}
-.ar2-tour-card{position:fixed;z-index:999999;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.4);border-radius:12px;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.6);font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#e0f4fa;transition:top .18s ease,left .18s ease;}
+/* Tour stacking lives BELOW modal layers (ar-pf-modal-backdrop = 100000+)
+   so opening a portfolio / new-portfolio / copy-to-portfolio modal during
+   an active tour shows the modal cleanly on top instead of getting buried
+   under the spotlight overlay. */
+.ar2-tour-mask{position:fixed;background:rgba(4,15,30,.72);z-index:50000;pointer-events:auto;transition:all .18s ease;}
+.ar2-tour-ring{position:fixed;z-index:50001;pointer-events:none;border-radius:8px;box-shadow:0 0 0 3px rgba(0,180,216,.85),0 0 24px rgba(0,180,216,.45);transition:all .18s ease;}
+.ar2-tour-card{position:fixed;z-index:50100;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.4);border-radius:12px;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.6);font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#e0f4fa;transition:top .18s ease,left .18s ease;}
 .ar2-tour-card-progress{font-size:10px;letter-spacing:1.8px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px;}
 .ar2-tour-card-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#fff;line-height:1.2;margin-bottom:8px;}
 .ar2-tour-card-body{font-size:13px;line-height:1.55;color:#cfe2eb;margin-bottom:14px;}
@@ -1628,10 +1632,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;color:var(--mu);}
 #ar2 .ar-admin-chart-legend i{display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;}
 /* Admin Created By cell + reassign menu */
-#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:10.5px;text-align:left;padding-left:8px;}
-/* Created By thead label — left-aligned to match the row data; overrides
+#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;text-align:center;}
+/* Created By thead label — centered to match the row data; overrides
    the generic "all non-first thead columns are right-aligned" rule. */
-#ar2 .ar-bank-thead > .ar-bank-th-createdby{text-align:left;padding-left:8px;}
+#ar2 .ar-bank-thead > .ar-bank-th-createdby{text-align:center;}
 #ar2 .ar-bank-createdby .name{color:var(--tx);font-weight:500;}
 #ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
 #ar2 .ar-bank-createdby .role.admin{color:var(--go);}
