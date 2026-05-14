@@ -635,6 +635,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:15px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:6.5px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-body{padding:4px 16px 2px!important;font-size:9.5px!important;}
+  /* Match the screen-mode body containment: flex column with space-between
+     so Row A / Row B / media / disclaimer distribute across the full
+     landscape body height in PDF output (not just collapsed to the top). */
+  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;justify-content:space-between!important;}
   #ar2-report .rpt.rpt-landscape .rpt-cta-bar{padding:3px 20px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-foot{padding:3px 20px!important;font-size:6.5px!important;}
   /* ── Landscape Assessment AGGRESSIVE compaction ──
@@ -764,8 +768,11 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
     aspect-ratio:auto!important;
   }
   /* Screen body containment so content doesn't push CTA/footer past the
-     866px page boundary in preview. */
-  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0;min-height:0;overflow:hidden;display:flex;flex-direction:column;}
+     866px page boundary in preview.
+     justify-content:space-between distributes Row A / Row B / media row /
+     disclaimer across the full vertical span of the body so the landscape
+     page uses its available height rather than collapsing content to the top. */
+  #ar2-report .rpt.rpt-landscape > .rpt-body{flex:1 1 0;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;}
   #ar2-report .rpt-pp-page.rpt-pp-page-landscape > .rpt-pp-grid{flex:1 1 0;min-height:0;overflow:hidden;}
   /* Property Images + Video Resources row — separate row at the bottom
      of body, natural flow placement. Mirrors print-mode caps so preview
