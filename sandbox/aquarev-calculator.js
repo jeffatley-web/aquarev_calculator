@@ -5072,6 +5072,12 @@ function seedFirstPropertyFromMapPools(newPortfolio){
     if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
     clearInterval(iv);
     applyPfBody();
+    // Welcome modal — first-time or post-update prompt for the guided tour.
+    // Slight delay so the calculator chrome is fully painted (the tour
+    // targets need to exist when/if the user accepts).
+    setTimeout(function(){
+      try { if (typeof maybeShowWelcomeModal === 'function') maybeShowWelcomeModal(); } catch(_){}
+    }, 800);
   }, 500);
   // Safety net: re-evaluate whenever the Archive is opened. Covers
   // sign-out/sign-in within the same session and any oddball race.
@@ -11073,6 +11079,71 @@ var tourState = { active:false, key:null, idx:0, steps:[], resizeBound:false };
 
 function tourKeyForCurrentView(){
   return helpKeyForCurrentView();
+}
+
+/* Welcome modal — first-time login OR version update.
+   Reads the version the Webflow auto-refresh poller stamped into
+   localStorage as `ar_app_version`, compares to `ar_welcome_seen_version`,
+   and offers the guided tour when they differ. Skipped for Client users
+   (their UI is intentionally minimal — they don't need the tour). */
+function maybeShowWelcomeModal(){
+  try {
+    // Skip in client mode — client UI is stripped down, tour isn't relevant.
+    if (window.AR2_CLOUD && AR2_CLOUD.isReady && AR2_CLOUD.isReady() &&
+        AR2_CLOUD.isClient && AR2_CLOUD.isClient()) return;
+    // Don't show on top of an open login gate, modal, or existing tour
+    if (document.getElementById('ar2-tour-root')) return;
+    if (document.getElementById('ar2-welcome-modal')) return;
+    if (document.getElementById('ar2-help-modal')) return;
+    var ver = '';
+    try { ver = localStorage.getItem('ar_app_version') || ''; } catch(_){}
+    if (!ver) return; // version-stamp poller hasn't run yet
+    var seen = '';
+    try { seen = localStorage.getItem('ar_welcome_seen_version') || ''; } catch(_){}
+    if (seen === ver) return; // already acknowledged this version
+    showWelcomeTutorialModal(!!seen, ver);
+  } catch(_){}
+}
+
+function showWelcomeTutorialModal(isUpdate, currentVer){
+  if (document.getElementById('ar2-welcome-modal')) return;
+  var m = document.createElement('div');
+  m.id = 'ar2-welcome-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  var headline = isUpdate ? 'What\'s new in this update' : 'Welcome to AquaRev ROI Calculator';
+  var lede = isUpdate
+    ? 'The calculator was just updated with new features for portfolios, bulk imports, and a cleaner export flow. Want a quick tour of what changed and where things live?'
+    : 'Want a guided walkthrough of the calculator? A short interactive tour highlights each section and shows you how to enter data step by step.';
+  m.innerHTML =
+      '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.4);border-radius:14px;padding:28px 30px;max-width:480px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.6);">'
+    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;letter-spacing:3px;color:#48cae4;text-transform:uppercase;margin-bottom:6px">' + (isUpdate?'New build • ' + esc(currentVer):'Hello') + '</div>'
+    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:1.5px;color:#fff;line-height:1.15;margin-bottom:12px">' + esc(headline) + '</div>'
+    +   '<div style="font-size:14px;color:#cfe2eb;line-height:1.6;margin-bottom:20px">' + esc(lede) + '</div>'
+    +   '<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">'
+    +     '<button id="ar2-welcome-skip" style="background:transparent;border:1px solid rgba(255,255,255,.22);color:#cfe2eb;border-radius:8px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Maybe later</button>'
+    +     '<button id="ar2-welcome-start" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;border-radius:8px;padding:10px 20px;font-family:inherit;font-size:13px;font-weight:700;letter-spacing:.5px;cursor:pointer">▶ Start the tour</button>'
+    +   '</div>'
+    +   '<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,180,216,.18);font-size:11px;color:#7db8cc;text-align:center;line-height:1.5">You can launch the tour anytime from the <b style="color:#cfe2eb">?</b> button in the top-right of the page.</div>'
+    + '</div>';
+  document.body.appendChild(m);
+  function dismiss(){
+    try { localStorage.setItem('ar_welcome_seen_version', currentVer); } catch(_){}
+    if (m.parentNode) m.parentNode.removeChild(m);
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e){ if (e.key === 'Escape') dismiss(); }
+  document.getElementById('ar2-welcome-skip').onclick = dismiss;
+  document.getElementById('ar2-welcome-start').onclick = function(){
+    dismiss();
+    // Launch the tour for whatever view the rep is on (usually Map Pools
+    // since first-time users land there).
+    try {
+      var key = (typeof helpKeyForCurrentView === 'function') ? helpKeyForCurrentView() : 'map-pools';
+      startTour(key);
+    } catch(_){ try { startTour('map-pools'); } catch(__){} }
+  };
+  m.addEventListener('click', function(e){ if (e.target === m) dismiss(); });
+  document.addEventListener('keydown', onKey);
 }
 
 function startTour(key){
