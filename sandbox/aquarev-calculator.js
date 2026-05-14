@@ -11084,14 +11084,13 @@ function tourKeyForCurrentView(){
 /* Welcome modal — first-time login OR version update.
    Reads the version the Webflow auto-refresh poller stamped into
    localStorage as `ar_app_version`, compares to `ar_welcome_seen_version`,
-   and offers the guided tour when they differ. Skipped for Client users
-   (their UI is intentionally minimal — they don't need the tour). */
+   and offers the guided tour when they differ. Shown to every role —
+   reps, admins, and clients — since the tour highlights elements that
+   are present in each role's UI (steps targeting hidden elements are
+   silently skipped by the tour engine). */
 function maybeShowWelcomeModal(){
   try {
-    // Skip in client mode — client UI is stripped down, tour isn't relevant.
-    if (window.AR2_CLOUD && AR2_CLOUD.isReady && AR2_CLOUD.isReady() &&
-        AR2_CLOUD.isClient && AR2_CLOUD.isClient()) return;
-    // Don't show on top of an open login gate, modal, or existing tour
+    // Don't stack on top of an open login gate, existing modal, or active tour
     if (document.getElementById('ar2-tour-root')) return;
     if (document.getElementById('ar2-welcome-modal')) return;
     if (document.getElementById('ar2-help-modal')) return;
