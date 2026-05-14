@@ -1566,6 +1566,28 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    Sits between New and the user chip. */
 #ar2 .ar-help-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;cursor:pointer;padding:0;line-height:1;transition:.15s;flex-shrink:0;}
 #ar2 .ar-help-icon:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.6);color:#fff;}
+/* Guided tour — 4 mask bands dim the page except the target, a teal ring
+   highlights the spotlight area, and a coach-mark card carries the step copy
+   + controls. Outside the bands, clicks pass through to the highlighted
+   element so the user can actually interact with what's being explained. */
+/* Tour stacking lives BELOW modal layers (ar-pf-modal-backdrop = 100000+)
+   so opening a portfolio / new-portfolio / copy-to-portfolio modal during
+   an active tour shows the modal cleanly on top instead of getting buried
+   under the spotlight overlay. */
+.ar2-tour-mask{position:fixed;background:rgba(4,15,30,.72);z-index:50000;pointer-events:auto;transition:all .18s ease;}
+.ar2-tour-ring{position:fixed;z-index:50001;pointer-events:none;border-radius:8px;box-shadow:0 0 0 3px rgba(0,180,216,.85),0 0 24px rgba(0,180,216,.45);transition:all .18s ease;}
+.ar2-tour-card{position:fixed;z-index:50100;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.4);border-radius:12px;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.6);font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#e0f4fa;transition:top .18s ease,left .18s ease;}
+.ar2-tour-card-progress{font-size:10px;letter-spacing:1.8px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px;}
+.ar2-tour-card-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#fff;line-height:1.2;margin-bottom:8px;}
+.ar2-tour-card-body{font-size:13px;line-height:1.55;color:#cfe2eb;margin-bottom:14px;}
+.ar2-tour-card-actions{display:flex;align-items:center;gap:8px;}
+.ar2-tour-btn{padding:7px 14px;border-radius:7px;border:1px solid rgba(0,180,216,.32);background:transparent;color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .15s,border-color .15s;}
+.ar2-tour-btn:hover{background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.6);color:#fff;}
+.ar2-tour-btn.primary{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border-color:transparent;}
+.ar2-tour-btn.primary:hover{filter:brightness(1.1);}
+.ar2-tour-btn.ghost{opacity:.7;border-color:rgba(255,255,255,.15);}
+.ar2-tour-btn.ghost:hover{opacity:1;}
+@media print{.ar2-tour-mask,.ar2-tour-ring,.ar2-tour-card{display:none!important;}}
 /* ── User chip in the top bar ──────────────────────────────────────
    Sits beside the New button. Shows the signed-in user's initial in a
    circle + their name. Click → dropdown with full name, role, and a
@@ -1610,10 +1632,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font-size:10px;color:var(--mu);}
 #ar2 .ar-admin-chart-legend i{display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;}
 /* Admin Created By cell + reassign menu */
-#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:10.5px;text-align:left;padding-left:8px;}
-/* Created By thead label — left-aligned to match the row data; overrides
+#ar2 .ar-bank-createdby{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;text-align:center;}
+/* Created By thead label — centered to match the row data; overrides
    the generic "all non-first thead columns are right-aligned" rule. */
-#ar2 .ar-bank-thead > .ar-bank-th-createdby{text-align:left;padding-left:8px;}
+#ar2 .ar-bank-thead > .ar-bank-th-createdby{text-align:center;}
 #ar2 .ar-bank-createdby .name{color:var(--tx);font-weight:500;}
 #ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
 #ar2 .ar-bank-createdby .role.admin{color:var(--go);}

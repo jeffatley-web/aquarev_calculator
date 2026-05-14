@@ -5072,6 +5072,12 @@ function seedFirstPropertyFromMapPools(newPortfolio){
     if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
     clearInterval(iv);
     applyPfBody();
+    // Welcome modal — first-time or post-update prompt for the guided tour.
+    // Slight delay so the calculator chrome is fully painted (the tour
+    // targets need to exist when/if the user accepts).
+    setTimeout(function(){
+      try { if (typeof maybeShowWelcomeModal === 'function') maybeShowWelcomeModal(); } catch(_){}
+    }, 800);
   }, 500);
   // Safety net: re-evaluate whenever the Archive is opened. Covers
   // sign-out/sign-in within the same session and any oddball race.
@@ -10802,34 +10808,43 @@ var HELP_CONTENT = {
   'map-pools': {
     title: 'Map Pools — Step 1 of 5',
     body:
-      '<p>Use this step to identify and measure pools at the property.</p>'
+      '<p>Identify and measure each pool at the property. The first card has a <b style="color:var(--gr)">green top border</b> — that\'s your "start here" anchor.</p>'
      +'<ol>'
-       +'<li><b>Property name</b> — type the hotel/resort name. Suggestions appear as you type.</li>'
-       +'<li><b>Locate on map</b> — searches by name, address, or Plus Code, then centers the satellite map on the property.</li>'
-       +'<li><b>Trace each pool</b> — click <b>Magic Wand</b> and click on a pool to auto-detect its outline, OR click <b>Trace polygon by hand</b> to draw it yourself.</li>'
-       +'<li><b>Confirm details</b> — give it a name, type, and depth, then click <b>Register pool</b>.</li>'
-       +'<li>Repeat for each pool, then click <b>Continue to Pool &amp; System</b>.</li>'
+       +'<li><b>Add Property or Portfolio</b> — pick the record type at the top:'
+         +'<ul>'
+           +'<li><b>Property</b> — single assessment (default).</li>'
+           +'<li><b>Add to Portfolio</b> — attach this property to an existing portfolio. A picker appears with portfolios you can access; pick one, or choose <b>+ New portfolio…</b> to create one inline.</li>'
+           +'<li><b>Portfolio</b> — start a brand-new portfolio. Whatever you\'ve traced so far becomes the portfolio\'s first property automatically.</li>'
+         +'</ul>'
+       +'</li>'
+       +'<li><b>Property name</b> — type the hotel/resort name. Suggestions appear as you type. The name auto-mirrors into Step 2.</li>'
+       +'<li><b>Locate on map</b> — searches by name, address, or Plus Code, then centers the satellite map. The resolved address is saved with the record for grouping + future ship-to use.</li>'
+       +'<li><b>Trace each pool</b> — click <b>Magic Wand</b> and tap a pool for auto-detect, or click <b>Trace polygon by hand</b> to draw it yourself. Centre / Merge mode / Undo controls sit at the bottom-left of the map.</li>'
+       +'<li><b>Confirm details</b> — name, type, depth, then <b>Register pool</b>.</li>'
+       +'<li>Repeat for each pool, then click <b>Continue to Pool &amp; System</b> (top of the right column).</li>'
      +'</ol>'
-     +'<p style="color:var(--mu);font-size:11px">Tip: Click <b>Skip Map Pools</b> at the top to jump straight to manual data entry if you already have pool sizes.</p>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: <b>Skip Map Pools</b> (top of the right column) jumps straight to manual data entry if you already know pool sizes.</p>'
   },
   'pool-system': {
     title: 'Pool &amp; System — Step 2 of 5',
     body:
-      '<p>Enter pool dimensions and pick the right AquaRev devices for each pool.</p>'
+      '<p>Enter pool dimensions and pick the AquaRev devices needed for each pool.</p>'
      +'<ol>'
+       +'<li><b>Property Name</b> — required to advance. Auto-mirrors from Map Pools if you typed it there. Attempting to continue without a name pops an instruction modal.</li>'
        +'<li><b>Pool dimensions</b> — length, width, depth. Total volume calculates automatically.</li>'
-       +'<li><b>Device selection</b> — pick the pipe size of each AquaRev device that will be installed.</li>'
-       +'<li><b>Water Loss / Chemical Costs</b> — adjust expected reduction percentages and per-gallon costs to match the property\'s real numbers.</li>'
+       +'<li><b>AquaRev Devices Required (on Return Pipes)</b> — pick the pipe size of each device that will be installed.</li>'
+       +'<li><b>Water Loss / Chemical Costs</b> — tune the expected reduction percentages and per-gallon costs to match the property\'s real numbers.</li>'
      +'</ol>'
-     +'<p style="color:var(--mu);font-size:11px">Tip: The Results panel on the right updates live as you type — use it to sanity-check the savings.</p>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: The results column on the right updates live as you type — use it to sanity-check the numbers before clicking Continue.</p>'
   },
   'pricing': {
     title: 'Pricing &amp; Settings — Step 3 of 5',
     body:
-      '<p>Apply discount, savings projection weight, and finalize the ROI numbers.</p>'
+      '<p>Apply discount, savings projection, and finalize the ROI before quoting.</p>'
      +'<ul>'
        +'<li><b>Discount slider</b> — discount applied to the equipment subtotal.</li>'
        +'<li><b>Savings Weight</b> — caps projected savings to a conservative percentage of the lab-validated maximum (default 100%).</li>'
+       +'<li><b>5-Year Water Conservation</b> card — totals the 5-year water loss reduction in gallons, shown right above the Monthly Savings Breakdown.</li>'
      +'</ul>'
      +'<p>When the numbers look right, click <b>Continue → Quote</b> to build the proposal.</p>'
   },
@@ -10839,43 +10854,91 @@ var HELP_CONTENT = {
       '<p>Build the formal commercial document — Quote, Purchase Order, or Invoice.</p>'
      +'<ol>'
        +'<li><b>Document Type</b> — pick Quote, Purchase Order, or Invoice. The PDF header updates accordingly.</li>'
-       +'<li><b>Header / Buyer</b> — fill in the buyer\'s name, address, and contact. Use the <b>Same as Buyer</b> toggle to copy buyer info into Ship-To.</li>'
-       +'<li><b>Line Items</b> — equipment auto-pulls from Step 2. Add-ons (Warranty / Services / Shipping) can be toggled <b>Included</b> to print "INCLUDED" without adding to the total.</li>'
-       +'<li><b>Standard Terms / Purchase Terms &amp; Conditions</b> — boilerplate is pre-filled; edit per deal as needed.</li>'
-       +'<li><b>Payment Method</b> — pick CC / Wire / Check (the PDF shows all three options on the Payment Form page).</li>'
+       +'<li><b>Header / Buyer</b> — buyer name, address, contact. Use the <b>Same as Buyer</b> toggle to copy buyer info into Ship-To.</li>'
+       +'<li><b>Line Items</b> — equipment auto-pulls from Step 2. Warranty / Services / Shipping can be toggled <b>Included</b> to print "INCLUDED" without adding to the total.</li>'
+       +'<li><b>Standard Terms</b> — short legal block on the Quote page. <b>Purchase Terms &amp; Conditions</b> — long-form legal, prints on its own page.</li>'
+       +'<li><b>Payment Method</b> — CC / Wire / Check (the PDF shows all three on the Payment Form page).</li>'
        +'<li><b>Preview Quote PDF</b> — see exactly what the customer will receive.</li>'
      +'</ol>'
+     +'<p style="color:var(--mu);font-size:11px">Portfolio assessments skip this step entirely — quote prep happens at the portfolio level in the Archive.</p>'
   },
   'export': {
     title: 'Export — Step 5 of 5',
     body:
-      '<p>Pick which pages to include in the final PDF, add property images / videos, and download.</p>'
+      '<p>Pick which pages go into the final PDF, add property images / videos, and download.</p>'
      +'<ul>'
-       +'<li><b>Toggles on the left</b> — Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover. Toggle off any page you don\'t want.</li>'
+       +'<li><b>Sections to include</b> — Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover. Toggle any page off you don\'t want.</li>'
        +'<li><b>Property Images</b> — upload up to 4 photos to appear on the Pool Profiles page.</li>'
-       +'<li><b>YouTube Videos</b> — paste up to 4 video URLs to appear on the Exec Summary page.</li>'
-       +'<li><b>Preview</b> — see the entire PDF in browser. <b>Download</b> generates a print-ready PDF. <b>Archive</b> saves a copy for later.</li>'
+       +'<li><b>YouTube Videos</b> — paste up to 4 URLs to appear on the Exec Summary page.</li>'
+       +'<li><b>Preview</b> — see the entire PDF in browser. <b>Download</b> generates a print-ready PDF.</li>'
+       +'<li><b>Save</b> (middle column) and <b>Save to Archive</b> (right column nav) — both store the assessment to your archive for later.</li>'
      +'</ul>'
+     +'<p style="color:var(--mu);font-size:11px">In portfolio property mode this step collapses to a single <b>Save &amp; Close → Portfolio Overview</b> action — the portfolio handles PDF generation at the portfolio level.</p>'
   },
   'archive': {
-    title: 'Archive',
+    title: 'Assessments',
     body:
-      '<p>Saved assessments live here. You can recall, duplicate, regenerate PDFs, or delete records.</p>'
+      '<p>Every saved record — single assessments and portfolios — lives here in one unified list.</p>'
      +'<ul>'
-       +'<li><b>Recall</b> — load this assessment back into the calculator to edit it.</li>'
-       +'<li><b>Duplicate</b> — clone the record to start a new "Copy of" version (original stays untouched).</li>'
-       +'<li><b>Portrait / Landscape PDF</b> — instantly regenerate the PDF without recalling.</li>'
-       +'<li><b>Delete</b> — permanently remove. Cannot be undone.</li>'
+       +'<li><b>Type indicator</b> — single rows have a teal document icon + teal left-edge stripe; portfolios have a green stack icon + green stripe. Scan-pattern at a glance.</li>'
+       +'<li><b>Title click</b> opens the record. Singles load into the calculator; portfolios open the Portfolio Overview.</li>'
+       +'<li><b>Per-row buttons</b> — Open · Duplicate · Copy to Portfolio (singles only) · Portrait / Landscape PDF · Reassign (admin) · Delete.</li>'
+       +'<li><b>Copy to Portfolio</b> — takes a single assessment and adds it to an existing portfolio. Choose Save as New (new property in the portfolio) or Save &amp; Update (overwrite an existing property).</li>'
+       +'<li><b>Search</b> — filters by record name across both types.</li>'
+       +'<li><b>Select</b> — at the top, enables bulk delete.</li>'
      +'</ul>'
-     +'<p style="color:var(--mu);font-size:11px">Tip: Use <b>Select</b> at the top to bulk-delete multiple records at once.</p>'
+     +'<p style="color:var(--mu);font-size:11px">Tip: Need to import a list of properties from a hotel-chain CSV? Open the portfolio first, then click <b>↑ Import CSV</b> on the Overview to bulk-create properties.</p>'
+  },
+  'portfolio-overview': {
+    title: 'Portfolio Overview',
+    body:
+      '<p>Manage the properties in this portfolio, prepare the quote, and package the export.</p>'
+     +'<ul>'
+       +'<li><b>KPI strip</b> — properties count, total investment, total monthly / annual savings, blended payback.</li>'
+       +'<li><b>+ Add Property</b> — adds one property manually. Drops you into property mode on the Map Pools step to fill it in.</li>'
+       +'<li><b>↑ Import CSV</b> — bulk-import properties from a hotel-chain CSV (drag-and-drop or click). Use the <b>Download template</b> link in the modal for the recognized header format.</li>'
+       +'<li><b>Quote</b> — opens the Portfolio Quote builder (Recipient, Ship-Tos, Line Items, Adjustments, Deposit &amp; Terms, Purchase Terms, Notes).</li>'
+       +'<li><b>Export →</b> — opens the Portfolio Export panel with section toggles for the final PDF.</li>'
+       +'<li><b>Property roster</b> — click any row to enter property mode and edit that property\'s pools / devices / savings.</li>'
+     +'</ul>'
+     +'<p style="color:var(--mu);font-size:11px">RLS gates portfolio data: users see their own portfolios; admins see every portfolio across the team.</p>'
+  },
+  'portfolio-export': {
+    title: 'Portfolio Export',
+    body:
+      '<p>Pick which sections go into the portfolio PDF, then Preview, Download, or Save to Archive.</p>'
+     +'<ul>'
+       +'<li><b>Cover Page</b> — portfolio name + buyer info.</li>'
+       +'<li><b>Executive Summary</b> — rolled-up KPIs across all properties.</li>'
+       +'<li><b>Portfolio Assessment</b> — single page summarizing the entire portfolio (Property Configuration, AquaRev Devices Required roll-up, Purchase Options, Monthly Savings Breakdown, Water Conservation, Investment chart).</li>'
+       +'<li><b>Property Profiles</b> — one card per property (Cards mode) or a compact table grouped by country (List by Country mode).</li>'
+       +'<li><b>Property Pool Profiles</b> — pool detail grouped by property. Cards (full per-pool cards) or List (compact row table).</li>'
+       +'<li><b>Portfolio Quote</b> — locked until you configure it. Click <b>Unlock &amp; Configure →</b> to open the Quote builder, then return here with the section toggleable.</li>'
+       +'<li><b>Purchase Terms and Conditions</b> — long-form legal page (pulls from Quote section 6).</li>'
+       +'<li><b>Back Cover</b> — closing branded page.</li>'
+     +'</ul>'
+  },
+  'quote-builder': {
+    title: 'Portfolio Quote',
+    body:
+      '<p>Configure the portfolio-wide quote. All sections persist automatically.</p>'
+     +'<ol>'
+       +'<li><b>Recipient</b> — buyer name, email, phone, bill-to address.</li>'
+       +'<li><b>Ship-To Addresses</b> — split (one per property, auto-populated from property addresses) or consolidated (single destination).</li>'
+       +'<li><b>Line Items</b> — auto-rolled SKUs across all properties. Override qty or unit price per SKU; expand <b>Per-property breakdown</b> to see attribution.</li>'
+       +'<li><b>Adjustments</b> — portfolio discount %, tax rate, consolidated shipping cost + term.</li>'
+       +'<li><b>Deposit &amp; Payment Terms</b> — deposit %, due date, balance due terms.</li>'
+       +'<li><b>Standard Terms &amp; Purchase Terms and Conditions</b> — short terms on the Quote page + long-form legal on its own page. Notes are internal-only.</li>'
+     +'</ol>'
+     +'<p><b>Save Draft</b> keeps you on the builder; <b>Save &amp; Return →</b> writes to the portfolio quote table and drops you back at Export with the Quote section now toggleable.</p>'
   },
   'admin': {
     title: 'Admin Dashboard',
     body:
-      '<p>Admins (Jeff, Rob, Dinesh) see this drawer in the Archive view.</p>'
+      '<p>Admins see this drawer at the top of the Assessments page.</p>'
      +'<ul>'
-       +'<li><b>Records · Last 30 Days</b> — total records created across all users in the last 30 days.</li>'
-       +'<li><b>User Activity table</b> — per-user lifetime login count, 30-day records, 30-day logins, and last login date.</li>'
+       +'<li><b>KPI grid</b> — six cards across the top: Records · 7 Days · Assessments Total · Portfolios Total · Properties Total · Pools Total · Value Total. Deleted records are excluded automatically.</li>'
+       +'<li><b>User Activity table</b> — per-user lifetime login count, 30-day records, 30-day logins, last login date.</li>'
        +'<li><b>90-Day Chart</b> — daily records created, broken out per user, in EST.</li>'
        +'<li><b>Created By column</b> — every record shows who saved it. Use the orange ⇒ button to reassign records between users.</li>'
      +'</ul>'
@@ -10883,6 +10946,15 @@ var HELP_CONTENT = {
 };
 
 function helpKeyForCurrentView(){
+  // Portfolio surfaces take precedence — the rep is inside a portfolio context.
+  try {
+    if (window.AR2_PF && AR2_PF.viewMode){
+      var vm = AR2_PF.viewMode();
+      if (vm === 'export')        return 'portfolio-export';
+      if (vm === 'quote-builder') return 'quote-builder';
+      if (vm === 'overview')      return 'portfolio-overview';
+    }
+  } catch(_){}
   // Bank/Archive view trumps the calculator step
   try { if(typeof VIEW !== 'undefined' && VIEW === 'bank') return 'archive'; } catch(_){}
   try {
@@ -10890,6 +10962,316 @@ function helpKeyForCurrentView(){
     return ['map-pools','pool-system','pricing','quote','export'][step] || 'map-pools';
   } catch(_){ return 'map-pools'; }
 }
+
+/* ── Guided Product Tour ────────────────────────────────────────────────
+   Interactive step-by-step walkthrough. Each step targets a CSS selector,
+   draws a spotlight ring around it, dims everything else, and shows a
+   coach-mark card with Back / Next / Skip controls. The user can still
+   interact with the highlighted element (the dim overlay has pointer-events
+   only outside the spotlight). Steps with a missing target are skipped.
+
+   Tour keys mirror HELP_CONTENT keys so the same "start tour" button on
+   the help modal launches the right walkthrough for the current view. */
+var TOUR_STEPS = {
+  'map-pools': [
+    { selector:'#ap2 .ap-card.ap-card-start',     title:'Pick the record type',
+      body:'Property = a single assessment. Add to Portfolio = attach this property to an existing portfolio. Portfolio = create a brand-new portfolio (whatever you trace becomes its first property).' },
+    { selector:'#ap-name',                        title:'Name the property',
+      body:'Type the hotel or resort name. Suggestions appear as you type. This name auto-mirrors into Step 2.' },
+    { selector:'#ap-query',                       title:'Locate on the map',
+      body:'Type an address or Plus Code, then click Locate on map. The resolved Google address is saved with the record for grouping + future ship-to use.' },
+    { selector:'[data-action="magic-wand"]',      title:'Trace pools',
+      body:'Click Magic Wand and tap a pool on the map for auto-detect. Or use Trace polygon by hand to draw it manually.' },
+    { selector:'#ap-map',                         title:'The map workspace',
+      body:'Pools you trace appear here. Centre, Merge mode, and Undo sit at the bottom-left of the map.' },
+    { selector:'#ap-btn-map-continue',            title:'Continue → Pool & System',
+      body:'When every pool is registered, click here to move on. Or click Skip Map Pools just above if you already know pool sizes.' }
+  ],
+  'pool-system': [
+    { selector:'#ar2-form [data-f="propertyName"]', title:'Property Name (required)',
+      body:'Auto-mirrors from Map Pools. Required to advance — trying to continue without one pops an instruction modal.' },
+    { selector:'#ar2-form .ar-card',                title:'Pool dimensions',
+      body:'Length × width × depth for each pool. Total volume auto-calculates.' },
+    { selector:'#ar2-devices',                      title:'AquaRev Devices Required',
+      body:'Pick the pipe size of each AquaRev device that will be installed on the return pipes.' },
+    { selector:'#ar2-results',                      title:'Live results',
+      body:'Numbers refresh as you type — sanity-check savings here before clicking Continue.' },
+    { selector:'#ar2-nav [data-nav="next"]',        title:'Continue → Pricing',
+      body:'When the numbers look right, advance to Step 3.' }
+  ],
+  'pricing': [
+    { selector:'#ar2-form',                         title:'Discount + Savings Weight',
+      body:'Apply a discount to the equipment subtotal. Savings Weight caps projected savings to a conservative % of the lab maximum (default 100%).' },
+    { selector:'#ar2-results',                      title:'KPIs + Water Conservation',
+      body:'The 5-Year Water Conservation card surfaces total water loss reduction in gallons. Below it, Monthly Savings Breakdown shows each category.' },
+    { selector:'#ar2-nav [data-nav="next"]',        title:'Continue → Quote',
+      body:'When the proposal numbers are dialed in, advance to build the formal Quote document.' }
+  ],
+  'quote': [
+    { selector:'#ar2-form',                         title:'Document Type + Buyer',
+      body:'Pick Quote / Purchase Order / Invoice and fill in the buyer block.' },
+    { selector:'#ar2-devices',                      title:'Line Items + Terms',
+      body:'Equipment auto-pulls from Step 2. Standard Terms = short legal on the Quote page. Purchase Terms & Conditions = long-form legal on its own page.' },
+    { selector:'#ar2-results',                      title:'Quote preview',
+      body:'Click Preview to see the exact PDF the customer will receive.' }
+  ],
+  'export': [
+    { selector:'#ar2-devices',                      title:'Section toggles',
+      body:'Pick which pages go into the final PDF. Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover — toggle off any you don\'t want.' },
+    { selector:'#ar2-form',                         title:'Property Images + Videos',
+      body:'Upload up to 4 photos for the Pool Profiles page. Paste up to 4 YouTube URLs for the Exec Summary page.' },
+    { selector:'[data-action="preview-report"]',    title:'Preview the PDF',
+      body:'See the entire document in-browser before downloading.' },
+    { selector:'[data-action="save-report"]',       title:'Save to Archive',
+      body:'Download generates the print-ready PDF. Save / Save to Archive stores the assessment for later recall.' }
+  ],
+  'archive': [
+    { selector:'#ar-bank-search',                   title:'Search records',
+      body:'Filters across all single assessments and portfolios by name.' },
+    { selector:'.ar-bank-card .ar-bank-prop',       title:'Type indicator + title click',
+      body:'Teal icon + stripe = single assessment. Green icon + stripe = portfolio. Click the title to open: singles load into the calculator, portfolios open the Portfolio Overview.' },
+    { selector:'.ar-bank-card .ar-bank-actions',    title:'Per-row actions',
+      body:'Open · Duplicate · Copy to Portfolio (singles only) · Portrait/Landscape PDF · Reassign (admin) · Delete.' },
+    { selector:'#ar-admin-dash',                    title:'Admin Dashboard',
+      body:'Six KPI cards summarize Records · 7 Days, Assessments, Portfolios, Properties, Pools, and Value across the whole team. Deleted records excluded automatically.' }
+  ],
+  'portfolio-overview': [
+    { selector:'.ar-pf-ov-hero',                    title:'Portfolio header',
+      body:'Back button, portfolio name + status, plus the action group: Quote · Export → · Import CSV · + Add Property.' },
+    { selector:'[data-pf-action="open-quote"]',     title:'Portfolio Quote',
+      body:'Opens the Quote builder where you configure recipient, ship-tos, line items, adjustments, deposit, and terms once for the whole portfolio.' },
+    { selector:'[data-pf-action="open-export"]',    title:'Export the portfolio',
+      body:'Opens the Portfolio Export panel — section toggles for the final PDF + Preview / Download / Save to Archive actions.' },
+    { selector:'[data-pf-action="import-csv"]',     title:'Bulk import properties',
+      body:'Drop a CSV/Excel export of a hotel chain list — every row becomes a property in this portfolio. Click Download template inside the modal for the recognized format.' },
+    { selector:'[data-pf-action="new-property"]',   title:'Add one property',
+      body:'Adds a single property manually and drops you into property mode on Map Pools to fill it in.' }
+  ],
+  'portfolio-export': [
+    { selector:'.ar-pf-exp-card',                   title:'Section toggles',
+      body:'Pick which pages go into the portfolio PDF. Each toggle uses the same on/off slider as the single-property Export.' },
+    { selector:'.ar-pf-exp-sub-row',                title:'Cards or List sub-options',
+      body:'Property Profiles can render as Cards or as a List grouped by Country. Pool Profiles can render as Cards (per-property pages) or a single compact List.' },
+    { selector:'[data-pf-action="open-quote"]',     title:'Unlock the Quote',
+      body:'The Portfolio Quote section starts locked. Click Unlock & Configure → to open the Quote builder; return here with the section toggleable.' },
+    { selector:'.ar-pf-exp-actions',                title:'Preview · Download · Archive',
+      body:'Preview opens the full PDF in-browser. Download generates the print-ready PDF. Save to Archive stores the bundle for later.' }
+  ],
+  'quote-builder': [
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(1)', title:'Section 1 · Recipient',
+      body:'Buyer name, email, phone, bill-to address.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(2)', title:'Section 2 · Ship-To',
+      body:'Split (one destination per property, auto-populated from property addresses) or Consolidated (single destination).' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(3)', title:'Section 3 · Line Items',
+      body:'SKUs auto-roll across all properties. Override qty or price per SKU. Expand Per-property breakdown to see attribution.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(4)', title:'Section 4 · Adjustments',
+      body:'Portfolio discount %, tax rate, consolidated shipping cost + term.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(5)', title:'Section 5 · Deposit & Terms',
+      body:'Deposit %, due date, balance due terms.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(6)', title:'Section 6 · Terms & Notes',
+      body:'Standard Terms (short, prints on Quote page). Purchase Terms (long-form, prints on its own page). Notes (internal only).' },
+    { selector:'[data-pf-action="quote-save-return"]', title:'Save & Return',
+      body:'Writes to the portfolio quote table and drops you back at Export with the Quote section now toggleable on.' }
+  ]
+};
+
+var tourState = { active:false, key:null, idx:0, steps:[], resizeBound:false };
+
+function tourKeyForCurrentView(){
+  return helpKeyForCurrentView();
+}
+
+/* Welcome modal — first-time login OR version update.
+   Reads the version the Webflow auto-refresh poller stamped into
+   localStorage as `ar_app_version`, compares to `ar_welcome_seen_version`,
+   and offers the guided tour when they differ. Shown to every role —
+   reps, admins, and clients — since the tour highlights elements that
+   are present in each role's UI (steps targeting hidden elements are
+   silently skipped by the tour engine). */
+function maybeShowWelcomeModal(){
+  try {
+    // Don't stack on top of an open login gate, existing modal, or active tour
+    if (document.getElementById('ar2-tour-root')) return;
+    if (document.getElementById('ar2-welcome-modal')) return;
+    if (document.getElementById('ar2-help-modal')) return;
+    var ver = '';
+    try { ver = localStorage.getItem('ar_app_version') || ''; } catch(_){}
+    if (!ver) return; // version-stamp poller hasn't run yet
+    var seen = '';
+    try { seen = localStorage.getItem('ar_welcome_seen_version') || ''; } catch(_){}
+    if (seen === ver) return; // already acknowledged this version
+    showWelcomeTutorialModal(!!seen, ver);
+  } catch(_){}
+}
+
+function showWelcomeTutorialModal(isUpdate, currentVer){
+  if (document.getElementById('ar2-welcome-modal')) return;
+  var m = document.createElement('div');
+  m.id = 'ar2-welcome-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  var headline = isUpdate ? 'What\'s new in this update' : 'Welcome to AquaRev ROI Calculator';
+  var lede = isUpdate
+    ? 'The calculator was just updated with new features for portfolios, bulk imports, and a cleaner export flow. Want a quick tour of what changed and where things live?'
+    : 'Want a guided walkthrough of the calculator? A short interactive tour highlights each section and shows you how to enter data step by step.';
+  m.innerHTML =
+      '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.4);border-radius:14px;padding:28px 30px;max-width:480px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.6);">'
+    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;letter-spacing:3px;color:#48cae4;text-transform:uppercase;margin-bottom:6px">' + (isUpdate?'New build • ' + esc(currentVer):'Hello') + '</div>'
+    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;letter-spacing:1.5px;color:#fff;line-height:1.15;margin-bottom:12px">' + esc(headline) + '</div>'
+    +   '<div style="font-size:14px;color:#cfe2eb;line-height:1.6;margin-bottom:20px">' + esc(lede) + '</div>'
+    +   '<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">'
+    +     '<button id="ar2-welcome-skip" style="background:transparent;border:1px solid rgba(255,255,255,.22);color:#cfe2eb;border-radius:8px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Maybe later</button>'
+    +     '<button id="ar2-welcome-start" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;border-radius:8px;padding:10px 20px;font-family:inherit;font-size:13px;font-weight:700;letter-spacing:.5px;cursor:pointer">▶ Start the tour</button>'
+    +   '</div>'
+    +   '<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,180,216,.18);font-size:11px;color:#7db8cc;text-align:center;line-height:1.5">You can launch the tour anytime from the <b style="color:#cfe2eb">?</b> button in the top-right of the page.</div>'
+    + '</div>';
+  document.body.appendChild(m);
+  function dismiss(){
+    try { localStorage.setItem('ar_welcome_seen_version', currentVer); } catch(_){}
+    if (m.parentNode) m.parentNode.removeChild(m);
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e){ if (e.key === 'Escape') dismiss(); }
+  document.getElementById('ar2-welcome-skip').onclick = dismiss;
+  document.getElementById('ar2-welcome-start').onclick = function(){
+    dismiss();
+    // Launch the tour for whatever view the rep is on (usually Map Pools
+    // since first-time users land there).
+    try {
+      var key = (typeof helpKeyForCurrentView === 'function') ? helpKeyForCurrentView() : 'map-pools';
+      startTour(key);
+    } catch(_){ try { startTour('map-pools'); } catch(__){} }
+  };
+  m.addEventListener('click', function(e){ if (e.target === m) dismiss(); });
+  document.addEventListener('keydown', onKey);
+}
+
+function startTour(key){
+  endTour(); // clean any prior tour
+  var steps = TOUR_STEPS[key];
+  if (!steps || !steps.length) return;
+  tourState.active = true;
+  tourState.key = key;
+  tourState.idx = 0;
+  tourState.steps = steps;
+  // Build overlay (4 mask bands + spotlight ring + coach card)
+  var frag = document.createElement('div');
+  frag.id = 'ar2-tour-root';
+  frag.innerHTML =
+      '<div class="ar2-tour-mask" id="ar2-tour-top"></div>'
+    + '<div class="ar2-tour-mask" id="ar2-tour-right"></div>'
+    + '<div class="ar2-tour-mask" id="ar2-tour-bottom"></div>'
+    + '<div class="ar2-tour-mask" id="ar2-tour-left"></div>'
+    + '<div class="ar2-tour-ring" id="ar2-tour-ring"></div>'
+    + '<div class="ar2-tour-card" id="ar2-tour-card" role="dialog" aria-live="polite"></div>';
+  document.body.appendChild(frag);
+  if (!tourState.resizeBound){
+    window.addEventListener('resize', _tourReposition);
+    window.addEventListener('scroll', _tourReposition, true);
+    tourState.resizeBound = true;
+  }
+  _tourShowStep();
+}
+function endTour(){
+  tourState.active = false;
+  var root = document.getElementById('ar2-tour-root');
+  if (root && root.parentNode) root.parentNode.removeChild(root);
+}
+function _tourShowStep(){
+  if (!tourState.active) return;
+  // Find a step with an existing target — skip steps whose target isn't in the DOM.
+  var step = tourState.steps[tourState.idx];
+  var target = step ? document.querySelector(step.selector) : null;
+  var skips = 0;
+  while (!target && tourState.idx < tourState.steps.length - 1 && skips < tourState.steps.length){
+    tourState.idx++;
+    step = tourState.steps[tourState.idx];
+    target = step ? document.querySelector(step.selector) : null;
+    skips++;
+  }
+  if (!target){ endTour(); return; }
+  // Scroll target into view if needed
+  var rect = target.getBoundingClientRect();
+  if (rect.top < 80 || rect.bottom > window.innerHeight - 80){
+    target.scrollIntoView({ behavior:'smooth', block:'center' });
+    setTimeout(_tourReposition, 350);
+  }
+  _tourReposition();
+  // Card content
+  var card = document.getElementById('ar2-tour-card');
+  if (!card) return;
+  var total = tourState.steps.length;
+  var i = tourState.idx + 1;
+  var isLast = tourState.idx === total - 1;
+  card.innerHTML =
+      '<div class="ar2-tour-card-progress">Step ' + i + ' of ' + total + '</div>'
+    + '<div class="ar2-tour-card-title">' + esc(step.title) + '</div>'
+    + '<div class="ar2-tour-card-body">' + step.body + '</div>'
+    + '<div class="ar2-tour-card-actions">'
+    +   '<button class="ar2-tour-btn ghost" data-tour-action="skip" type="button">Skip tour</button>'
+    +   '<div style="flex:1"></div>'
+    +   (tourState.idx>0 ? '<button class="ar2-tour-btn" data-tour-action="prev" type="button">← Back</button>' : '')
+    +   '<button class="ar2-tour-btn primary" data-tour-action="next" type="button">' + (isLast?'Finish':'Next →') + '</button>'
+    + '</div>';
+}
+function _tourReposition(){
+  if (!tourState.active) return;
+  var step = tourState.steps[tourState.idx];
+  var target = step ? document.querySelector(step.selector) : null;
+  if (!target) return;
+  var rect = target.getBoundingClientRect();
+  var pad = 6;
+  var top    = Math.max(0, rect.top - pad);
+  var left   = Math.max(0, rect.left - pad);
+  var right  = Math.min(window.innerWidth,  rect.right + pad);
+  var bottom = Math.min(window.innerHeight, rect.bottom + pad);
+  function set(id, css){ var el = document.getElementById(id); if (el) el.style.cssText = css; }
+  // 4 mask bands form the dim backdrop with a rectangular hole
+  set('ar2-tour-top',    'top:0;left:0;right:0;height:' + top + 'px;');
+  set('ar2-tour-bottom', 'top:' + bottom + 'px;left:0;right:0;bottom:0;');
+  set('ar2-tour-left',   'top:' + top + 'px;left:0;width:' + left + 'px;height:' + (bottom-top) + 'px;');
+  set('ar2-tour-right',  'top:' + top + 'px;left:' + right + 'px;right:0;height:' + (bottom-top) + 'px;');
+  // Spotlight ring sits exactly over the target
+  set('ar2-tour-ring',   'top:' + top + 'px;left:' + left + 'px;width:' + (right-left) + 'px;height:' + (bottom-top) + 'px;');
+  // Coach card — place below the target if there's room, else above. Width 340.
+  var card = document.getElementById('ar2-tour-card');
+  if (card){
+    var cardW = 340;
+    var cardH = card.getBoundingClientRect().height || 200;
+    var spaceBelow = window.innerHeight - bottom;
+    var spaceAbove = top;
+    var cardTop  = (spaceBelow > cardH + 24) ? (bottom + 14) :
+                   (spaceAbove > cardH + 24) ? (top - cardH - 14) :
+                   Math.max(24, (window.innerHeight - cardH) / 2);
+    var midX = (left + right) / 2;
+    var cardLeft = Math.max(24, Math.min(window.innerWidth - cardW - 24, midX - cardW/2));
+    card.style.cssText = 'top:' + cardTop + 'px;left:' + cardLeft + 'px;width:' + cardW + 'px;';
+  }
+}
+function tourNext(){
+  if (!tourState.active) return;
+  if (tourState.idx >= tourState.steps.length - 1){ endTour(); return; }
+  tourState.idx++; _tourShowStep();
+}
+function tourPrev(){
+  if (!tourState.active) return;
+  if (tourState.idx <= 0) return;
+  tourState.idx--; _tourShowStep();
+}
+// Global click handler — handles tour controls + Escape key
+document.addEventListener('click', function(e){
+  var t = e.target.closest && e.target.closest('[data-tour-action]');
+  if (!t) return;
+  var act = t.getAttribute('data-tour-action');
+  if (act === 'next') tourNext();
+  else if (act === 'prev') tourPrev();
+  else if (act === 'skip') endTour();
+}, true);
+document.addEventListener('keydown', function(e){
+  if (!tourState.active) return;
+  if (e.key === 'Escape') endTour();
+  else if (e.key === 'ArrowRight') tourNext();
+  else if (e.key === 'ArrowLeft') tourPrev();
+});
 
 function showHelpModal(){
   var existing=document.getElementById('ar2-help-modal');
@@ -10905,13 +11287,16 @@ function showHelpModal(){
       +'<button id="ar2-help-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
     +'</div>'
     +'<div class="ar-help-body" style="font-size:13px;color:#cfe2eb;line-height:1.6">'+c.body+'</div>'
-    +'<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,180,216,.18);font-size:10.5px;color:#7db8cc;text-align:center">Need more help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
+    +(TOUR_STEPS[key]?'<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,180,216,.18);display:flex;justify-content:center"><button id="ar2-help-start-tour" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;border-radius:8px;padding:10px 22px;font-family:inherit;font-size:13px;font-weight:700;letter-spacing:.5px;cursor:pointer">▶ Start interactive tutorial</button></div>':'')
+    +'<div style="margin-top:14px;font-size:10.5px;color:#7db8cc;text-align:center">Need more help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
   +'</div>';
   document.body.appendChild(m);
   function close(){ if(m.parentNode) m.parentNode.removeChild(m); document.removeEventListener('keydown', onKey); }
   function onKey(e){ if(e.key==='Escape') close(); }
   document.getElementById('ar2-help-close').onclick=close;
   m.addEventListener('click', function(e){ if(e.target===m) close(); });
+  var startBtn = document.getElementById('ar2-help-start-tour');
+  if (startBtn) startBtn.onclick = function(){ close(); startTour(key); };
   document.addEventListener('keydown', onKey);
 }
 
