@@ -511,7 +511,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt-es-page .rpt-es-left-2,
   #ar2-report .rpt-es-page .rpt-es-right-2{padding:8px 20px 10px!important;}
   #ar2-report .rpt-es-page .rpt-es-hero img{height:90px!important;}
-  #ar2-report .rpt-es-page .rpt-es-chart-svg{max-height:130px!important;}
+  /* Chart max-height intentionally NOT clamped here — the upstream rule at
+     line ~465 caps it to 200px so the PDF render matches the screen preview.
+     A previous 130px override (since removed) was squishing the chart in
+     print only and diverging from the preview. */
   #ar2-report .rpt-es-page .rpt-es-chart{margin:2px 0 6px!important;}
   #ar2-report .rpt-es-page .rpt-es-statline{padding:3px 0!important;}
   #ar2-report .rpt-es-page .rpt-es-bignum{font-size:20px!important;margin:2px 0 8px!important;}
