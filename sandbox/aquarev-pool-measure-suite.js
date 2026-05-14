@@ -1981,7 +1981,7 @@ function renderCatalog() {
         const draggable = p.registered ? 'true' : 'false';
         return `<div class="ap-pool ${p.id===S.selectedPoolId?'selected':''} ${checked?'checked':''} ${draft?'draft':'registered'}" data-pool="${p.id}" draggable="${draggable}">
           <span class="ap-pool-drag-handle" title="${draft ? '' : 'Drag to reorder'}" aria-hidden="true">⋮⋮</span>
-          <input type="checkbox" class="ap-pool-check" data-pool-check="${p.id}" title="Select for merge">
+          <input type="checkbox" class="ap-pool-check" data-pool-check="${p.id}" title="Select for merge"${checked ? ' checked' : ''}>
           <div class="ap-pool-row">
             ${p.image ? `<div class="ap-pool-thumb-sm"><img src="${p.image}" alt=""></div>` : `<div class="ap-pool-thumb-sm empty">\u2013</div>`}
             <div class="ap-pool-body">
