@@ -10957,6 +10957,252 @@ function helpKeyForCurrentView(){
   } catch(_){ return 'map-pools'; }
 }
 
+/* ── Guided Product Tour ────────────────────────────────────────────────
+   Interactive step-by-step walkthrough. Each step targets a CSS selector,
+   draws a spotlight ring around it, dims everything else, and shows a
+   coach-mark card with Back / Next / Skip controls. The user can still
+   interact with the highlighted element (the dim overlay has pointer-events
+   only outside the spotlight). Steps with a missing target are skipped.
+
+   Tour keys mirror HELP_CONTENT keys so the same "start tour" button on
+   the help modal launches the right walkthrough for the current view. */
+var TOUR_STEPS = {
+  'map-pools': [
+    { selector:'#ap2 .ap-card.ap-card-start',     title:'Pick the record type',
+      body:'Property = a single assessment. Add to Portfolio = attach this property to an existing portfolio. Portfolio = create a brand-new portfolio (whatever you trace becomes its first property).' },
+    { selector:'#ap-name',                        title:'Name the property',
+      body:'Type the hotel or resort name. Suggestions appear as you type. This name auto-mirrors into Step 2.' },
+    { selector:'#ap-query',                       title:'Locate on the map',
+      body:'Type an address or Plus Code, then click Locate on map. The resolved Google address is saved with the record for grouping + future ship-to use.' },
+    { selector:'[data-action="magic-wand"]',      title:'Trace pools',
+      body:'Click Magic Wand and tap a pool on the map for auto-detect. Or use Trace polygon by hand to draw it manually.' },
+    { selector:'#ap-map',                         title:'The map workspace',
+      body:'Pools you trace appear here. Centre, Merge mode, and Undo sit at the bottom-left of the map.' },
+    { selector:'#ap-btn-map-continue',            title:'Continue → Pool & System',
+      body:'When every pool is registered, click here to move on. Or click Skip Map Pools just above if you already know pool sizes.' }
+  ],
+  'pool-system': [
+    { selector:'#ar2-form [data-f="propertyName"]', title:'Property Name (required)',
+      body:'Auto-mirrors from Map Pools. Required to advance — trying to continue without one pops an instruction modal.' },
+    { selector:'#ar2-form .ar-card',                title:'Pool dimensions',
+      body:'Length × width × depth for each pool. Total volume auto-calculates.' },
+    { selector:'#ar2-devices',                      title:'AquaRev Devices Required',
+      body:'Pick the pipe size of each AquaRev device that will be installed on the return pipes.' },
+    { selector:'#ar2-results',                      title:'Live results',
+      body:'Numbers refresh as you type — sanity-check savings here before clicking Continue.' },
+    { selector:'#ar2-nav [data-nav="next"]',        title:'Continue → Pricing',
+      body:'When the numbers look right, advance to Step 3.' }
+  ],
+  'pricing': [
+    { selector:'#ar2-form',                         title:'Discount + Savings Weight',
+      body:'Apply a discount to the equipment subtotal. Savings Weight caps projected savings to a conservative % of the lab maximum (default 100%).' },
+    { selector:'#ar2-results',                      title:'KPIs + Water Conservation',
+      body:'The 5-Year Water Conservation card surfaces total water loss reduction in gallons. Below it, Monthly Savings Breakdown shows each category.' },
+    { selector:'#ar2-nav [data-nav="next"]',        title:'Continue → Quote',
+      body:'When the proposal numbers are dialed in, advance to build the formal Quote document.' }
+  ],
+  'quote': [
+    { selector:'#ar2-form',                         title:'Document Type + Buyer',
+      body:'Pick Quote / Purchase Order / Invoice and fill in the buyer block.' },
+    { selector:'#ar2-devices',                      title:'Line Items + Terms',
+      body:'Equipment auto-pulls from Step 2. Standard Terms = short legal on the Quote page. Purchase Terms & Conditions = long-form legal on its own page.' },
+    { selector:'#ar2-results',                      title:'Quote preview',
+      body:'Click Preview to see the exact PDF the customer will receive.' }
+  ],
+  'export': [
+    { selector:'#ar2-devices',                      title:'Section toggles',
+      body:'Pick which pages go into the final PDF. Cover, Pool Profiles, Exec Summary, Quote pages, Back Cover — toggle off any you don\'t want.' },
+    { selector:'#ar2-form',                         title:'Property Images + Videos',
+      body:'Upload up to 4 photos for the Pool Profiles page. Paste up to 4 YouTube URLs for the Exec Summary page.' },
+    { selector:'[data-action="preview-report"]',    title:'Preview the PDF',
+      body:'See the entire document in-browser before downloading.' },
+    { selector:'[data-action="save-report"]',       title:'Save to Archive',
+      body:'Download generates the print-ready PDF. Save / Save to Archive stores the assessment for later recall.' }
+  ],
+  'archive': [
+    { selector:'#ar-bank-search',                   title:'Search records',
+      body:'Filters across all single assessments and portfolios by name.' },
+    { selector:'.ar-bank-card .ar-bank-prop',       title:'Type indicator + title click',
+      body:'Teal icon + stripe = single assessment. Green icon + stripe = portfolio. Click the title to open: singles load into the calculator, portfolios open the Portfolio Overview.' },
+    { selector:'.ar-bank-card .ar-bank-actions',    title:'Per-row actions',
+      body:'Open · Duplicate · Copy to Portfolio (singles only) · Portrait/Landscape PDF · Reassign (admin) · Delete.' },
+    { selector:'#ar-admin-dash',                    title:'Admin Dashboard',
+      body:'Six KPI cards summarize Records · 7 Days, Assessments, Portfolios, Properties, Pools, and Value across the whole team. Deleted records excluded automatically.' }
+  ],
+  'portfolio-overview': [
+    { selector:'.ar-pf-ov-hero',                    title:'Portfolio header',
+      body:'Back button, portfolio name + status, plus the action group: Quote · Export → · Import CSV · + Add Property.' },
+    { selector:'[data-pf-action="open-quote"]',     title:'Portfolio Quote',
+      body:'Opens the Quote builder where you configure recipient, ship-tos, line items, adjustments, deposit, and terms once for the whole portfolio.' },
+    { selector:'[data-pf-action="open-export"]',    title:'Export the portfolio',
+      body:'Opens the Portfolio Export panel — section toggles for the final PDF + Preview / Download / Save to Archive actions.' },
+    { selector:'[data-pf-action="import-csv"]',     title:'Bulk import properties',
+      body:'Drop a CSV/Excel export of a hotel chain list — every row becomes a property in this portfolio. Click Download template inside the modal for the recognized format.' },
+    { selector:'[data-pf-action="new-property"]',   title:'Add one property',
+      body:'Adds a single property manually and drops you into property mode on Map Pools to fill it in.' }
+  ],
+  'portfolio-export': [
+    { selector:'.ar-pf-exp-card',                   title:'Section toggles',
+      body:'Pick which pages go into the portfolio PDF. Each toggle uses the same on/off slider as the single-property Export.' },
+    { selector:'.ar-pf-exp-sub-row',                title:'Cards or List sub-options',
+      body:'Property Profiles can render as Cards or as a List grouped by Country. Pool Profiles can render as Cards (per-property pages) or a single compact List.' },
+    { selector:'[data-pf-action="open-quote"]',     title:'Unlock the Quote',
+      body:'The Portfolio Quote section starts locked. Click Unlock & Configure → to open the Quote builder; return here with the section toggleable.' },
+    { selector:'.ar-pf-exp-actions',                title:'Preview · Download · Archive',
+      body:'Preview opens the full PDF in-browser. Download generates the print-ready PDF. Save to Archive stores the bundle for later.' }
+  ],
+  'quote-builder': [
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(1)', title:'Section 1 · Recipient',
+      body:'Buyer name, email, phone, bill-to address.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(2)', title:'Section 2 · Ship-To',
+      body:'Split (one destination per property, auto-populated from property addresses) or Consolidated (single destination).' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(3)', title:'Section 3 · Line Items',
+      body:'SKUs auto-roll across all properties. Override qty or price per SKU. Expand Per-property breakdown to see attribution.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(4)', title:'Section 4 · Adjustments',
+      body:'Portfolio discount %, tax rate, consolidated shipping cost + term.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(5)', title:'Section 5 · Deposit & Terms',
+      body:'Deposit %, due date, balance due terms.' },
+    { selector:'.ar-pf-qb-wrap > .ar-pf-qb-card:nth-child(6)', title:'Section 6 · Terms & Notes',
+      body:'Standard Terms (short, prints on Quote page). Purchase Terms (long-form, prints on its own page). Notes (internal only).' },
+    { selector:'[data-pf-action="quote-save-return"]', title:'Save & Return',
+      body:'Writes to the portfolio quote table and drops you back at Export with the Quote section now toggleable on.' }
+  ]
+};
+
+var tourState = { active:false, key:null, idx:0, steps:[], resizeBound:false };
+
+function tourKeyForCurrentView(){
+  return helpKeyForCurrentView();
+}
+
+function startTour(key){
+  endTour(); // clean any prior tour
+  var steps = TOUR_STEPS[key];
+  if (!steps || !steps.length) return;
+  tourState.active = true;
+  tourState.key = key;
+  tourState.idx = 0;
+  tourState.steps = steps;
+  // Build overlay (4 mask bands + spotlight ring + coach card)
+  var frag = document.createElement('div');
+  frag.id = 'ar2-tour-root';
+  frag.innerHTML =
+      '<div class="ar2-tour-mask" id="ar2-tour-top"></div>'
+    + '<div class="ar2-tour-mask" id="ar2-tour-right"></div>'
+    + '<div class="ar2-tour-mask" id="ar2-tour-bottom"></div>'
+    + '<div class="ar2-tour-mask" id="ar2-tour-left"></div>'
+    + '<div class="ar2-tour-ring" id="ar2-tour-ring"></div>'
+    + '<div class="ar2-tour-card" id="ar2-tour-card" role="dialog" aria-live="polite"></div>';
+  document.body.appendChild(frag);
+  if (!tourState.resizeBound){
+    window.addEventListener('resize', _tourReposition);
+    window.addEventListener('scroll', _tourReposition, true);
+    tourState.resizeBound = true;
+  }
+  _tourShowStep();
+}
+function endTour(){
+  tourState.active = false;
+  var root = document.getElementById('ar2-tour-root');
+  if (root && root.parentNode) root.parentNode.removeChild(root);
+}
+function _tourShowStep(){
+  if (!tourState.active) return;
+  // Find a step with an existing target — skip steps whose target isn't in the DOM.
+  var step = tourState.steps[tourState.idx];
+  var target = step ? document.querySelector(step.selector) : null;
+  var skips = 0;
+  while (!target && tourState.idx < tourState.steps.length - 1 && skips < tourState.steps.length){
+    tourState.idx++;
+    step = tourState.steps[tourState.idx];
+    target = step ? document.querySelector(step.selector) : null;
+    skips++;
+  }
+  if (!target){ endTour(); return; }
+  // Scroll target into view if needed
+  var rect = target.getBoundingClientRect();
+  if (rect.top < 80 || rect.bottom > window.innerHeight - 80){
+    target.scrollIntoView({ behavior:'smooth', block:'center' });
+    setTimeout(_tourReposition, 350);
+  }
+  _tourReposition();
+  // Card content
+  var card = document.getElementById('ar2-tour-card');
+  if (!card) return;
+  var total = tourState.steps.length;
+  var i = tourState.idx + 1;
+  var isLast = tourState.idx === total - 1;
+  card.innerHTML =
+      '<div class="ar2-tour-card-progress">Step ' + i + ' of ' + total + '</div>'
+    + '<div class="ar2-tour-card-title">' + esc(step.title) + '</div>'
+    + '<div class="ar2-tour-card-body">' + step.body + '</div>'
+    + '<div class="ar2-tour-card-actions">'
+    +   '<button class="ar2-tour-btn ghost" data-tour-action="skip" type="button">Skip tour</button>'
+    +   '<div style="flex:1"></div>'
+    +   (tourState.idx>0 ? '<button class="ar2-tour-btn" data-tour-action="prev" type="button">← Back</button>' : '')
+    +   '<button class="ar2-tour-btn primary" data-tour-action="next" type="button">' + (isLast?'Finish':'Next →') + '</button>'
+    + '</div>';
+}
+function _tourReposition(){
+  if (!tourState.active) return;
+  var step = tourState.steps[tourState.idx];
+  var target = step ? document.querySelector(step.selector) : null;
+  if (!target) return;
+  var rect = target.getBoundingClientRect();
+  var pad = 6;
+  var top    = Math.max(0, rect.top - pad);
+  var left   = Math.max(0, rect.left - pad);
+  var right  = Math.min(window.innerWidth,  rect.right + pad);
+  var bottom = Math.min(window.innerHeight, rect.bottom + pad);
+  function set(id, css){ var el = document.getElementById(id); if (el) el.style.cssText = css; }
+  // 4 mask bands form the dim backdrop with a rectangular hole
+  set('ar2-tour-top',    'top:0;left:0;right:0;height:' + top + 'px;');
+  set('ar2-tour-bottom', 'top:' + bottom + 'px;left:0;right:0;bottom:0;');
+  set('ar2-tour-left',   'top:' + top + 'px;left:0;width:' + left + 'px;height:' + (bottom-top) + 'px;');
+  set('ar2-tour-right',  'top:' + top + 'px;left:' + right + 'px;right:0;height:' + (bottom-top) + 'px;');
+  // Spotlight ring sits exactly over the target
+  set('ar2-tour-ring',   'top:' + top + 'px;left:' + left + 'px;width:' + (right-left) + 'px;height:' + (bottom-top) + 'px;');
+  // Coach card — place below the target if there's room, else above. Width 340.
+  var card = document.getElementById('ar2-tour-card');
+  if (card){
+    var cardW = 340;
+    var cardH = card.getBoundingClientRect().height || 200;
+    var spaceBelow = window.innerHeight - bottom;
+    var spaceAbove = top;
+    var cardTop  = (spaceBelow > cardH + 24) ? (bottom + 14) :
+                   (spaceAbove > cardH + 24) ? (top - cardH - 14) :
+                   Math.max(24, (window.innerHeight - cardH) / 2);
+    var midX = (left + right) / 2;
+    var cardLeft = Math.max(24, Math.min(window.innerWidth - cardW - 24, midX - cardW/2));
+    card.style.cssText = 'top:' + cardTop + 'px;left:' + cardLeft + 'px;width:' + cardW + 'px;';
+  }
+}
+function tourNext(){
+  if (!tourState.active) return;
+  if (tourState.idx >= tourState.steps.length - 1){ endTour(); return; }
+  tourState.idx++; _tourShowStep();
+}
+function tourPrev(){
+  if (!tourState.active) return;
+  if (tourState.idx <= 0) return;
+  tourState.idx--; _tourShowStep();
+}
+// Global click handler — handles tour controls + Escape key
+document.addEventListener('click', function(e){
+  var t = e.target.closest && e.target.closest('[data-tour-action]');
+  if (!t) return;
+  var act = t.getAttribute('data-tour-action');
+  if (act === 'next') tourNext();
+  else if (act === 'prev') tourPrev();
+  else if (act === 'skip') endTour();
+}, true);
+document.addEventListener('keydown', function(e){
+  if (!tourState.active) return;
+  if (e.key === 'Escape') endTour();
+  else if (e.key === 'ArrowRight') tourNext();
+  else if (e.key === 'ArrowLeft') tourPrev();
+});
+
 function showHelpModal(){
   var existing=document.getElementById('ar2-help-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
@@ -10971,13 +11217,16 @@ function showHelpModal(){
       +'<button id="ar2-help-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
     +'</div>'
     +'<div class="ar-help-body" style="font-size:13px;color:#cfe2eb;line-height:1.6">'+c.body+'</div>'
-    +'<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,180,216,.18);font-size:10.5px;color:#7db8cc;text-align:center">Need more help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
+    +(TOUR_STEPS[key]?'<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,180,216,.18);display:flex;justify-content:center"><button id="ar2-help-start-tour" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;border-radius:8px;padding:10px 22px;font-family:inherit;font-size:13px;font-weight:700;letter-spacing:.5px;cursor:pointer">▶ Start interactive tutorial</button></div>':'')
+    +'<div style="margin-top:14px;font-size:10.5px;color:#7db8cc;text-align:center">Need more help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
   +'</div>';
   document.body.appendChild(m);
   function close(){ if(m.parentNode) m.parentNode.removeChild(m); document.removeEventListener('keydown', onKey); }
   function onKey(e){ if(e.key==='Escape') close(); }
   document.getElementById('ar2-help-close').onclick=close;
   m.addEventListener('click', function(e){ if(e.target===m) close(); });
+  var startBtn = document.getElementById('ar2-help-start-tour');
+  if (startBtn) startBtn.onclick = function(){ close(); startTour(key); };
   document.addEventListener('keydown', onKey);
 }
 
