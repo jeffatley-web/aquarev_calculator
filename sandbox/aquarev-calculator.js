@@ -4398,18 +4398,28 @@ function buildPropertyProfilesPages(pName, states, today, layout){
     var country = p.country || '';
     var addr = p.formatted_address || '';
     // Property image — first non-empty source wins:
-    //   1) p.image_urls[0]      → canonical Supabase Storage URL
-    //   2) p.ex_json.images[0]  → base64 dataURL where the property-edit flow
-    //                             actually saves uploads today (EX.images is
-    //                             cloned into ex_json on every save).
-    //   3) p.state_json.images[0] → legacy fallback for very old records that
-    //                             stashed images under state_json instead.
+    //   1) p.image_urls[0]      → canonical Supabase Storage URL (string)
+    //   2) p.ex_json.images[0]  → upload payload from EX.images. Each entry
+    //                             is the object {id, data, comment} pushed
+    //                             by the file-input handler; the dataURL
+    //                             lives on `.data`. We also accept a bare
+    //                             string in case any legacy record stored
+    //                             the dataURL directly.
+    //   3) p.state_json.images[0] → very old fallback (same shape rules).
     // If nothing exists, render the building-icon placeholder.
+    function _pickImageSrc(arr){
+      if (!Array.isArray(arr) || !arr.length) return '';
+      var first = arr[0];
+      if (!first) return '';
+      if (typeof first === 'string') return first;
+      // Object form: prefer .data (dataURL) then .url (Storage URL).
+      return first.data || first.url || first.src || '';
+    }
     var imgSrc = '';
     try {
       if (Array.isArray(p.image_urls) && p.image_urls.length && p.image_urls[0]) imgSrc = p.image_urls[0];
-      else if (p.ex_json && Array.isArray(p.ex_json.images) && p.ex_json.images.length && p.ex_json.images[0]) imgSrc = p.ex_json.images[0];
-      else if (sj.images && Array.isArray(sj.images) && sj.images.length && sj.images[0]) imgSrc = sj.images[0];
+      if (!imgSrc && p.ex_json)    imgSrc = _pickImageSrc(p.ex_json.images);
+      if (!imgSrc && sj)           imgSrc = _pickImageSrc(sj.images);
     } catch(_){}
     // crossorigin attr lets html2canvas read Supabase Storage pixels without
     // tainting the canvas (Storage serves CORS headers by default). Inline
