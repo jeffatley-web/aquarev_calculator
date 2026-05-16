@@ -1314,8 +1314,10 @@ window.AR2_PF = (function(){
         + '</div>';
       loadPortfolios().then(function(){
         // Re-look up by ID — see comment in renderPortfolioOverview for
-        // why we don't capture `mount` in closure.
-        var live = document.getElementById('ar2-bank-portfolios');
+        // why we don't capture `mount` in closure. The mount is set by
+        // renderArchive to #ar2-bank-overview-mount for any portfolio
+        // drill-down view; that's the canonical id throughout.
+        var live = document.getElementById('ar2-bank-overview-mount');
         if (live) renderPortfoliosPanel(live);
       });
       return;
@@ -1485,7 +1487,7 @@ window.AR2_PF = (function(){
     slot.loading = true;
     pfState.propertyStates[portfolioId] = slot;
     return c.from('portfolio_properties')
-      .select('id,property_name,state_json,formatted_address,country,image_urls,computed_kpis,excluded_from_rollup')
+      .select('id,property_name,state_json,ex_json,formatted_address,country,image_urls,computed_kpis,excluded_from_rollup')
       .eq('portfolio_id', portfolioId)
       .order('order_index', { ascending: true })
       .order('created_at',  { ascending: true })
@@ -1584,6 +1586,108 @@ window.AR2_PF = (function(){
         pfState.rollup[portfolioId] = null;
         return rs.data;
       });
+  }
+
+  /* Persist a new ordering of properties to the DB. idsInOrder is the
+     full ordered array of property ids; we issue one UPDATE per row to
+     set its order_index. Promise.all parallelises the round-trips —
+     fine for <100 properties; if that grows, switch to a single RPC. */
+  function _persistPropertyOrder(portfolioId, idsInOrder){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    return Promise.all(idsInOrder.map(function(id, idx){
+      return c.from('portfolio_properties').update({ order_index: idx }).eq('id', id);
+    })).then(function(results){
+      var anyErr = results.find(function(r){ return r && r.error; });
+      if (anyErr) throw new Error(anyErr.error.message || 'reorder failed');
+      return true;
+    });
+  }
+
+  /* Mutate the in-memory roster to match idsInOrder. Updates each row's
+     order_index in place so subsequent renders pick up the new order. */
+  function _reorderPropertiesLocal(portfolioId, idsInOrder){
+    var slot = pfState.properties[portfolioId];
+    if (!slot || !Array.isArray(slot.rows)) return;
+    var byId = {};
+    for (var i = 0; i < slot.rows.length; i++) byId[slot.rows[i].id] = slot.rows[i];
+    slot.rows = idsInOrder.map(function(id, idx){
+      var r = byId[id];
+      if (r) r.order_index = idx;
+      return r;
+    }).filter(Boolean);
+  }
+
+  /* Attach HTML5 drag-and-drop handlers to a property list container.
+     Re-binds on every render (cheap — the list is freshly created each
+     time so old listeners go with it). Optimistic update: reorder the
+     local cache + re-render immediately, then persist to DB in the
+     background. If persistence fails the rep sees an alert; cache is
+     still consistent locally. */
+  function _attachPropertyDragDrop(listEl, portfolioId){
+    var dragSrcId = null;
+    function clearDropMarkers(){
+      var marked = listEl.querySelectorAll('.ar-pf-prop-row.drop-above,.ar-pf-prop-row.drop-below');
+      for (var m = 0; m < marked.length; m++){
+        marked[m].classList.remove('drop-above','drop-below');
+      }
+    }
+    listEl.addEventListener('dragstart', function(ev){
+      var row = ev.target.closest('.ar-pf-prop-row[draggable="true"]');
+      if (!row) return;
+      // Don't initiate drag from inside the delete button — that should
+      // stay a click target only.
+      if (ev.target.closest('.ar-pf-prop-del')){ ev.preventDefault(); return; }
+      dragSrcId = row.getAttribute('data-pf-property');
+      row.classList.add('dragging');
+      try {
+        ev.dataTransfer.effectAllowed = 'move';
+        // Some browsers need any data set on dragstart for drop to fire.
+        ev.dataTransfer.setData('text/plain', dragSrcId);
+      } catch(_){}
+    });
+    listEl.addEventListener('dragend', function(ev){
+      var row = ev.target.closest('.ar-pf-prop-row');
+      if (row) row.classList.remove('dragging');
+      clearDropMarkers();
+    });
+    listEl.addEventListener('dragover', function(ev){
+      var row = ev.target.closest('.ar-pf-prop-row');
+      if (!row) return;
+      if (!dragSrcId || row.getAttribute('data-pf-property') === dragSrcId) return;
+      ev.preventDefault();  // signals this is a valid drop target
+      try { ev.dataTransfer.dropEffect = 'move'; } catch(_){}
+      var rect = row.getBoundingClientRect();
+      var above = (ev.clientY - rect.top) < rect.height / 2;
+      clearDropMarkers();
+      row.classList.add(above ? 'drop-above' : 'drop-below');
+    });
+    listEl.addEventListener('drop', function(ev){
+      var row = ev.target.closest('.ar-pf-prop-row');
+      if (!row || !dragSrcId) return;
+      if (row.getAttribute('data-pf-property') === dragSrcId) return;
+      ev.preventDefault();
+      var rect = row.getBoundingClientRect();
+      var above = (ev.clientY - rect.top) < rect.height / 2;
+      var slot = pfState.properties[portfolioId];
+      if (!slot || !Array.isArray(slot.rows)) return;
+      var ids = slot.rows.map(function(r){ return r.id; });
+      var srcIdx = ids.indexOf(dragSrcId);
+      var tgtIdx = ids.indexOf(row.getAttribute('data-pf-property'));
+      if (srcIdx === -1 || tgtIdx === -1) return;
+      ids.splice(srcIdx, 1);
+      var insertAt = above ? tgtIdx : tgtIdx + 1;
+      if (srcIdx < tgtIdx) insertAt--;  // tgt shifted left by the splice above
+      ids.splice(insertAt, 0, dragSrcId);
+      _reorderPropertiesLocal(portfolioId, ids);
+      // Rollup aggregates don't change on reorder — keep that cache as-is.
+      var live = document.getElementById('ar2-bank-overview-mount');
+      if (live) renderPortfolioOverview(live);
+      _persistPropertyOrder(portfolioId, ids).catch(function(e){
+        alert('Order saved locally but could not sync to server: ' + ((e && e.message) || e));
+      });
+      dragSrcId = null;
+    });
   }
 
   /* Delete a single property from a portfolio. Hard-delete (no soft-delete
@@ -1920,8 +2024,8 @@ window.AR2_PF = (function(){
         var country = prop.country ? esc(prop.country) : '';
         var subline = country ? country : (prop.formatted_address ? esc(prop.formatted_address) : '');
         var incomplete = nDev === 0;
-        return '<div class="ar-pf-prop-row" data-pf-property="' + prop.id + '" role="button" tabindex="0">'
-          +   '<div class="ar-pf-prop-idx">' + (idx + 1) + '</div>'
+        return '<div class="ar-pf-prop-row" data-pf-property="' + prop.id + '" role="button" tabindex="0" draggable="true">'
+          +   '<div class="ar-pf-prop-idx"><span class="ar-pf-prop-grip" aria-hidden="true">⋮⋮</span>' + (idx + 1) + '</div>'
           +   '<div class="ar-pf-prop-id">'
           +     '<div class="ar-pf-prop-name">' + esc(prop.property_name || 'Untitled property') + '</div>'
           +     '<div class="ar-pf-prop-sub">' + (subline || '<span style="opacity:.55">No location set</span>') + '</div>'
@@ -1941,21 +2045,31 @@ window.AR2_PF = (function(){
 
     mount.innerHTML = '<div class="ar-pf-panel">' + hero + kpis + roster + '</div>';
 
+    // Wire drag-and-drop reorder on the property roster. Only attach when
+    // there's a real list with 2+ rows (single-row or empty-state lists
+    // have nothing to reorder).
+    if (slot && slot.rows && slot.rows.length > 1){
+      var listEl = mount.querySelector('.ar-pf-prop-list');
+      if (listEl) _attachPropertyDragDrop(listEl, pid);
+    }
+
     // Kick off any pending fetches (idempotent — they short-circuit if
     // a fresh entry is already cached). The .then handlers re-look up
     // the mount element by ID rather than capturing the current `mount`
     // in closure — this way a re-render of the archive shell (which
-    // replaces the #ar2-bank-portfolios container with a fresh DOM node)
-    // doesn't strand the fetch result on a detached element.
+    // replaces the mount container with a fresh DOM node) doesn't strand
+    // the fetch result on a detached element. The canonical id for any
+    // portfolio drill-down view is #ar2-bank-overview-mount (set by
+    // renderArchive in the calculator host).
     if (!slot || (!slot.rows && !slot.loading)){
       loadProperties(pid).then(function(){
-        var live = document.getElementById('ar2-bank-portfolios');
+        var live = document.getElementById('ar2-bank-overview-mount');
         if (live) renderPortfolioOverview(live);
       });
     }
     if (!rollupSlot || (!rollupSlot.data && !rollupSlot.loading && !rollupSlot.error)){
       getRollup(pid).then(function(){
-        var live = document.getElementById('ar2-bank-portfolios');
+        var live = document.getElementById('ar2-bank-overview-mount');
         if (live) renderPortfolioOverview(live);
       });
     }
@@ -4283,13 +4397,18 @@ function buildPropertyProfilesPages(pName, states, today, layout){
     var pb  = k.payback ? Math.round(Number(k.payback)) : null;
     var country = p.country || '';
     var addr = p.formatted_address || '';
-    // Property image — prefer a Supabase Storage URL from image_urls (the
-    // canonical persisted location), then fall back to a base64 dataURL
-    // stashed in state_json.images for legacy single-property records.
-    // If neither is present, render the building-icon placeholder.
+    // Property image — first non-empty source wins:
+    //   1) p.image_urls[0]      → canonical Supabase Storage URL
+    //   2) p.ex_json.images[0]  → base64 dataURL where the property-edit flow
+    //                             actually saves uploads today (EX.images is
+    //                             cloned into ex_json on every save).
+    //   3) p.state_json.images[0] → legacy fallback for very old records that
+    //                             stashed images under state_json instead.
+    // If nothing exists, render the building-icon placeholder.
     var imgSrc = '';
     try {
       if (Array.isArray(p.image_urls) && p.image_urls.length && p.image_urls[0]) imgSrc = p.image_urls[0];
+      else if (p.ex_json && Array.isArray(p.ex_json.images) && p.ex_json.images.length && p.ex_json.images[0]) imgSrc = p.ex_json.images[0];
       else if (sj.images && Array.isArray(sj.images) && sj.images.length && sj.images[0]) imgSrc = sj.images[0];
     } catch(_){}
     // crossorigin attr lets html2canvas read Supabase Storage pixels without
