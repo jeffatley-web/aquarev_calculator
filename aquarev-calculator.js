@@ -4394,7 +4394,11 @@ function buildPropertyProfilesPages(pName, states, today, layout){
     if (!totalGal) totalGal = Number(sj.manualTotalGallons) || 0;
     var inv = Number(k.inv) || 0;
     var mo  = Number(k.total_mo) || 0;
-    var pb  = k.payback ? Math.round(Number(k.payback)) : null;
+    var yr  = Number(k.total_yr) || 0;
+    // 5-year net savings — matches the single-property calc convention
+    // at line ~9649: (total_yr * 5) - inv. Falls back to total_mo*60 - inv
+    // if total_yr wasn't persisted (older records).
+    var net5 = (yr ? yr * 5 : mo * 60) - inv;
     var country = p.country || '';
     var addr = p.formatted_address || '';
     // Property image — first non-empty source wins:
@@ -4440,8 +4444,8 @@ function buildPropertyProfilesPages(pName, states, today, layout){
           + '<div class="rpt-pp-row"><span class="k">Pools</span><span class="v">' + poolCount + '</span></div>'
           + '<div class="rpt-pp-row"><span class="k">Total Volume</span><span class="v">' + fn(Math.round(totalGal)) + ' gal</span></div>'
           + '<div class="rpt-pp-row"><span class="k">Investment</span><span class="v">' + (inv?fc(inv,0):'—') + '</span></div>'
-          + '<div class="rpt-pp-row strong"><span class="k">Monthly Plan</span><span class="v pos">' + (mo?fc(mo,0) + ' / mo':'—') + '</span></div>'
-          + (pb!=null ? '<div class="rpt-pp-row"><span class="k">Payback</span><span class="v">' + pb + ' mo</span></div>' : '')
+          + '<div class="rpt-pp-row"><span class="k">Monthly Savings</span><span class="v pos">' + (mo?fc(mo,0) + ' / mo':'—') + '</span></div>'
+          + '<div class="rpt-pp-row strong"><span class="k">5-Year Net</span><span class="v ' + (net5>=0?'pos':'') + '">' + (mo||yr?fc(net5,0):'—') + '</span></div>'
         + '</div>'
       + '</div>'
     + '</div>';
@@ -4470,13 +4474,14 @@ function buildPropertyProfilesPages(pName, states, today, layout){
         var ppPools = bb.length || Number(sjj.manualPoolCount) || 0;
         var ppInv = Number(kk.inv) || 0;
         var ppMo  = Number(kk.total_mo) || 0;
-        var ppPb  = kk.payback ? Math.round(Number(kk.payback)) : null;
+        var ppYr  = Number(kk.total_yr) || 0;
+        var ppNet5 = (ppYr ? ppYr * 5 : ppMo * 60) - ppInv;
         rowsHtml += '<tr class="rpt-ppl-row">'
           + '<td>' + esc(pp.property_name || 'Property') + (pp.formatted_address?'<div class="rpt-ppl-addr">' + esc(pp.formatted_address) + '</div>':'') + '</td>'
           + '<td class="num">' + ppPools + '</td>'
           + '<td class="num">' + (ppInv?fc(ppInv,0):'—') + '</td>'
           + '<td class="num">' + (ppMo?fc(ppMo,0) + ' / mo':'—') + '</td>'
-          + '<td class="num">' + (ppPb!=null?ppPb + ' mo':'—') + '</td>'
+          + '<td class="num">' + (ppMo||ppYr?fc(ppNet5,0):'—') + '</td>'
         + '</tr>';
       }
     }
@@ -4484,7 +4489,7 @@ function buildPropertyProfilesPages(pName, states, today, layout){
       + ppHeader('List by Country')
       + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
         + '<table class="rpt-ppl-tbl">'
-          + '<thead><tr><th>Property</th><th class="num">Pools</th><th class="num">Investment</th><th class="num">Monthly Plan</th><th class="num">Payback</th></tr></thead>'
+          + '<thead><tr><th>Property</th><th class="num">Pools</th><th class="num">Investment</th><th class="num">Monthly Savings</th><th class="num">5-Year Net</th></tr></thead>'
           + '<tbody>' + rowsHtml + '</tbody>'
         + '</table>'
       + '</div>'
