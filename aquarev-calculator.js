@@ -3159,7 +3159,7 @@ function openImportCsvModal(portfolioId){
     + '<div class="ar-pf-modal-title" id="ar-csv-title">Import Properties from CSV</div>'
     + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">'
     +   'Drop a CSV / Excel-exported file here, or click to browse. Each row becomes a property in this portfolio. '
-    +   '<button class="ar-pf-exp-edit" type="button" data-pf-action="csv-download-template" style="margin-left:4px">Download template</button>'
+    +   '<button class="ar-pf-exp-edit as-link" type="button" data-pf-action="csv-download-template" style="margin-left:4px">Download template</button>'
     + '</div>'
     + '<div class="ar-csv-drop" id="ar-csv-drop" tabindex="0" role="button" aria-label="Drop a CSV file here or click to browse">'
     +   '<div style="font-size:14px;color:var(--tx);font-weight:600">&uarr; Drop CSV here</div>'
