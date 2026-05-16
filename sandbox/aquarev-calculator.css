@@ -1,3 +1,4 @@
+
 #ar2,#ar2 *,#ar2 *::before,#ar2 *::after{box-sizing:border-box;margin:0;padding:0}
 #ar2{
   --t:#00b4d8;--aq:#48cae4;--ic:#90e0ef;--go:#f0a500;--gr:#22c55e;
@@ -1963,7 +1964,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ap2 .ap-measurement .ap-help{display:none;}
 #ap2 .ap-measurement.show-help .ap-help{display:block;}
 #ap2 .ap-measurement.show-help .ap-info-btn{background:var(--t);border-color:var(--t);color:#04101e;}
-#ap2 .ap-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(4,15,30,.95);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:10px;padding:10px 16px 10px 14px;font-size:13px;color:var(--tx);z-index:1000;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;}
+#ap2 .ap-toast{position:absolute;top:14px;right:14px;background:rgba(4,15,30,.95);backdrop-filter:blur(20px);border:1px solid var(--bd);border-radius:10px;padding:10px 16px 10px 14px;font-size:13px;color:var(--tx);z-index:1000;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;max-width:calc(100% - 28px);}
 #ap2 .ap-toast.show{opacity:1;}
 #ap2 .ap-toast.err{border-color:rgba(239,68,68,.5);}
 #ap2 .ap-toast.ok{border-color:rgba(34,197,94,.5);}
@@ -2113,7 +2114,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    No padding-bottom here: when the Single Assessments tab is active,
    renderBank renders its own .ar-bank-wrap inside which already adds
    60px bottom padding. The Portfolio panel sets its own bottom space. */
-#ar2 .ar-pf-archive-wrap{max-width:1320px;margin:0 auto;padding:0;width:100%;box-sizing:border-box;}
+#ar2 .ar-pf-archive-wrap{max-width:1320px;margin:0 auto;padding:0 20px;width:100%;box-sizing:border-box;}
 /* Tab strip — sits at the top of the archive wrap when AR2_PF is enabled.
    No horizontal padding here because the wrap above already centers content. */
 #ar2 .ar-pf-tabstrip{display:flex;gap:2px;background:linear-gradient(180deg,rgba(13,45,74,.5),rgba(7,22,40,.3));border-bottom:1px solid rgba(0,180,216,.18);}
@@ -2303,7 +2304,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 
 /* KPI strip — borrows visual language from the existing report KPI band
    so portfolio totals feel native to the calculator brand. */
-#ar2 .ar-pf-kpistrip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:rgba(0,180,216,.16);border:1px solid rgba(0,180,216,.18);border-radius:12px;overflow:hidden;margin-bottom:18px;}
+#ar2 .ar-pf-kpistrip{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:rgba(0,180,216,.16);border:1px solid rgba(0,180,216,.18);border-radius:12px;overflow:hidden;margin-bottom:18px;}
 #ar2 .ar-pf-kpi{background:linear-gradient(145deg,#0d2d4a,#071628);padding:14px 16px;text-align:center;}
 #ar2 .ar-pf-kpi-lbl{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;}
 #ar2 .ar-pf-kpi-val{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:#e0f4fa;letter-spacing:.5px;}
@@ -2312,7 +2313,10 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 
 /* Property roster — list of property rows. Hover lifts each row slightly. */
 #ar2 .ar-pf-prop-list{display:flex;flex-direction:column;gap:8px;}
-#ar2 .ar-pf-prop-row{display:grid;grid-template-columns:36px 1fr 90px 110px 110px 90px;gap:14px;align-items:center;padding:12px 16px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-prop-row{display:grid;grid-template-columns:36px 1fr 70px 90px 110px 110px 90px 30px;gap:14px;align-items:center;padding:12px 16px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-prop-del{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;font-family:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s;padding:0;}
+#ar2 .ar-pf-prop-row:hover .ar-pf-prop-del,#ar2 .ar-pf-prop-del:focus{opacity:1;}
+#ar2 .ar-pf-prop-del:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);color:#fca5a5;}
 #ar2 .ar-pf-prop-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
 #ar2 .ar-pf-prop-idx{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:var(--mu);text-align:center;}
 #ar2 .ar-pf-prop-id{min-width:0;}
@@ -2329,7 +2333,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    row legible. Single Assessments already does similar at this breakpoint. */
 @media(max-width:860px){
   #ar2 .ar-pf-kpistrip{grid-template-columns:repeat(3,1fr);}
-  #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px;}
+  #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px 30px;}
   #ar2 .ar-pf-prop-row .ar-pf-prop-kpi:not(:nth-of-type(1)){display:none;}
   #ar2 .ar-pf-ov-title{font-size:22px;}
 }
