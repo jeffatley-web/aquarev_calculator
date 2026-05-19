@@ -4539,9 +4539,35 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
       + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
     + '</div>'
   + '</div>';
+  // Helper: per-pool device breakdown — sums counts across all pipe sizes
+  // present on the pool body and returns { devices, sizes, investment }.
+  // When the property uses devicesByPool=false (devices live on S, not on
+  // each body), body.pipe_* fields are 0 and this returns zeros — the
+  // per-pool row then renders "—" placeholders. The totals row sums the
+  // property-level computed_kpis so the grand total stays accurate either way.
+  function _pipeBreakdown(body){
+    var out = { devices: 0, sizes: '', investment: 0 };
+    if (!body || typeof PIPES === 'undefined') return out;
+    var parts = [];
+    for (var i = 0; i < PIPES.length; i++){
+      var spec = PIPES[i];
+      var cnt = Number(body[spec.k]) || 0;
+      if (cnt > 0){
+        out.devices += cnt;
+        out.investment += cnt * spec.price;
+        parts.push(cnt + '× ' + spec.sz);
+      }
+    }
+    out.sizes = parts.join(', ');
+    return out;
+  }
   // Flatten into a list of "row items": one per pool, with a sentinel-style
   // "header row" preceding each property block.
   var items = [];
+  // Running grand totals across the whole portfolio. Volume sums per-pool
+  // gallons; devices/investment sum from computed_kpis at the property
+  // level so manual-volume and devices-by-property records still tally.
+  var gtVolume = 0, gtDevices = 0, gtInvestment = 0, gtPools = 0;
   for (var pi=0; pi<states.length; pi++){
     var p = states[pi];
     var sj = p.state_json || {};
@@ -4552,24 +4578,37 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
       for (var b=0; b<bodies.length; b++){
         var body = bodies[b];
         var g = (typeof bodyGallons === 'function') ? bodyGallons(body) : (Number(body.gallons)||0);
+        var pb = _pipeBreakdown(body);
         items.push({
           kind: 'pool',
           label: body.label || ('Pool ' + (b+1)),
           type:  (body.poolType === 'saltwater') ? 'Saltwater' : 'Chlorine',
           dims:  (body.inputMode !== 'gallons' && body.length && body.width && body.depth) ? (body.length+'×'+body.width+'×'+body.depth+' ft') : '',
           gal:   Math.round(g),
-          co2:   !!body.co2Use
+          co2:   !!body.co2Use,
+          devices:    pb.devices,
+          sizes:      pb.sizes,
+          investment: pb.investment
         });
+        gtVolume += Math.round(g);
+        gtPools  += 1;
       }
     } else if (sj.manualVolume){
       // Manual mode — synthesize one row showing the manual aggregate
       var nMan = Math.max(1, Number(sj.manualPoolCount) || 1);
       var gMan = Math.round(Number(sj.manualTotalGallons) || 0);
-      items.push({ kind:'pool', label:nMan + ' pool' + (nMan===1?'':'s') + ' (manual estimate)', type:'Manual', dims:'', gal:gMan, co2:false });
+      items.push({ kind:'pool', label:nMan + ' pool' + (nMan===1?'':'s') + ' (manual estimate)', type:'Manual', dims:'', gal:gMan, co2:false, devices:0, sizes:'', investment:0 });
+      gtVolume += gMan;
+      gtPools  += nMan;
     }
+    // Property-level aggregates (works for both devicesByPool true OR false)
+    var pk = p.computed_kpis || {};
+    gtDevices    += Number(pk.total_dev) || 0;
+    gtInvestment += Number(pk.inv)       || 0;
   }
-  // Paginate — ~24 rows per page in portrait.
-  var ROWS_PER_PAGE = 24;
+  // Paginate — ~22 rows per page in portrait (1 row tighter than before to
+  // leave headroom for the totals row on the final page).
+  var ROWS_PER_PAGE = 22;
   var pages = [];
   var total = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
   for (var pgi=0; pgi<total; pgi++){
@@ -4578,22 +4617,38 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
     for (var ri=0; ri<chunk.length; ri++){
       var it = chunk[ri];
       if (it.kind === 'property'){
-        rowsHtml += '<tr class="rpt-ppl-country-row"><td colspan="4">' + esc(it.name) + (it.country?' <span style="opacity:.7;font-weight:400">· ' + esc(it.country) + '</span>':'') + ' <span style="opacity:.7;font-weight:400">· ' + it.count + ' pool' + (it.count===1?'':'s') + '</span></td></tr>';
+        rowsHtml += '<tr class="rpt-ppl-country-row"><td colspan="6">' + esc(it.name) + (it.country?' <span style="opacity:.7;font-weight:400">· ' + esc(it.country) + '</span>':'') + ' <span style="opacity:.7;font-weight:400">· ' + it.count + ' pool' + (it.count===1?'':'s') + '</span></td></tr>';
       } else {
         rowsHtml += '<tr class="rpt-ppl-row">'
           + '<td>' + esc(it.label) + (it.dims?'<div class="rpt-ppl-addr">' + esc(it.dims) + '</div>':'') + (it.co2?' <span class="rpt-pp-pill" style="background:#ecfeff;color:#0891b2;border-color:#a5f3fc;font-size:8.5px;padding:1px 5px">CO₂</span>':'') + '</td>'
           + '<td>' + esc(it.type) + '</td>'
           + '<td class="num">' + fn(it.gal) + ' gal</td>'
-          + '<td></td>'
+          + '<td class="num">' + (it.devices ? it.devices : '—') + '</td>'
+          + '<td>' + (it.sizes ? esc(it.sizes) : '<span style="color:#aaa">—</span>') + '</td>'
+          + '<td class="num">' + (it.investment ? fc(it.investment,0) : '—') + '</td>'
         + '</tr>';
       }
+    }
+    // Append the grand totals row on the LAST page only. Bold + top border
+    // via inline styles since we don't want to mint a new CSS class for one
+    // use site. The Device Size cell is intentionally blank — sizes vary by
+    // pool so a single value would be misleading.
+    if (pgi === total - 1){
+      rowsHtml += '<tr style="border-top:2px solid #48cae4;font-weight:700;background:#f5fbff">'
+        + '<td style="font-family:\'Bebas Neue\',sans-serif;letter-spacing:1.5px;color:#0a2540">TOTALS · ' + gtPools + ' pool' + (gtPools===1?'':'s') + '</td>'
+        + '<td></td>'
+        + '<td class="num">' + fn(gtVolume) + ' gal</td>'
+        + '<td class="num">' + (gtDevices ? gtDevices : '—') + '</td>'
+        + '<td></td>'
+        + '<td class="num">' + (gtInvestment ? fc(gtInvestment,0) : '—') + '</td>'
+      + '</tr>';
     }
     pages.push(
       '<div class="rpt-pp-page">'
       + ppHeader(total>1 ? ('Page ' + (pgi+1) + ' of ' + total) : '')
       + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
         + '<table class="rpt-ppl-tbl">'
-          + '<thead><tr><th>Pool</th><th>Type</th><th class="num">Volume</th><th></th></tr></thead>'
+          + '<thead><tr><th>Pool</th><th>Type</th><th class="num">Volume</th><th class="num">Devices</th><th>Device Size</th><th class="num">Investment</th></tr></thead>'
           + '<tbody>' + rowsHtml + '</tbody>'
         + '</table>'
       + '</div>'
