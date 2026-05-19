@@ -4221,7 +4221,14 @@ function buildPortfolioAssessmentPageHtml_OLD_DELETED(pName, states, roll, today
       try { aR = (typeof calcROI === 'function') ? calcROI() : null; } catch(_){ aR = null; }
       if (!aR) continue;
       portfolioR.adv_mo        += Number(aR.adv_mo)        || 0;
-      portfolioR.gal_saved_5yr += Number(aR.gal_saved_5yr) || 0;
+      // 5-year water conservation: prefer the per-property value captured
+      // in computed_kpis at save time (more reliable than re-running calcROI
+      // here, which depends on every required field being present in
+      // state_json — older records may lack water_loss_reduction etc.).
+      // Fall back to the live recompute if no captured value exists.
+      var perPropWater5 = Number(aProp.computed_kpis && aProp.computed_kpis.water_5yr) || 0;
+      if (!perPropWater5) perPropWater5 = Number(aR.gal_saved_5yr) || 0;
+      portfolioR.gal_saved_5yr += perPropWater5;
       portfolioR.disc_amt      += Number(aR.disc_amt)      || 0;
       if (Array.isArray(aR.items)){
         for (var it=0; it<aR.items.length; it++){
