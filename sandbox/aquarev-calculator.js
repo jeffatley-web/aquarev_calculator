@@ -5412,10 +5412,34 @@ function getArchiveListIndex(){
       return AR2_PF.getRollup(p.id).then(function(r){ return { p:p, r:r||{} }; },
                                           function(){   return { p:p, r:{}    }; });
     });
-    return Promise.all(rollupPromises).then(function(items){
+    // For admins, build a map of user_id → {name, role} so portfolio rows
+    // can populate the Created By column. Non-admins skip the lookup —
+    // they can't see other users' records anyway (RLS) and this column
+    // isn't rendered for them.
+    var userMapP = Promise.resolve({});
+    var isAdminNow = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    if (isAdminNow){
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      var uids = [];
+      var seenU = {};
+      list.forEach(function(p){
+        if (p.user_id && !seenU[p.user_id]){ seenU[p.user_id] = true; uids.push(p.user_id); }
+      });
+      if (c && uids.length){
+        userMapP = c.from('app_users').select('id,name,role').in('id', uids).then(function(rs){
+          var m = {};
+          (rs.data || []).forEach(function(u){ m[u.id] = u; });
+          return m;
+        }, function(){ return {}; });
+      }
+    }
+    return Promise.all([Promise.all(rollupPromises), userMapP]).then(function(both){
+      var items = both[0];
+      var userMap = both[1] || {};
       return items.map(function(it){
         var p = it.p, r = it.r;
-        return {
+        var creator = (p.user_id && userMap[p.user_id]) || null;
+        var entry = {
           id: p.id,
           propertyName: p.name || 'Untitled Portfolio',
           savedAt: p.last_modified_at || p.created_at,
@@ -5431,6 +5455,12 @@ function getArchiveListIndex(){
             savingsWeight: null
           }
         };
+        if (creator){
+          entry.createdById   = creator.id;
+          entry.createdByName = creator.name;
+          entry.createdByRole = creator.role;
+        }
+        return entry;
       });
     });
   }).catch(function(){ return []; });
