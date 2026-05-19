@@ -4926,8 +4926,13 @@ function renderPortfolioReportToDOM(pName, sections, mode){
   document.body.appendChild(rEl);
   rEl.style.cssText = 'display:block;';
 
+  // PDF filename: AquaRev_{PortfolioName}_{YYYY-MM-DD} — mirrors the
+  // single-property convention (line ~11272) so saved files sort cleanly
+  // together. Sanitize the name to filesystem-safe chars only.
   var origDocTitle = document.title;
-  document.title = pName + ' — Portfolio';
+  var pfFnDate = new Date().toISOString().slice(0,10);
+  var pfFnName = (pName || 'Portfolio').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'Portfolio';
+  document.title = 'AquaRev_' + pfFnName + '_' + pfFnDate;
 
   function restoreApp(){
     document.title = origDocTitle;
