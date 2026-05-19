@@ -3990,10 +3990,14 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
   if (!states || !states.length) return '';
   if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
 
-  // Aggregate device counts, total gallons, total pools, per-property roster
+  // Aggregate device counts, total gallons, total pools, per-property roster.
+  // Also accumulate a pool-count-weighted savings_weight so the portfolio's
+  // "Savings Projection Applied" cell reflects the average across all pools
+  // — not just whatever the current rep's S.savings_weight happens to be.
   var deviceTotals = {};
   for (var p0=0; p0<PIPES.length; p0++) deviceTotals[PIPES[p0].k] = 0;
   var totalGal = 0, totalPools = 0, propRows = [];
+  var swWeightedSum = 0, swPoolCount = 0, swPropPropSum = 0, swPropCount = 0;
   for (var i=0; i<states.length; i++){
     var sj = states[i].state_json || {};
     var pGal = 0, pPools = 0;
@@ -4013,8 +4017,20 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
       var k = PIPES[pi].k;
       deviceTotals[k] += Number(sj[k]) || 0;
     }
+    // Per-property savings_weight (defaults to 1.0 = 100% when absent — same
+    // default the calculator uses). Weight by the property's pool count so
+    // a 20-pool resort with sw=0.8 counts more than a 1-pool location with
+    // sw=1.0. Property-only average kept as a fallback for portfolios with
+    // zero registered pools (manual-volume edge case).
+    var pSw = Number(sj.savings_weight);
+    if (!isFinite(pSw) || pSw <= 0) pSw = 1;
+    if (pPools > 0){ swWeightedSum += pSw * pPools; swPoolCount += pPools; }
+    swPropPropSum += pSw; swPropCount += 1;
   }
   var propCount = states.length;
+  var avgSavingsWeight = swPoolCount > 0
+    ? (swWeightedSum / swPoolCount)
+    : (swPropCount > 0 ? (swPropPropSum / swPropCount) : 1);
 
   // Snapshot live state — restored unconditionally in finally
   var savedS  = JSON.parse(JSON.stringify(S));
@@ -4047,6 +4063,11 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
     S.chlorine_pool_gallons  = totalGal;
     S.co2_pool_gallons       = 0;
     S.devicesByPool          = false;
+    // Pool-weighted average savings projection across the portfolio (see
+    // computation above). Overrides the rep's current S.savings_weight so
+    // the captured "Savings Projection Applied" cell reflects the
+    // portfolio average, and calcROI's projection scaling matches that.
+    S.savings_weight         = avgSavingsWeight;
     for (var pi2=0; pi2<PIPES.length; pi2++){
       S[PIPES[pi2].k] = deviceTotals[PIPES[pi2].k];
     }
