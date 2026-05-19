@@ -8579,6 +8579,12 @@ function generateReport(){
   }
   // Combined media for landscape layout
   var mediaHtml=imgHtml+ytHtml;
+  // Videos always render in the RIGHT column of the assessment media row.
+  // When the rep has videos but no images, the .rpt-cols grid would otherwise
+  // collapse the single child into the left column — inject an empty left
+  // placeholder so ytHtml lands on the right regardless. `mediaLeft` is what
+  // we emit before ytHtml in every media-row template below.
+  var mediaLeft = imgHtml || (ytHtml ? '<div></div>' : '');
 
   // Comments (single line)
   var commHtml='';
@@ -9433,7 +9439,7 @@ function generateReport(){
             +(EX.inclWater?waterHtml:'')
           +'</div>'
         +'</div>'
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+imgHtml+ytHtml+'</div>':'')
+        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
 
         // ── PORTRAIT: Purchase Options stacked left, Breakdown + Water right ──
@@ -9461,7 +9467,7 @@ function generateReport(){
         // stay fully visible even when upper content (Pool Config +
         // Purchase + Breakdown + Water) runs tall — overflow clips the
         // upper rows first, never the media row.
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+imgHtml+ytHtml+'</div>':'')
+        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+mediaLeft+ytHtml+'</div>':'')
         +commHtml
         +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
       )
@@ -9651,7 +9657,7 @@ function generateReport(){
               + (EX.inclWater?waterHtml:'')
             + '</div>'
           + '</div>'
-          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+imgHtml+ytHtml+'</div>':'')
+          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
           + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
           :'<div class="rpt-sec rpt-cols">'
             + '<div>'
@@ -9671,7 +9677,7 @@ function generateReport(){
           // Cascade last-page portrait — same .rpt-pt-media-row hook so
           // the multi-page Assessment final page pins Property Images +
           // Video Resources to the bottom of the body slot.
-          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+imgHtml+ytHtml+'</div>':'')
+          + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+mediaLeft+ytHtml+'</div>':'')
           + commHtml
           + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
         )
