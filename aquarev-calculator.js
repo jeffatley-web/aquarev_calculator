@@ -4031,9 +4031,18 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
     for (var sk in savedS){ if (savedS.hasOwnProperty(sk)) S[sk] = savedS[sk]; }
     S.propertyName           = pName;
     S.bodies                 = [];
-    S.manualVolume           = false;
-    S.manualPoolCount        = 1;
-    S.manualTotalGallons     = 0;
+    // manualVolume=TRUE is required here even though we're not in "manual"
+    // mode in the UI sense — it's the only path in calcROI() where pool
+    // surface area is derived from total gallons (G/29.92 fallback) instead
+    // of iterating S.bodies. With S.bodies empty AND manualVolume=false,
+    // pool_sa stays 0 and gal_saved_5yr → 0, blanking the Water Conservation
+    // section. Setting manualVolume true with manualTotalGallons=totalGal
+    // makes the water calc produce a real portfolio-aggregate number, and
+    // the Pool Configuration section's per-property roster is injected by
+    // post-process below regardless.
+    S.manualVolume           = true;
+    S.manualPoolCount        = Math.max(1, totalPools);
+    S.manualTotalGallons     = totalGal;
     S.pool_gallons           = totalGal;
     S.chlorine_pool_gallons  = totalGal;
     S.co2_pool_gallons       = 0;
