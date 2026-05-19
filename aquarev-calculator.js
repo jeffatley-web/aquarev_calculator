@@ -860,7 +860,11 @@ var Cloud = (function(){
         recordsLast7Days: recordsLast7Days,
         assessmentsTotal: ass.length,
         portfoliosTotal:  pfs.length,
-        propertiesTotal:  pps.length,
+        // Properties = every individual property record across the system:
+        // each single-assessment is one property, plus every row in
+        // portfolio_properties. Previously this only counted portfolio_
+        // properties, undercounting standalone assessments entirely.
+        propertiesTotal:  ass.length + pps.length,
         poolsTotal:       poolsTotal,
         valueTotal:       valueTotal
       };
