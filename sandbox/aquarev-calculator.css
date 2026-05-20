@@ -627,15 +627,15 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      rules content that just fits the screen preview overflows onto a
      phantom second page in the PDF. These rules apply to PRINT ONLY:
      screen preview is unaffected. */
-  #ar2-report .rpt.rpt-landscape .rpt-head{padding:4px 20px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:18px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-logo-sub{font-size:7px!important;margin-top:1px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:14px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-prop-date{font-size:8px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:4px 10px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:15px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:6.5px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-body{padding:4px 16px 2px!important;font-size:9.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-head{padding:8px 24px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo{font-size:22px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-logo-sub{font-size:8.5px!important;margin-top:2px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-name{font-size:17px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-prop-date{font-size:9.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi{padding:8px 12px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-val{font-size:18px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-kpi-lbl{font-size:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-body{padding:10px 22px 6px!important;font-size:11px!important;}
   /* Match the screen-mode body containment: flex column with bottom-pinned
      media row + disclaimer so the landscape PDF body uses its vertical span
      (upper content top, gap, media + disc at the bottom). */
@@ -656,29 +656,35 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      Advantage boxes, 6-row Breakdown table, Water Conservation row,
      2 property images, 2 video thumbs. Verified to fit with ~20px to
      spare before the disclaimer. */
-  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:4px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:7px!important;margin-bottom:3px!important;padding-bottom:2px!important;letter-spacing:2px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-row{padding:1px 0!important;font-size:9.5px!important;line-height:1.35!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-row.strong{padding:1.5px 0!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:5px 8px!important;margin-bottom:3px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:7px!important;margin-bottom:3px!important;padding-bottom:2px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:9px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:9px!important;margin-bottom:5px!important;padding-bottom:3px!important;letter-spacing:2px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row{padding:3px 0!important;font-size:11px!important;line-height:1.45!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row.strong{padding:4px 0!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:9px 12px!important;margin-bottom:6px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:9px!important;margin-bottom:5px!important;padding-bottom:3px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:10.5px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-tbl td,
-  #ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:2px 5px!important;font-size:9px!important;line-height:1.35!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-cols{gap:14px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:7px!important;line-height:1.4!important;margin-top:2px!important;padding-top:2px!important;border-top:1px solid #eee!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-stat{padding:4px 6px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:11px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:6.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:4px 8px!important;font-size:10.5px!important;line-height:1.4!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-cols{gap:18px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px!important;line-height:1.45!important;margin-top:4px!important;padding-top:4px!important;border-top:1px solid #eee!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat{padding:8px 10px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:15px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px!important;}
+  /* Distribute remaining vertical space across the upper sections so they
+     visually fill the page instead of collapsing to natural height. The
+     media row at the bottom keeps its own `flex:0 0 auto` and stays pinned
+     via margin-top:auto on the wrapper, so adding flex-grow here only
+     stretches Pool Config + Devices + Purchase + Breakdown rows. */
+  #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols:not(.rpt-ls-media-row){flex:1 1 auto!important;align-items:stretch!important;}
   /* ── Property Images + Video Resources row (new) ──
      Rendered as a regular 2-col section after Row B, in natural flow.
      Capped tile height of 78px in print so the row + caption stays
      under 110px and the entire body fits a single landscape page. */
   #ar2-report .rpt.rpt-landscape .rpt-ls-media-row{margin-bottom:0!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row .rpt-stitle{font-size:7px!important;margin-bottom:3px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:78px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:6px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:7.5px!important;margin-top:2px!important;line-height:1.25!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row .rpt-stitle{font-size:9px!important;margin-bottom:5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:100px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:8px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:8.5px!important;margin-top:3px!important;line-height:1.35!important;}
 }
 /* ── Mobile: results panel above form ── */
 @media(max-width:860px){
