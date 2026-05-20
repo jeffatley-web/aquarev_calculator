@@ -2177,7 +2177,10 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 .ar-pf-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
 .ar-pf-modal-btn{padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.2);background:transparent;color:#cfe2eb;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
 .ar-pf-modal-btn:hover{background:rgba(0,180,216,.1);}
-.ar-pf-modal-btn.primary{background:linear-gradient(135deg,var(--t),var(--aq));border-color:transparent;color:var(--nv);}
+/* Hardcoded colors — modal lives at document.body, outside #ar2's scope,
+   so var(--t)/var(--aq)/var(--nv) don't resolve. Falling back to the same
+   literal values keeps the primary CTA recognisable across all modals. */
+.ar-pf-modal-btn.primary{background:linear-gradient(135deg,#00b4d8,#48cae4);border-color:transparent;color:#040f1e;}
 .ar-pf-modal-btn.primary:hover{filter:brightness(1.1);}
 .ar-pf-modal-btn:disabled{opacity:.45;cursor:not-allowed;}
 .ar-pf-modal-err{font-size:12px;color:#f87171;margin-top:8px;min-height:16px;}
