@@ -2480,11 +2480,27 @@ window.AR2_PF = (function(){
     var backdrop = document.createElement('div');
     backdrop.id = 'ar-pf-add-prop-modal';
     backdrop.className = 'ar-pf-modal-backdrop';
-    backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-add-prop-title">'
+    // Two-mode modal: create a blank new property OR add data from an
+    // existing single assessment (copy its state/ex/mapping/kpis into a
+    // fresh portfolio_properties row, leaving the original assessment intact).
+    backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-add-prop-title" style="max-width:520px">'
       + '<div class="ar-pf-modal-title" id="ar-pf-add-prop-title">Add property</div>'
-      + '<label class="ar-pf-modal-lbl" for="ar-pf-add-prop-name">Property name</label>'
-      + '<input class="ar-pf-modal-input" id="ar-pf-add-prop-name" type="text" maxlength="160" placeholder="e.g. Ritz-Carlton, Turks &amp; Caicos" autocomplete="off" />'
-      + '<div class="ar-pf-modal-hint">You\'ll configure pools, devices, and savings on the next page (Phase 1c).</div>'
+      + '<div class="ar-pf-exp-radio-group" id="ar-pf-add-mode" style="display:flex;width:100%;margin-bottom:14px">'
+      +   '<span class="ar-pf-exp-radio active" data-add-mode="new"      style="flex:1;justify-content:center;padding:8px 12px;font-size:12px">Create new</span>'
+      +   '<span class="ar-pf-exp-radio"        data-add-mode="existing" style="flex:1;justify-content:center;padding:8px 12px;font-size:12px">Add from existing</span>'
+      + '</div>'
+      // Pane 1 — Create new (visible by default)
+      + '<div id="ar-pf-add-pane-new">'
+      +   '<label class="ar-pf-modal-lbl" for="ar-pf-add-prop-name">Property name</label>'
+      +   '<input class="ar-pf-modal-input" id="ar-pf-add-prop-name" type="text" maxlength="160" placeholder="e.g. Ritz-Carlton, Turks &amp; Caicos" autocomplete="off" />'
+      +   '<div class="ar-pf-modal-hint">You\'ll configure pools, devices, and savings on the next page.</div>'
+      + '</div>'
+      // Pane 2 — Add from existing (hidden until selected)
+      + '<div id="ar-pf-add-pane-existing" style="display:none">'
+      +   '<label class="ar-pf-modal-lbl" for="ar-pf-add-existing-select">Existing assessment</label>'
+      +   '<select class="ar-pf-modal-input" id="ar-pf-add-existing-select"><option value="">— Loading assessments… —</option></select>'
+      +   '<div class="ar-pf-modal-hint">The assessment\'s pools, devices, and saved data are copied into this portfolio as a new property. The original single-assessment record stays intact.</div>'
+      + '</div>'
       + '<div class="ar-pf-modal-err" id="ar-pf-add-prop-err"></div>'
       + '<div class="ar-pf-modal-actions">'
       +   '<button class="ar-pf-modal-btn" data-pf-action="add-prop-cancel" type="button">Cancel</button>'
@@ -2493,8 +2509,70 @@ window.AR2_PF = (function(){
       + '</div>';
     document.body.appendChild(backdrop);
     setTimeout(function(){ var i = document.getElementById('ar-pf-add-prop-name'); if (i) i.focus(); }, 30);
+
+    // Lazy-load the single-assessment list the first time the "existing"
+    // pane is selected — avoids a fetch on the common "create new" path.
+    var loadedExisting = false;
+    function ensureExistingLoaded(){
+      if (loadedExisting) return;
+      loadedExisting = true;
+      var sel = document.getElementById('ar-pf-add-existing-select');
+      if (!sel) return;
+      if (!(window.AR2_CLOUD && AR2_CLOUD.listAssessments)){
+        sel.innerHTML = '<option value="">— Cloud unavailable —</option>';
+        return;
+      }
+      AR2_CLOUD.listAssessments().then(function(rows){
+        rows = rows || [];
+        if (!rows.length){
+          sel.innerHTML = '<option value="">— No single assessments yet —</option>';
+          return;
+        }
+        // Sort newest first; show propertyName + date so admins can pick
+        // the right record when multiple share a name.
+        rows.sort(function(a,b){
+          var ta = new Date(a.savedAt || 0).getTime();
+          var tb = new Date(b.savedAt || 0).getTime();
+          return tb - ta;
+        });
+        sel.innerHTML = '<option value="">— Select an assessment —</option>'
+          + rows.map(function(r){
+              var nm = r.propertyName || 'Untitled';
+              var dt = r.savedAt ? new Date(r.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+              var ownerSuffix = '';
+              if (r.createdByName){ ownerSuffix = ' · ' + r.createdByName; }
+              return '<option value="' + esc(r.id) + '">' + esc(nm) + (dt ? ' · ' + esc(dt) : '') + esc(ownerSuffix) + '</option>';
+            }).join('');
+      }, function(){
+        sel.innerHTML = '<option value="">— Could not load —</option>';
+      });
+    }
+
+    function switchMode(mode){
+      var pills = backdrop.querySelectorAll('[data-add-mode]');
+      for (var i = 0; i < pills.length; i++){
+        pills[i].classList.toggle('active', pills[i].getAttribute('data-add-mode') === mode);
+      }
+      var paneNew = document.getElementById('ar-pf-add-pane-new');
+      var paneEx  = document.getElementById('ar-pf-add-pane-existing');
+      if (paneNew) paneNew.style.display = (mode === 'new')      ? '' : 'none';
+      if (paneEx)  paneEx.style.display  = (mode === 'existing') ? '' : 'none';
+      if (mode === 'existing'){
+        ensureExistingLoaded();
+        setTimeout(function(){ var s = document.getElementById('ar-pf-add-existing-select'); if (s) try { s.focus(); } catch(_){} }, 30);
+      } else {
+        setTimeout(function(){ var i = document.getElementById('ar-pf-add-prop-name'); if (i) try { i.focus(); } catch(_){} }, 30);
+      }
+      // Stash current mode on the backdrop dataset so submitNewProperty
+      // can branch on it without recomputing from the DOM.
+      backdrop.dataset.addMode = mode;
+    }
+    backdrop.dataset.addMode = 'new';
+
     backdrop.addEventListener('click', function(e){
       if (e.target === backdrop) { closeAddPropertyModal(); return; }
+      var modePill = e.target.closest('[data-add-mode]');
+      if (modePill){ switchMode(modePill.getAttribute('data-add-mode')); return; }
       var act = e.target.closest('[data-pf-action]');
       if (!act) return;
       var a = act.getAttribute('data-pf-action');
@@ -2513,9 +2591,62 @@ window.AR2_PF = (function(){
   function submitNewProperty(){
     var pid = pfState.selectedPortfolioId;
     if (!pid) { closeAddPropertyModal(); return; }
-    var input = document.getElementById('ar-pf-add-prop-name');
+    var backdrop = document.getElementById('ar-pf-add-prop-modal');
+    var mode = (backdrop && backdrop.dataset.addMode) || 'new';
     var err = document.getElementById('ar-pf-add-prop-err');
     var btn = document.querySelector('[data-pf-action="add-prop-create"]');
+    if (err) err.textContent = '';
+    if (mode === 'existing'){
+      // Copy an existing single assessment's data into a new portfolio_
+      // properties row. The original assessment record is untouched.
+      var sel = document.getElementById('ar-pf-add-existing-select');
+      var aid = sel && sel.value;
+      if (!aid) { if (err) err.textContent = 'Pick an assessment to add.'; if (sel) try { sel.focus(); } catch(_){} return; }
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c) { if (err) err.textContent = 'Cloud unavailable.'; return; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+      c.from('assessments').select('id,property_name,summary,state,snapshot').eq('id', aid).single().then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        var src = rs.data;
+        // Mirror the same fallback chain that Copy-to-Portfolio uses for
+        // older records that store everything under snapshot vs flat columns.
+        var stateBlob = src.state || (src.snapshot && src.snapshot.state) || {};
+        var exBlob    = (src.snapshot && src.snapshot.ex)      || {};
+        var mapBlob   = (src.snapshot && src.snapshot.mapping) || null;
+        var kpis      = src.summary || {};
+        var propName  = src.property_name || 'Imported Property';
+        return c.from('portfolio_properties').insert({
+          portfolio_id: pid,
+          property_name: propName,
+          order_index: nextOrderIndex(pid),
+          state_json: stateBlob,
+          ex_json: exBlob,
+          pool_measure_json: mapBlob,
+          computed_kpis: {
+            inv:            Number(kpis.inv)         || 0,
+            total_mo:       Number(kpis.monthly)     || 0,
+            total_yr:       Number(kpis.annual)      || 0,
+            total_dev:      Number(kpis.devices)     || 0,
+            total_pool_gal: Number(kpis.poolGallons) || 0,
+            payback:        Number(kpis.payback)     || 0
+          }
+        }).select('id').single();
+      }).then(function(rs2){
+        if (rs2 && rs2.error) throw new Error(rs2.error.message);
+        // Invalidate caches so the roster + roll-up refresh.
+        if (pfState.properties) pfState.properties[pid] = null;
+        if (pfState.rollup)     pfState.rollup[pid]     = null;
+        if (pfState.propertyStates) pfState.propertyStates[pid] = null;
+        closeAddPropertyModal();
+        if (typeof renderArchive === 'function') renderArchive();
+      }).catch(function(e){
+        if (btn) { btn.disabled = false; btn.textContent = 'Add property'; }
+        if (err) err.textContent = (e && e.message) || 'Add failed.';
+      });
+      return;
+    }
+    // mode === 'new' — original blank-property creation flow
+    var input = document.getElementById('ar-pf-add-prop-name');
     if (!input) return;
     var name = input.value.trim();
     if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
