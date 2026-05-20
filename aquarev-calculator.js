@@ -3573,24 +3573,53 @@ function openCopyToPortfolioModal(assessmentId){
     alert('Portfolios are not available in this account.');
     return;
   }
-  AR2_PF.loadPortfolios().then(function(){
-    var list = (AR2_PF.portfolios && AR2_PF.portfolios()) || [];
+  // Load portfolios + single assessments in parallel so the modal's three
+  // dropdowns (source assessment, target portfolio, target property) can
+  // all populate from a single round-trip burst.
+  var portfoliosP = AR2_PF.loadPortfolios();
+  var assessmentsP = (window.AR2_CLOUD && AR2_CLOUD.listAssessments)
+    ? AR2_CLOUD.listAssessments().catch(function(){ return []; })
+    : Promise.resolve([]);
+  Promise.all([portfoliosP, assessmentsP]).then(function(arr){
+    var list = arr[0] || [];
+    var assessments = arr[1] || [];
     if (!list.length){
-      alert('No portfolios yet. Create a portfolio first, then copy this assessment to it.');
+      alert('No portfolios yet. Create a portfolio first, then copy an assessment to it.');
       return;
     }
+    // Newest first; show name + date + owner (admin view) so the rep can
+    // tell similarly-named assessments apart.
+    assessments.sort(function(a,b){
+      var ta = new Date(a.savedAt || 0).getTime();
+      var tb = new Date(b.savedAt || 0).getTime();
+      return tb - ta;
+    });
     var bd = document.createElement('div');
     bd.id = 'ar-copy-pf-modal';
     bd.className = 'ar-pf-modal-backdrop';
     var pfOptions = list.map(function(p){
       return '<option value="' + esc(p.id) + '">' + esc(p.name || 'Untitled') + '</option>';
     }).join('');
-    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-copy-pf-title">'
+    var assOptions = assessments.length
+      ? assessments.map(function(r){
+          var nm = r.propertyName || 'Untitled';
+          var dt = r.savedAt ? new Date(r.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+          var ownerSuffix = r.createdByName ? ' · ' + r.createdByName : '';
+          var selected = (assessmentId && r.id === assessmentId) ? ' selected' : '';
+          return '<option value="' + esc(r.id) + '"' + selected + '>' + esc(nm) + (dt ? ' · ' + esc(dt) : '') + esc(ownerSuffix) + '</option>';
+        }).join('')
+      : '';
+    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-copy-pf-title" style="max-width:520px">'
       + '<div class="ar-pf-modal-title" id="ar-copy-pf-title">Copy to Portfolio</div>'
-      + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">Add this assessment to a portfolio as a property. You can either create a new property in the portfolio or update an existing one.</div>'
-      + '<label class="ar-pf-modal-lbl" for="ar-copy-pf-select">Target portfolio</label>'
+      + '<div style="font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:14px">Copy a single assessment into a portfolio. Pick the source assessment, the target portfolio, then Save as New (creates a new portfolio property) or Save &amp; Update (overwrites an existing property in that portfolio).</div>'
+      + '<label class="ar-pf-modal-lbl" for="ar-copy-pf-ass-select">Source assessment</label>'
+      + '<select class="ar-pf-modal-input" id="ar-copy-pf-ass-select">'
+      +   (assOptions ? '' : '<option value="">— No single assessments available —</option>')
+      +   assOptions
+      + '</select>'
+      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-copy-pf-select">Target portfolio</label>'
       + '<select class="ar-pf-modal-input" id="ar-copy-pf-select">' + pfOptions + '</select>'
-      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-copy-pf-prop-select">Existing property to update <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(only used by "Save & Update")</span></label>'
+      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-copy-pf-prop-select">Property to overwrite <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(only used by "Save &amp; Update")</span></label>'
       + '<select class="ar-pf-modal-input" id="ar-copy-pf-prop-select"><option value="">— Loading properties… —</option></select>'
       + '<div class="ar-pf-modal-err" id="ar-copy-pf-err"></div>'
       + '<div class="ar-pf-modal-actions">'
@@ -3600,7 +3629,9 @@ function openCopyToPortfolioModal(assessmentId){
       + '</div>'
     + '</div>';
     document.body.appendChild(bd);
-    bd.dataset.assessmentId = assessmentId;
+    // Pre-fill assessmentId in the dataset for back-compat; submitCopyTo
+    // Portfolio now reads from the dropdown (which the user can change).
+    bd.dataset.assessmentId = assessmentId || '';
     // Load property list for the first portfolio on open, and re-load on change
     function refreshPropList(pid){
       var propSel = document.getElementById('ar-copy-pf-prop-select');
@@ -3623,13 +3654,17 @@ function openCopyToPortfolioModal(assessmentId){
       if (e.target === bd) { closeCopyToPortfolioModal(); return; }
       var btn = e.target.closest('[data-copy-pf-action]');
       if (!btn) return;
+      // Stop bubbling so the document-level dispatcher (if any) doesn't
+      // double-fire the same action handler.
+      e.stopPropagation();
       var act = btn.getAttribute('data-copy-pf-action');
       if (act === 'cancel') { closeCopyToPortfolioModal(); return; }
       if (act === 'new')    { submitCopyToPortfolio('new'); return; }
       if (act === 'update') { submitCopyToPortfolio('update'); return; }
     });
     bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeCopyToPortfolioModal(); });
-    setTimeout(function(){ var s = document.getElementById('ar-copy-pf-select'); if (s) try { s.focus(); } catch(_){} }, 30);
+    // Focus the source assessment dropdown — the first decision the rep makes.
+    setTimeout(function(){ var s = document.getElementById('ar-copy-pf-ass-select'); if (s) try { s.focus(); } catch(_){} }, 30);
   }).catch(function(err){
     alert('Could not load portfolios: ' + ((err && err.message) || 'unknown error'));
   });
@@ -3641,10 +3676,14 @@ function closeCopyToPortfolioModal(){
 function submitCopyToPortfolio(mode){
   var bd = document.getElementById('ar-copy-pf-modal');
   if (!bd) return;
-  var assessmentId = bd.dataset.assessmentId;
+  // Source assessment is now picked from the new dropdown. Fall back to
+  // the legacy dataset value if the dropdown is missing (shouldn't happen).
+  var assSel = document.getElementById('ar-copy-pf-ass-select');
+  var assessmentId = (assSel && assSel.value) || bd.dataset.assessmentId;
   var pfSel = document.getElementById('ar-copy-pf-select');
   var propSel = document.getElementById('ar-copy-pf-prop-select');
   var err = document.getElementById('ar-copy-pf-err');
+  if (!assessmentId){ if (err) err.textContent = 'Pick a source assessment.'; if (assSel) try { assSel.focus(); } catch(_){} return; }
   var pid = pfSel && pfSel.value;
   if (!pid) { if (err) err.textContent = 'Pick a target portfolio.'; return; }
   if (mode === 'update'){
