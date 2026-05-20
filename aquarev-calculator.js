@@ -2483,11 +2483,17 @@ window.AR2_PF = (function(){
     // Two-mode modal: create a blank new property OR add data from an
     // existing single assessment (copy its state/ex/mapping/kpis into a
     // fresh portfolio_properties row, leaving the original assessment intact).
+    // Inline-styled mode pills — .ar-pf-exp-radio rules are scoped to #ar2
+    // but this modal lives at document.body, so the classes alone won't
+    // style it. Inline keeps the look consistent without relocating the modal.
+    var pillBase = 'flex:1;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;transition:background .12s,color .12s;';
+    var pillActive = pillBase + 'background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;';
+    var pillIdle   = pillBase + 'color:#7db8cc;';
     backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-add-prop-title" style="max-width:520px">'
       + '<div class="ar-pf-modal-title" id="ar-pf-add-prop-title">Add property</div>'
-      + '<div class="ar-pf-exp-radio-group" id="ar-pf-add-mode" style="display:flex;width:100%;margin-bottom:14px">'
-      +   '<span class="ar-pf-exp-radio active" data-add-mode="new"      style="flex:1;justify-content:center;padding:8px 12px;font-size:12px">Create new</span>'
-      +   '<span class="ar-pf-exp-radio"        data-add-mode="existing" style="flex:1;justify-content:center;padding:8px 12px;font-size:12px">Add from existing</span>'
+      + '<div id="ar-pf-add-mode" style="display:flex;gap:2px;padding:3px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);border-radius:8px;margin-bottom:14px">'
+      +   '<span data-add-mode="new"      style="'+pillActive+'">Create new</span>'
+      +   '<span data-add-mode="existing" style="'+pillIdle+'">Add from existing</span>'
       + '</div>'
       // Pane 1 — Create new (visible by default)
       + '<div id="ar-pf-add-pane-new">'
@@ -2504,7 +2510,7 @@ window.AR2_PF = (function(){
       + '<div class="ar-pf-modal-err" id="ar-pf-add-prop-err"></div>'
       + '<div class="ar-pf-modal-actions">'
       +   '<button class="ar-pf-modal-btn" data-pf-action="add-prop-cancel" type="button">Cancel</button>'
-      +   '<button class="ar-pf-modal-btn primary" data-pf-action="add-prop-create" type="button">Add property</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-pf-action="add-prop-create" type="button">Save</button>'
       + '</div>'
       + '</div>';
     document.body.appendChild(backdrop);
@@ -2551,7 +2557,8 @@ window.AR2_PF = (function(){
     function switchMode(mode){
       var pills = backdrop.querySelectorAll('[data-add-mode]');
       for (var i = 0; i < pills.length; i++){
-        pills[i].classList.toggle('active', pills[i].getAttribute('data-add-mode') === mode);
+        var isActive = pills[i].getAttribute('data-add-mode') === mode;
+        pills[i].setAttribute('style', isActive ? pillActive : pillIdle);
       }
       var paneNew = document.getElementById('ar-pf-add-pane-new');
       var paneEx  = document.getElementById('ar-pf-add-pane-existing');
@@ -2572,9 +2579,13 @@ window.AR2_PF = (function(){
     backdrop.addEventListener('click', function(e){
       if (e.target === backdrop) { closeAddPropertyModal(); return; }
       var modePill = e.target.closest('[data-add-mode]');
-      if (modePill){ switchMode(modePill.getAttribute('data-add-mode')); return; }
+      if (modePill){ e.stopPropagation(); switchMode(modePill.getAttribute('data-add-mode')); return; }
       var act = e.target.closest('[data-pf-action]');
       if (!act) return;
+      // Stop propagation so the document-level dispatcher (which also
+      // catches add-prop-cancel / add-prop-create) doesn't fire the same
+      // handlers a second time and re-trigger submitNewProperty.
+      e.stopPropagation();
       var a = act.getAttribute('data-pf-action');
       if (a === 'add-prop-cancel') { closeAddPropertyModal(); return; }
       if (a === 'add-prop-create') { submitNewProperty();     return; }
@@ -2604,7 +2615,7 @@ window.AR2_PF = (function(){
       if (!aid) { if (err) err.textContent = 'Pick an assessment to add.'; if (sel) try { sel.focus(); } catch(_){} return; }
       var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
       if (!c) { if (err) err.textContent = 'Cloud unavailable.'; return; }
-      if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
       c.from('assessments').select('id,property_name,summary,state,snapshot').eq('id', aid).single().then(function(rs){
         if (rs.error) throw new Error(rs.error.message);
         var src = rs.data;
@@ -2640,8 +2651,8 @@ window.AR2_PF = (function(){
         closeAddPropertyModal();
         if (typeof renderArchive === 'function') renderArchive();
       }).catch(function(e){
-        if (btn) { btn.disabled = false; btn.textContent = 'Add property'; }
-        if (err) err.textContent = (e && e.message) || 'Add failed.';
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+        if (err) err.textContent = (e && e.message) || 'Save failed.';
       });
       return;
     }
@@ -2650,13 +2661,13 @@ window.AR2_PF = (function(){
     if (!input) return;
     var name = input.value.trim();
     if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
-    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     createProperty(pid, name).then(function(){
       closeAddPropertyModal();
       if (typeof renderArchive === 'function') renderArchive();
     }).catch(function(e){
-      if (btn) { btn.disabled = false; btn.textContent = 'Add property'; }
-      if (err) err.textContent = (e && e.message) || 'Add failed.';
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      if (err) err.textContent = (e && e.message) || 'Save failed.';
     });
   }
 
