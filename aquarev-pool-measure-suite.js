@@ -1890,13 +1890,14 @@ async function captureMapForPool(poolId) {
   const p = S.pools.find(x => x.id === poolId);
   if (!p) return;
   setStatus('Capturing map…', 'busy');
-  // Thumbnail always renders the polygon in the captured BLUE style, even when
-  // the pool is still a draft. We force the blue paint directly on the active
-  // draw layers — setFeatureProperty alone can lag the paint filter, leaving
-  // the red draft style baked into the thumbnail.
-  const BLUE = '#00b4d8';
+  // Thumbnail renders the polygon with a red outline + blue fill so the pool
+  // shape pops on satellite imagery. We force the paint directly on the
+  // active draw layers — setFeatureProperty alone can lag the paint filter
+  // and leave the draft/registered defaults baked into the thumbnail.
+  const FILL_BLUE   = '#00b4d8';
+  const STROKE_RED  = '#ef4444';
   const paintBackup = {};
-  const forceBlue = (layerId, key, value) => {
+  const forcePaint = (layerId, key, value) => {
     try {
       paintBackup[layerId + '|' + key] = map.getPaintProperty(layerId, key);
       map.setPaintProperty(layerId, key, value);
@@ -1911,12 +1912,14 @@ async function captureMapForPool(poolId) {
   for (const lid of targetLayers) {
     if (!map.getLayer(lid)) continue;
     if (lid.indexOf('-fill-') !== -1) {
-      forceBlue(lid, 'fill-color', BLUE);
-      forceBlue(lid, 'fill-opacity', 0.28);
+      // Inside shaded area stays blue
+      forcePaint(lid, 'fill-color', FILL_BLUE);
+      forcePaint(lid, 'fill-opacity', 0.28);
     } else {
-      forceBlue(lid, 'line-color', BLUE);
-      forceBlue(lid, 'line-width', 2.5);
-      forceBlue(lid, 'line-dasharray', [1,0]);     // solid
+      // Outline drawn in red — heavier line so it survives JPEG compression
+      forcePaint(lid, 'line-color', STROKE_RED);
+      forcePaint(lid, 'line-width', 3.5);
+      forcePaint(lid, 'line-dasharray', [1,0]);     // solid
     }
   }
   try {
