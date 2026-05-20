@@ -2616,7 +2616,7 @@ window.AR2_PF = (function(){
       var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
       if (!c) { if (err) err.textContent = 'Cloud unavailable.'; return; }
       if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-      c.from('assessments').select('id,property_name,summary,state,snapshot').eq('id', aid).single().then(function(rs){
+      c.from('assessments').select('id,property_name,summary,snapshot').eq('id', aid).single().then(function(rs){
         if (rs.error) throw new Error(rs.error.message);
         var src = rs.data;
         // Mirror the same fallback chain that Copy-to-Portfolio uses for
@@ -3700,7 +3700,7 @@ function submitCopyToPortfolio(mode){
   var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
   if (!c) { if (err) err.textContent = 'Cloud unavailable.'; return; }
   // Fetch the source assessment row (state + summary + property_name)
-  c.from('assessments').select('id,property_name,summary,state,snapshot').eq('id', assessmentId).single().then(function(rs){
+  c.from('assessments').select('id,property_name,summary,snapshot').eq('id', assessmentId).single().then(function(rs){
     if (rs.error) throw new Error(rs.error.message);
     var src = rs.data;
     // assessments stores state in `state` jsonb; older records may use `snapshot`
