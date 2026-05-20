@@ -2651,6 +2651,9 @@ window.AR2_PF = (function(){
         closeAddPropertyModal();
         if (typeof renderArchive === 'function') renderArchive();
       }).catch(function(e){
+        // Surface failures in DevTools so silent errors (RLS, schema,
+        // network) are diagnosable without rebuilding the bundle.
+        try { console.error('[Add from existing] save failed:', e); } catch(_){}
         if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
         if (err) err.textContent = (e && e.message) || 'Save failed.';
       });
@@ -2666,6 +2669,7 @@ window.AR2_PF = (function(){
       closeAddPropertyModal();
       if (typeof renderArchive === 'function') renderArchive();
     }).catch(function(e){
+      try { console.error('[Create new property] save failed:', e); } catch(_){}
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
       if (err) err.textContent = (e && e.message) || 'Save failed.';
     });
