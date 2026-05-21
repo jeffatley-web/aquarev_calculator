@@ -6330,7 +6330,10 @@ function populateAdminDashboard(){
       set('ar-admin-kpi-pools', (typeof fn==='function'?fn(k.poolsTotal):String(k.poolsTotal)));
       set('ar-admin-kpi-value', (typeof fc==='function'?fc(Math.round(k.valueTotal),0):('$'+Math.round(k.valueTotal))));
     }).catch(function(err){
-      try { console.warn('[admin KPI] load failed', err); } catch(_){}
+      // Surface the failure so the silent em-dash placeholder doesn't hide
+      // a real problem (RLS denial, schema change, network error). Console
+      // is the only signal — the UI just stays on em-dashes intentionally.
+      try { console.error('[admin KPI] statsAdminKpis failed:', err); } catch(_){}
     });
   }
   // User-stats table — replaces the old chip list. Shows per-user lifetime
@@ -6755,9 +6758,14 @@ function renderBank(targetId){
     +'<div class="ar-bank-toolbar" id="ar-bank-toolbar" style="display:none"></div>'
     +thead
     +'<div class="ar-bank-list" id="'+listId+'">'+renderCards(idx)+'</div>';
-    // Populate admin dashboard contents only if it's already open. Otherwise
-    // we lazy-load when the admin clicks the header to expand it.
-    if(isAdmin && dashOpen) populateAdminDashboard();
+    // Always populate the admin dashboard on render. Previously this was
+    // gated on dashOpen (only if the drawer was expanded), which meant the
+    // KPI tiles stayed on em-dashes whenever the open-state was lost from
+    // localStorage or whenever the page rendered with the drawer collapsed
+    // — the values only filled in after a manual click to expand. Populating
+    // unconditionally is cheap (one batched query) and guarantees the tiles
+    // are accurate the instant the rep expands the drawer.
+    if(isAdmin) populateAdminDashboard();
     // Wire up the dashboard drawer toggle (click header → open/close, persist).
     if(isAdmin){
       var dashEl = document.getElementById('ar-admin-dash');
@@ -6767,13 +6775,9 @@ function renderBank(targetId){
           var willOpen = !dashEl.classList.contains('open');
           dashEl.classList.toggle('open', willOpen);
           try { localStorage.setItem('ar2:admin-dash-open', willOpen ? '1' : '0'); } catch(_){}
-          // Lazy-load contents on first open
-          if(willOpen && !dashEl.dataset.loaded){
-            populateAdminDashboard();
-            dashEl.dataset.loaded = '1';
-          }
         });
-        if(dashOpen) dashEl.dataset.loaded = '1';
+        // Mark loaded since populateAdminDashboard ran unconditionally above.
+        dashEl.dataset.loaded = '1';
       }
     }
 
