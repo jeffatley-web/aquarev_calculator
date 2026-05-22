@@ -286,7 +286,12 @@ function showCalcPasswordModal(onUnlock){
     +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">'+subtitle+'</div>'
     // 4-char access code: maxlength=4 + tracking-widened input keeps the
     // tight pin-style feel even though we accept alphanumerics now (HDC1).
-    +'<input id="ar2-calc-pw-input" type="password" maxlength="4" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="••••" />'
+    // maxlength relaxed so engineer accounts (phone-as-code) can fit the
+    // full E.164 string. Regular 4-char codes still work — server-side
+    // bcrypt match accepts any length ≥4. Letter-spacing adjusts to the
+    // typed length dynamically (handler below) so 4-char codes still
+    // visually align in the pin-style input.
+    +'<input id="ar2-calc-pw-input" type="password" maxlength="20" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="Code or phone" />'
     // Email field — only revealed for Client codes after the server prompts
     // for it (HTTP 422 needs_email). Hidden by default for Users/Admins so
     // their flow stays one-field.
@@ -363,8 +368,20 @@ function showCalcPasswordModal(onUnlock){
   // Two-step flow for Clients: first call sends just the code; if the
   // server responds with `email_required`, we reveal the email field and
   // the next click sends both code + email.
+  //
+  // For Engineer accounts the access code IS the E.164 phone number, so
+  // any input containing 7+ digits is normalized through
+  // normalizePhoneE164() before being sent. 4-char codes pass through
+  // unchanged because they don't have enough digits to trigger the
+  // normalization branch.
   function submitCloud(){
-    var code=(input.value||'').trim().toUpperCase();
+    var raw = (input.value || '').trim();
+    if(!raw){ err.textContent='Please enter your access code'; return; }
+    var digitCount = (raw.match(/\d/g) || []).length;
+    var looksLikePhone = digitCount >= 7;
+    var code = looksLikePhone
+      ? normalizePhoneE164(raw)
+      : raw.toUpperCase();
     if(!code){ err.textContent='Please enter your access code'; return; }
     var email = (emailInp && emailRow && emailRow.style.display !== 'none')
       ? (emailInp.value || '').trim()
@@ -1052,14 +1069,22 @@ var Cloud = (function(){
     stats90DailyByUser: stats90DailyByUser,
     adminUserStats: adminUserStats,
     isClient: function(){ return !!user && user.role === 'client'; },
-    adminCreateUser: function(name, code, role, logoDataUrl){
+    // Engineer is a new role added Phase 1 of the Engineer Portal build.
+    // Engineers see a scoped portal (no calculator, no archive) and
+    // verify pool-line counts + diameters + media for assigned properties.
+    isEngineer: function(){ return !!user && user.role === 'engineer'; },
+    // Adds optional phone parameter for engineer accounts. Backend
+    // admin_create_user accepts (name, code, role, logo_data, phone).
+    // For non-engineer roles, phone is ignored server-side.
+    adminCreateUser: function(name, code, role, logoDataUrl, phone){
       var c = getClient();
       if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
       return c.rpc('admin_create_user', {
         p_name: name,
         p_code: code,
         p_role: role,
-        p_logo_data: logoDataUrl || null
+        p_logo_data: logoDataUrl || null,
+        p_phone: phone || null
       }).then(function(r){
         if(r.error) throw r.error;
         return r.data;
@@ -6017,15 +6042,29 @@ function showAdminAddUserModal(){
     +'<div style="margin-bottom:12px"><label>Name</label>'
       +'<input id="ar2-au-name" type="text" placeholder="e.g. Sarah Johnson · or company name for Clients" autocomplete="off" />'
     +'</div>'
-    +'<div style="margin-bottom:12px"><label>Access Code (4 chars)</label>'
-      +'<input id="ar2-au-code" type="text" maxlength="4" placeholder="SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+    // Access code: for user/admin/client roles this stays a 4-char code as
+    // before; for engineer the field accepts the normalized E.164 phone
+    // (set by the phone-row handler below). maxlength removed in favor of
+    // a per-role validator at submit time.
+    +'<div style="margin-bottom:12px"><label id="ar2-au-code-label">Access Code (4 chars)</label>'
+      +'<input id="ar2-au-code" type="text" placeholder="SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+      +'<div id="ar2-au-code-hint" style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4;display:none">Engineer accounts use the phone number as the access code. The field is auto-filled when you enter the phone below.</div>'
     +'</div>'
     +'<div style="margin-bottom:14px"><label>Role</label>'
       +'<select id="ar2-au-role">'
         +'<option value="user">User — own records, standard features</option>'
         +'<option value="admin">Admin — sees all records + this dashboard</option>'
         +'<option value="client">Client — limited features (no quotes/exports)</option>'
+        +'<option value="engineer">Engineer — field verification portal only</option>'
       +'</select>'
+    +'</div>'
+    // Phone row — only meaningful for Engineer accounts. Hidden by JS for
+    // other roles. On Engineer, phone is normalized to E.164 and mirrored
+    // into the access-code field (phone-as-password per v1 product call).
+    +'<div id="ar2-au-phone-row" style="margin-bottom:14px;display:none">'
+      +'<label>Engineer phone <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(used for login + admin contact)</span></label>'
+      +'<input id="ar2-au-phone" type="tel" placeholder="(832) 979-6758" autocomplete="off" />'
+      +'<div id="ar2-au-phone-normalized" style="font-size:10.5px;color:#7db8cc;margin-top:4px;font-family:\'JetBrains Mono\',monospace"></div>'
     +'</div>'
     // Logo upload — only meaningful when Role=Client. Hidden by JS for other roles.
     +'<div id="ar2-au-logo-row" style="margin-bottom:14px;display:none">'
@@ -6044,14 +6083,60 @@ function showAdminAddUserModal(){
   document.getElementById('ar2-au-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var codeInp=document.getElementById('ar2-au-code');
-  codeInp.addEventListener('input',function(){ codeInp.value=(codeInp.value||'').toUpperCase(); });
+  codeInp.addEventListener('input',function(){
+    // Engineer codes are phone numbers — preserve their case-insensitive
+    // digit-only nature. Other roles get the existing uppercase 4-char code.
+    if (roleSel.value !== 'engineer'){
+      codeInp.value = (codeInp.value || '').toUpperCase();
+    }
+  });
 
-  // Show / hide the logo upload row based on role selection
+  // Show / hide the logo upload row + phone row based on role selection.
+  // Also flip the access-code label + hint between "4 chars" (default) and
+  // "phone number" (engineer) so admins don't second-guess.
   var roleSel = document.getElementById('ar2-au-role');
   var logoRow = document.getElementById('ar2-au-logo-row');
-  function syncLogoRow(){ logoRow.style.display = (roleSel.value === 'client') ? '' : 'none'; }
-  roleSel.addEventListener('change', syncLogoRow);
-  syncLogoRow();
+  var phoneRow = document.getElementById('ar2-au-phone-row');
+  var codeLabel = document.getElementById('ar2-au-code-label');
+  var codeHint = document.getElementById('ar2-au-code-hint');
+  var phoneInp = document.getElementById('ar2-au-phone');
+  var phoneNormalized = document.getElementById('ar2-au-phone-normalized');
+
+  function syncRoleFields(){
+    var r = roleSel.value;
+    logoRow.style.display  = (r === 'client')   ? '' : 'none';
+    phoneRow.style.display = (r === 'engineer') ? '' : 'none';
+    if (r === 'engineer'){
+      codeLabel.textContent = 'Access code (auto-filled from phone)';
+      codeHint.style.display = '';
+      codeInp.setAttribute('maxlength', '20');
+      codeInp.setAttribute('readonly', 'readonly');
+      codeInp.style.opacity = '.6';
+      codeInp.style.letterSpacing = '2px';
+    } else {
+      codeLabel.textContent = 'Access Code (4 chars)';
+      codeHint.style.display = 'none';
+      codeInp.setAttribute('maxlength', '4');
+      codeInp.removeAttribute('readonly');
+      codeInp.style.opacity = '';
+      codeInp.style.letterSpacing = '6px';
+      // If switching away from engineer, clear the phone-derived code so
+      // admin doesn't accidentally submit a long code as a 4-char one.
+      if (codeInp.value && codeInp.value.length > 4){ codeInp.value = ''; }
+    }
+  }
+  roleSel.addEventListener('change', syncRoleFields);
+  syncRoleFields();
+
+  // Phone → E.164 normalization. Accepts any common input format and
+  // produces the canonical "+18329796758" representation. Mirrors the
+  // result into the access-code field so the code stored server-side
+  // matches what the engineer will type at login.
+  phoneInp.addEventListener('input', function(){
+    var normalized = normalizePhoneE164(phoneInp.value);
+    phoneNormalized.textContent = normalized ? 'Will be saved as: ' + normalized : '';
+    codeInp.value = normalized;
+  });
 
   // Capture chosen logo file as base64 dataURL on input change.
   var logoInp = document.getElementById('ar2-au-logo');
@@ -6076,16 +6161,32 @@ function showAdminAddUserModal(){
 
   document.getElementById('ar2-au-go').onclick=function(){
     var name=(document.getElementById('ar2-au-name').value||'').trim();
-    var code=(document.getElementById('ar2-au-code').value||'').trim().toUpperCase();
     var role=roleSel.value;
     var err=document.getElementById('ar2-au-err');
+    // For engineers, the code is the normalized phone (mirrored into the
+    // field by the phone-input handler). For other roles, it's the
+    // 4-char uppercase code as before.
+    var code, phone = null;
+    if (role === 'engineer'){
+      phone = normalizePhoneE164(phoneInp.value);
+      code  = phone;
+      if (!phone || phone.length < 8){
+        err.textContent = 'Enter a valid phone number (any common format).';
+        phoneInp.focus(); return;
+      }
+    } else {
+      code = (document.getElementById('ar2-au-code').value || '').trim().toUpperCase();
+    }
     if(!name){ err.textContent='Name is required.'; return; }
-    if(code.length<4){ err.textContent='Access code must be 4 characters.'; return; }
+    if(role !== 'engineer' && code.length < 4){
+      err.textContent = 'Access code must be at least 4 characters.';
+      return;
+    }
     err.textContent='';
     var go=document.getElementById('ar2-au-go');
     go.disabled=true; go.textContent='Creating…';
     var logoArg = (role === 'client' && pendingLogoDataUrl) ? pendingLogoDataUrl : null;
-    AR2_CLOUD.adminCreateUser(name, code, role, logoArg).then(function(){
+    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone).then(function(){
       close();
       // Force the dashboard to refresh stats
       var dashEl=document.getElementById('ar-admin-dash');
@@ -6292,7 +6393,7 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">CHANGE ROLE</div>'
     +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
     +'<select id="ar2-ro-sel" style="margin-bottom:14px">'
-      +opt('user','User')+opt('admin','Admin')+opt('client','Client')
+      +opt('user','User')+opt('admin','Admin')+opt('client','Client')+opt('engineer','Engineer')
     +'</select>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<button id="ar2-ro-cancel" class="ar2-mb">Cancel</button>'
@@ -6357,7 +6458,10 @@ function populateAdminDashboard(){
         + '<th class="actions">Actions</th>'
       + '</tr></thead><tbody>'
       + rows.map(function(u){
-          var roleClass = u.role === 'admin' ? 'role-admin' : (u.role === 'client' ? 'role-client' : 'role-user');
+          var roleClass = u.role === 'admin' ? 'role-admin'
+                        : u.role === 'client' ? 'role-client'
+                        : u.role === 'engineer' ? 'role-engineer'
+                        : 'role-user';
           var lastLogin = u.last_login_at
             ? new Date(u.last_login_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
             : '—';
@@ -6524,6 +6628,13 @@ function showDuplicateConfirmModal(propName, onConfirm){
 function renderArchive(){
   var el = document.getElementById('ar2-bank');
   if (!el) return;
+  // Engineer role short-circuits ALL archive views. Engineers see only
+  // their assigned-properties landing page; no Calculator, no Portfolios,
+  // no normal archive list. Phase 2 will swap this shell for the full
+  // 4-step verification flow.
+  if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()){
+    return renderEngineerPortalShell(el);
+  }
   if (!window.AR2_PF || !AR2_PF.isEnabled()) {
     // Feature disabled (Client / no-PF): production behavior, single assessments only.
     return renderBank();
@@ -6544,6 +6655,92 @@ function renderArchive(){
   // bankGetIndex() when AR2_PF is enabled, so the same renderer powers both
   // types. The list lives directly in #ar2-bank.
   renderBank();
+}
+
+/* ── Engineer Portal — Phase 1 landing shell ───────────────────────────
+   Rendered when the signed-in user has role='engineer'. For Phase 1 this
+   is a minimal scaffold: greeting, assignment list, empty state, sign-out
+   action. Phase 2 swaps the row-click target from a stub to the 4-step
+   verification flow (briefing → property → pools → submit).
+   ─────────────────────────────────────────────────────────────────── */
+function renderEngineerPortalShell(mountEl){
+  if (!mountEl) return;
+  var u = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user()) || {};
+  var nameDisplay = esc(u.name || 'Engineer');
+  // Shell paints immediately with a loading row so the engineer sees the
+  // page chrome render fast even if the assignments fetch is slow.
+  mountEl.innerHTML = ''
+    + '<div class="ar-eng-wrap">'
+    +   '<div class="ar-eng-header">'
+    +     '<div class="ar-eng-eyebrow">Engineer Portal</div>'
+    +     '<div class="ar-eng-title">Hi, ' + nameDisplay + '</div>'
+    +     '<div class="ar-eng-sub">Your verification assignments. Tap one to start or continue.</div>'
+    +   '</div>'
+    +   '<div class="ar-eng-list" id="ar-eng-assignment-list">'
+    +     '<div class="ar-eng-empty" style="opacity:.7">Loading your assignments…</div>'
+    +   '</div>'
+    +   '<div class="ar-eng-footer">'
+    +     '<button class="ar-eng-signout-btn" data-action="user-menu" type="button">Sign out</button>'
+    +   '</div>'
+    + '</div>';
+
+  // Fetch the engineer's assignments. RLS already scopes — server returns
+  // only rows where engineer_user_id = auth.uid().
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c) return;
+  c.from('engineer_assignments')
+    .select('id,status,assignment_notes,assigned_at,last_modified_at,property_id,portfolio_id,assessment_id')
+    .order('last_modified_at', { ascending: false })
+    .then(function(rs){
+      var listEl = document.getElementById('ar-eng-assignment-list');
+      if (!listEl) return;
+      if (rs.error){
+        listEl.innerHTML = '<div class="ar-eng-empty" style="color:#fca5a5">Couldn\'t load assignments: ' + esc(rs.error.message || 'unknown error') + '</div>';
+        return;
+      }
+      var rows = rs.data || [];
+      if (!rows.length){
+        listEl.innerHTML = ''
+          + '<div class="ar-eng-empty">'
+          +   '<div class="ar-eng-empty-icon">○</div>'
+          +   '<div class="ar-eng-empty-title">No assignments yet</div>'
+          +   '<div class="ar-eng-empty-body">Your AquaRev rep will send you a property to verify when they\'re ready. Check back later.</div>'
+          + '</div>';
+        return;
+      }
+      // Per decision #5: single-assignment auto-route. With Phase 1 shell
+      // there's no destination yet, so this is just a no-op until Phase 2
+      // wires the verification flow — listing it is still useful so the
+      // engineer sees something tangible.
+      listEl.innerHTML = rows.map(function(r){
+        var statusPill = '';
+        if      (r.status === 'pending')     statusPill = '<span class="ar-eng-pill amber">Pending</span>';
+        else if (r.status === 'in_progress') statusPill = '<span class="ar-eng-pill yellow">In progress</span>';
+        else if (r.status === 'submitted')   statusPill = '<span class="ar-eng-pill blue">Sent for review</span>';
+        else if (r.status === 'reviewed')    statusPill = '<span class="ar-eng-pill green">Reviewed</span>';
+        else if (r.status === 'locked')      statusPill = '<span class="ar-eng-pill gray">Locked</span>';
+        var lastEdit = r.last_modified_at
+          ? new Date(r.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+          : '';
+        var scopeLabel = r.property_id ? 'Property'
+                       : r.portfolio_id ? 'Portfolio'
+                       : 'Assessment';
+        // For Phase 1 we don't have the property/portfolio NAME available
+        // (would require a follow-up fetch per row). Phase 2 batches a
+        // names lookup. Placeholder shows the scope type + id stub.
+        return ''
+          + '<div class="ar-eng-row" data-engineer-assignment="' + esc(r.id) + '">'
+          +   '<div class="ar-eng-row-main">'
+          +     '<div class="ar-eng-row-name">' + esc(scopeLabel) + ' assignment</div>'
+          +     '<div class="ar-eng-row-sub">' + (lastEdit ? 'Last activity ' + esc(lastEdit) : '') + (r.assignment_notes ? ' · ' + esc(r.assignment_notes) : '') + '</div>'
+          +   '</div>'
+          +   '<div class="ar-eng-row-status">' + statusPill + '</div>'
+          + '</div>';
+      }).join('');
+    }, function(err){
+      var listEl = document.getElementById('ar-eng-assignment-list');
+      if (listEl) listEl.innerHTML = '<div class="ar-eng-empty" style="color:#fca5a5">Couldn\'t load assignments: ' + esc((err && err.message) || 'network error') + '</div>';
+    });
 }
 
 // Accepts optional `targetId` (string) so the Portfolio tabs wrapper can
@@ -6892,6 +7089,14 @@ function resetApp(){
 
 /* ── Switch between form and bank views ── */
 function showView(v){
+  // Engineers are sandboxed to their portal view. Any showView() call
+  // that asks for 'form' (calculator) gets re-routed to 'bank', and
+  // renderArchive() then dispatches to renderEngineerPortalShell().
+  // This is the single chokepoint that prevents engineers from ever
+  // seeing rep / admin UI — even if a stale link or callback fires.
+  if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()){
+    v = 'bank';
+  }
   VIEW=v;
   var root=document.getElementById('ar2');
   var mainLayout=document.getElementById('ar2-main-layout');
@@ -6985,6 +7190,29 @@ var S={
 
 /* ── Formatters ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* Normalize a phone number to E.164 (+<country><number>). Accepts any
+   common input form: "+18329796758", "1 832 979 6758", "(832) 979-6758",
+   "832.979.6758", "8329796758". Returns '' if input has fewer than 7
+   digits. US default — bare 10-digit numbers are prefixed with +1;
+   11-digit numbers starting with 1 are prefixed with +. Numbers
+   explicitly entered with + keep their country code as typed.
+   Used by the engineer Add User flow + login gate normalization. */
+function normalizePhoneE164(input){
+  if (input == null) return '';
+  var raw = String(input).trim();
+  if (!raw) return '';
+  var hasPlus = raw.indexOf('+') === 0;
+  // Strip everything except digits
+  var digits = raw.replace(/[^\d]/g, '');
+  if (digits.length < 7) return '';
+  if (hasPlus) return '+' + digits;
+  // No leading + — apply US-default heuristics
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.charAt(0) === '1') return '+' + digits;
+  // Anything else: assume the digits already include the country code
+  return '+' + digits;
+}
 
 /* ── CDN image proxy — routes big marketing images through wsrv.nl for width-capping
    and quality-compression. Reduces PDF exports from ~15 MB toward 2–4 MB.
@@ -8354,6 +8582,15 @@ function syncRangeStyles(){
 
 /* ── Full render ── */
 function render(){
+  // Engineer guard — if the signed-in user is an engineer, divert to the
+  // engineer portal regardless of what state was about to render. Without
+  // this, a fresh page load would briefly paint the calculator before
+  // showView() intercepts on a subsequent click. The early return here is
+  // the second chokepoint that keeps engineers out of rep / admin UI.
+  if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()){
+    if (VIEW !== 'bank' && typeof showView === 'function') showView('bank');
+    return;
+  }
   // Toggle map-step class so CSS hides calc columns + shows #ap2
   var root=document.getElementById('ar2');
   if(root) root.classList.toggle('map-step', S.step===0);

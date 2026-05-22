@@ -1495,6 +1495,9 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-role.role-admin{background:rgba(240,165,0,.14);color:var(--go);border:1px solid rgba(240,165,0,.3);}
 #ar2 .ar-admin-role.role-user{background:rgba(0,180,216,.1);color:var(--t);border:1px solid rgba(0,180,216,.25);}
 #ar2 .ar-admin-role.role-client{background:rgba(168,85,247,.12);color:#c89aff;border:1px solid rgba(168,85,247,.3);}
+/* Engineer role pill — green, signaling field/verification status distinct
+   from rep (teal/blue), admin (gold), or client (purple). */
+#ar2 .ar-admin-role.role-engineer{background:rgba(34,197,94,.12);color:#4ade80;border:1px solid rgba(34,197,94,.32);}
 #ar2 .ar-admin-disabled{display:inline-block;font-size:9px;color:var(--re);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:1px 6px;border-radius:99px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase;}
 /* ── Admin modal styling ────────────────────────────────────────────
    Admin pop-up modals are appended to <body>, OUTSIDE the #ar2 root, so
@@ -2121,6 +2124,41 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    renderBank renders its own .ar-bank-wrap inside which already adds
    60px bottom padding. The Portfolio panel sets its own bottom space. */
 #ar2 .ar-pf-archive-wrap{max-width:1320px;margin:0 auto;padding:0 20px;width:100%;box-sizing:border-box;}
+
+/* ─── Engineer Portal — Phase 1 landing shell ───────────────────────
+   Standalone view for role='engineer'. Sized for tablet field-use
+   first; desktop scales up gracefully. No rep / admin chrome. */
+#ar2 .ar-eng-wrap{max-width:760px;margin:0 auto;padding:40px 20px 80px;width:100%;box-sizing:border-box;}
+#ar2 .ar-eng-header{margin-bottom:28px;}
+#ar2 .ar-eng-eyebrow{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#4ade80;font-weight:600;margin-bottom:8px;}
+#ar2 .ar-eng-title{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:2px;color:#fff;margin-bottom:6px;line-height:1.05;}
+#ar2 .ar-eng-sub{font-size:13.5px;color:var(--mu);line-height:1.5;}
+#ar2 .ar-eng-list{display:flex;flex-direction:column;gap:10px;}
+#ar2 .ar-eng-row{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:16px 18px;background:rgba(13,45,74,.5);border:1px solid rgba(34,197,94,.18);border-radius:12px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-eng-row:hover{background:rgba(13,45,74,.7);border-color:rgba(34,197,94,.4);}
+#ar2 .ar-eng-row:active{transform:translateY(1px);}
+#ar2 .ar-eng-row-main{min-width:0;}
+#ar2 .ar-eng-row-name{font-size:15px;font-weight:600;color:#fff;margin-bottom:2px;}
+#ar2 .ar-eng-row-sub{font-size:12px;color:var(--mu);line-height:1.4;}
+#ar2 .ar-eng-row-status{flex-shrink:0;}
+#ar2 .ar-eng-pill{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:.4px;white-space:nowrap;}
+#ar2 .ar-eng-pill.amber {background:rgba(240,165,0,.12); color:#f0a500; border:1px solid rgba(240,165,0,.32);}
+#ar2 .ar-eng-pill.yellow{background:rgba(234,179,8,.12); color:#eab308; border:1px solid rgba(234,179,8,.32);}
+#ar2 .ar-eng-pill.blue  {background:rgba(0,180,216,.12);  color:#48cae4; border:1px solid rgba(0,180,216,.32);}
+#ar2 .ar-eng-pill.green {background:rgba(34,197,94,.12);  color:#4ade80; border:1px solid rgba(34,197,94,.32);}
+#ar2 .ar-eng-pill.gray  {background:rgba(125,184,204,.1); color:#7db8cc; border:1px solid rgba(125,184,204,.25);}
+#ar2 .ar-eng-empty{padding:48px 20px;text-align:center;border:1px dashed rgba(0,180,216,.18);border-radius:14px;color:var(--mu);font-size:13px;}
+#ar2 .ar-eng-empty-icon{font-size:36px;color:rgba(125,184,204,.45);margin-bottom:8px;line-height:1;}
+#ar2 .ar-eng-empty-title{font-size:14px;font-weight:600;color:#cfe2eb;margin-bottom:6px;}
+#ar2 .ar-eng-empty-body{font-size:12px;color:var(--mu);line-height:1.55;max-width:380px;margin:0 auto;}
+#ar2 .ar-eng-footer{margin-top:36px;text-align:center;}
+#ar2 .ar-eng-signout-btn{background:transparent;border:1px solid rgba(125,184,204,.25);color:var(--mu);padding:8px 18px;border-radius:8px;font-family:inherit;font-size:12px;letter-spacing:.5px;cursor:pointer;transition:border-color .15s,color .15s;}
+#ar2 .ar-eng-signout-btn:hover{border-color:rgba(125,184,204,.5);color:#cfe2eb;}
+@media(max-width:640px){
+  #ar2 .ar-eng-wrap{padding:24px 16px 60px;}
+  #ar2 .ar-eng-title{font-size:28px;}
+  #ar2 .ar-eng-row{padding:14px 14px;}
+}
 /* Tab strip — sits at the top of the archive wrap when AR2_PF is enabled.
    No horizontal padding here because the wrap above already centers content. */
 #ar2 .ar-pf-tabstrip{display:flex;gap:2px;background:linear-gradient(180deg,rgba(13,45,74,.5),rgba(7,22,40,.3));border-bottom:1px solid rgba(0,180,216,.18);}
