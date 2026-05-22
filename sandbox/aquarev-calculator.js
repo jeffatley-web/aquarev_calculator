@@ -6657,13 +6657,30 @@ function renderArchive(){
   renderBank();
 }
 
-/* ── Engineer Portal — Phase 1 landing shell ───────────────────────────
-   Rendered when the signed-in user has role='engineer'. For Phase 1 this
-   is a minimal scaffold: greeting, assignment list, empty state, sign-out
-   action. Phase 2 swaps the row-click target from a stub to the 4-step
-   verification flow (briefing → property → pools → submit).
+/* ── Engineer Portal — entry point ─────────────────────────────────────
+   Dispatches between two states:
+     1. Assignment list  (no assignment open) — Phase 1 shell
+     2. Active 4-step flow (assignment open) — Phase 2 verification
+   Active state lives on AR2_ENGINEER.state(); shell reads it on each
+   render and routes accordingly. Calling renderEngineerPortalShell()
+   while a flow is open re-paints the current step (used by auto-save
+   to refresh save-timestamps, etc.).
    ─────────────────────────────────────────────────────────────────── */
 function renderEngineerPortalShell(mountEl){
+  // If an assignment is currently open, route into the 4-step flow.
+  if (window.AR2_ENGINEER && AR2_ENGINEER.state && AR2_ENGINEER.state().assignmentId){
+    return AR2_ENGINEER.renderCurrentStep(mountEl);
+  }
+  return renderEngineerAssignmentList(mountEl);
+}
+
+/* Assignment list — Phase 1's original shell, extracted so the dispatch
+   above stays small. Renders header + install card + assignment rows or
+   empty state. Single-assignment auto-route per decision #5 fires only
+   when the engineer has already skipped the briefing (otherwise they
+   land on Step 1 explicitly).
+   ─────────────────────────────────────────────────────────────────── */
+function renderEngineerAssignmentList(mountEl){
   if (!mountEl) return;
   var u = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user()) || {};
   var nameDisplay = esc(u.name || 'Engineer');
@@ -6726,10 +6743,14 @@ function renderEngineerPortalShell(mountEl){
           + '</div>';
         return;
       }
-      // Per decision #5: single-assignment auto-route. With Phase 1 shell
-      // there's no destination yet, so this is just a no-op until Phase 2
-      // wires the verification flow — listing it is still useful so the
-      // engineer sees something tangible.
+      // Per decision #5: single-assignment auto-route. If the engineer
+      // has exactly one assignment, open it directly so they don't have
+      // to click through a list of one. The flow itself decides whether
+      // to land on Step 1 (briefing not yet skipped) or Step 2.
+      if (rows.length === 1 && window.AR2_ENGINEER){
+        AR2_ENGINEER.openAssignment(rows[0].id);
+        return;
+      }
       listEl.innerHTML = rows.map(function(r){
         var statusPill = '';
         if      (r.status === 'pending')     statusPill = '<span class="ar-eng-pill amber">Pending</span>';
@@ -6760,6 +6781,720 @@ function renderEngineerPortalShell(mountEl){
       if (listEl) listEl.innerHTML = '<div class="ar-eng-empty" style="color:#fca5a5">Couldn\'t load assignments: ' + esc((err && err.message) || 'network error') + '</div>';
     });
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   AR2_ENGINEER — Engineer Portal verification flow (Phase 2)
+   ────────────────────────────────────────────────────────────────────
+   Self-contained module that handles the 4-step verification flow once
+   an engineer has opened an assignment:
+     Step 1 · Briefing       (orientation video + skip toggle)
+     Step 2 · Property review (confirm access, gallons)
+     Step 3 · Pool profiles  (per-pool return-line + notes; media in
+                              a follow-up ship)
+     Step 4 · Review & submit (preview + Send to AquaRev for review)
+
+   State lives in a module-private object. Render functions read it,
+   action handlers mutate it + persist via Supabase. Auto-save is
+   debounced (600ms) and updates engineer_verifications.
+   ──────────────────────────────────────────────────────────────────── */
+window.AR2_ENGINEER = (function(){
+
+  // ── Module state ────────────────────────────────────────────────
+  var s = {
+    assignmentId: null,
+    assignment:   null,     // engineer_assignments row
+    scopeKind:    null,     // 'property' | 'portfolio' | 'assessment'
+    record:       null,     // The linked record (with state_json)
+    pools:        [],       // Derived from record.state_json.bodies
+    verifications: {},      // Keyed by pool_index
+    media:        [],       // engineer_media rows (placeholder, used in
+                            // follow-up ship for media upload)
+    currentStep:  1,
+    saving:       false,
+    saveTimer:    null,
+    lastSavedAt:  null,
+    loading:      false,
+    loadError:    null,
+    propertyConfirmation: {
+      hasAccess:        null,   // true | false
+      accessBlockedReason: '',
+      gallonsMatchesRep: null,  // true | false
+      gallonsOverride:  ''
+    }
+  };
+
+  function client(){
+    return (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  }
+  function currentUser(){
+    return (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+  }
+  function mountEl(){
+    return document.getElementById('ar2-bank');
+  }
+  function repaint(){
+    var m = mountEl();
+    if (m && typeof renderEngineerPortalShell === 'function') renderEngineerPortalShell(m);
+  }
+
+  // ── Open / close ────────────────────────────────────────────────
+  function openAssignment(assignmentId){
+    if (!assignmentId) return;
+    s.assignmentId = assignmentId;
+    s.assignment = null;
+    s.record = null;
+    s.pools = [];
+    s.verifications = {};
+    s.media = [];
+    s.loading = true;
+    s.loadError = null;
+    // Show step 1 immediately so the engineer sees the briefing while we
+    // fetch the assignment details in the background. If the engineer has
+    // already skipped briefing (briefing_skipped on app_users), we jump
+    // straight to step 2 once the load completes.
+    s.currentStep = 1;
+    repaint();
+    fetchAssignmentBundle();
+  }
+  function closeAssignment(){
+    if (s.saveTimer){ clearTimeout(s.saveTimer); s.saveTimer = null; }
+    s.assignmentId = null;
+    s.assignment = null;
+    s.record = null;
+    s.pools = [];
+    s.verifications = {};
+    s.media = [];
+    s.currentStep = 1;
+    s.loading = false;
+    s.loadError = null;
+    repaint();
+  }
+
+  /* Load the assignment row + linked record + any prior verifications.
+     One round-trip per resource — small enough at engineer scale not to
+     warrant batching. Errors surface in the UI via s.loadError. */
+  function fetchAssignmentBundle(){
+    var c = client();
+    if (!c){ s.loading = false; s.loadError = 'Cloud unavailable.'; repaint(); return; }
+    c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,locked_at,assigned_at,last_modified_at,submitted_at,reviewed_at')
+      .eq('id', s.assignmentId)
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        s.assignment = rs.data;
+        s.scopeKind = rs.data.property_id ? 'property'
+                    : rs.data.portfolio_id ? 'portfolio'
+                    : 'assessment';
+        return fetchScopeRecord(rs.data);
+      })
+      .then(function(record){
+        s.record = record;
+        s.pools = derivePoolList(record);
+        return fetchVerifications(s.assignmentId);
+      })
+      .then(function(verifs){
+        s.verifications = verifs;
+        return fetchMedia(s.assignmentId);
+      })
+      .then(function(media){
+        s.media = media;
+        s.loading = false;
+        // Skip the briefing step on subsequent visits if the engineer has
+        // marked it dismissed. Per decision #8, that flag is DB-persisted
+        // on app_users.briefing_skipped so it follows them across devices.
+        var u = currentUser();
+        if (u && u.briefing_skipped && s.currentStep === 1){
+          s.currentStep = 2;
+        }
+        // Also bump status from pending → in_progress on first open if
+        // the engineer touches anything. Initial open alone doesn't, so
+        // a curious engineer who just looks doesn't flip the status.
+        repaint();
+      })
+      .catch(function(err){
+        s.loading = false;
+        s.loadError = (err && err.message) || 'Could not load assignment.';
+        repaint();
+      });
+  }
+
+  function fetchScopeRecord(assignment){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud unavailable'));
+    if (assignment.property_id){
+      return c.from('portfolio_properties')
+        .select('id,property_name,formatted_address,country,state_json,ex_json,computed_kpis')
+        .eq('id', assignment.property_id)
+        .single()
+        .then(function(rs){ if (rs.error) throw new Error(rs.error.message); return rs.data; });
+    }
+    if (assignment.assessment_id){
+      return c.from('assessments')
+        .select('id,property_name,snapshot,summary')
+        .eq('id', assignment.assessment_id)
+        .single()
+        .then(function(rs){
+          if (rs.error) throw new Error(rs.error.message);
+          // Normalize assessment shape to match property_id shape so the
+          // step renderers don't branch — fold snapshot.state into state_json.
+          var snap = rs.data.snapshot || {};
+          return {
+            id: rs.data.id,
+            property_name: rs.data.property_name,
+            formatted_address: (snap.state && snap.state.formattedAddress) || '',
+            country: '',
+            state_json: snap.state || {},
+            ex_json: snap.ex || {},
+            computed_kpis: rs.data.summary || {}
+          };
+        });
+    }
+    // portfolio_id — Phase 2 v1 shows portfolio-level metadata only.
+    // Per-property iteration within a portfolio is a Phase 2 follow-up.
+    return c.from('portfolios')
+      .select('id,name,client_contact_name')
+      .eq('id', assignment.portfolio_id)
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return {
+          id: rs.data.id,
+          property_name: rs.data.name,
+          formatted_address: '',
+          country: '',
+          state_json: { bodies: [], manualVolume: false, manualPoolCount: 0 },
+          ex_json: {},
+          computed_kpis: {}
+        };
+      });
+  }
+
+  function fetchVerifications(assignmentId){
+    var c = client();
+    if (!c) return Promise.resolve({});
+    return c.from('engineer_verifications')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,updated_at')
+      .eq('assignment_id', assignmentId)
+      .then(function(rs){
+        if (rs.error) return {};
+        var map = {};
+        (rs.data || []).forEach(function(v){ map[v.pool_index] = v; });
+        return map;
+      }, function(){ return {}; });
+  }
+  function fetchMedia(assignmentId){
+    var c = client();
+    if (!c) return Promise.resolve([]);
+    return c.from('engineer_media')
+      .select('id,pool_index,storage_path,media_type,filename_original,size_bytes,caption,uploaded_at')
+      .eq('assignment_id', assignmentId)
+      .order('uploaded_at', { ascending: true })
+      .then(function(rs){ return (rs.data || []); }, function(){ return []; });
+  }
+
+  /* Derive the pool list from the linked record's state_json.bodies.
+     Each pool's metadata seeds the verification card — engineer sees the
+     rep's saved gallons + dimensions and confirms or overrides. */
+  function derivePoolList(record){
+    if (!record || !record.state_json) return [];
+    var sj = record.state_json;
+    if (sj.manualVolume){
+      var n = Math.max(1, Number(sj.manualPoolCount) || 1);
+      var perPoolGallons = Math.round((Number(sj.manualTotalGallons) || 0) / n);
+      var pools = [];
+      for (var i = 0; i < n; i++){
+        pools.push({ index: i, name: 'Pool ' + (i + 1), gallonsRep: perPoolGallons, isManual: true });
+      }
+      return pools;
+    }
+    if (!Array.isArray(sj.bodies)) return [];
+    return sj.bodies.map(function(b, i){
+      var g = typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0;
+      return {
+        index: i,
+        name: b.label || ('Pool ' + (i + 1)),
+        gallonsRep: g,
+        type: b.poolType || '',
+        depth: b.depth || ''
+      };
+    });
+  }
+
+  // ── Step navigation ─────────────────────────────────────────────
+  function goToStep(n){
+    n = Math.max(1, Math.min(4, n | 0));
+    s.currentStep = n;
+    repaint();
+  }
+  function isStepComplete(n){
+    if (n === 1) return true;  // Briefing is always considered complete (skippable)
+    if (n === 2){
+      return s.propertyConfirmation.hasAccess === true
+          && s.propertyConfirmation.gallonsMatchesRep != null;
+    }
+    if (n === 3){
+      // Every pool must have a verification row with non-empty return_lines.
+      if (!s.pools.length) return false;
+      return s.pools.every(function(p){
+        var v = s.verifications[p.index];
+        return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      });
+    }
+    return true;
+  }
+
+  // ── Save logic (debounced) ──────────────────────────────────────
+  function scheduleSave(poolIndex){
+    if (s.saveTimer){ clearTimeout(s.saveTimer); }
+    s.saveTimer = setTimeout(function(){ persistVerification(poolIndex); }, 600);
+    s.saving = true;
+  }
+  function persistVerification(poolIndex){
+    var c = client();
+    if (!c) return;
+    var v = s.verifications[poolIndex];
+    if (!v) return;
+    var payload = {
+      assignment_id: s.assignmentId,
+      pool_index:    poolIndex,
+      confirmed_gallons: v.confirmed_gallons != null ? Number(v.confirmed_gallons) : null,
+      return_lines: v.return_lines || [],
+      notes: v.notes || null,
+      has_discrepancy: !!v.has_discrepancy,
+      discrepancy_reason: v.discrepancy_reason || null,
+      updated_at: new Date().toISOString()
+    };
+    c.from('engineer_verifications')
+      .upsert(payload, { onConflict: 'assignment_id,pool_index' })
+      .select('id,updated_at')
+      .single()
+      .then(function(rs){
+        if (rs.error){ s.saving = false; repaint(); return; }
+        if (rs.data){
+          s.verifications[poolIndex].id = rs.data.id;
+          s.verifications[poolIndex].updated_at = rs.data.updated_at;
+        }
+        s.saving = false;
+        s.lastSavedAt = new Date();
+        // Bump assignment status pending → in_progress on first save
+        if (s.assignment && s.assignment.status === 'pending'){
+          c.from('engineer_assignments')
+            .update({ status: 'in_progress', last_modified_at: new Date().toISOString() })
+            .eq('id', s.assignmentId)
+            .then(function(){ s.assignment.status = 'in_progress'; });
+        }
+        repaint();
+      }, function(){ s.saving = false; repaint(); });
+  }
+
+  function updateVerification(poolIndex, patch){
+    var v = s.verifications[poolIndex] || { pool_index: poolIndex, return_lines: [] };
+    for (var k in patch){ if (patch.hasOwnProperty(k)) v[k] = patch[k]; }
+    s.verifications[poolIndex] = v;
+    scheduleSave(poolIndex);
+    repaint();
+  }
+
+  // ── Submit ──────────────────────────────────────────────────────
+  function submit(){
+    var c = client();
+    if (!c) return;
+    s.saving = true;
+    repaint();
+    c.from('engineer_assignments')
+      .update({ status: 'submitted', submitted_at: new Date().toISOString(), last_modified_at: new Date().toISOString() })
+      .eq('id', s.assignmentId)
+      .then(function(rs){
+        s.saving = false;
+        if (rs.error){ alert('Send failed: ' + rs.error.message); repaint(); return; }
+        s.assignment.status = 'submitted';
+        s.assignment.submitted_at = new Date().toISOString();
+        repaint();
+      }, function(err){
+        s.saving = false;
+        alert('Send failed: ' + ((err && err.message) || 'network error'));
+        repaint();
+      });
+  }
+
+  // ── Briefing skip toggle ────────────────────────────────────────
+  function setBriefingSkipped(skip){
+    var c = client();
+    var u = currentUser();
+    if (!c || !u) return;
+    c.from('app_users').update({ briefing_skipped: !!skip }).eq('id', u.id)
+      .then(function(){
+        // Update local user object so subsequent renders honor the flag
+        if (u) u.briefing_skipped = !!skip;
+      });
+  }
+
+  // ── Render dispatch ─────────────────────────────────────────────
+  function renderCurrentStep(mount){
+    if (!mount) mount = mountEl();
+    if (!mount) return;
+    if (s.loadError){
+      mount.innerHTML = '<div class="ar-eng-wrap"><div class="ar-eng-empty" style="color:#fca5a5">' + esc(s.loadError) + '<br><br><button class="ar-eng-signout-btn" data-action="ar-eng-close-assignment" type="button">Back to assignments</button></div></div>';
+      return;
+    }
+    if (s.loading){
+      mount.innerHTML = '<div class="ar-eng-wrap"><div class="ar-eng-empty" style="opacity:.7">Loading assignment…</div></div>';
+      return;
+    }
+    if (s.currentStep === 1) return renderBriefingStep(mount);
+    if (s.currentStep === 2) return renderPropertyStep(mount);
+    if (s.currentStep === 3) return renderPoolsStep(mount);
+    if (s.currentStep === 4) return renderReviewStep(mount);
+  }
+
+  function stepperHtml(current){
+    var labels = ['Briefing','Property','Pools','Review'];
+    var html = '<div class="ar-eng-stepper">';
+    for (var i = 1; i <= 4; i++){
+      var stateCls = i < current ? 'done' : (i === current ? 'current' : 'pending');
+      html += '<button class="ar-eng-step ' + stateCls + '" data-action="ar-eng-goto-step" data-step="' + i + '" type="button">'
+            +   '<span class="ar-eng-step-num">' + (i < current ? '✓' : i) + '</span>'
+            +   '<span class="ar-eng-step-lbl">' + labels[i-1] + '</span>'
+            + '</button>';
+      if (i < 4) html += '<span class="ar-eng-step-bar ' + (i < current ? 'done' : '') + '"></span>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function headerHtml(subtitle){
+    var locked = s.assignment && s.assignment.status === 'locked';
+    var lockBanner = locked
+      ? '<div class="ar-eng-lock-banner">This assignment was locked by AquaRev. Contact your rep to reopen for edits.</div>'
+      : '';
+    var savedNote = '';
+    if (s.lastSavedAt){
+      var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
+      savedNote = '<span class="ar-eng-saved">Saved ' + (secs < 5 ? 'just now' : secs + 's ago') + '</span>';
+    } else if (s.saving){
+      savedNote = '<span class="ar-eng-saved">Saving…</span>';
+    }
+    return '<div class="ar-eng-flow-header">'
+      +   '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + I.back + ' All assignments</button>'
+      +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
+      +   (subtitle ? '<div class="ar-eng-prop-sub">' + esc(subtitle) + '</div>' : '')
+      +   savedNote
+      + '</div>' + lockBanner;
+  }
+
+  function renderBriefingStep(mount){
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 1 of 4 · Welcome briefing')
+      +   stepperHtml(1)
+      +   '<div class="ar-eng-card">'
+      +     '<div class="ar-eng-eyebrow">Briefing</div>'
+      +     '<div class="ar-eng-h1">Welcome to AquaRev field verification</div>'
+      +     '<div class="ar-eng-lede">A quick 60 to 90 second briefing on what you\'ll do today and how to get the best result.</div>'
+      +     '<div class="ar-eng-video">'
+      +       '<iframe src="https://www.youtube-nocookie.com/embed/zWqMcZFWpyE" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
+      +     '</div>'
+      +     '<ul class="ar-eng-bullets">'
+      +       '<li><b>Confirm property access</b> on Step 2 before you start collecting data on site.</li>'
+      +       '<li><b>Verify each pool</b> on Step 3 — gallons, return lines, diameters, and any notes.</li>'
+      +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
+      +     '</ul>'
+      +     '<label class="ar-eng-skip-row">'
+      +       '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
+      +       '<span>Don\'t show this briefing on future visits</span>'
+      +     '</label>'
+      +     '<div class="ar-eng-actions">'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review →</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function renderPropertyStep(mount){
+    var rec = s.record || {};
+    var pc = s.propertyConfirmation;
+    var sj = rec.state_json || {};
+    var totalGallons = 0;
+    if (sj.manualVolume){
+      totalGallons = Number(sj.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj.bodies)){
+      totalGallons = sj.bodies.reduce(function(sum, b){ return sum + (typeof bodyGallons === 'function' ? bodyGallons(b) : 0); }, 0);
+    }
+    var addr = rec.formatted_address || '(no address on file)';
+    var nameDisplay = esc(rec.property_name || 'Assignment');
+    var mapsUrl = addr && rec.formatted_address
+      ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(rec.formatted_address)
+      : '';
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 2 of 4 · Property review')
+      +   stepperHtml(2)
+      +   '<div class="ar-eng-card">'
+      +     '<div class="ar-eng-eyebrow">Property</div>'
+      +     '<div class="ar-eng-h2">' + nameDisplay + '</div>'
+      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Address</span><span class="ar-eng-v">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener">Open in Maps ↗</a>' : '') + '</span></div>'
+      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Pools on file</span><span class="ar-eng-v">' + (s.pools.length || '—') + '</span></div>'
+      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Total volume (rep value)</span><span class="ar-eng-v">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span></div>'
+      +     (s.assignment && s.assignment.assignment_notes
+          ? '<div class="ar-eng-notes"><b>Rep notes</b><div>' + esc(s.assignment.assignment_notes) + '</div></div>'
+          : '')
+
+      +     '<div class="ar-eng-section-title">Confirm access</div>'
+      +     '<div class="ar-eng-choice">'
+      +       '<button class="ar-eng-choice-btn ' + (pc.hasAccess === true ? 'on green' : '') + '" data-action="ar-eng-set-access" data-access="yes" type="button">✓ I have access</button>'
+      +       '<button class="ar-eng-choice-btn ' + (pc.hasAccess === false ? 'on red' : '') + '" data-action="ar-eng-set-access" data-access="no" type="button">⚠ Access blocked</button>'
+      +     '</div>'
+      +     (pc.hasAccess === false
+          ? '<div class="ar-eng-field"><label>What\'s blocking access?</label><textarea data-action="ar-eng-update-access-reason" rows="2" placeholder="e.g. Security key not available · Equipment room locked">' + esc(pc.accessBlockedReason || '') + '</textarea></div>'
+          : '')
+
+      +     '<div class="ar-eng-section-title">Confirm total volume</div>'
+      +     '<div class="ar-eng-choice">'
+      +       '<button class="ar-eng-choice-btn ' + (pc.gallonsMatchesRep === true ? 'on green' : '') + '" data-action="ar-eng-set-gallons-match" data-match="yes" type="button">✓ Matches rep value</button>'
+      +       '<button class="ar-eng-choice-btn ' + (pc.gallonsMatchesRep === false ? 'on amber' : '') + '" data-action="ar-eng-set-gallons-match" data-match="no" type="button">↔ Override value</button>'
+      +     '</div>'
+      +     (pc.gallonsMatchesRep === false
+          ? '<div class="ar-eng-field"><label>Engineer-verified total gallons</label><input type="number" inputmode="numeric" data-action="ar-eng-update-gallons-override" value="' + esc(pc.gallonsOverride || '') + '" placeholder="' + (totalGallons ? Math.round(totalGallons) : '') + '" /></div>'
+          : '')
+
+      +     '<div class="ar-eng-actions">'
+      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="1" type="button">← Back</button>'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="3" type="button"' + (isStepComplete(2) ? '' : ' disabled') + '>Continue to pools →</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function renderPoolsStep(mount){
+    if (!s.pools.length){
+      mount.innerHTML = ''
+        + '<div class="ar-eng-wrap ar-eng-flow">'
+        +   headerHtml('Step 3 of 4 · Pool profiles')
+        +   stepperHtml(3)
+        +   '<div class="ar-eng-card"><div class="ar-eng-empty">No pools on this assignment yet. Contact your AquaRev rep if you expected to see pools here.</div></div>'
+        + '</div>';
+      return;
+    }
+    var cardsHtml = s.pools.map(function(p){ return poolCardHtml(p); }).join('');
+    var doneCount = s.pools.filter(function(p){
+      var v = s.verifications[p.index];
+      return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+    }).length;
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + s.pools.length + ' complete')
+      +   stepperHtml(3)
+      +   '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
+      +   '<div class="ar-eng-actions">'
+      +     '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="2" type="button">← Back</button>'
+      +     '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="4" type="button"' + (isStepComplete(3) ? '' : ' disabled') + '>Continue to review →</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function poolCardHtml(p){
+    var v = s.verifications[p.index] || { return_lines: [] };
+    var complete = Array.isArray(v.return_lines) && v.return_lines.length > 0;
+    var lines = v.return_lines || [];
+    var DIAMETERS = [2, 3, 4, 6, 8];
+
+    // Render an editable mini-table of return lines: each row is
+    // {count, diameter}. Engineer adds rows via "Add line" button.
+    var linesHtml = lines.map(function(line, li){
+      var diaOpts = DIAMETERS.map(function(d){
+        return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
+      }).join('');
+      return '<div class="ar-eng-line">'
+        +   '<div class="ar-eng-line-stepper">'
+        +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button">−</button>'
+        +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
+        +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button">+</button>'
+        +   '</div>'
+        +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '">' + diaOpts + '</select>'
+        +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line">×</button>'
+        + '</div>';
+    }).join('');
+
+    return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + '" data-pool-card="' + p.index + '">'
+      +   '<div class="ar-eng-pool-head">'
+      +     '<div class="ar-eng-pool-name">' + esc(p.name) + '</div>'
+      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (rep) · ' : '') + (p.depth ? p.depth + ' ft deep' : '') + '</div>'
+      +     (complete ? '<div class="ar-eng-pool-check">✓ Complete</div>' : '')
+      +   '</div>'
+
+      +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
+      +     '<div class="ar-eng-inline">'
+      +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '" />'
+      +       '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button">Matches rep</button>'
+      +     '</div>'
+      +   '</div>'
+
+      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count + diameter per line)</span></label>'
+      +     '<div class="ar-eng-lines">' + (linesHtml || '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
+      +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button">+ Add return line</button>'
+      +   '</div>'
+
+      +   '<div class="ar-eng-field"><label>Notes <span class="ar-eng-hint">(optional)</span></label>'
+      +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?">' + esc(v.notes || '') + '</textarea>'
+      +   '</div>'
+
+      +   '<div class="ar-eng-media-placeholder">📷 Media upload arrives in a follow-up update. Notes work fully now.</div>'
+      + '</div>';
+  }
+
+  function renderReviewStep(mount){
+    var locked = s.assignment && s.assignment.status === 'locked';
+    var submitted = s.assignment && (s.assignment.status === 'submitted' || s.assignment.status === 'reviewed');
+    var doneCount = s.pools.filter(function(p){
+      var v = s.verifications[p.index];
+      return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+    }).length;
+    var allReady = doneCount === s.pools.length && s.pools.length > 0
+                && s.propertyConfirmation.hasAccess === true
+                && s.propertyConfirmation.gallonsMatchesRep != null;
+
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 4 of 4 · Review and send')
+      +   stepperHtml(4)
+      +   '<div class="ar-eng-card">'
+      +     '<div class="ar-eng-eyebrow">Review</div>'
+      +     '<div class="ar-eng-h2">Ready to send?</div>'
+      +     '<div class="ar-eng-lede">Your AquaRev rep will see everything below the moment you tap send. You can keep editing afterward unless they lock the record.</div>'
+
+      +     '<div class="ar-eng-summary">'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Property</span><span class="ar-eng-v">' + esc((s.record && s.record.property_name) || '—') + '</span></div>'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Access</span><span class="ar-eng-v">' + (s.propertyConfirmation.hasAccess === true ? '✓ Confirmed' : s.propertyConfirmation.hasAccess === false ? '⚠ Blocked — ' + esc(s.propertyConfirmation.accessBlockedReason || '') : 'Not confirmed') + '</span></div>'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Gallons</span><span class="ar-eng-v">' + (s.propertyConfirmation.gallonsMatchesRep === true ? '✓ Matches rep' : s.propertyConfirmation.gallonsMatchesRep === false ? 'Override: ' + esc(s.propertyConfirmation.gallonsOverride || '—') + ' gal' : 'Not confirmed') + '</span></div>'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Pools documented</span><span class="ar-eng-v">' + doneCount + ' of ' + s.pools.length + '</span></div>'
+      +     '</div>'
+
+      +     (allReady
+          ? ''
+          : '<div class="ar-eng-warn">⚠ Some required items are missing. Step back and complete them before sending.</div>')
+
+      +     '<div class="ar-eng-actions">'
+      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">← Back to pools</button>'
+      +       (submitted
+            ? '<button class="ar-eng-btn primary" disabled type="button">' + (locked ? 'Record locked' : 'Sent — your rep has been notified') + '</button>'
+            : '<button class="ar-eng-btn primary" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving ? '' : ' disabled') + '>' + (s.saving ? 'Sending…' : 'Send to AquaRev for review') + '</button>')
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  // ── Field handlers (called from the global click router) ───────
+  function handleAction(action, target){
+    if (action === 'ar-eng-close-assignment'){ closeAssignment(); return true; }
+    if (action === 'ar-eng-goto-step'){
+      var n = parseInt(target.getAttribute('data-step'), 10) || 1;
+      goToStep(n);
+      return true;
+    }
+    if (action === 'ar-eng-toggle-briefing-skip'){
+      setBriefingSkipped(target.checked);
+      return true;
+    }
+    if (action === 'ar-eng-set-access'){
+      var has = target.getAttribute('data-access') === 'yes';
+      s.propertyConfirmation.hasAccess = has;
+      if (has) s.propertyConfirmation.accessBlockedReason = '';
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-set-gallons-match'){
+      var match = target.getAttribute('data-match') === 'yes';
+      s.propertyConfirmation.gallonsMatchesRep = match;
+      if (match) s.propertyConfirmation.gallonsOverride = '';
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-update-access-reason'){
+      s.propertyConfirmation.accessBlockedReason = target.value || '';
+      // No repaint — we're already in the textarea
+      return true;
+    }
+    if (action === 'ar-eng-update-gallons-override'){
+      s.propertyConfirmation.gallonsOverride = target.value || '';
+      return true;
+    }
+    if (action === 'ar-eng-confirm-gallons'){
+      var pi = parseInt(target.getAttribute('data-pool'), 10);
+      var val = parseInt(target.value, 10);
+      updateVerification(pi, { confirmed_gallons: isNaN(val) ? null : val });
+      return true;
+    }
+    if (action === 'ar-eng-gallons-match'){
+      var pi2 = parseInt(target.getAttribute('data-pool'), 10);
+      var p = s.pools.find(function(x){ return x.index === pi2; });
+      if (p) updateVerification(pi2, { confirmed_gallons: p.gallonsRep });
+      return true;
+    }
+    if (action === 'ar-eng-line-add'){
+      var pi3 = parseInt(target.getAttribute('data-pool'), 10);
+      var existing = s.verifications[pi3] || { return_lines: [] };
+      var lines3 = (existing.return_lines || []).slice();
+      lines3.push({ count: 1, diameter: 4 });
+      updateVerification(pi3, { return_lines: lines3 });
+      return true;
+    }
+    if (action === 'ar-eng-line-remove'){
+      var pi4 = parseInt(target.getAttribute('data-pool'), 10);
+      var li4 = parseInt(target.getAttribute('data-line'), 10);
+      var existing4 = s.verifications[pi4] || { return_lines: [] };
+      var lines4 = (existing4.return_lines || []).slice();
+      lines4.splice(li4, 1);
+      updateVerification(pi4, { return_lines: lines4 });
+      return true;
+    }
+    if (action === 'ar-eng-line-count'){
+      var pi5 = parseInt(target.getAttribute('data-pool'), 10);
+      var li5 = parseInt(target.getAttribute('data-line'), 10);
+      var delta = parseInt(target.getAttribute('data-d'), 10) || 0;
+      var existing5 = s.verifications[pi5] || { return_lines: [] };
+      var lines5 = (existing5.return_lines || []).slice();
+      if (lines5[li5]){
+        var newCount = Math.max(1, Math.min(99, (Number(lines5[li5].count) || 1) + delta));
+        lines5[li5] = { count: newCount, diameter: lines5[li5].diameter || 4 };
+        updateVerification(pi5, { return_lines: lines5 });
+      }
+      return true;
+    }
+    if (action === 'ar-eng-line-dia'){
+      var pi6 = parseInt(target.getAttribute('data-pool'), 10);
+      var li6 = parseInt(target.getAttribute('data-line'), 10);
+      var dia = parseInt(target.value, 10) || 4;
+      var existing6 = s.verifications[pi6] || { return_lines: [] };
+      var lines6 = (existing6.return_lines || []).slice();
+      if (lines6[li6]){
+        lines6[li6] = { count: lines6[li6].count || 1, diameter: dia };
+        updateVerification(pi6, { return_lines: lines6 });
+      }
+      return true;
+    }
+    if (action === 'ar-eng-notes'){
+      var pi7 = parseInt(target.getAttribute('data-pool'), 10);
+      updateVerification(pi7, { notes: target.value || '' });
+      return true;
+    }
+    if (action === 'ar-eng-submit'){
+      submit();
+      return true;
+    }
+    return false;
+  }
+
+  // ── Public surface ──────────────────────────────────────────────
+  return {
+    state: function(){ return s; },
+    openAssignment: openAssignment,
+    closeAssignment: closeAssignment,
+    goToStep: goToStep,
+    renderCurrentStep: renderCurrentStep,
+    handleAction: handleAction
+  };
+})();
 
 // Accepts optional `targetId` (string) so the Portfolio tabs wrapper can
 // redirect renderBank's output into a sub-container (#ar2-bank-singles).
@@ -10827,6 +11562,27 @@ function handleClick(e){
     if(confirm('Start a new assessment? Unsaved data will be cleared.')) resetApp();
     return;
   }
+  // ── Engineer Portal dispatch ─────────────────────────────────
+  // Row-click on the assignment list → open the 4-step flow.
+  // Filtering out clicks on nested actionable elements lets the engineer
+  // tap inside a row without accidentally opening it (when a row has
+  // nested controls in future iterations).
+  if (window.AR2_ENGINEER){
+    var engRow = e.target.closest('[data-engineer-assignment]');
+    if (engRow && !e.target.closest('button,a,input,select,textarea')){
+      AR2_ENGINEER.openAssignment(engRow.getAttribute('data-engineer-assignment'));
+      return;
+    }
+    // Action dispatch — every ar-eng-* data-action routes to the module's
+    // handleAction(), which returns true when it consumes the event.
+    var engAction = e.target.closest('[data-action]');
+    if (engAction){
+      var engActName = engAction.getAttribute('data-action');
+      if (engActName && engActName.indexOf('ar-eng-') === 0){
+        if (AR2_ENGINEER.handleAction(engActName, engAction)) return;
+      }
+    }
+  }
   // PWA install (Chrome/Edge deferred prompt)
   var pwaInstall=e.target.closest('[data-action="ar-pwa-install"]');
   if(pwaInstall && window.AR_PWA){
@@ -12347,6 +13103,19 @@ function init(){
   root.addEventListener('click',handleClick);
   root.addEventListener('input',handleInput);
   root.addEventListener('change',handleChange);
+  // Engineer portal input/change relay — every ar-eng-* data-action on an
+  // input/textarea/select fires both input (typing) and change (commit)
+  // events. The module's handleAction reads the target's value and
+  // dispatches, so this relay just forwards both events through.
+  function relayEngineerInput(e){
+    if (!window.AR2_ENGINEER) return;
+    var t = e.target;
+    if (!t || !t.hasAttribute || !t.hasAttribute('data-action')) return;
+    var a = t.getAttribute('data-action');
+    if (a && a.indexOf('ar-eng-') === 0) AR2_ENGINEER.handleAction(a, t);
+  }
+  root.addEventListener('input', relayEngineerInput);
+  root.addEventListener('change', relayEngineerInput);
   // Quote rich-text editor — preventDefault on toolbar mousedown so the
   // selection / focus inside the contenteditable div survives the click.
   root.addEventListener('mousedown',function(e){
