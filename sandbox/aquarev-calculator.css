@@ -2151,6 +2151,15 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-empty-icon{font-size:36px;color:rgba(125,184,204,.45);margin-bottom:8px;line-height:1;}
 #ar2 .ar-eng-empty-title{font-size:14px;font-weight:600;color:#cfe2eb;margin-bottom:6px;}
 #ar2 .ar-eng-empty-body{font-size:12px;color:var(--mu);line-height:1.55;max-width:380px;margin:0 auto;}
+/* Install affordance — appears between header and assignment list. */
+#ar2 .ar-eng-install{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 18px;margin-bottom:18px;background:linear-gradient(135deg,rgba(0,180,216,.12),rgba(72,202,228,.06));border:1px solid rgba(0,180,216,.3);border-radius:10px;}
+#ar2 .ar-eng-install.ios{background:linear-gradient(135deg,rgba(125,184,204,.08),rgba(125,184,204,.04));border-color:rgba(125,184,204,.25);}
+#ar2 .ar-eng-install-msg{font-size:12.5px;color:#cfe2eb;line-height:1.45;flex:1 1 220px;}
+#ar2 .ar-eng-install-msg b{color:#fff;font-weight:600;}
+#ar2 .ar-eng-install-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:8px 16px;border-radius:7px;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;cursor:pointer;flex-shrink:0;transition:filter .12s;}
+#ar2 .ar-eng-install-btn:hover{filter:brightness(1.08);}
+#ar2 .ar-eng-install-btn.outline{background:transparent;border:1px solid rgba(125,184,204,.4);color:#cfe2eb;}
+#ar2 .ar-eng-install-btn.outline:hover{border-color:rgba(125,184,204,.7);color:#fff;}
 #ar2 .ar-eng-footer{margin-top:36px;text-align:center;}
 #ar2 .ar-eng-signout-btn{background:transparent;border:1px solid rgba(125,184,204,.25);color:var(--mu);padding:8px 18px;border-radius:8px;font-family:inherit;font-size:12px;letter-spacing:.5px;cursor:pointer;transition:border-color .15s,color .15s;}
 #ar2 .ar-eng-signout-btn:hover{border-color:rgba(125,184,204,.5);color:#cfe2eb;}

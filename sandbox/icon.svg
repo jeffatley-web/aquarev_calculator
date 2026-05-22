@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AquaRev Engineer Portal — PWA icon
+  Stylized water droplet over the AquaRev navy palette.
+  Designed maskable: the meaningful glyph stays inside an 80% safe zone
+  so OS round/squircle masks don't crop the brand mark.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"  stop-color="#0a2540"/>
+      <stop offset="100%" stop-color="#040f1e"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#48cae4"/>
+      <stop offset="60%" stop-color="#00b4d8"/>
+      <stop offset="100%" stop-color="#0090b4"/>
+    </linearGradient>
+    <radialGradient id="highlight" cx="40%" cy="35%" r="22%">
+      <stop offset="0%"   stop-color="rgba(255,255,255,0.55)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Square background fills the maskable bleed area -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Water droplet (centered, ~70% of canvas — safe within OS masks) -->
+  <g transform="translate(256 256)">
+    <path
+      d="M 0 -150
+         C 60 -90, 130 -10, 130 70
+         C 130 142, 70 180, 0 180
+         C -70 180, -130 142, -130 70
+         C -130 -10, -60 -90, 0 -150 Z"
+      fill="url(#drop)"
+    />
+    <!-- Inner highlight -->
+    <ellipse cx="-32" cy="-30" rx="36" ry="48" fill="url(#highlight)"/>
+  </g>
+</svg>

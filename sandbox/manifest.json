@@ -1,0 +1,29 @@
+{
+  "name": "AquaRev Calculator",
+  "short_name": "AquaRev",
+  "description": "AquaRev Water ROI Calculator and Engineer Portal — assess properties, verify installations, and configure proposals.",
+  "start_url": "/calculator?source=pwa",
+  "scope": "/calculator",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#040f1e",
+  "background_color": "#040f1e",
+  "categories": ["business", "productivity", "utilities"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "https://jeffatley-web.github.io/aquarev_calculator/sandbox/icon.svg",
+      "sizes": "192x192 512x512 1024x1024",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://jeffatley-web.github.io/aquarev_calculator/sandbox/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

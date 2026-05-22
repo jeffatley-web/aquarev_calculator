@@ -6667,6 +6667,23 @@ function renderEngineerPortalShell(mountEl){
   if (!mountEl) return;
   var u = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user()) || {};
   var nameDisplay = esc(u.name || 'Engineer');
+  // PWA install affordance — only shown when the app is NOT already
+  // running as a standalone PWA. Chrome/Edge get a real install button
+  // (deferred prompt event). iOS Safari gets a hint string that the user
+  // can dismiss; localStorage remembers the dismissal.
+  var installHtml = '';
+  if (window.AR_PWA && !AR_PWA.isStandalone()){
+    if (AR_PWA.installable){
+      installHtml = '<div class="ar-eng-install"><span class="ar-eng-install-msg">Install AquaRev on this device for one-tap access.</span><button class="ar-eng-install-btn" data-action="ar-pwa-install" type="button">Install app</button></div>';
+    } else if (AR_PWA.isIos()){
+      var dismissed = false;
+      try { dismissed = localStorage.getItem('ar_pwa_ios_hint_dismissed') === '1'; } catch(_){}
+      if (!dismissed){
+        installHtml = '<div class="ar-eng-install ios"><span class="ar-eng-install-msg">Install on iPhone: tap <b>Share</b> → <b>Add to Home Screen</b>.</span><button class="ar-eng-install-btn outline" data-action="ar-pwa-ios-hint-dismiss" type="button">Got it</button></div>';
+      }
+    }
+  }
+
   // Shell paints immediately with a loading row so the engineer sees the
   // page chrome render fast even if the assignments fetch is slow.
   mountEl.innerHTML = ''
@@ -6676,6 +6693,7 @@ function renderEngineerPortalShell(mountEl){
     +     '<div class="ar-eng-title">Hi, ' + nameDisplay + '</div>'
     +     '<div class="ar-eng-sub">Your verification assignments. Tap one to start or continue.</div>'
     +   '</div>'
+    +   installHtml
     +   '<div class="ar-eng-list" id="ar-eng-assignment-list">'
     +     '<div class="ar-eng-empty" style="opacity:.7">Loading your assignments…</div>'
     +   '</div>'
@@ -7190,6 +7208,60 @@ var S={
 
 /* ── Formatters ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── PWA install helpers ─────────────────────────────────────────────
+   Tracks the deferred-install prompt event (Chrome/Edge) so the engineer
+   portal can offer an "Install app" button when supported. iOS Safari
+   doesn't fire this event; iOS install is detected separately via
+   navigator.standalone + UA sniff, and the user is given a one-line
+   "Share → Add to Home Screen" hint instead.
+
+   Persisted state:
+     - localStorage 'ar_pwa_ios_hint_dismissed'   — engineer dismissed iOS hint
+     - sessionStorage 'ar_pwa_install_resolved'   — install succeeded this session
+*/
+window.AR_PWA = {
+  deferredPrompt: null,
+  installable: false,
+  isStandalone: function(){
+    try {
+      // iOS exposes navigator.standalone; the display-mode media query
+      // covers Chrome/Edge/Firefox/Samsung Internet when installed.
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.navigator && window.navigator.standalone === true) return true;
+    } catch(_){}
+    return false;
+  },
+  isIos: function(){
+    try { return /iPhone|iPad|iPod/.test(window.navigator.userAgent); } catch(_){ return false; }
+  },
+  promote: function(){
+    // Fire the deferred Chrome install prompt. Resolves to a boolean for
+    // whether the user accepted. Caller is responsible for hiding the
+    // install button after a successful resolution.
+    if (!this.deferredPrompt) return Promise.resolve(false);
+    var ev = this.deferredPrompt;
+    this.deferredPrompt = null;
+    this.installable = false;
+    try { ev.prompt(); } catch(_){ return Promise.resolve(false); }
+    return ev.userChoice ? ev.userChoice.then(function(r){
+      try { sessionStorage.setItem('ar_pwa_install_resolved', '1'); } catch(_){}
+      return r && r.outcome === 'accepted';
+    }) : Promise.resolve(false);
+  }
+};
+window.addEventListener('beforeinstallprompt', function(e){
+  // Suppress the auto-banner so we can offer a tailored install moment
+  // inside the engineer portal instead of a generic browser banner.
+  e.preventDefault();
+  window.AR_PWA.deferredPrompt = e;
+  window.AR_PWA.installable = true;
+});
+window.addEventListener('appinstalled', function(){
+  window.AR_PWA.deferredPrompt = null;
+  window.AR_PWA.installable = false;
+  try { sessionStorage.setItem('ar_pwa_install_resolved', '1'); } catch(_){}
+});
 
 /* Normalize a phone number to E.164 (+<country><number>). Accepts any
    common input form: "+18329796758", "1 832 979 6758", "(832) 979-6758",
@@ -10753,6 +10825,22 @@ function handleClick(e){
       return;
     }
     if(confirm('Start a new assessment? Unsaved data will be cleared.')) resetApp();
+    return;
+  }
+  // PWA install (Chrome/Edge deferred prompt)
+  var pwaInstall=e.target.closest('[data-action="ar-pwa-install"]');
+  if(pwaInstall && window.AR_PWA){
+    AR_PWA.promote().then(function(){
+      // Re-render so the install card disappears regardless of outcome.
+      if (typeof renderArchive === 'function') renderArchive();
+    });
+    return;
+  }
+  // iOS Add-to-Home-Screen hint dismiss
+  var pwaIosDismiss=e.target.closest('[data-action="ar-pwa-ios-hint-dismiss"]');
+  if(pwaIosDismiss){
+    try { localStorage.setItem('ar_pwa_ios_hint_dismissed', '1'); } catch(_){}
+    if (typeof renderArchive === 'function') renderArchive();
     return;
   }
   // Toggle YouTube drawer
