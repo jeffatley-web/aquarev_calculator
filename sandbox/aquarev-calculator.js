@@ -3234,6 +3234,7 @@ window.AR2_PF = (function(){
       // Show calculator (hide archive), then re-render with new S.
       if (typeof showView === 'function') showView('form');
       if (typeof render === 'function') render();
+      if (typeof scrollAppTop === 'function') scrollAppTop();
       // Side-load engineer verification status for this property so the
       // body cards can surface the green "Verified" pill where the
       // engineer has fully documented a pool.
@@ -6417,6 +6418,7 @@ function bankRecall(snapshot, recordId){
   // previously "Pricing & Settings" (step 1) → now step 2.
   S.step=2;
   showView('form');
+  if (typeof scrollAppTop === 'function') scrollAppTop();
   // Side-load engineer verification status (best-effort) so the body-card
   // headers can show a green "Verified" pill on pools the engineer has
   // fully documented. Fires after showView so the calculator is painted.
@@ -15913,9 +15915,9 @@ function handleClick(e){
     var sdir=stepNav.dataset.stepNav;
     if(sdir==='next'&&S.step<STEPS.length-1){
       if(!requireNameOrPopup('next')) return;
-      S.step=resolveStepForClient(S.step+1,'next');render();
+      S.step=resolveStepForClient(S.step+1,'next');render();scrollAppTop();
     }
-    else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
+    else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();scrollAppTop();}
     return;
   }
   // Nav back/next
@@ -15924,30 +15926,55 @@ function handleClick(e){
     var dir=navBtn.dataset.nav;
     if(dir==='next'&&S.step<STEPS.length-1){
       if(!requireNameOrPopup('next')) return;
-      S.step=resolveStepForClient(S.step+1,'next');render();
+      S.step=resolveStepForClient(S.step+1,'next');render();scrollAppTop();
     }
-    else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
+    else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();scrollAppTop();}
     return;
   }
   // Step 0 (Map Pool) → Pool & System: pull registered pools from the bridge.
   var mapCont=e.target.closest('[data-action="map-continue"]');
   if(mapCont){
     consumeMapPoolBodies();
-    S.step=1; render();
+    S.step=1; render(); scrollAppTop();
     return;
   }
   var mapSkip=e.target.closest('[data-action="map-skip"]');
   if(mapSkip){
-    S.step=1; render();
+    S.step=1; render(); scrollAppTop();
     return;
   }
   // Review edit links
   var editBtn=e.target.closest('[data-goto]');
   if(editBtn){
     S.step=parseInt(editBtn.dataset.goto);
-    render();
+    render(); scrollAppTop();
     return;
   }
+}
+
+/* Step-transition scroll helper. Lands the user at the top of the
+   calculator chrome (the brand bar) every time they advance or
+   retreat between steps — long forms left the previous step's
+   scroll position which felt jarring after navigating away. Uses
+   smooth scroll when the browser supports it; falls back to instant. */
+function scrollAppTop(){
+  try {
+    // Target the calculator root. If it's offset from the page top
+    // (Webflow embed has a nav bar above it), scroll to that offset
+    // so the calc header lands at viewport top instead of the page
+    // top, which would hide it behind the Webflow nav.
+    var rootEl = document.getElementById('ar2');
+    var y = 0;
+    if (rootEl){
+      var rect = rootEl.getBoundingClientRect();
+      y = Math.max(0, window.pageYOffset + rect.top - 8);
+    }
+    if ('scrollBehavior' in document.documentElement.style){
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    } else {
+      window.scrollTo(0, y);
+    }
+  } catch(_){ try { window.scrollTo(0, 0); } catch(__){} }
 }
 
 function handleInput(e){
