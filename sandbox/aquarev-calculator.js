@@ -1485,7 +1485,7 @@ window.AR2_PF = (function(){
     slot.error = null;
     pfState.properties[portfolioId] = slot;
     return c.from('portfolio_properties')
-      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at')
       .eq('portfolio_id', portfolioId)
       .order('order_index', { ascending: true })
       .order('created_at',  { ascending: true })
@@ -1602,7 +1602,7 @@ window.AR2_PF = (function(){
         property_name: trimmed,
         order_index: nextOrderIndex(portfolioId)
       })
-      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at')
       .single()
       .then(function(rs){
         if (rs.error) throw new Error(rs.error.message);
