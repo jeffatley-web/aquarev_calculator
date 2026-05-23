@@ -7346,6 +7346,7 @@ function renderFieldReport(){
   var isAdminUser = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
   var actionsHtml = ''
     + '<div class="ar-fr-actions">'
+    +   '<button class="ar-fr-btn ghost" data-nav="back">← Back to Export</button>'
     +   '<button class="ar-fr-btn primary" data-action="fr-download-pdf">' + svgFrIconDownload() + ' Download PDF</button>'
     +   (isAdminUser
         ? '<button class="ar-fr-btn" data-action="fr-open-engineer-portal">Open in Engineer Portal</button>'
@@ -9454,6 +9455,65 @@ window.AR2_ENGINEER = (function(){
   }
 
   // ── Save logic (debounced) ──────────────────────────────────────
+  /* Propagate the engineer\'s pool-level changes back to the parent
+     assessment / portfolio_property via the SECURITY DEFINER RPC
+     engineer_apply_pool_to_record. Best-effort — failure is logged but
+     doesn\'t block the verification save. Only fires for pools that
+     overlap the rep\'s body roster; engineer-added pools beyond the
+     roster get appended into bodies[] too.
+
+     Patch shape mirrors the body record:
+       label             (from pool_name_override)
+       poolType          ('chlorine' for engineer pool_type 'fresh',
+                          'saltwater' for 'saltwater')
+       manualGallons     (from confirmed_gallons; surfaces in rep UI)
+       inputMode         (forces manualGallons mode on rep view)
+       pipe_2in..pipe_10in (from return_lines)
+  */
+  function _propagatePoolToParent(poolIndex, v){
+    var c = client();
+    if (!c || !s.assignmentId) return;
+    // Build the patch from the engineer's verification state.
+    var patch = {};
+    if (v.pool_name_override) patch.label = v.pool_name_override;
+    if (v.pool_type === 'fresh')     patch.poolType = 'chlorine';
+    else if (v.pool_type === 'saltwater') patch.poolType = 'saltwater';
+    if (v.confirmed_gallons){
+      patch.manualGallons = String(v.confirmed_gallons);
+      patch.inputMode = 'gallons';
+    }
+    // Translate return_lines back to pipe_2in/3in/4in/6in/8in/10in counts
+    if (Array.isArray(v.return_lines) && v.return_lines.length){
+      // Zero the canonical six first so removed lines clear properly.
+      patch.pipe_2in = 0; patch.pipe_3in = 0; patch.pipe_4in = 0;
+      patch.pipe_6in = 0; patch.pipe_8in = 0; patch.pipe_10in = 0;
+      v.return_lines.forEach(function(line){
+        var d = Number(line.diameter) || 0;
+        var n = Number(line.count) || 0;
+        if (n <= 0) return;
+        if (d === 2)  patch.pipe_2in  += n;
+        else if (d === 3)  patch.pipe_3in  += n;
+        else if (d === 4)  patch.pipe_4in  += n;
+        else if (d === 6)  patch.pipe_6in  += n;
+        else if (d === 8)  patch.pipe_8in  += n;
+        else if (d === 10) patch.pipe_10in += n;
+      });
+    }
+    // No-op if there's nothing meaningful to write.
+    if (Object.keys(patch).length === 0) return;
+    c.rpc('engineer_apply_pool_to_record', {
+      p_assignment_id: s.assignmentId,
+      p_pool_index:    poolIndex,
+      p_patch:         patch
+    }).then(function(rs){
+      if (rs && rs.error){
+        try { console.warn('[engineer propagate] RPC error', rs.error); } catch(_){}
+      }
+    }, function(err){
+      try { console.warn('[engineer propagate] network error', err); } catch(_){}
+    });
+  }
+
   // Per-pool save timers — previously a single s.saveTimer was shared
   // across every pool, so rapid edits jumping between pools clobbered
   // each other's debounce: only the last touched pool ever fired its
@@ -9551,6 +9611,13 @@ window.AR2_ENGINEER = (function(){
         }
         s.saving = false;
         s.lastSavedAt = new Date();
+        // Propagate the engineer's pool-level changes BACK to the parent
+        // assessment / portfolio_property so the rep / admin see the
+        // updated specs on the assessment record. Without this, the
+        // engineer's confirmed gallons / pool name / water type / return
+        // lines live only in engineer_verifications and the assessment's
+        // state_json still shows the rep's original estimates.
+        try { _propagatePoolToParent(poolIndex, v); } catch(_){}
         // Bump assignment status pending → in_progress on first save
         if (s.assignment && s.assignment.status === 'pending'){
           c.from('engineer_assignments')
@@ -13149,6 +13216,7 @@ function renderNav(){
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
   else if(S.step===4) backLabel = skipQuote ? '\u2190 Pricing & Settings' : '\u2190 Quote';
+  else if(S.step===5) backLabel='\u2190 Back to Export';
   var html='<div class="ar-nav-stack">'
     +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
     // Step 5 (Export) gets a second Archive entrypoint above the Back button
