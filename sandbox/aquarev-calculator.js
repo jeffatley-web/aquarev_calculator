@@ -7595,6 +7595,18 @@ function openAdminReviewModal(assignmentId){
     var btn = e.target.closest('[data-action]');
     if (!btn) return;
     var act = btn.getAttribute('data-action');
+    if (act === 'admin-review-pool-toggle'){
+      // Expand / collapse the notes+discrepancy row beneath a pool row.
+      var pIdx = btn.getAttribute('data-pool-row');
+      var ex = bd.querySelector('[data-pool-expand="' + pIdx + '"]');
+      var ch = btn.querySelector('.ar-admin-review-chev');
+      if (ex){
+        var willShow = ex.style.display === 'none';
+        ex.style.display = willShow ? 'block' : 'none';
+        if (ch) ch.textContent = willShow ? '▾' : '▸';
+      }
+      return;
+    }
     if (act === 'admin-review-close')         { closeAdminReviewModal(); return; }
     if (act === 'admin-review-lock')          { adminReviewSetStatus('locked');   return; }
     if (act === 'admin-review-unlock')        { adminReviewSetStatus('reviewed'); return; }
@@ -7619,11 +7631,14 @@ function openAdminReviewModal(assignmentId){
   var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
   if (!c) return;
   Promise.all([
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
-    c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId)
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId),
+    c.from('engineer_pump_rooms').select('id,label').eq('assignment_id', assignmentId)
   ]).then(function(arr){
     var verifs = arr[0].data || [];
     var media  = arr[1].data || [];
+    var pumpRooms = arr[2].data || [];
+    var roomLabelById = {}; pumpRooms.forEach(function(r){ roomLabelById[r.id] = r.label; });
     var mediaByPool = {};
     media.forEach(function(m){
       if (!mediaByPool[m.pool_index]) mediaByPool[m.pool_index] = { photo: 0, video: 0 };
@@ -7636,24 +7651,70 @@ function openAdminReviewModal(assignmentId){
       body.innerHTML = '<div class="ar-admin-empty" style="margin:8px 0 0">No pool data recorded yet. Engineer hasn\'t saved anything on Step 3.</div>';
       return;
     }
-    var html = '<div class="ar-admin-review-list">';
-    verifs.forEach(function(v){
+    // Compact one-row-per-pool table layout. Optimized for 20+ pools —
+    // each pool collapses to a single tight line with all the data the
+    // admin needs at a glance: name, water type, gallons, return-line
+    // chips, media counts, linked pump room, status flag. Notes and
+    // discrepancy reasons (which can be long) live in an expandable
+    // row revealed by clicking the pool name.
+    function poolTypeLabel(t){
+      if (t === 'fresh' || t === 'chlorine') return 'Fresh';
+      if (t === 'saltwater') return 'Salt';
+      return '—';
+    }
+    var headRow = '<div class="ar-admin-review-thead">'
+      + '<span class="col-pool">Pool</span>'
+      + '<span class="col-type">Type</span>'
+      + '<span class="col-gal">Gallons</span>'
+      + '<span class="col-lines">Return lines</span>'
+      + '<span class="col-media">Media</span>'
+      + '<span class="col-room">Pump room</span>'
+      + '<span class="col-flag" title="Discrepancy / notes / engineer-added">·</span>'
+      + '</div>';
+    var rowsHtml = verifs.map(function(v){
+      var idx = Number(v.pool_index);
+      var name = v.pool_name_override || ('Pool ' + (idx + 1));
       var linesHtml = (v.return_lines || []).map(function(ln){
-        return '<span class="ar-admin-line-chip">' + (ln.count || 1) + ' × ' + (ln.diameter || '?') + '"</span>';
-      }).join(' ');
-      if (!linesHtml) linesHtml = '<span style="color:var(--mu);font-size:11px">(no return lines logged)</span>';
-      var mc = mediaByPool[v.pool_index] || { photo: 0, video: 0 };
-      html += '<div class="ar-admin-review-pool">'
-        +   '<div class="ar-admin-review-pool-head">Pool ' + (Number(v.pool_index) + 1) + (v.has_discrepancy ? ' <span class="ar-eng-pill amber" style="margin-left:8px">Discrepancy flagged</span>' : '') + '</div>'
-        +   '<div class="ar-admin-review-pool-row"><span>Confirmed gallons</span><b>' + (v.confirmed_gallons != null ? fn(v.confirmed_gallons) + ' gal' : '—') + '</b></div>'
-        +   '<div class="ar-admin-review-pool-row"><span>Return lines</span><div>' + linesHtml + '</div></div>'
-        +   '<div class="ar-admin-review-pool-row"><span>Media</span><b>' + mc.photo + ' photo' + (mc.photo===1?'':'s') + ' · ' + mc.video + ' video' + (mc.video===1?'':'s') + '</b></div>'
-        + (v.notes ? '<div class="ar-admin-review-pool-row"><span>Notes</span><div style="font-style:italic;color:#cfe2eb">' + esc(v.notes) + '</div></div>' : '')
-        + (v.discrepancy_reason ? '<div class="ar-admin-review-pool-row"><span>Discrepancy reason</span><div style="color:#f0a500">' + esc(v.discrepancy_reason) + '</div></div>' : '')
+        return '<span class="ar-admin-line-chip">' + (ln.count || 1) + '×' + (ln.diameter || '?') + '"</span>';
+      }).join('');
+      if (!linesHtml) linesHtml = '<span style="color:var(--mu)">—</span>';
+      var mc = mediaByPool[idx] || { photo: 0, video: 0 };
+      var mediaCell = (mc.photo + mc.video) === 0
+        ? '<span style="color:#f0a500">0 / 0</span>'
+        : '<span title="' + mc.photo + ' photo'+(mc.photo===1?'':'s')+', ' + mc.video + ' video'+(mc.video===1?'':'s')+'">' + mc.photo + ' / ' + mc.video + '</span>';
+      var roomLabel = v.pump_room_id ? (roomLabelById[v.pump_room_id] || '—') : '—';
+      var flags = [];
+      if (v.is_engineer_added)       flags.push('<span class="ar-admin-review-flag added" title="Engineer-added pool">+</span>');
+      if (v.has_discrepancy)         flags.push('<span class="ar-admin-review-flag disc" title="Discrepancy flagged by engineer">!</span>');
+      if (v.notes || v.discrepancy_reason) flags.push('<span class="ar-admin-review-flag note" title="Has engineer notes">…</span>');
+      var hasExpand = !!(v.notes || v.discrepancy_reason);
+      var rowAttrs = hasExpand ? ' data-action="admin-review-pool-toggle" data-pool-row="' + idx + '" style="cursor:pointer"' : '';
+      var rowHtml = '<div class="ar-admin-review-trow"' + rowAttrs + '>'
+        + '<span class="col-pool"><b>' + esc(name) + '</b>' + (hasExpand ? ' <span class="ar-admin-review-chev">▸</span>' : '') + '</span>'
+        + '<span class="col-type">' + esc(poolTypeLabel(v.pool_type)) + '</span>'
+        + '<span class="col-gal">' + (v.confirmed_gallons != null ? fn(v.confirmed_gallons) : '<span style="color:var(--mu)">—</span>') + '</span>'
+        + '<span class="col-lines">' + linesHtml + '</span>'
+        + '<span class="col-media">' + mediaCell + '</span>'
+        + '<span class="col-room">' + esc(roomLabel) + '</span>'
+        + '<span class="col-flag">' + flags.join('') + '</span>'
         + '</div>';
-    });
-    html += '</div>';
-    body.innerHTML = html;
+      var expandHtml = hasExpand
+        ? '<div class="ar-admin-review-expand" data-pool-expand="' + idx + '" style="display:none">'
+        +   (v.notes ? '<div class="ar-admin-review-expand-row"><span>Notes</span><div>' + esc(v.notes) + '</div></div>' : '')
+        +   (v.discrepancy_reason ? '<div class="ar-admin-review-expand-row disc"><span>Discrepancy</span><div>' + esc(v.discrepancy_reason) + '</div></div>' : '')
+        + '</div>'
+        : '';
+      return rowHtml + expandHtml;
+    }).join('');
+    // Pump-room summary block — short list above the pool table so
+    // the admin can quickly see how many rooms were captured.
+    var pumpRoomSummary = pumpRooms.length
+      ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms (' + pumpRooms.length + ')</span> '
+        + pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label) + '</span>'; }).join('')
+        + '</div>'
+      : '';
+    body.innerHTML = pumpRoomSummary
+      + '<div class="ar-admin-review-table">' + headRow + rowsHtml + '</div>';
   }, function(err){
     var body = document.getElementById('ar-admin-review-body');
     if (body) body.innerHTML = '<div style="color:#fca5a5;font-size:12px;padding:8px">Couldn\'t load verifications: ' + esc((err && err.message) || 'unknown') + '</div>';

@@ -1523,6 +1523,46 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-review-pool-row > b,
 #ar2 .ar-admin-review-pool-row > div{color:#cfe2eb;text-align:right;}
 #ar2 .ar-admin-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.25);color:#48cae4;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
+
+/* ──────────── Engineer Submission Review — compact table ────────────
+   One row per pool. Optimized for 20+ pool properties — the admin
+   sees all pools at a glance and can click any row to drill into
+   notes / discrepancy reason. Columns are width-tuned for the 720px
+   modal; collapses to a 2-line layout on narrow screens. */
+#ar2 .ar-admin-review-rooms{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0 12px;border-bottom:1px solid rgba(0,180,216,.12);margin-bottom:10px;}
+#ar2 .ar-admin-review-rooms-lbl{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;margin-right:4px;}
+#ar2 .ar-admin-review-table{display:flex;flex-direction:column;font-size:12px;}
+#ar2 .ar-admin-review-thead,
+#ar2 .ar-admin-review-trow{display:grid;grid-template-columns:1.4fr 0.65fr 0.95fr 1.7fr 0.6fr 1fr 0.5fr;align-items:center;gap:8px;padding:8px 8px;border-bottom:1px solid rgba(0,180,216,.08);}
+#ar2 .ar-admin-review-thead{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;border-bottom:1px solid rgba(0,180,216,.22);padding-top:0;}
+#ar2 .ar-admin-review-trow{color:#cfe2eb;transition:background .12s;}
+#ar2 .ar-admin-review-trow:hover{background:rgba(0,180,216,.05);}
+#ar2 .ar-admin-review-trow b{color:#fff;font-weight:600;font-size:12.5px;}
+#ar2 .ar-admin-review-trow .col-gal,
+#ar2 .ar-admin-review-thead .col-gal,
+#ar2 .ar-admin-review-trow .col-media,
+#ar2 .ar-admin-review-thead .col-media{font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-admin-review-trow .col-lines{display:flex;flex-wrap:wrap;gap:3px;}
+#ar2 .ar-admin-review-trow .col-lines .ar-admin-line-chip{margin:0;padding:1px 5px;font-size:10.5px;}
+#ar2 .ar-admin-review-trow .col-room,
+#ar2 .ar-admin-review-trow .col-type{font-size:11.5px;color:#cfe2eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#ar2 .ar-admin-review-trow .col-flag{display:flex;gap:3px;justify-content:flex-end;}
+#ar2 .ar-admin-review-chev{display:inline-block;color:var(--mu);font-size:9px;margin-left:3px;transition:transform .12s;}
+#ar2 .ar-admin-review-flag{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-size:10px;font-weight:700;line-height:1;}
+#ar2 .ar-admin-review-flag.added{background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.55);color:#4ade80;}
+#ar2 .ar-admin-review-flag.disc{background:rgba(240,165,0,.22);border:1px solid rgba(240,165,0,.55);color:#f0a500;}
+#ar2 .ar-admin-review-flag.note{background:rgba(125,184,204,.18);border:1px solid rgba(125,184,204,.45);color:#cfe2eb;}
+#ar2 .ar-admin-review-expand{background:rgba(0,180,216,.05);border-left:3px solid rgba(0,180,216,.4);padding:8px 12px;margin:0 8px 6px;border-radius:0 6px 6px 0;}
+#ar2 .ar-admin-review-expand-row{display:flex;gap:10px;align-items:baseline;padding:3px 0;font-size:12px;line-height:1.45;}
+#ar2 .ar-admin-review-expand-row > span:first-child{flex:0 0 90px;color:#7db8cc;font-size:10px;letter-spacing:.8px;text-transform:uppercase;}
+#ar2 .ar-admin-review-expand-row > div{color:#cfe2eb;flex:1;}
+#ar2 .ar-admin-review-expand-row.disc > div{color:#f0a500;}
+@media (max-width: 640px){
+  #ar2 .ar-admin-review-thead{display:none;}
+  #ar2 .ar-admin-review-trow{grid-template-columns:1fr 1fr;grid-auto-flow:row;gap:4px 10px;padding:10px 8px;}
+  #ar2 .ar-admin-review-trow .col-pool{grid-column:1/-1;}
+  #ar2 .ar-admin-review-trow .col-lines{grid-column:1/-1;}
+}
 #ar2 .ar-admin-userstats-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:8px;}
 #ar2 .ar-admin-userstats-tbl{width:100%;border-collapse:collapse;font-size:11px;color:var(--tx);}
 #ar2 .ar-admin-userstats-tbl th{text-align:left;font-weight:500;color:var(--mu);font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);}
