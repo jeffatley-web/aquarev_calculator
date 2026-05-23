@@ -7653,6 +7653,242 @@ window.AR2_ENGINEER = (function(){
       });
   }
 
+  // ── Media upload / management ───────────────────────────────────
+  //
+  // Phase 2 — media uploads. Photos are compressed client-side before
+  // upload (canvas resize to 1920px max, JPEG q0.8). Videos upload
+  // as-is for v1; client-side video compression would require WebCodecs
+  // or an external lib and is deferred. Storage path convention:
+  //   assignment_<assignment_uuid>/p<poolIdx>_<timestamp>_<filename>
+  // The first folder segment matches the RLS policy on storage.objects,
+  // so engineers can only upload into their own assignment's path.
+
+  // Signed URL cache so thumbnails don't re-sign on every render
+  var _signedUrlCache = {};
+
+  /* Compress an image File to a target max dimension + JPEG quality.
+     Resolves to a Blob suitable for upload. Skips compression entirely
+     for files already small (<300KB) — re-encoding tiny images adds
+     latency without saving bytes. */
+  function compressImage(file, maxDim, quality){
+    return new Promise(function(resolve, reject){
+      if (!file || file.type.indexOf('image/') !== 0) return reject(new Error('not an image'));
+      if (file.size < 300 * 1024) return resolve(file);
+      var img = new Image();
+      var objUrl = URL.createObjectURL(file);
+      img.onload = function(){
+        try {
+          var w = img.naturalWidth || img.width;
+          var h = img.naturalHeight || img.height;
+          if (Math.max(w, h) > maxDim){
+            var scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(function(blob){
+            URL.revokeObjectURL(objUrl);
+            if (blob) resolve(blob);
+            else reject(new Error('compression failed'));
+          }, 'image/jpeg', quality || 0.8);
+        } catch(err){
+          URL.revokeObjectURL(objUrl);
+          reject(err);
+        }
+      };
+      img.onerror = function(){
+        URL.revokeObjectURL(objUrl);
+        reject(new Error('image load failed'));
+      };
+      img.src = objUrl;
+    });
+  }
+
+  /* Upload a file to Storage + insert an engineer_media row. Enforces
+     the per-pool limits (10 photos, 4 videos) before kicking off the
+     upload — the DB allows more so admins can override via raw SQL,
+     but the client UI hard-caps. */
+  function uploadMedia(poolIndex, file){
+    var c = client();
+    var u = currentUser();
+    if (!c || !u || !file) return Promise.reject(new Error('not ready'));
+    var mediaType = file.type.indexOf('image/') === 0 ? 'photo'
+                  : file.type.indexOf('video/') === 0 ? 'video'
+                  : null;
+    if (!mediaType) return Promise.reject(new Error('Only photos and videos are supported.'));
+
+    // Per-pool counter check (decision #14: 10 photos · 4 videos per pool)
+    var counts = countMediaForPool(poolIndex);
+    if (mediaType === 'photo' && counts.photo >= 10) return Promise.reject(new Error('This pool is at the 10-photo limit. Remove a photo before adding a new one.'));
+    if (mediaType === 'video' && counts.video >= 4)  return Promise.reject(new Error('This pool is at the 4-video limit. Remove a video before adding a new one.'));
+
+    // Mark UI as uploading so the card shows a spinner stub
+    var transientId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    s.media.push({ id: transientId, pool_index: poolIndex, media_type: mediaType, _uploading: true, filename_original: file.name });
+    repaint();
+
+    // Compress photos before upload; videos upload as-is
+    var prep = mediaType === 'photo'
+      ? compressImage(file, 1920, 0.8).catch(function(){ return file; })
+      : Promise.resolve(file);
+
+    return prep.then(function(blob){
+      var ext = mediaType === 'photo'
+        ? 'jpg'
+        : (file.name.split('.').pop() || 'mp4').toLowerCase();
+      var storagePath = 'assignment_' + s.assignmentId + '/p' + poolIndex + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6) + '.' + ext;
+      return c.storage.from('engineer-media').upload(storagePath, blob, {
+        contentType: mediaType === 'photo' ? 'image/jpeg' : file.type,
+        cacheControl: '3600',
+        upsert: false
+      }).then(function(rs){
+        if (rs.error) throw rs.error;
+        // Insert the media row pointing at the storage path
+        return c.from('engineer_media').insert({
+          assignment_id: s.assignmentId,
+          pool_index: poolIndex,
+          storage_path: storagePath,
+          media_type: mediaType,
+          filename_original: file.name,
+          size_bytes: blob.size || file.size,
+          uploaded_by_user_id: u.id
+        }).select('id,pool_index,storage_path,media_type,filename_original,size_bytes,uploaded_at').single();
+      }).then(function(rs2){
+        if (rs2.error) throw rs2.error;
+        // Replace the transient placeholder with the real row
+        s.media = s.media.filter(function(m){ return m.id !== transientId; });
+        s.media.push(rs2.data);
+        // Bump assignment last_modified_at so the dormant-record retention
+        // timer resets — engineers actively documenting won't lose media
+        // to the 1-year cleanup.
+        c.from('engineer_assignments').update({ last_modified_at: new Date().toISOString() }).eq('id', s.assignmentId);
+        s.lastSavedAt = new Date();
+        repaint();
+      });
+    }).catch(function(err){
+      // Drop the transient placeholder + surface the error
+      s.media = s.media.filter(function(m){ return m.id !== transientId; });
+      repaint();
+      throw err;
+    });
+  }
+
+  /* Remove a media item from Storage + DB. The Storage delete is
+     attempted first; even if it fails (e.g. already gone), we still
+     delete the DB row so the UI doesn't show ghosts. */
+  function removeMedia(mediaId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud unavailable'));
+    var m = s.media.find(function(x){ return x.id === mediaId; });
+    if (!m) return Promise.resolve();
+    // Optimistic: remove from local state immediately
+    s.media = s.media.filter(function(x){ return x.id !== mediaId; });
+    repaint();
+    // Storage delete, then DB delete. Bucket-name singular helper API.
+    return Promise.all([
+      c.storage.from('engineer-media').remove([m.storage_path]).catch(function(){}),
+      c.from('engineer_media').delete().eq('id', mediaId)
+    ]);
+  }
+
+  function countMediaForPool(poolIndex){
+    var photo = 0, video = 0;
+    s.media.forEach(function(m){
+      if (m.pool_index !== poolIndex) return;
+      if (m._uploading) return; // don't count placeholders against the limit
+      if (m.media_type === 'photo') photo++;
+      if (m.media_type === 'video') video++;
+    });
+    return { photo: photo, video: video };
+  }
+
+  /* Signed URL for a Storage path. Caches results for 50 minutes (under
+     the 60-min Supabase Storage default expiry) so re-renders don't
+     re-sign. Callers can invalidate by clearing _signedUrlCache. */
+  function getSignedUrl(storagePath){
+    var cached = _signedUrlCache[storagePath];
+    if (cached && cached.expires > Date.now()) return Promise.resolve(cached.url);
+    var c = client();
+    if (!c) return Promise.resolve('');
+    return c.storage.from('engineer-media').createSignedUrl(storagePath, 3600).then(function(rs){
+      if (rs.error || !rs.data) return '';
+      var url = rs.data.signedUrl || rs.data.signedURL || '';
+      _signedUrlCache[storagePath] = { url: url, expires: Date.now() + 50 * 60 * 1000 };
+      return url;
+    });
+  }
+
+  /* Apply Pool 1's verification data to all other pools that haven't
+     been verified yet. Time-saver for properties with identical pool
+     decks. Per decision #9. */
+  function applyPool1ToRest(){
+    var src = s.verifications[0];
+    if (!src || !Array.isArray(src.return_lines) || src.return_lines.length === 0){
+      alert('Set up Pool 1 first — confirmed gallons and at least one return line — before applying to the rest.');
+      return;
+    }
+    var copied = 0;
+    s.pools.forEach(function(p){
+      if (p.index === 0) return;
+      var existing = s.verifications[p.index];
+      if (existing && existing.return_lines && existing.return_lines.length > 0) return; // don't stomp
+      var patch = {
+        return_lines: JSON.parse(JSON.stringify(src.return_lines)),
+        notes: src.notes || null,
+        confirmed_gallons: p.gallonsRep || null   // use this pool's rep value, not pool 1's
+      };
+      updateVerification(p.index, patch);
+      copied++;
+    });
+    if (copied > 0){
+      alert('Applied Pool 1 setup to ' + copied + ' empty pool' + (copied === 1 ? '' : 's') + '.');
+    } else {
+      alert('No empty pools to apply to — all other pools already have return lines.');
+    }
+  }
+
+  // ── Lightbox for thumbnails ─────────────────────────────────────
+  function openMediaLightbox(storagePath, mediaType){
+    closeMediaLightbox();
+    var bd = document.createElement('div');
+    bd.className = 'ar-eng-lightbox-backdrop';
+    bd.id = 'ar-eng-lightbox';
+    bd.innerHTML = '<button class="ar-eng-lightbox-close" data-action="ar-eng-lightbox-close" type="button" aria-label="Close">×</button>'
+      + '<div class="ar-eng-lightbox-content"><div style="padding:30px;color:#7db8cc;font-size:13px">Loading…</div></div>';
+    document.body.appendChild(bd);
+    // Backdrop-click closes only when the click target IS the backdrop
+    // (not bubbling from the image/video content). Keeps the lightbox
+    // usable — clicking the image to play/pause a video doesn't dismiss.
+    bd.addEventListener('click', function(e){
+      if (e.target === bd) closeMediaLightbox();
+    });
+    // Escape closes.
+    var onKey = function(e){ if (e.key === 'Escape') closeMediaLightbox(); };
+    document.addEventListener('keydown', onKey);
+    bd._onKey = onKey;
+    getSignedUrl(storagePath).then(function(url){
+      if (!url) return;
+      var content = bd.querySelector('.ar-eng-lightbox-content');
+      if (!content) return;
+      if (mediaType === 'video'){
+        content.innerHTML = '<video src="' + esc(url) + '" controls playsinline autoplay></video>';
+      } else {
+        content.innerHTML = '<img src="' + esc(url) + '" alt="" />';
+      }
+    });
+  }
+  function closeMediaLightbox(){
+    var el = document.getElementById('ar-eng-lightbox');
+    if (el){
+      if (el._onKey) document.removeEventListener('keydown', el._onKey);
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }
+  }
+
   // ── Briefing skip toggle ────────────────────────────────────────
   function setBriefingSkipped(skip){
     var c = client();
@@ -7816,16 +8052,45 @@ window.AR2_ENGINEER = (function(){
       var v = s.verifications[p.index];
       return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
     }).length;
+    // Apply Pool 1 to Rest is only meaningful when there are 2+ pools AND
+    // Pool 1 has been documented at least partially. Hidden otherwise to
+    // avoid a confusing button on properties with one pool.
+    var canApplyToRest = s.pools.length > 1
+      && s.verifications[0]
+      && Array.isArray(s.verifications[0].return_lines)
+      && s.verifications[0].return_lines.length > 0;
+    var applyToolbar = canApplyToRest
+      ? '<div class="ar-eng-pool-toolbar"><button class="ar-eng-tiny" data-action="ar-eng-apply-pool-1" type="button">↳ Apply Pool 1 setup to remaining pools</button></div>'
+      : '';
     mount.innerHTML = ''
       + '<div class="ar-eng-wrap ar-eng-flow">'
       +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + s.pools.length + ' complete')
       +   stepperHtml(3)
+      +   applyToolbar
       +   '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
+      // Hidden file input — shared across pool cards. When the engineer
+      // taps + Photo or + Video on a card, the data-pool + data-media-type
+      // are stashed on the input before .click() so the change handler
+      // knows where to attach the uploaded file.
+      +   '<input type="file" id="ar-eng-media-input" style="position:absolute;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px" data-action="ar-eng-media-picked" />'
       +   '<div class="ar-eng-actions">'
       +     '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="2" type="button">← Back</button>'
       +     '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="4" type="button"' + (isStepComplete(3) ? '' : ' disabled') + '>Continue to review →</button>'
       +   '</div>'
       + '</div>';
+    // Post-render — lazy-load signed URLs for every thumbnail. The
+    // thumb-load attribute carries the storage path; we fetch the
+    // signed URL (cached) and inject it as background-image on the
+    // .ar-eng-thumb-img element.
+    var thumbs = mount.querySelectorAll('[data-thumb-load]');
+    for (var ti = 0; ti < thumbs.length; ti++){
+      (function(el){
+        var p = el.getAttribute('data-thumb-load');
+        getSignedUrl(p).then(function(url){
+          if (url) el.style.backgroundImage = 'url("' + url + '")';
+        });
+      })(thumbs[ti]);
+    }
   }
 
   function poolCardHtml(p){
@@ -7834,22 +8099,40 @@ window.AR2_ENGINEER = (function(){
     var lines = v.return_lines || [];
     var DIAMETERS = [2, 3, 4, 6, 8];
 
-    // Render an editable mini-table of return lines: each row is
-    // {count, diameter}. Engineer adds rows via "Add line" button.
-    var linesHtml = lines.map(function(line, li){
-      var diaOpts = DIAMETERS.map(function(d){
-        return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
-      }).join('');
-      return '<div class="ar-eng-line">'
-        +   '<div class="ar-eng-line-stepper">'
-        +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button">−</button>'
-        +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
-        +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button">+</button>'
-        +   '</div>'
-        +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '">' + diaOpts + '</select>'
-        +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line">×</button>'
+    // Media for this pool
+    var poolMedia = s.media.filter(function(m){ return m.pool_index === p.index; });
+    var counts = countMediaForPool(p.index);
+    var photoAtLimit = counts.photo >= 10;
+    var videoAtLimit = counts.video >= 4;
+
+    var thumbsHtml = poolMedia.map(function(m){
+      if (m._uploading){
+        return '<div class="ar-eng-thumb uploading" title="Uploading ' + esc(m.filename_original || '') + '…">' + (m.media_type === 'video' ? '🎥' : '📷') + '<span class="ar-eng-thumb-spin"></span></div>';
+      }
+      var typeIcon = m.media_type === 'video' ? '🎥' : '';
+      return '<div class="ar-eng-thumb" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(m.id) + '" data-storage-path="' + esc(m.storage_path) + '" data-media-type="' + esc(m.media_type) + '">'
+        +   '<div class="ar-eng-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
+        +   (typeIcon ? '<span class="ar-eng-thumb-type">' + typeIcon + '</span>' : '')
+        +   '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(m.id) + '" type="button" aria-label="Remove">×</button>'
         + '</div>';
     }).join('');
+
+    // Discrepancy warning state — surface a soft inline note if engineer's
+    // confirmed_gallons differs from rep's saved value by more than 5%.
+    // Per decision: discrepancy_reason becomes required at app layer when
+    // the difference exceeds the threshold.
+    var divergenceWarning = '';
+    if (p.gallonsRep > 0 && v.confirmed_gallons != null && v.confirmed_gallons > 0){
+      var diff = Math.abs(v.confirmed_gallons - p.gallonsRep);
+      var pct  = diff / p.gallonsRep;
+      if (pct > 0.05){
+        divergenceWarning = '<div class="ar-eng-discrepancy">'
+          + '<div class="ar-eng-discrepancy-title">⚠ ' + Math.round(pct * 100) + '% off rep value</div>'
+          + '<div class="ar-eng-discrepancy-body">Add a quick note explaining what you measured.</div>'
+          + '<textarea data-action="ar-eng-discrepancy-reason" data-pool="' + p.index + '" rows="2" placeholder="e.g. Measured at fill line vs auto-fill marker, pool was partially drained, etc.">' + esc(v.discrepancy_reason || '') + '</textarea>'
+        + '</div>';
+      }
+    }
 
     return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + '" data-pool-card="' + p.index + '">'
       +   '<div class="ar-eng-pool-head">'
@@ -7863,10 +8146,24 @@ window.AR2_ENGINEER = (function(){
       +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '" />'
       +       '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button">Matches rep</button>'
       +     '</div>'
+      +     divergenceWarning
       +   '</div>'
 
       +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count + diameter per line)</span></label>'
-      +     '<div class="ar-eng-lines">' + (linesHtml || '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
+      +     '<div class="ar-eng-lines">' + (lines.length ? lines.map(function(line, li){
+              var diaOpts = DIAMETERS.map(function(d){
+                return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
+              }).join('');
+              return '<div class="ar-eng-line">'
+                +   '<div class="ar-eng-line-stepper">'
+                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button">−</button>'
+                +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
+                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button">+</button>'
+                +   '</div>'
+                +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '">' + diaOpts + '</select>'
+                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line">×</button>'
+                + '</div>';
+            }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button">+ Add return line</button>'
       +   '</div>'
 
@@ -7874,7 +8171,14 @@ window.AR2_ENGINEER = (function(){
       +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?">' + esc(v.notes || '') + '</textarea>'
       +   '</div>'
 
-      +   '<div class="ar-eng-media-placeholder">📷 Media upload arrives in a follow-up update. Notes work fully now.</div>'
+      +   '<div class="ar-eng-field">'
+      +     '<label>Photos &amp; videos <span class="ar-eng-hint">' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
+      +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No media yet</div>') + '</div>'
+      +     '<div class="ar-eng-media-actions">'
+      +       '<button class="ar-eng-media-btn' + (photoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit ? ' disabled' : '') + '>📷 Add photo</button>'
+      +       '<button class="ar-eng-media-btn' + (videoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit ? ' disabled' : '') + '>🎥 Add video</button>'
+      +     '</div>'
+      +   '</div>'
       + '</div>';
   }
 
@@ -7957,13 +8261,80 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-confirm-gallons'){
       var pi = parseInt(target.getAttribute('data-pool'), 10);
       var val = parseInt(target.value, 10);
-      updateVerification(pi, { confirmed_gallons: isNaN(val) ? null : val });
+      var pool = s.pools.find(function(x){ return x.index === pi; });
+      // Auto-flag discrepancy if engineer's value differs from rep by >5%.
+      // Note: when value is cleared / matches within tolerance, clear the
+      // flag too so the inline warning disappears.
+      var newConfirmed = isNaN(val) ? null : val;
+      var discFlag = false;
+      if (pool && pool.gallonsRep > 0 && newConfirmed != null && newConfirmed > 0){
+        var diff = Math.abs(newConfirmed - pool.gallonsRep);
+        if (diff / pool.gallonsRep > 0.05) discFlag = true;
+      }
+      updateVerification(pi, { confirmed_gallons: newConfirmed, has_discrepancy: discFlag });
+      return true;
+    }
+    if (action === 'ar-eng-discrepancy-reason'){
+      var piDR = parseInt(target.getAttribute('data-pool'), 10);
+      updateVerification(piDR, { discrepancy_reason: target.value || '' });
+      return true;
+    }
+    if (action === 'ar-eng-apply-pool-1'){
+      applyPool1ToRest();
+      return true;
+    }
+    if (action === 'ar-eng-media-add'){
+      // Stash the pick context on module state (not the input element)
+      // so a repaint between picker-open and file-pick doesn't lose
+      // the target pool. The hidden input is just a picker trigger;
+      // its DOM identity may change across repaints.
+      var mediaType = target.getAttribute('data-media-type') || 'photo';
+      var poolIdx = parseInt(target.getAttribute('data-pool'), 10);
+      s._mediaPickContext = { poolIndex: poolIdx, mediaType: mediaType };
+      var input = document.getElementById('ar-eng-media-input');
+      if (!input) return true;
+      // capture="environment" hints the OS to prefer the rear camera on
+      // mobile. Desktops ignore this and show the file picker normally.
+      input.setAttribute('accept', mediaType === 'video' ? 'video/*' : 'image/*');
+      try { input.setAttribute('capture', 'environment'); } catch(_){}
+      input.value = '';   // clear so picking the same file again still fires change
+      input.click();
+      return true;
+    }
+    if (action === 'ar-eng-media-picked'){
+      var ctx = s._mediaPickContext;
+      var file = target.files && target.files[0];
+      if (!file || !ctx) return true;
+      uploadMedia(ctx.poolIndex, file).catch(function(err){
+        alert((err && err.message) || 'Upload failed.');
+      });
+      // Clear context so a stale pool index doesn't leak into the next pick
+      s._mediaPickContext = null;
+      return true;
+    }
+    if (action === 'ar-eng-media-remove'){
+      var mid = target.getAttribute('data-media-id');
+      if (!mid) return true;
+      removeMedia(mid).catch(function(err){
+        alert('Could not remove: ' + ((err && err.message) || err));
+      });
+      return true;
+    }
+    if (action === 'ar-eng-media-lightbox'){
+      var lbPath = target.getAttribute('data-storage-path');
+      var lbType = target.getAttribute('data-media-type');
+      if (!lbPath) return true;
+      openMediaLightbox(lbPath, lbType);
+      return true;
+    }
+    if (action === 'ar-eng-lightbox-close'){
+      closeMediaLightbox();
       return true;
     }
     if (action === 'ar-eng-gallons-match'){
       var pi2 = parseInt(target.getAttribute('data-pool'), 10);
       var p = s.pools.find(function(x){ return x.index === pi2; });
-      if (p) updateVerification(pi2, { confirmed_gallons: p.gallonsRep });
+      if (p) updateVerification(pi2, { confirmed_gallons: p.gallonsRep, has_discrepancy: false, discrepancy_reason: null });
       return true;
     }
     if (action === 'ar-eng-line-add'){
