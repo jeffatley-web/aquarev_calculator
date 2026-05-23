@@ -1891,6 +1891,21 @@ window.AR2_PF = (function(){
     }
     p.then(function(rs){
       if (rs && rs.error) throw new Error(rs.error.message);
+      // Audit + notify the engineer about the new/updated assignment.
+      // Best-effort — failures don't abort the user flow.
+      var newAssignmentId = rs.data && rs.data.id;
+      if (newAssignmentId && window.AR_AUDIT){
+        AR_AUDIT.log('engineer_assignments', newAssignmentId, {
+          engineer_user_id: engineerUserId,
+          assignment_notes: (notes && notes.value) || null
+        }, assignmentId ? 'admin update assignment' : 'admin create assignment');
+      }
+      if (window.AR_NOTIFY && engineerUserId){
+        var msg = assignmentId
+          ? 'Your AquaRev rep updated your engineer assignment.'
+          : 'You have a new assignment — open AquaRev to start.';
+        AR_NOTIFY.push(engineerUserId, assignmentId ? 'assignment_updated' : 'assignment_created', msg, null, newAssignmentId);
+      }
       // Invalidate local caches so the row chip refreshes.
       pfState.engineerAssignmentsByProperty = null;
       pfState.engineerAssignmentsByPortfolio = null;
@@ -6797,6 +6812,255 @@ function setAdminActiveTab(tabId){
    tab's table. Cached on window.AR2_ADMIN_ENG so tab-switch re-renders
    don't refetch (refetch is admin-triggered via the refresh button).
    ─────────────────────────────────────────────────────────────────── */
+/* ── Engineer Verification PDF (Phase 6) ──────────────────────────────
+   Generates a printable engineer-verification report for a given
+   assignment. Reuses the existing .rpt-* chrome (header/footer/NSF
+   badge / fonts) so the output feels like part of the AquaRev report
+   family. Excludes pricing entirely — engineer side has no pricing
+   visibility by design.
+
+   Layout:
+     • Cover page — engineer name + phone, property/portfolio name,
+       submitted date, NSF/IAPMO badge.
+     • Per-pool pages — confirmed gallons, return-line table, notes,
+       discrepancy callout if flagged, media thumbnail grid.
+
+   Trigger: from the admin review modal's "Download verification PDF"
+   button (added below).
+   ────────────────────────────────────────────────────────────────── */
+function generateEngineerReport(assignmentId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !assignmentId){ alert('Cloud unavailable.'); return; }
+  var prevTitle = document.title;
+  document.title = 'Generating verification report…';
+
+  Promise.all([
+    c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_media').select('id,pool_index,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true})
+  ]).then(function(arr){
+    var asgn = arr[0].data;
+    if (!asgn) throw new Error('Assignment not found.');
+    return Promise.all([
+      _engineerReport_loadRecord(asgn),
+      c.from('app_users').select('id,name,phone').eq('id', asgn.engineer_user_id).single().then(function(rs){ return rs.data; }, function(){ return null; })
+    ]).then(function(linked){
+      return {
+        asgn: asgn,
+        verifs: arr[1].data || [],
+        media:  arr[2].data || [],
+        record: linked[0],
+        engineer: linked[1]
+      };
+    });
+  }).then(function(bundle){
+    // Pre-resolve signed URLs for every photo so they render in the PDF.
+    // Videos are listed as filename + length only — most browsers do not
+    // capture video into print-to-PDF anyway.
+    var photoMedia = bundle.media.filter(function(m){ return m.media_type === 'photo'; });
+    if (!photoMedia.length) return bundle;
+    return Promise.all(photoMedia.map(function(m){
+      return c.storage.from('engineer-media').createSignedUrl(m.storage_path, 3600).then(function(rs){
+        m._signedUrl = (rs && rs.data && (rs.data.signedUrl || rs.data.signedURL)) || '';
+        return m;
+      }, function(){ m._signedUrl = ''; return m; });
+    })).then(function(){ return bundle; });
+  }).then(function(bundle){
+    _engineerReport_renderHtml(bundle);
+    return _engineerReport_preloadImages();
+  }).then(function(){
+    var pName = '';
+    try { pName = (document.querySelector('#ar2-report .rpt-eng-prop-name') || {}).textContent || 'Verification'; } catch(_){ pName = 'Verification'; }
+    var fnDate = new Date().toISOString().slice(0,10);
+    var fnProp = (pName || 'Verification').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'Verification';
+    document.title = 'AquaRev_EngVerification_' + fnProp + '_' + fnDate;
+    // Move #ar2-report to be a direct child of body so the @media print
+    // body>* hide-all rule doesn't kill it (matches the pattern used by
+    // the main report flow). Track original position so we can restore.
+    var rep = document.getElementById('ar2-report');
+    var rePrev = rep && rep.parentNode;
+    var reNext = rep && rep.nextSibling;
+    if (rep && rePrev !== document.body) document.body.appendChild(rep);
+    window.print();
+    setTimeout(function(){
+      document.title = prevTitle;
+      var r = document.getElementById('ar2-report');
+      if (r){
+        // Restore to original parent + clear content.
+        if (rePrev && rePrev !== document.body){
+          if (reNext) rePrev.insertBefore(r, reNext);
+          else rePrev.appendChild(r);
+        }
+        r.innerHTML = '';
+      }
+    }, 800);
+  }).catch(function(err){
+    document.title = prevTitle;
+    alert('Couldn\'t build report: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+
+function _engineerReport_loadRecord(asgn){
+  var c = AR2_CLOUD.getClient();
+  if (asgn.property_id){
+    return c.from('portfolio_properties').select('id,property_name,formatted_address,country,state_json,portfolio_id').eq('id', asgn.property_id).single()
+      .then(function(rs){ return rs.data || {}; });
+  }
+  if (asgn.assessment_id){
+    return c.from('assessments').select('id,property_name,snapshot,summary').eq('id', asgn.assessment_id).single()
+      .then(function(rs){
+        var d = rs.data || {};
+        var snap = d.snapshot || {};
+        return {
+          id: d.id,
+          property_name: d.property_name,
+          formatted_address: (snap.state && snap.state.formattedAddress) || '',
+          state_json: snap.state || {}
+        };
+      });
+  }
+  if (asgn.portfolio_id){
+    return c.from('portfolios').select('id,name').eq('id', asgn.portfolio_id).single()
+      .then(function(rs){ var d = rs.data || {}; return { id:d.id, property_name:d.name, formatted_address:'', state_json:{} }; });
+  }
+  return Promise.resolve({});
+}
+
+function _engineerReport_renderHtml(bundle){
+  var rep = document.getElementById('ar2-report');
+  if (!rep) return;
+  var asgn = bundle.asgn;
+  var rec  = bundle.record || {};
+  var eng  = bundle.engineer || {};
+  var verifs = bundle.verifs || [];
+  var media  = bundle.media  || [];
+  var today  = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  var submitted = asgn.submitted_at
+    ? new Date(asgn.submitted_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})
+    : 'In progress';
+
+  // Derive pool list from state_json so pools with no verification still
+  // show in the report as "Not yet documented".
+  var pools = [];
+  var sj = rec.state_json || {};
+  if (sj.manualVolume){
+    var n = Math.max(1, Number(sj.manualPoolCount) || 1);
+    for (var i = 0; i < n; i++) pools.push({ index: i, name: 'Pool ' + (i+1), gallonsRep: Math.round((Number(sj.manualTotalGallons)||0)/n) });
+  } else if (Array.isArray(sj.bodies)){
+    sj.bodies.forEach(function(b, i){
+      pools.push({ index: i, name: b.label || ('Pool ' + (i+1)), gallonsRep: typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0, depth: b.depth || '' });
+    });
+  } else {
+    // Fall back to verification rows if state_json doesn't have a roster
+    verifs.forEach(function(v){ pools.push({ index: v.pool_index, name: 'Pool ' + (v.pool_index+1), gallonsRep: 0 }); });
+  }
+  if (!pools.length){ pools = [{ index: 0, name: 'Pool 1', gallonsRep: 0 }]; }
+
+  var poolPagesHtml = pools.map(function(p){
+    var v = verifs.find(function(x){ return x.pool_index === p.index; });
+    var lines = (v && v.return_lines) || [];
+    var poolMedia = media.filter(function(m){ return m.pool_index === p.index; });
+    var photos = poolMedia.filter(function(m){ return m.media_type === 'photo'; });
+    var videos = poolMedia.filter(function(m){ return m.media_type === 'video'; });
+
+    var linesTable = lines.length
+      ? '<table class="rpt-tbl"><thead><tr><th>Count</th><th>Diameter</th></tr></thead><tbody>'
+        + lines.map(function(l){ return '<tr><td>' + (l.count||1) + '</td><td>' + (l.diameter||'?') + '" return</td></tr>'; }).join('')
+        + '</tbody></table>'
+      : '<div class="rpt-row" style="color:#888">No return lines documented.</div>';
+
+    var photoGrid = photos.length
+      ? '<div class="rpt-eng-photos">'
+        + photos.map(function(m){
+            return '<div class="rpt-eng-photo">'
+              + (m._signedUrl ? '<img src="' + esc(m._signedUrl) + '" alt="" crossorigin="anonymous" />' : '<div class="rpt-eng-photo-missing">Photo unavailable</div>')
+              + (m.caption ? '<div class="rpt-eng-photo-cap">' + esc(m.caption) + '</div>' : '')
+              + '</div>';
+          }).join('')
+        + '</div>'
+      : '';
+    var videosList = videos.length
+      ? '<div class="rpt-eng-videos"><b>Videos:</b> ' + videos.map(function(m){ return esc(m.filename_original || 'video'); }).join(' · ') + '</div>'
+      : '';
+
+    var divergence = '';
+    if (v && v.has_discrepancy && v.discrepancy_reason){
+      divergence = '<div class="rpt-eng-discrepancy"><b>Discrepancy noted by engineer:</b> ' + esc(v.discrepancy_reason) + '</div>';
+    }
+
+    return '<div class="rpt">'
+      + '<div class="rpt-head">'
+      +   '<div class="rpt-head-l"><div class="rpt-head-title">ENGINEER VERIFICATION</div><div class="rpt-head-sub">AquaRev Water</div></div>'
+      +   '<div class="rpt-head-r"><div class="rpt-head-prop">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-head-date">' + esc(today) + '</div><span class="rpt-head-nsf">NSF/ANSI 50 Certified · IAPMO</span></div>'
+      + '</div>'
+      + '<div class="rpt-body">'
+      +   '<div class="rpt-sec">'
+      +     '<div class="rpt-stitle">' + esc(p.name) + '</div>'
+      +     '<div class="rpt-row"><span class="k">Rep-stated gallons</span><span class="v">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal' : '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Engineer-confirmed gallons</span><span class="v">' + (v && v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : 'Not confirmed') + '</span></div>'
+      +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines</div>'
+      +     linesTable
+      +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
+      +     divergence
+      +   '</div>'
+      +   (photos.length ? '<div class="rpt-sec"><div class="rpt-stitle">Photos (' + photos.length + ')</div>' + photoGrid + '</div>' : '')
+      +   (videos.length ? '<div class="rpt-sec">' + videosList + '</div>' : '')
+      + '</div>'
+      + '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + ' · ' + esc(p.name) + '</span></div>'
+      + '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
+      + '</div>';
+  }).join('');
+
+  // Cover page mimics .rpt structure but with engineer-specific copy.
+  var coverHtml = ''
+    + '<div class="rpt">'
+    +   '<div class="rpt-head">'
+    +     '<div class="rpt-head-l"><div class="rpt-head-title">ENGINEER VERIFICATION</div><div class="rpt-head-sub">AquaRev Water</div></div>'
+    +     '<div class="rpt-head-r"><div class="rpt-head-prop rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-head-date">' + esc(today) + '</div><span class="rpt-head-nsf">NSF/ANSI 50 Certified · IAPMO</span></div>'
+    +   '</div>'
+    +   '<div class="rpt-body">'
+    +     '<div class="rpt-sec">'
+    +       '<div class="rpt-stitle">Property</div>'
+    +       '<div class="rpt-row"><span class="k">Name</span><span class="v">' + esc(rec.property_name || '—') + '</span></div>'
+    +       (rec.formatted_address ? '<div class="rpt-row"><span class="k">Address</span><span class="v">' + esc(rec.formatted_address) + '</span></div>' : '')
+    +     '</div>'
+    +     '<div class="rpt-sec">'
+    +       '<div class="rpt-stitle">Engineer</div>'
+    +       '<div class="rpt-row"><span class="k">Name</span><span class="v">' + esc(eng.name || '—') + '</span></div>'
+    +       (eng.phone ? '<div class="rpt-row"><span class="k">Phone</span><span class="v">' + esc(eng.phone) + '</span></div>' : '')
+    +     '</div>'
+    +     '<div class="rpt-sec">'
+    +       '<div class="rpt-stitle">Verification Summary</div>'
+    +       '<div class="rpt-row"><span class="k">Pools documented</span><span class="v">' + verifs.length + ' of ' + pools.length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Photos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='photo';}).length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Videos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='video';}).length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Submitted</span><span class="v">' + esc(submitted) + '</span></div>'
+    +     '</div>'
+    +     '<div class="rpt-disc">This document captures pool-level field verification data collected by the assigned engineer. It excludes commercial terms; final pricing is communicated separately by the AquaRev sales team.</div>'
+    +   '</div>'
+    +   '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + '</span></div>'
+    +   '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
+    + '</div>';
+
+  rep.innerHTML = coverHtml + poolPagesHtml;
+}
+
+function _engineerReport_preloadImages(){
+  var imgs = document.querySelectorAll('#ar2-report img');
+  if (!imgs.length) return Promise.resolve();
+  return Promise.all(Array.prototype.map.call(imgs, function(img){
+    if (img.complete && img.naturalHeight) return Promise.resolve();
+    return new Promise(function(resolve){
+      var done = false;
+      function settle(){ if (!done){ done = true; resolve(); } }
+      img.addEventListener('load', settle, { once: true });
+      img.addEventListener('error', settle, { once: true });
+      // Safety timeout: don't hang the print if an image won't resolve
+      setTimeout(settle, 4500);
+    });
+  }));
+}
+
 function populateAdminEngineerSubmissions(){
   if (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())) return;
   var mount = document.getElementById('ar-admin-eng-submissions');
@@ -6938,6 +7202,7 @@ function openAdminReviewModal(assignmentId){
     + '<div class="ar-pf-modal-err" id="ar-admin-review-err"></div>'
     + '<div class="ar-pf-modal-actions">'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
+    +   '<button class="ar-pf-modal-btn" data-action="admin-review-download-pdf" type="button" title="Generate engineer verification PDF">↓ PDF</button>'
     +   (asgn.status === 'locked'
         ? '<button class="ar-pf-modal-btn" data-action="admin-review-unlock" type="button">Unlock</button>'
         : '<button class="ar-pf-modal-btn danger" data-action="admin-review-lock" type="button">Lock Now</button>')
@@ -6956,6 +7221,7 @@ function openAdminReviewModal(assignmentId){
     if (act === 'admin-review-lock')          { adminReviewSetStatus('locked');   return; }
     if (act === 'admin-review-unlock')        { adminReviewSetStatus('reviewed'); return; }
     if (act === 'admin-review-mark-reviewed') { adminReviewSetStatus('reviewed'); return; }
+    if (act === 'admin-review-download-pdf')  { generateEngineerReport(assignmentId); return; }
   });
   bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAdminReviewModal(); });
 
@@ -7018,6 +7284,11 @@ function adminReviewSetStatus(newStatus){
   var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
   if (!c) return;
   var u = AR2_CLOUD.user && AR2_CLOUD.user();
+  // Capture pre-update state for the audit log + notification message.
+  var bundle = window.AR2_ADMIN_ENG;
+  var prior  = bundle && bundle.assignments.find(function(a){ return a.id === assignmentId; });
+  var oldStatus = prior && prior.status;
+  var engineerUserId = prior && prior.engineer_user_id;
   var patch = { status: newStatus, last_modified_at: new Date().toISOString() };
   if (newStatus === 'locked'){
     patch.locked_at = new Date().toISOString();
@@ -7036,6 +7307,16 @@ function adminReviewSetStatus(newStatus){
       if (err) err.textContent = rs.error.message;
       for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
       return;
+    }
+    // Audit + notify the engineer of the status change. Both best-effort.
+    if (window.AR_AUDIT) AR_AUDIT.log('engineer_assignments', assignmentId, {
+      status: { from: oldStatus, to: newStatus }
+    }, 'admin status change');
+    if (window.AR_NOTIFY && engineerUserId){
+      var msg = newStatus === 'reviewed' ? 'Your verification has been reviewed.'
+              : newStatus === 'locked'   ? 'Admin locked your verification — no further edits.'
+              : 'Your verification status changed to ' + newStatus + '.';
+      AR_NOTIFY.push(engineerUserId, 'assignment_status', msg, null, assignmentId);
     }
     closeAdminReviewModal();
     // Refresh the submissions cache so the row's status pill flips.
@@ -7637,6 +7918,7 @@ window.AR2_ENGINEER = (function(){
     if (!c) return;
     s.saving = true;
     repaint();
+    var oldStatus = s.assignment && s.assignment.status;
     c.from('engineer_assignments')
       .update({ status: 'submitted', submitted_at: new Date().toISOString(), last_modified_at: new Date().toISOString() })
       .eq('id', s.assignmentId)
@@ -7645,6 +7927,11 @@ window.AR2_ENGINEER = (function(){
         if (rs.error){ alert('Send failed: ' + rs.error.message); repaint(); return; }
         s.assignment.status = 'submitted';
         s.assignment.submitted_at = new Date().toISOString();
+        // Audit + fan-out notifications. Both are best-effort.
+        if (window.AR_AUDIT) AR_AUDIT.log('engineer_assignments', s.assignmentId, {
+          status: { from: oldStatus, to: 'submitted' }
+        }, 'engineer submit');
+        if (window.AR_NOTIFY) AR_NOTIFY.engineerSubmitted(s.assignmentId);
         repaint();
       }, function(err){
         s.saving = false;
@@ -7947,11 +8234,100 @@ window.AR2_ENGINEER = (function(){
       savedNote = '<span class="ar-eng-saved">Saving…</span>';
     }
     return '<div class="ar-eng-flow-header">'
-      +   '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + I.back + ' All assignments</button>'
+      +   '<div class="ar-eng-header-top">'
+      +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + I.back + ' All assignments</button>'
+      +     '<button class="ar-eng-help-btn" data-action="ar-eng-help-open" type="button" title="Help">?</button>'
+      +   '</div>'
       +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
       +   (subtitle ? '<div class="ar-eng-prop-sub">' + esc(subtitle) + '</div>' : '')
       +   savedNote
       + '</div>' + lockBanner;
+  }
+
+  /* Help drawer — single source of truth for engineer guidance per step.
+     Opens from the ? button in the flow header. Content adapts to the
+     current step. Always-available "Watch briefing again" button replays
+     the orientation video. */
+  function openHelpDrawer(){
+    var existing = document.getElementById('ar-eng-help-drawer');
+    if (existing){ if (existing.parentNode) existing.parentNode.removeChild(existing); return; }
+    var step = s.currentStep;
+    var stepContent = {
+      1: ''
+        + '<div class="ar-eng-help-section"><b>Step 1 — Briefing</b></div>'
+        + '<p>A 60–90 second orientation video. Watch once, then check "Don\'t show this again" to skip on future logins.</p>'
+        + '<p>If you ever want to rewatch it, tap the button below.</p>'
+        + '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="1" type="button">↻ Watch the briefing again</button>',
+      2: ''
+        + '<div class="ar-eng-help-section"><b>Step 2 — Property review</b></div>'
+        + '<p><b>Confirm access</b> first. If something is blocking you (locked equipment room, missing keys), tap "Access blocked" and add a quick note. Your rep gets it immediately.</p>'
+        + '<p><b>Confirm total volume</b> — if the rep\'s value is close enough, tap "Matches rep value". If you measured a different number, tap "Override value" and enter what you observed.</p>',
+      3: ''
+        + '<div class="ar-eng-help-section"><b>Step 3 — Pool profiles</b></div>'
+        + '<p><b>For each pool:</b> confirm the gallons (or override if your measurement differs), then add a return line for each pipe you see on the equipment.</p>'
+        + '<p><b>Return lines:</b> use the +/− stepper for how many lines of that size, and the dropdown for diameter (2", 3", 4", 6", 8"). Add more lines if multiple sizes are present.</p>'
+        + '<p><b>Pipe diameters at a glance:</b></p>'
+        + pipeDiameterReferenceSvg()
+        + '<p style="font-size:11px;color:#7db8cc">Tip: a quarter is ~24 mm or about a 1-inch diameter. Use it for scale against the pipe.</p>'
+        + '<p><b>Photos:</b> tap "+ Add photo" on a pool. Aim for one clear photo per pipe configuration. Photos are compressed automatically before upload.</p>'
+        + '<p><b>Apply Pool 1 to remaining pools</b> when the deck has multiple identical pools — saves typing.</p>',
+      4: ''
+        + '<div class="ar-eng-help-section"><b>Step 4 — Review and send</b></div>'
+        + '<p>Glance over the summary. If anything is missing it\'s called out in amber — step back and fix.</p>'
+        + '<p>Tap "Send to AquaRev for review" when you\'re done. Your rep is notified automatically.</p>'
+        + '<p>You can still edit after sending unless your rep locks the record.</p>'
+    };
+    var bd = document.createElement('div');
+    bd.id = 'ar-eng-help-drawer';
+    bd.className = 'ar-eng-help-drawer-backdrop';
+    bd.innerHTML = '<div class="ar-eng-help-drawer-panel" role="dialog" aria-modal="true">'
+      + '<div class="ar-eng-help-drawer-head">'
+      +   '<div class="ar-eng-help-drawer-title">Help & tips</div>'
+      +   '<button class="ar-eng-help-close" data-action="ar-eng-help-close" type="button" aria-label="Close">×</button>'
+      + '</div>'
+      + '<div class="ar-eng-help-drawer-body">' + (stepContent[step] || '<p>No tips for this step.</p>') + '</div>'
+      + '</div>';
+    document.body.appendChild(bd);
+    bd.addEventListener('click', function(e){
+      if (e.target === bd) closeHelpDrawer();
+      var act = e.target.closest('[data-action]');
+      if (act && act.getAttribute('data-action') === 'ar-eng-help-close') closeHelpDrawer();
+    });
+    var onKey = function(e){ if (e.key === 'Escape') closeHelpDrawer(); };
+    document.addEventListener('keydown', onKey);
+    bd._onKey = onKey;
+  }
+  function closeHelpDrawer(){
+    var el = document.getElementById('ar-eng-help-drawer');
+    if (el){
+      if (el._onKey) document.removeEventListener('keydown', el._onKey);
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }
+  }
+
+  /* Tiny inline SVG showing the five canonical pipe diameters at scale
+     (relative). Used inside the help drawer and as a tooltip on the
+     return-line diameter selector. */
+  function pipeDiameterReferenceSvg(){
+    // Diameters are NOT to actual scale (would be too large); they're
+    // proportional to each other so visual comparison is meaningful.
+    // 2" → 16px, 3" → 22, 4" → 28, 6" → 38, 8" → 48
+    var dims = [
+      { label: '2"', d: 16 },
+      { label: '3"', d: 22 },
+      { label: '4"', d: 28 },
+      { label: '6"', d: 38 },
+      { label: '8"', d: 48 }
+    ];
+    var svg = '<div class="ar-eng-pipe-ref">';
+    dims.forEach(function(p){
+      svg += '<div class="ar-eng-pipe-ref-col">'
+        +   '<div class="ar-eng-pipe-ref-circle" style="width:' + p.d + 'px;height:' + p.d + 'px"></div>'
+        +   '<div class="ar-eng-pipe-ref-lbl">' + p.label + '</div>'
+        + '</div>';
+    });
+    svg += '</div>';
+    return svg;
   }
 
   function renderBriefingStep(mount){
@@ -8329,6 +8705,14 @@ window.AR2_ENGINEER = (function(){
     }
     if (action === 'ar-eng-lightbox-close'){
       closeMediaLightbox();
+      return true;
+    }
+    if (action === 'ar-eng-help-open'){
+      openHelpDrawer();
+      return true;
+    }
+    if (action === 'ar-eng-help-close'){
+      closeHelpDrawer();
       return true;
     }
     if (action === 'ar-eng-gallons-match'){
@@ -8890,6 +9274,69 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'
      - localStorage 'ar_pwa_ios_hint_dismissed'   — engineer dismissed iOS hint
      - sessionStorage 'ar_pwa_install_resolved'   — install succeeded this session
 */
+/* ── Audit + Notify helpers (Phase 4 + 5) ────────────────────────────
+   AR_AUDIT.log(table, recordId, changes) writes one row per changed
+   field into public.audit_events. RLS allows any active user to insert
+   their own audit events. AR_NOTIFY.push lets admins insert a single
+   notification row directly; AR_NOTIFY.engineerSubmitted calls the
+   SECURITY DEFINER RPC that fans out notifications to admins + reps on
+   behalf of an engineer.
+
+   Both are best-effort — failures don't block the user's primary action.
+*/
+window.AR_AUDIT = {
+  log: function(tableName, recordId, changes, changeReason){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+      if (!c || !u || !changes) return Promise.resolve();
+      var rows = [];
+      Object.keys(changes).forEach(function(field){
+        var v = changes[field];
+        var oldV = (v && Object.prototype.hasOwnProperty.call(v, 'from')) ? v.from : null;
+        var newV = (v && Object.prototype.hasOwnProperty.call(v, 'to'))   ? v.to   : v;
+        rows.push({
+          table_name:         tableName,
+          record_id:          recordId,
+          field_name:         field,
+          old_value:          oldV == null ? null : oldV,
+          new_value:          newV == null ? null : newV,
+          changed_by_user_id: u.id,
+          change_reason:      changeReason || null
+        });
+      });
+      if (!rows.length) return Promise.resolve();
+      return c.from('audit_events').insert(rows);
+    } catch(_){ return Promise.resolve(); }
+  }
+};
+window.AR_NOTIFY = {
+  // Admin-only direct insert. RLS restricts to admin role.
+  push: function(recipientUserId, type, message, linkUrl, relatedRecordId){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c || !recipientUserId) return Promise.resolve();
+      return c.from('notifications').insert({
+        recipient_user_id: recipientUserId,
+        type: type,
+        message: message,
+        link_url: linkUrl || null,
+        related_record_id: relatedRecordId || null
+      });
+    } catch(_){ return Promise.resolve(); }
+  },
+  // Engineer-side RPC: notifies admins + rep about an engineer submission.
+  // Engineers can't write notifications directly; this routes through
+  // the SECURITY DEFINER notify_engineer_submitted() function.
+  engineerSubmitted: function(assignmentId){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c || !assignmentId) return Promise.resolve();
+      return c.rpc('notify_engineer_submitted', { p_assignment_id: assignmentId });
+    } catch(_){ return Promise.resolve(); }
+  }
+};
+
 window.AR_PWA = {
   deferredPrompt: null,
   installable: false,
@@ -12518,6 +12965,27 @@ function handleClick(e){
       }
     }
   }
+  // Notification bell (Phase 5)
+  var notifBell = e.target.closest('[data-action="notif-bell-open"]');
+  if(notifBell){ toggleNotifDrawer(); return; }
+  var notifMarkAll = e.target.closest('[data-action="notif-mark-all"]');
+  if(notifMarkAll){ e.stopPropagation(); markAllNotificationsRead(); return; }
+  var notifRow = e.target.closest('[data-action="notif-click"]');
+  if(notifRow){
+    e.stopPropagation();
+    var nid = notifRow.getAttribute('data-notif-id');
+    var url = notifRow.getAttribute('data-link-url') || '';
+    markNotificationRead(nid).then(function(){
+      // For engineer-submitted notifications, jump to the Engineer
+      // Submissions admin tab. Other types currently no-op on navigation.
+      if (url && url.indexOf('engineer-submissions') !== -1){
+        if (typeof setAdminActiveTab === 'function') setAdminActiveTab('engineer-submissions');
+        // If admin isn't on the archive view, open it
+        if (typeof showView === 'function' && VIEW !== 'bank') showView('bank');
+      }
+    });
+    return;
+  }
   // PWA install (Chrome/Edge deferred prompt)
   var pwaInstall=e.target.closest('[data-action="ar-pwa-install"]');
   if(pwaInstall && window.AR_PWA){
@@ -14005,6 +14473,189 @@ function updateUserChip(){
   chip.innerHTML = '<span class="ar-user-chip-avatar">'+esc(initial)+'</span>';
   // Place AFTER the New button so reading order is: Help · Archive · New · UserChip
   actions.appendChild(chip);
+  // Place the notification bell BEFORE the user chip so admins see it
+  // alongside their avatar.
+  updateNotificationBell();
+}
+
+/* ── Notification bell + drawer (Phase 5) ──────────────────────────
+   Admin-only top-bar affordance that surfaces in-app notifications.
+   Sits to the LEFT of the user chip. Unread count rendered as a small
+   pill on the bell. Click opens a drawer with the last 20 notifications;
+   clicking a notification marks it read and (when link_url is provided)
+   navigates the user to the relevant screen.
+
+   Real-time updates: subscribes to INSERTs on the notifications table
+   filtered to the current user; on every insert, re-counts unread and
+   re-renders the bell.
+   ───────────────────────────────────────────────────────────────── */
+var _arNotifSub = null;     // realtime channel handle
+var _arNotifCache = [];     // last 20 notifications, newest first
+
+function updateNotificationBell(){
+  var actions = document.getElementById('ar2-bar-actions');
+  if (!actions) return;
+  var existing = document.getElementById('ar2-notif-bell');
+  var u = (window.AR2_CLOUD && AR2_CLOUD.isReady && AR2_CLOUD.isReady()) ? AR2_CLOUD.user() : null;
+  var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+  // Only admins see the bell. Engineer / rep notifications surface as a
+  // small inline banner inside their own UI (deferred to a polish ship).
+  if (!u || !isAdmin){
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  if (!existing){
+    var bell = document.createElement('button');
+    bell.id = 'ar2-notif-bell';
+    bell.className = 'ar2-notif-bell no-print';
+    bell.dataset.action = 'notif-bell-open';
+    bell.title = 'Notifications';
+    bell.innerHTML = '<span class="ar2-notif-bell-icon">🔔</span><span class="ar2-notif-bell-badge" style="display:none">0</span>';
+    // Insert before the user chip if present, otherwise append
+    var chip = document.getElementById('ar2-user-chip');
+    if (chip && chip.parentNode === actions) actions.insertBefore(bell, chip);
+    else actions.appendChild(bell);
+  }
+  refreshNotifications();
+  ensureNotifSubscription(u.id);
+}
+
+function refreshNotifications(){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+  if (!c || !u) return;
+  c.from('notifications')
+    .select('id,type,related_record_id,message,link_url,read_at,created_at')
+    .eq('recipient_user_id', u.id)
+    .order('created_at', { ascending: false })
+    .limit(20)
+    .then(function(rs){
+      _arNotifCache = (rs && rs.data) || [];
+      updateNotifBellBadge();
+      // If the drawer is open, re-render its content with the fresh list.
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+function updateNotifBellBadge(){
+  var badge = document.querySelector('#ar2-notif-bell .ar2-notif-bell-badge');
+  if (!badge) return;
+  var unread = _arNotifCache.filter(function(n){ return !n.read_at; }).length;
+  if (unread > 0){
+    badge.textContent = unread > 9 ? '9+' : String(unread);
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function ensureNotifSubscription(userId){
+  if (_arNotifSub) return;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !c.channel) return;
+  try {
+    _arNotifSub = c.channel('ar-notif-' + userId)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: 'recipient_user_id=eq.' + userId
+      }, function(){
+        refreshNotifications();
+      })
+      .subscribe();
+  } catch(_){}
+}
+
+function toggleNotifDrawer(){
+  var existing = document.getElementById('ar2-notif-drawer');
+  if (existing){
+    if (existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  var bell = document.getElementById('ar2-notif-bell');
+  if (!bell) return;
+  var drawer = document.createElement('div');
+  drawer.id = 'ar2-notif-drawer';
+  drawer.className = 'ar2-notif-drawer';
+  document.body.appendChild(drawer);
+  // Position below the bell, right-aligned
+  var rect = bell.getBoundingClientRect();
+  drawer.style.top = (rect.bottom + 8) + 'px';
+  drawer.style.right = Math.max(8, window.innerWidth - rect.right) + 'px';
+  renderNotifDrawer(drawer);
+  // Close on outside click — defer attachment so the click that opened
+  // it doesn't immediately close again.
+  setTimeout(function(){
+    document.addEventListener('click', closeNotifDrawerOnOutsideClick, { once: true });
+  }, 0);
+}
+
+function closeNotifDrawerOnOutsideClick(e){
+  var drawer = document.getElementById('ar2-notif-drawer');
+  if (!drawer) return;
+  if (drawer.contains(e.target) || (e.target.closest && e.target.closest('#ar2-notif-bell'))){
+    // Click was inside drawer or on bell — keep listening for the next click.
+    document.addEventListener('click', closeNotifDrawerOnOutsideClick, { once: true });
+    return;
+  }
+  if (drawer.parentNode) drawer.parentNode.removeChild(drawer);
+}
+
+function renderNotifDrawer(drawer){
+  if (!drawer) return;
+  var rows = _arNotifCache;
+  var hasUnread = rows.some(function(n){ return !n.read_at; });
+  var rowsHtml = rows.length
+    ? rows.map(function(n){
+        var unread = !n.read_at;
+        var when = n.created_at ? new Date(n.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+        return '<div class="ar2-notif-row' + (unread ? ' unread' : '') + '" data-action="notif-click" data-notif-id="' + esc(n.id) + '" data-link-url="' + esc(n.link_url || '') + '">'
+          +   '<div class="ar2-notif-row-dot"></div>'
+          +   '<div class="ar2-notif-row-main">'
+          +     '<div class="ar2-notif-row-msg">' + esc(n.message || '') + '</div>'
+          +     '<div class="ar2-notif-row-when">' + esc(when) + '</div>'
+          +   '</div>'
+          + '</div>';
+      }).join('')
+    : '<div class="ar2-notif-empty">No notifications yet.</div>';
+  drawer.innerHTML = '<div class="ar2-notif-head">'
+    + '<div class="ar2-notif-title">Notifications</div>'
+    + (hasUnread ? '<button class="ar2-notif-mark-all" data-action="notif-mark-all" type="button">Mark all read</button>' : '')
+    + '</div>'
+    + '<div class="ar2-notif-list">' + rowsHtml + '</div>';
+}
+
+function markNotificationRead(notifId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !notifId) return Promise.resolve();
+  return c.from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', notifId)
+    .then(function(){
+      // Update local cache instantly so the UI flips read state without a refetch
+      _arNotifCache.forEach(function(n){ if (n.id === notifId && !n.read_at) n.read_at = new Date().toISOString(); });
+      updateNotifBellBadge();
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+function markAllNotificationsRead(){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+  if (!c || !u) return;
+  c.from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('recipient_user_id', u.id)
+    .is('read_at', null)
+    .then(function(){
+      _arNotifCache.forEach(function(n){ if (!n.read_at) n.read_at = new Date().toISOString(); });
+      updateNotifBellBadge();
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
 }
 
 /* Pop a small menu under the chip with full name, role, and Sign Out button. */

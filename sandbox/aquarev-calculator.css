@@ -376,6 +376,15 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-gen-btn:disabled{opacity:.5;cursor:not-allowed;}
 /* ── Print: hide app, show report ── */
 #ar2-report{display:none;}
+
+/* Engineer verification PDF — minimal additions on top of existing .rpt-* chrome. */
+#ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;}
+#ar2-report .rpt-eng-photo{break-inside:avoid;page-break-inside:avoid;}
+#ar2-report .rpt-eng-photo img{width:100%;height:auto;border-radius:6px;border:1px solid #ddd;display:block;}
+#ar2-report .rpt-eng-photo-missing{padding:24px;background:#f5f5f5;color:#888;font-size:10px;text-align:center;border-radius:6px;}
+#ar2-report .rpt-eng-photo-cap{font-size:10px;color:#666;margin-top:4px;font-style:italic;}
+#ar2-report .rpt-eng-videos{margin-top:10px;font-size:11px;color:#555;}
+#ar2-report .rpt-eng-discrepancy{margin-top:14px;padding:10px 12px;background:#fff4dc;border-left:3px solid #f0a500;border-radius:4px;font-size:11.5px;color:#5a3c00;line-height:1.5;}
 @media print{
   html,body{margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important;height:auto!important;width:auto!important;}
   /* Hide everything by default */
@@ -1670,6 +1679,26 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Icon-only variant — renders as a clean circle without the name pill. */
 #ar2 .ar-user-chip.ar-user-chip-icononly{padding:3px;border-radius:50%;}
 #ar2 .ar-user-chip.ar-user-chip-icononly .ar-user-chip-name{display:none;}
+
+/* ─── Notification bell + drawer (Phase 5) ───────────────────────── */
+#ar2 .ar2-notif-bell{position:relative;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.28);color:#cfe2eb;width:32px;height:32px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;transition:.15s;line-height:1;}
+#ar2 .ar2-notif-bell:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
+#ar2 .ar2-notif-bell-icon{font-size:14px;}
+#ar2 .ar2-notif-bell-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:99px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;border:2px solid #040f1e;letter-spacing:0;font-family:'JetBrains Mono',monospace;}
+.ar2-notif-drawer{position:fixed;z-index:999998;width:340px;max-width:calc(100vw - 16px);max-height:70vh;overflow:hidden;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.32);border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.5);font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;}
+.ar2-notif-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(0,180,216,.18);}
+.ar2-notif-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;}
+.ar2-notif-mark-all{background:transparent;border:1px solid rgba(0,180,216,.3);color:#48cae4;font-family:inherit;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;cursor:pointer;transition:background .12s,color .12s;}
+.ar2-notif-mark-all:hover{background:rgba(0,180,216,.12);color:#fff;}
+.ar2-notif-list{overflow-y:auto;max-height:calc(70vh - 50px);}
+.ar2-notif-empty{padding:20px;text-align:center;color:#7db8cc;font-size:12px;}
+.ar2-notif-row{display:grid;grid-template-columns:14px 1fr;gap:10px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid rgba(0,180,216,.08);cursor:pointer;transition:background .12s;}
+.ar2-notif-row:hover{background:rgba(0,180,216,.06);}
+.ar2-notif-row-dot{width:8px;height:8px;border-radius:50%;background:transparent;margin-top:4px;}
+.ar2-notif-row.unread .ar2-notif-row-dot{background:#48cae4;box-shadow:0 0 0 3px rgba(72,202,228,.18);}
+.ar2-notif-row-msg{font-size:12.5px;color:#cfe2eb;line-height:1.45;}
+.ar2-notif-row.unread .ar2-notif-row-msg{color:#fff;font-weight:600;}
+.ar2-notif-row-when{font-size:10.5px;color:#7db8cc;margin-top:3px;font-family:'JetBrains Mono',monospace;}
 /* Sign-Out menu popped open from the chip */
 .ar-user-menu{position:fixed;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:14px;box-shadow:0 12px 36px rgba(0,0,0,.5);z-index:999997;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;min-width:220px;}
 .ar-user-menu-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:2px;}
@@ -2198,6 +2227,28 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 /* ─── Engineer Portal — 4-step flow (Phase 2) ────────────────────── */
 #ar2 .ar-eng-flow{max-width:880px;}
 #ar2 .ar-eng-flow-header{position:relative;margin-bottom:22px;}
+#ar2 .ar-eng-header-top{display:flex;align-items:center;justify-content:space-between;}
+#ar2 .ar-eng-help-btn{background:transparent;border:1px solid rgba(0,180,216,.3);color:#48cae4;width:28px;height:28px;border-radius:50%;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .12s,border-color .12s,color .12s;}
+#ar2 .ar-eng-help-btn:hover{background:rgba(0,180,216,.15);border-color:rgba(0,180,216,.6);color:#fff;}
+
+/* Help drawer */
+.ar-eng-help-drawer-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.7);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:999990;display:flex;align-items:stretch;justify-content:flex-end;}
+.ar-eng-help-drawer-panel{width:420px;max-width:100vw;height:100vh;background:linear-gradient(180deg,#0a2540,#071628);border-left:1px solid rgba(0,180,216,.3);box-shadow:-20px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column;}
+.ar-eng-help-drawer-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(0,180,216,.2);}
+.ar-eng-help-drawer-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;}
+.ar-eng-help-close{background:transparent;border:none;color:#cfe2eb;font-size:24px;line-height:1;cursor:pointer;padding:0;width:32px;height:32px;border-radius:6px;}
+.ar-eng-help-close:hover{background:rgba(0,180,216,.1);color:#fff;}
+.ar-eng-help-drawer-body{padding:18px 22px 24px;overflow-y:auto;flex:1;color:#cfe2eb;font-size:13px;line-height:1.6;font-family:'DM Sans',sans-serif;}
+.ar-eng-help-drawer-body p{margin:0 0 12px;}
+.ar-eng-help-drawer-body b{color:#fff;font-weight:600;}
+.ar-eng-help-drawer-body .ar-eng-help-section{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#4ade80;font-weight:600;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(34,197,94,.2);}
+.ar-eng-help-drawer-body button{margin:6px 0 14px;}
+
+/* Pipe diameter visual reference */
+.ar-eng-pipe-ref{display:flex;align-items:flex-end;justify-content:space-around;gap:8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:14px 10px;margin:8px 0 12px;}
+.ar-eng-pipe-ref-col{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.ar-eng-pipe-ref-circle{border-radius:50%;background:radial-gradient(circle at 35% 30%, #48cae4, #00b4d8 50%, #0090b4);border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 0 4px rgba(0,0,0,.3);}
+.ar-eng-pipe-ref-lbl{font-family:'JetBrains Mono',monospace;font-size:11px;color:#cfe2eb;font-weight:600;}
 #ar2 .ar-eng-back-btn{background:transparent;border:1px solid rgba(0,180,216,.25);color:#cfe2eb;padding:6px 12px;border-radius:7px;font-family:inherit;font-size:11.5px;letter-spacing:.4px;cursor:pointer;transition:border-color .15s,color .15s;display:inline-flex;align-items:center;gap:6px;}
 #ar2 .ar-eng-back-btn:hover{border-color:rgba(0,180,216,.6);color:#fff;}
 #ar2 .ar-eng-back-btn svg{width:14px;height:14px;}
