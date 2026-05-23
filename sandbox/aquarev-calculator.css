@@ -1496,6 +1496,13 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-tab{flex:1;min-width:120px;background:transparent;border:none;color:#7db8cc;padding:8px 14px;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .12s,color .12s;}
 #ar2 .ar-admin-tab:hover{color:#cfe2eb;background:rgba(0,180,216,.06);}
 #ar2 .ar-admin-tab.active{background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;}
+/* Regular users (non-admin) get the dashboard with Overview + Engineer
+   Submissions tabs only — the Users tab and its pane are hidden. The
+   .non-admin class is set in renderBank when role !== 'admin'. */
+#ar2 .ar-admin-dash.non-admin [data-admin-tab="users"],
+#ar2 .ar-admin-dash.non-admin [data-admin-tab-pane="users"]{display:none!important;}
+/* Drawer title flips for non-admins so it doesn't say "Admin Dashboard". */
+#ar2 .ar-admin-dash.non-admin .ar-admin-dash-title::first-line{}
 #ar2 .ar-admin-tab-pane{margin-top:4px;}
 
 /* Engineer Submissions card + filters + table */
@@ -2450,11 +2457,16 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-media-btn.disabled{opacity:.4;cursor:not-allowed;border-style:solid;}
 
 /* Lightbox modal — full-size view of a thumbnail. */
-#ar2 .ar-eng-lightbox-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.92);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:9999990;display:flex;align-items:center;justify-content:center;padding:24px;}
-#ar2 .ar-eng-lightbox-content{max-width:90vw;max-height:90vh;border-radius:10px;overflow:hidden;background:#000;box-shadow:0 20px 80px rgba(0,0,0,.5);}
-#ar2 .ar-eng-lightbox-content img,
-#ar2 .ar-eng-lightbox-content video{max-width:90vw;max-height:90vh;display:block;}
-#ar2 .ar-eng-lightbox-close{position:fixed;top:18px;right:18px;background:rgba(7,22,40,.85);border:1px solid rgba(0,180,216,.3);color:#cfe2eb;width:36px;height:36px;border-radius:50%;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+/* Lightbox mounts on document.body (outside #ar2 root) so it can stay
+   above all calculator chrome. Selectors are NOT #ar2-prefixed —
+   prefixing would leave the lightbox invisible because the cascade
+   never matches. */
+.ar-eng-lightbox-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.92);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:9999990;display:flex;align-items:center;justify-content:center;padding:24px;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;}
+.ar-eng-lightbox-content{max-width:90vw;max-height:90vh;border-radius:10px;overflow:hidden;background:#000;box-shadow:0 20px 80px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
+.ar-eng-lightbox-content img,
+.ar-eng-lightbox-content video{max-width:90vw;max-height:90vh;display:block;}
+.ar-eng-lightbox-close{position:fixed;top:18px;right:18px;background:rgba(7,22,40,.85);border:1px solid rgba(0,180,216,.4);color:#cfe2eb;width:42px;height:42px;border-radius:50%;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:9999991;}
+.ar-eng-lightbox-close:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.7);color:#fff;}
 
 /* Action bar */
 #ar2 .ar-eng-actions{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-top:18px;}

@@ -833,7 +833,11 @@ var Cloud = (function(){
   // (hard-deleted records never appear here — Supabase returns only live rows).
   function statsAdminKpis(){
     var c = getClient();
-    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    // Renamed for clarity but kept as statsAdminKpis for back-compat.
+    // Available to any signed-in user; RLS naturally scopes the
+    // returned data to what the caller can see (admins see all,
+    // regular users see only their own records).
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
     var since7 = new Date(Date.now() - 7*86400000).toISOString();
     // Assessments table stores the full session under `snapshot` jsonb
     // (snapshot.state.bodies, snapshot.state.manualPoolCount, etc.).
@@ -6903,7 +6907,23 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
    daily-by-user. The chart is drawn as a simple multi-line SVG (one polyline
    per user) using EST-bucketed daily counts. */
 function populateAdminDashboard(){
-  if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())) return;
+  // Admins see everything. Regular users see the Overview + Engineer
+  // Submissions tabs (Users tab hidden via CSS). RLS scopes the data.
+  // Defensive retry: if cloud isn't ready yet (page just loaded and
+  // restoreSession is still in flight), schedule one more attempt
+  // 350ms out — covers the race where renderBank fired before the
+  // session token had been hydrated.
+  if(!(window.AR2_CLOUD && AR2_CLOUD.isReady && AR2_CLOUD.isReady())){
+    if (!populateAdminDashboard._retryScheduled){
+      populateAdminDashboard._retryScheduled = true;
+      setTimeout(function(){
+        populateAdminDashboard._retryScheduled = false;
+        try { populateAdminDashboard(); } catch(_){}
+      }, 350);
+    }
+    return;
+  }
+  var isAdminCaller = !!(AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
   // 6-card KPI grid — assessments + portfolios + properties + pools + value
   // + last-7-day record count. Excludes hard-deleted records automatically.
   if (AR2_CLOUD.statsAdminKpis){
@@ -6922,9 +6942,13 @@ function populateAdminDashboard(){
       try { console.error('[admin KPI] statsAdminKpis failed:', err); } catch(_){}
     });
   }
-  // User-stats table — replaces the old chip list. Shows per-user lifetime
-  // login count + 30-day record count + 30-day login count.
-  AR2_CLOUD.adminUserStats().then(function(rows){
+  // User-stats table — admin-only. Regular users don't see other users'
+  // login or record activity.
+  if (!isAdminCaller){
+    var ust = document.getElementById('ar-admin-userstats');
+    if (ust) ust.innerHTML = '';
+  }
+  if (isAdminCaller && AR2_CLOUD.adminUserStats) AR2_CLOUD.adminUserStats().then(function(rows){
     var tableEl = document.getElementById('ar-admin-userstats');
     if(!tableEl) return;
     if(!rows.length){
@@ -7010,6 +7034,11 @@ function populateAdminDashboard(){
    same tab. */
 function setAdminActiveTab(tabId){
   if (tabId !== 'overview' && tabId !== 'users' && tabId !== 'engineer-submissions') tabId = 'overview';
+  // Force non-admins off the Users tab if a stale localStorage value
+  // points there — they can't see that pane anyway.
+  if (tabId === 'users' && window.AR2_CLOUD && AR2_CLOUD.isAdmin && !AR2_CLOUD.isAdmin()){
+    tabId = 'overview';
+  }
   try { localStorage.setItem('ar2:admin-active-tab', tabId); } catch(_){}
   var tabs = document.querySelectorAll('[data-action="admin-tab-switch"]');
   for (var i = 0; i < tabs.length; i++){
@@ -8439,9 +8468,30 @@ window.AR2_ENGINEER = (function(){
         s.verifications = verifs;
         // Pre-fill verifications from the assessment's per-body device
         // counts so engineers see return lines + water type populated on
-        // first open. In-memory only — gets persisted by the next save.
+        // first open. Backfills onto EXISTING verification rows that
+        // are missing data (e.g., assignments opened before the seed
+        // feature shipped). In-memory only — gets persisted by the
+        // next save or by the submit() flush.
         s.pools.forEach(function(p){
-          if (s.verifications[p.index]) return;   // engineer already has data
+          var existing = s.verifications[p.index];
+          if (existing){
+            // Backfill missing fields only. Don't touch values the
+            // engineer has already set.
+            var changed = false;
+            if (!existing.pool_type && p.defaultPoolType){
+              existing.pool_type = p.defaultPoolType;
+              changed = true;
+            }
+            if ((!existing.return_lines || !existing.return_lines.length)
+                && p.defaultReturnLines && p.defaultReturnLines.length){
+              existing.return_lines = p.defaultReturnLines.map(function(l){
+                return { count: l.count, diameter: l.diameter };
+              });
+              changed = true;
+            }
+            if (changed) existing._seededFromAssessment = true;
+            return;
+          }
           var seeded = {
             pool_index:   p.index,
             return_lines: (p.defaultReturnLines || []).map(function(l){ return { count:l.count, diameter:l.diameter }; }),
@@ -9169,8 +9219,13 @@ window.AR2_ENGINEER = (function(){
     // Backdrop-click closes only when the click target IS the backdrop
     // (not bubbling from the image/video content). Keeps the lightbox
     // usable — clicking the image to play/pause a video doesn't dismiss.
+    // The X button click also closes; we attach the handler here because
+    // the lightbox sits on document.body, OUTSIDE #ar2, so the global
+    // ar-eng-* click router never sees it.
     bd.addEventListener('click', function(e){
-      if (e.target === bd) closeMediaLightbox();
+      if (e.target === bd){ closeMediaLightbox(); return; }
+      var closer = e.target.closest('[data-action="ar-eng-lightbox-close"]');
+      if (closer){ closeMediaLightbox(); return; }
     });
     // Escape closes.
     var onKey = function(e){ if (e.key === 'Escape') closeMediaLightbox(); };
@@ -10511,8 +10566,16 @@ function renderBank(targetId){
     // to expand. Open/closed state is remembered per-device in localStorage.
     var dashOpen = false;
     try { dashOpen = localStorage.getItem('ar2:admin-dash-open') === '1'; } catch(_){}
-    var adminPanel = isAdmin
-      ? '<div class="ar-admin-dash'+(dashOpen?' open':'')+'" id="ar-admin-dash">'
+    // Dashboard drawer is visible to admins AND regular users. Users
+    // see Overview + Engineer Submissions tabs; Users tab is hidden
+    // via the .non-admin class below + CSS rule.
+    var isCloudUser = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && !AR2_CLOUD.isAdmin() && !AR2_CLOUD.isClient && true);
+    // Refine: only show drawer for admin OR regular 'user' role (not
+    // engineer, not client).
+    var dashRole = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user() && AR2_CLOUD.user().role) || '';
+    var showDash = isAdmin || dashRole === 'user';
+    var adminPanel = showDash
+      ? '<div class="ar-admin-dash'+(dashOpen?' open':'')+(isAdmin?'':' non-admin')+'" id="ar-admin-dash">'
           +'<div class="ar-admin-dash-head" data-action="admin-dash-toggle">'
             +'<div class="ar-admin-dash-title">Admin Dashboard'
               +'<span class="ar-admin-dash-title-sub">Activity stats, sessions &amp; per-user trends</span>'
@@ -10594,9 +10657,9 @@ function renderBank(targetId){
     // — the values only filled in after a manual click to expand. Populating
     // unconditionally is cheap (one batched query) and guarantees the tiles
     // are accurate the instant the rep expands the drawer.
-    if(isAdmin) populateAdminDashboard();
+    if(showDash) populateAdminDashboard();
     // Wire up the dashboard drawer toggle (click header → open/close, persist).
-    if(isAdmin){
+    if(showDash){
       var dashEl = document.getElementById('ar-admin-dash');
       var head = dashEl && dashEl.querySelector('.ar-admin-dash-head');
       if(head){
