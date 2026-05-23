@@ -369,18 +369,17 @@ function showCalcPasswordModal(onUnlock){
   // server responds with `email_required`, we reveal the email field and
   // the next click sends both code + email.
   //
-  // For Engineer accounts the access code IS the E.164 phone number, so
-  // any input containing 7+ digits is normalized through
-  // normalizePhoneE164() before being sent. 4-char codes pass through
-  // unchanged because they don't have enough digits to trigger the
-  // normalization branch.
+  // For Engineer accounts the access code is the DIGITS-ONLY phone
+  // (no +1 prefix). Any input with 7+ digits is stripped to digits
+  // before being sent. 4-char codes pass through unchanged because they
+  // don't have enough digits to trigger the phone-mode branch.
   function submitCloud(){
     var raw = (input.value || '').trim();
     if(!raw){ err.textContent='Please enter your access code'; return; }
     var digitCount = (raw.match(/\d/g) || []).length;
     var looksLikePhone = digitCount >= 7;
     var code = looksLikePhone
-      ? normalizePhoneE164(raw)
+      ? raw.replace(/[^\d]/g, '')
       : raw.toUpperCase();
     if(!code){ err.textContent='Please enter your access code'; return; }
     var email = (emailInp && emailRow && emailRow.style.display !== 'none')
@@ -6399,14 +6398,19 @@ function showAdminAddUserModal(){
   roleSel.addEventListener('change', syncRoleFields);
   syncRoleFields();
 
-  // Phone → E.164 normalization. Accepts any common input format and
-  // produces the canonical "+18329796758" representation. Mirrors the
-  // result into the access-code field so the code stored server-side
-  // matches what the engineer will type at login.
+  // Phone handler.
+  // Access code = digits only (no country-code prefix). This is what the
+  // engineer will type at login — same digits, any format. The phone
+  // column on app_users stores the same digit-only string for consistency
+  // with the login matcher; admins still see a readable E.164 hint below
+  // the field for clarity.
   phoneInp.addEventListener('input', function(){
-    var normalized = normalizePhoneE164(phoneInp.value);
-    phoneNormalized.textContent = normalized ? 'Will be saved as: ' + normalized : '';
-    codeInp.value = normalized;
+    var digits = (phoneInp.value || '').replace(/[^\d]/g, '');
+    var pretty = normalizePhoneE164(phoneInp.value);   // for the helper hint only
+    phoneNormalized.textContent = digits
+      ? 'Access code: ' + digits + (pretty ? '  (E.164: ' + pretty + ')' : '')
+      : '';
+    codeInp.value = digits;
   });
 
   // Capture chosen logo file as base64 dataURL on input change.
@@ -6434,17 +6438,18 @@ function showAdminAddUserModal(){
     var name=(document.getElementById('ar2-au-name').value||'').trim();
     var role=roleSel.value;
     var err=document.getElementById('ar2-au-err');
-    // For engineers, the code is the normalized phone (mirrored into the
-    // field by the phone-input handler). For other roles, it's the
-    // 4-char uppercase code as before.
+    // For engineers, the code is the DIGITS-ONLY phone (no country-code
+    // prefix). The same digits are what they'll type at login; the gate
+    // normalizes input by stripping non-digits before matching.
     var code, phone = null;
     if (role === 'engineer'){
-      phone = normalizePhoneE164(phoneInp.value);
-      code  = phone;
-      if (!phone || phone.length < 8){
+      var digits = (phoneInp.value || '').replace(/[^\d]/g, '');
+      if (!digits || digits.length < 7){
         err.textContent = 'Enter a valid phone number (any common format).';
         phoneInp.focus(); return;
       }
+      code  = digits;
+      phone = digits;   // store the same digit-string in app_users.phone
     } else {
       code = (document.getElementById('ar2-au-code').value || '').trim().toUpperCase();
     }
