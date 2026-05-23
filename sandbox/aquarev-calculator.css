@@ -1552,6 +1552,11 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 .ar2-modal-card label{display:block;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;margin-bottom:5px;}
 .ar2-modal-card input[type="text"],
 .ar2-modal-card input[type="password"],
+.ar2-modal-card input[type="tel"],
+.ar2-modal-card input[type="email"],
+.ar2-modal-card input[type="number"],
+.ar2-modal-card input[type="search"],
+.ar2-modal-card input[type="url"],
 .ar2-modal-card input:not([type]),
 .ar2-modal-card select,
 .ar2-modal-card textarea{
