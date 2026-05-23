@@ -6222,10 +6222,23 @@ function bankSaveReportImpl(replaceIds){
   // Safety timeout — reset saving state if Promise never resolves
   setTimeout(function(){if(EX.saving){EX.saving=false;EX.saveStatus='error';renderDevices();}},10000);
   var R=calcROI();
-  // UUID required when saving to the cloud (assessments.id is uuid). Falls
-  // back to the legacy short id only if crypto.randomUUID is unavailable.
-  var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
-         : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
+  // When updating an existing archive entry (replaceIds=[oldId]), REUSE
+  // the existing id so the upsert lands on the SAME row instead of
+  // creating a new one and deleting the old. Without this, the
+  // engineer_assignments_assessment_fkey CASCADE wipes every
+  // engineer_assignment / verification / media / pump_room tied to the
+  // old id the moment we delete it. Engineers' field work was being
+  // silently destroyed every time a rep clicked "Update Existing" save.
+  var reusingId = !!(replaceIds && replaceIds.length === 1);
+  var id;
+  if (reusingId){
+    id = replaceIds[0];
+  } else {
+    // UUID required when saving to the cloud (assessments.id is uuid). Falls
+    // back to the legacy short id only if crypto.randomUUID is unavailable.
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+       : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
+  }
   // Stash on session state so step 5 (Field Report) can resolve the
   // current record id without re-reading the snapshot from storage.
   // Persists across step navigation until the user starts a new
@@ -6283,8 +6296,14 @@ function bankSaveReportImpl(replaceIds){
 
   window.storage.set(BANK_PFX+id, JSON.stringify(snapshot))
     .then(function(){
-      // If updating, delete the old snapshot blobs first
-      if(replaceIds&&replaceIds.length){
+      // If updating with a NEW id (legacy path: e.g. duplicate-then-save
+      // creating multiple entries we now consolidate into one), delete
+      // every old blob. When reusingId is true, the same id was just
+      // upserted in place — no delete needed and skipping the delete is
+      // critical because the assessments CASCADE would otherwise drop
+      // every engineer_assignment / verification / media / pump_room
+      // chained off the old record.
+      if(!reusingId && replaceIds && replaceIds.length){
         return Promise.all(replaceIds.map(function(rid){
           return window.storage.delete(BANK_PFX+rid).catch(function(){});
         }));
@@ -6292,9 +6311,15 @@ function bankSaveReportImpl(replaceIds){
     })
     .then(function(){ return bankGetIndex(); })
     .then(function(idx){
-      // Remove old index entries if updating
-      if(replaceIds&&replaceIds.length){
+      // Remove the matching index entry only when we're NOT reusing its
+      // id (a new id means there's a stale entry to retire). Reusing the
+      // id means we just refreshed the entry in place.
+      if(!reusingId && replaceIds && replaceIds.length){
         idx=idx.filter(function(e){return replaceIds.indexOf(e.id)===-1;});
+      } else if (reusingId){
+        // Same id — kick the stale copy out so the unshift below puts
+        // the freshly-saved entry at the top with current timestamps.
+        idx = idx.filter(function(e){ return e.id !== id; });
       }
       idx.unshift(entry);
       return window.storage.set(BANK_IDX, JSON.stringify(idx));
