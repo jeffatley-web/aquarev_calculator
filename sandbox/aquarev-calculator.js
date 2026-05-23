@@ -7297,12 +7297,191 @@ function renderFieldReport(){
     + '</div>'
     + _frRenderKpis(b)
     + _frRenderPumpRoomsStrip(b)
-    + '<div class="ar-fr-placeholder">'
-    +   '<div class="ar-fr-placeholder-title">Pool comparison</div>'
-    +   '<div class="ar-fr-placeholder-hint">Per-pool Estimate-vs-Engineer compare cards land in the next ship (#7c) — return-line chips, media gallery, and discrepancy callouts.</div>'
-    + '</div>'
+    + _frRenderPoolCompare(b)
     + '</div>';
 }
+
+/* Per-pool compare band — one card per pool, Estimate vs Engineer.
+   Pool roster comes from S.bodies (rep source of truth) plus any
+   engineer-added pools (verifications with is_engineer_added=true
+   and pool_index >= S.bodies.length). Each row in the compare grid
+   shows the rep value, the engineer value, and a match/mismatch dot. */
+function _frRenderPoolCompare(bundle){
+  var verifs    = bundle.verifications || [];
+  var media     = bundle.media         || [];
+  var pumpRooms = bundle.pumpRooms     || [];
+  var roomLabel = {}; pumpRooms.forEach(function(r){ roomLabel[r.id] = r.label; });
+  // Build the pool roster — rep bodies + engineer-added pools.
+  var roster = [];
+  if (typeof S !== 'undefined' && S){
+    if (S.manualVolume){
+      var n = Math.max(1, Number(S.manualPoolCount) || 1);
+      var perPoolGal = Math.round((Number(S.manualTotalGallons) || 0) / n);
+      for (var i = 0; i < n; i++){
+        roster.push({ index: i, repName: 'Pool ' + (i+1), repGal: perPoolGal, repType: '', repLines: [], repImage: null });
+      }
+    } else if (Array.isArray(S.bodies)){
+      S.bodies.forEach(function(b, i){
+        var repLines = [];
+        ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'].forEach(function(k){
+          var c = Number(b[k]) || 0;
+          if (c > 0) repLines.push({ count: c, diameter: parseInt(k.split('_')[1], 10) });
+        });
+        var repTypeMapped = b.poolType === 'saltwater' ? 'saltwater' : (b.poolType === 'chlorine' ? 'fresh' : '');
+        roster.push({
+          index:    i,
+          repName:  b.label || ('Pool ' + (i+1)),
+          repGal:   (typeof bodyGallons === 'function') ? Math.round(bodyGallons(b)) : 0,
+          repType:  repTypeMapped,
+          repDepth: b.depth || '',
+          repLines: repLines,
+          repImage: b.image || null
+        });
+      });
+    }
+  }
+  // Engineer-added pools (no rep body backing them).
+  verifs.forEach(function(v){
+    if (!v.is_engineer_added) return;
+    if (roster.find(function(p){ return p.index === v.pool_index; })) return;
+    roster.push({ index: v.pool_index, repName: 'Pool ' + (v.pool_index+1), repGal: 0, repType: '', repLines: [], repImage: null, engineerAdded: true });
+  });
+  roster.sort(function(a,b){ return a.index - b.index; });
+
+  if (!roster.length){
+    return '<div class="ar-fr-section"><div class="ar-fr-section-hd"><div class="ar-fr-section-title">Pool Comparison</div></div><div class="ar-fr-empty-mini">No pools on this record yet.</div></div>';
+  }
+  var cards = roster.map(function(p){ return _frRenderPoolCard(p, verifs, media, roomLabel); }).join('');
+  return '<div class="ar-fr-section">'
+    + '<div class="ar-fr-section-hd">'
+    +   '<div class="ar-fr-section-title">Pool Comparison <span class="ar-fr-section-count">' + roster.length + '</span></div>'
+    +   '<div class="ar-fr-section-sub">Side-by-side Estimate vs Engineer for every pool on this record. Check marks indicate matches; amber dots flag drift. Click any photo or video to enlarge.</div>'
+    + '</div>'
+    + '<div class="ar-fr-pool-grid">' + cards + '</div>'
+    + '</div>';
+}
+
+function _frRenderPoolCard(p, verifs, media, roomLabel){
+  var v = verifs.find(function(x){ return x.pool_index === p.index; }) || {};
+  var hasV = !!v.id || !!v.confirmed_gallons || (v.return_lines && v.return_lines.length) || v.pool_type || v.pool_name_override;
+  var poolMedia = media.filter(function(m){ return m.pool_index === p.index; });
+  var photos = poolMedia.filter(function(m){ return m.media_type === 'photo'; });
+  var videos = poolMedia.filter(function(m){ return m.media_type === 'video'; });
+  var displayName = v.pool_name_override || p.repName;
+  var roomName    = v.pump_room_id ? (roomLabel[v.pump_room_id] || '—') : '—';
+
+  function typeLabel(t){
+    if (t === 'fresh' || t === 'chlorine') return 'Fresh / Chlorine';
+    if (t === 'saltwater') return 'Saltwater';
+    return '—';
+  }
+  function linesToText(lines){
+    if (!lines || !lines.length) return '—';
+    return lines.map(function(l){ return (l.count||1) + '×' + (l.diameter||'?') + '"'; }).join('  ');
+  }
+  function linesEqual(a, b){
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    // Order-independent compare: sort by diameter then count.
+    function norm(arr){
+      return arr.map(function(l){ return { c: Number(l.count)||1, d: Number(l.diameter)||0 }; })
+        .sort(function(x,y){ return x.d - y.d || x.c - y.c; });
+    }
+    var na = norm(a), nb = norm(b);
+    for (var i = 0; i < na.length; i++){ if (na[i].c !== nb[i].c || na[i].d !== nb[i].d) return false; }
+    return true;
+  }
+  // Diff dots:
+  //   ✓ green = match · ⚠ amber = drift / not specified · — gray = N/A
+  function dot(state){
+    if (state === 'ok')   return '<span class="ar-fr-dot ok" title="Match">' + _svgFrCheck() + '</span>';
+    if (state === 'warn') return '<span class="ar-fr-dot warn" title="Differs from estimate">' + _svgFrAlert() + '</span>';
+    return '<span class="ar-fr-dot na" title="Not verified">·</span>';
+  }
+  // Gallons match (within 5%)
+  var galState = 'na';
+  if (p.repGal > 0 && v.confirmed_gallons){
+    var pct = Math.abs(v.confirmed_gallons - p.repGal) / p.repGal;
+    galState = pct <= 0.05 ? 'ok' : 'warn';
+  } else if (v.confirmed_gallons && !p.repGal){
+    galState = 'warn';
+  }
+  // Type match
+  var typeState = 'na';
+  if (v.pool_type){
+    if (!p.repType) typeState = 'warn';
+    else if ((v.pool_type === 'fresh' && (p.repType === 'fresh' || p.repType === 'chlorine')) || v.pool_type === p.repType) typeState = 'ok';
+    else typeState = 'warn';
+  }
+  // Lines match
+  var engLines = v.return_lines || [];
+  var linesState = 'na';
+  if (engLines.length){
+    linesState = linesEqual(p.repLines, engLines) ? 'ok' : 'warn';
+  }
+  // Card-level status
+  var statusPill = '';
+  var verifyComplete = engLines.length > 0 && (photos.length + videos.length > 0);
+  if (verifyComplete) statusPill = '<span class="ar-fr-pool-pill ok">' + _svgFrCheck() + ' Verified</span>';
+  else if (hasV)      statusPill = '<span class="ar-fr-pool-pill warn">In progress</span>';
+  else                statusPill = '<span class="ar-fr-pool-pill na">Not started</span>';
+
+  var addedPill = p.engineerAdded ? '<span class="ar-fr-pool-pill added">Engineer-added</span>' : '';
+
+  // Reference image — clickable to enlarge in lightbox (direct-URL).
+  var refImgHtml = p.repImage
+    ? '<div class="ar-fr-pool-img" data-action="ar-eng-media-lightbox" data-storage-path="' + esc(p.repImage) + '" data-media-type="photo" data-direct-url="1" title="Open reference image">'
+      +   '<img src="' + esc(p.repImage) + '" alt="Reference" />'
+      +   '<span class="ar-fr-pool-img-tag">Reference</span>'
+      + '</div>'
+    : '<div class="ar-fr-pool-img-stub">' + _svgFrCamera() + '<span>No reference image</span></div>';
+
+  // Media gallery thumbs — lazy signed-URL load via existing data-thumb-load hook.
+  var thumbsHtml = poolMedia.length
+    ? '<div class="ar-fr-pool-thumbs">'
+      + poolMedia.map(function(m){
+          var typeIcon = m.media_type === 'video'
+            ? '<span class="ar-fr-thumb-type">' + _svgFrPlaySmall() + '</span>'
+            : '';
+          return '<button class="ar-fr-thumb" data-action="ar-eng-media-lightbox" data-storage-path="' + esc(m.storage_path) + '" data-media-type="' + esc(m.media_type) + '" title="Enlarge">'
+            + '<div class="ar-fr-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
+            + typeIcon
+            + '</button>';
+        }).join('')
+      + '</div>'
+    : '<div class="ar-fr-pool-thumbs-empty">No return-line media uploaded yet.</div>';
+
+  return '<div class="ar-fr-pool-card' + (verifyComplete ? ' verified' : '') + '" data-pool-index="' + p.index + '">'
+    + '<div class="ar-fr-pool-hd">'
+    +   '<div class="ar-fr-pool-name">' + esc(displayName) + '</div>'
+    +   '<div class="ar-fr-pool-pills">' + statusPill + addedPill + '</div>'
+    + '</div>'
+    + '<div class="ar-fr-pool-body">'
+    +   refImgHtml
+    +   '<div class="ar-fr-pool-compare">'
+    +     '<div class="ar-fr-cmp-row head"><div></div><div>Estimate</div><div>Engineer</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Gallons</div><div>' + (p.repGal ? fn(p.repGal) : '—') + '</div><div>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) : '—') + dot(galState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Water type</div><div>' + esc(typeLabel(p.repType)) + '</div><div>' + esc(typeLabel(v.pool_type)) + dot(typeState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(linesToText(engLines)) + dot(linesState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Pump room</div><div>—</div><div>' + esc(roomName) + '</div></div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="ar-fr-pool-media">'
+    +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
+    +   thumbsHtml
+    + '</div>'
+    + (v.has_discrepancy && v.discrepancy_reason
+        ? '<div class="ar-fr-pool-callout warn">' + _svgFrAlert() + ' <b>Discrepancy noted:</b> ' + esc(v.discrepancy_reason) + '</div>'
+        : '')
+    + (v.notes
+        ? '<div class="ar-fr-pool-callout">' + _svgFrNote() + ' <b>Engineer notes:</b> ' + esc(v.notes) + '</div>'
+        : '')
+    + '</div>';
+}
+function _svgFrCheck(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12.5 10 18 20 6"/></svg>'; }
+function _svgFrAlert(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 22 19.5H2L12 3.2Z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17.4" r="0.9" fill="currentColor"/></svg>'; }
+function _svgFrNote(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="16" x2="13" y2="16"/></svg>'; }
+function _svgFrPlaySmall(){ return '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>'; }
 
 /* KPI grid — 6 tiles summarizing the engineer's submission at a
    glance. Counts derive entirely from the loaded bundle, so this
@@ -8682,6 +8861,11 @@ window.AR2_ENGINEER = (function(){
   function svgArrowOut(){
     return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px;margin-left:2px">'
       + '<path d="M14 4h6v6"/><line x1="20" y1="4" x2="10" y2="14"/><path d="M4 8v12h12"/>'
+      + '</svg>';
+  }
+  function svgIconPencil(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M14.5 4.5l5 5L9 20H4v-5L14.5 4.5z"/><path d="M13 6l5 5"/>'
       + '</svg>';
   }
   function svgIconApplyDown(){
@@ -10185,7 +10369,10 @@ window.AR2_ENGINEER = (function(){
 
     return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + (isLocked ? ' locked' : '') + '" data-pool-card="' + p.index + '">'
       +   '<div class="ar-eng-pool-head">'
-      +     '<input type="text" class="ar-eng-pool-name-input" data-action="ar-eng-pool-rename" data-pool="' + p.index + '" value="' + esc(displayName) + '" placeholder="' + esc(p.name || 'Pool name') + '" maxlength="60"' + dis + ' />'
+      +     '<label class="ar-eng-pool-name-edit" title="Tap to rename this pool">'
+      +       '<input type="text" class="ar-eng-pool-name-input" data-action="ar-eng-pool-rename" data-pool="' + p.index + '" value="' + esc(displayName) + '" placeholder="' + esc(p.name || 'Pool name') + '" maxlength="60"' + dis + ' />'
+      +       '<span class="ar-eng-pool-name-edit-icon" aria-hidden="true">' + svgIconPencil() + '</span>'
+      +     '</label>'
       +     engAddedBadge
       +     deleteBtn
       +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
@@ -10581,8 +10768,9 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-media-lightbox'){
       var lbPath = target.getAttribute('data-storage-path');
       var lbType = target.getAttribute('data-media-type');
+      var lbDirect = target.getAttribute('data-direct-url') === '1';
       if (!lbPath) return true;
-      openMediaLightbox(lbPath, lbType);
+      openMediaLightbox(lbPath, lbType, lbDirect ? { directUrl: true } : null);
       return true;
     }
     if (action === 'ar-eng-lightbox-close'){
@@ -12828,6 +13016,26 @@ function renderForm(){
   var stepFn=[renderMapPool,renderStep0,renderStep1,renderStepQuote,renderStep3,renderFieldReport][S.step];
   el.innerHTML=stepFn?stepFn():'';
   syncRangeStyles();
+  // After the Field Report renders, lazy-load signed URLs for any
+  // engineer-media thumbnails that requested them via data-thumb-load.
+  // Same pattern the engineer portal uses on the pools step.
+  if (S.step === 5){
+    var thumbs = el.querySelectorAll('[data-thumb-load]');
+    if (thumbs.length && window.AR2_CLOUD && AR2_CLOUD.getClient){
+      var c = AR2_CLOUD.getClient();
+      if (c){
+        for (var ti = 0; ti < thumbs.length; ti++){
+          (function(elT){
+            var path = elT.getAttribute('data-thumb-load');
+            c.storage.from('engineer-media').createSignedUrl(path, 3600).then(function(rs){
+              var url = rs && rs.data && (rs.data.signedUrl || rs.data.signedURL);
+              if (url) elT.style.backgroundImage = 'url("' + url + '")';
+            }, function(){});
+          })(thumbs[ti]);
+        }
+      }
+    }
+  }
 }
 
 function syncRangeStyles(){
