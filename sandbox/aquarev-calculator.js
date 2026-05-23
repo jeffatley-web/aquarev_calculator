@@ -9429,9 +9429,20 @@ window.AR2_ENGINEER = (function(){
   }
 
   // ── Save logic (debounced) ──────────────────────────────────────
+  // Per-pool save timers — previously a single s.saveTimer was shared
+  // across every pool, so rapid edits jumping between pools clobbered
+  // each other's debounce: only the last touched pool ever fired its
+  // persist call, and changes typed into the earlier pool sat in
+  // s.verifications without ever reaching the DB. Maintaining one
+  // timer per pool fixes that — each pool's debounce window is
+  // independent and every dirty pool persists.
   function scheduleSave(poolIndex){
-    if (s.saveTimer){ clearTimeout(s.saveTimer); }
-    s.saveTimer = setTimeout(function(){ persistVerification(poolIndex); }, 600);
+    if (!s._poolSaveTimers) s._poolSaveTimers = {};
+    if (s._poolSaveTimers[poolIndex]) clearTimeout(s._poolSaveTimers[poolIndex]);
+    s._poolSaveTimers[poolIndex] = setTimeout(function(){
+      delete s._poolSaveTimers[poolIndex];
+      persistVerification(poolIndex);
+    }, 600);
     s.saving = true;
   }
   // True when a text input / textarea inside the engineer flow has
@@ -9450,6 +9461,12 @@ window.AR2_ENGINEER = (function(){
   function _refreshSavedIndicator(){
     var el = document.querySelector('#ar2-bank .ar-eng-saved');
     if (!el) return;
+    if (s.lastSaveError){
+      el.textContent = '⚠ Save failed: ' + s.lastSaveError;
+      el.style.color = '#fca5a5';
+      return;
+    }
+    el.style.color = '';
     if (s.saving){ el.textContent = 'Saving…'; return; }
     if (s.lastSavedAt){
       var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
@@ -9492,7 +9509,17 @@ window.AR2_ENGINEER = (function(){
       .select('id,updated_at')
       .single()
       .then(function(rs){
-        if (rs.error){ s.saving = false; _safeRepaint(); return; }
+        if (rs.error){
+          s.saving = false;
+          // Surface save failures visibly so a silent RLS / schema
+          // problem doesn't make the engineer think their work was
+          // saved when it wasn't.
+          s.lastSaveError = rs.error.message || 'Save failed';
+          try { console.error('[engineer save] verification upsert failed', rs.error); } catch(_){}
+          _safeRepaint();
+          return;
+        }
+        s.lastSaveError = null;
         if (rs.data){
           s.verifications[poolIndex].id = rs.data.id;
           s.verifications[poolIndex].updated_at = rs.data.updated_at;
@@ -9507,7 +9534,12 @@ window.AR2_ENGINEER = (function(){
             .then(function(){ s.assignment.status = 'in_progress'; });
         }
         _safeRepaint();
-      }, function(){ s.saving = false; _safeRepaint(); });
+      }, function(err){
+        s.saving = false;
+        s.lastSaveError = (err && err.message) || 'Network error';
+        try { console.error('[engineer save] verification network error', err); } catch(_){}
+        _safeRepaint();
+      });
   }
 
   function updateVerification(poolIndex, patch, opts){
@@ -9945,11 +9977,13 @@ window.AR2_ENGINEER = (function(){
       ? '<div class="ar-eng-lock-banner">This assignment was locked by AquaRev. Contact your rep to reopen for edits.</div>'
       : '';
     var savedNote = '';
-    if (s.lastSavedAt){
-      var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
-      savedNote = '<span class="ar-eng-saved">Saved ' + (secs < 5 ? 'just now' : secs + 's ago') + '</span>';
+    if (s.lastSaveError){
+      savedNote = '<span class="ar-eng-saved" style="color:#fca5a5">' + svgIconWarn() + ' Save failed: ' + esc(s.lastSaveError) + '</span>';
     } else if (s.saving){
       savedNote = '<span class="ar-eng-saved">Saving…</span>';
+    } else if (s.lastSavedAt){
+      var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
+      savedNote = '<span class="ar-eng-saved">Saved ' + (secs < 5 ? 'just now' : secs + 's ago') + '</span>';
     }
     var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
     var backLabel = isAdminViewing ? 'Back to Archive' : 'All assignments';
