@@ -8277,6 +8277,20 @@ window.AR2_ENGINEER = (function(){
       })
       .then(function(verifs){
         s.verifications = verifs;
+        // Pre-fill verifications from the assessment's per-body device
+        // counts so engineers see return lines + water type populated on
+        // first open. In-memory only — gets persisted by the next save.
+        s.pools.forEach(function(p){
+          if (s.verifications[p.index]) return;   // engineer already has data
+          var seeded = {
+            pool_index:   p.index,
+            return_lines: (p.defaultReturnLines || []).map(function(l){ return { count:l.count, diameter:l.diameter }; }),
+            pool_type:    p.defaultPoolType || null,
+            _seededFromAssessment: true
+          };
+          // Only seed if there's actually something to seed (skips empty pools).
+          if (seeded.return_lines.length || seeded.pool_type) s.verifications[p.index] = seeded;
+        });
         return fetchMedia(s.assignmentId);
       })
       .then(function(media){
@@ -8490,13 +8504,32 @@ window.AR2_ENGINEER = (function(){
     if (!Array.isArray(sj.bodies)) return [];
     return sj.bodies.map(function(b, i){
       var g = typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0;
+      // Pre-populate return-line rows from the rep's per-body device
+      // counts (pipe_2in / 3in / 4in / 6in / 8in / 10in). Engineer
+      // sees these filled in immediately and edits / confirms /
+      // removes as needed. Pre-populating saves them retyping data
+      // already on the assessment.
+      var defaultLines = [];
+      ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'].forEach(function(k){
+        var count = Number(b[k]) || 0;
+        if (count > 0){
+          defaultLines.push({ count: count, diameter: parseInt(k.split('_')[1], 10) });
+        }
+      });
+      // Map rep poolType (chlorine / saltwater) onto engineer pool_type
+      // (fresh / saltwater). chlorine → fresh; saltwater stays.
+      var defaultPoolType = b.poolType === 'saltwater' ? 'saltwater'
+                          : b.poolType === 'chlorine'  ? 'fresh'
+                          : '';
       return {
         index: i,
         name: b.label || ('Pool ' + (i + 1)),
         gallonsRep: g,
         type: b.poolType || '',
         depth: b.depth || '',
-        image: b.image || null   // assessment reference image (data: URL or remote URL)
+        image: b.image || null,
+        defaultReturnLines: defaultLines,
+        defaultPoolType: defaultPoolType
       };
     });
   }
@@ -8653,6 +8686,41 @@ window.AR2_ENGINEER = (function(){
     s.saving = true;
     repaint();
     var oldStatus = s.assignment && s.assignment.status;
+    // Flush any pre-seeded verifications that the engineer never edited
+    // but accepted by adding media / advancing through the flow. Without
+    // this, the DB would have empty return_lines for pools where the
+    // engineer relied entirely on assessment defaults.
+    var seedFlushPromises = [];
+    Object.keys(s.verifications).forEach(function(k){
+      var v = s.verifications[k];
+      if (!v || !v._seededFromAssessment) return;
+      if (!Array.isArray(v.return_lines) || v.return_lines.length === 0) return;
+      var payload = {
+        assignment_id: s.assignmentId,
+        pool_index:    Number(k),
+        confirmed_gallons: v.confirmed_gallons != null ? Number(v.confirmed_gallons) : null,
+        return_lines:      v.return_lines || [],
+        notes:             v.notes || null,
+        has_discrepancy:   !!v.has_discrepancy,
+        discrepancy_reason: v.discrepancy_reason || null,
+        pump_room_id:      v.pump_room_id || null,
+        pool_name_override: v.pool_name_override || null,
+        is_engineer_added: !!v.is_engineer_added,
+        pool_type:         v.pool_type || null,
+        updated_at:        new Date().toISOString()
+      };
+      seedFlushPromises.push(
+        c.from('engineer_verifications').upsert(payload, { onConflict: 'assignment_id,pool_index' }).select('id').single()
+          .then(function(rs){
+            if (rs && rs.data){
+              v.id = rs.data.id;
+              v._seededFromAssessment = false;
+            }
+          }, function(){})
+      );
+    });
+    Promise.all(seedFlushPromises).then(_submitStatusFlip);
+    function _submitStatusFlip(){
     c.from('engineer_assignments')
       .update({ status: 'submitted', submitted_at: new Date().toISOString(), last_modified_at: new Date().toISOString() })
       .eq('id', s.assignmentId)
@@ -8682,6 +8750,7 @@ window.AR2_ENGINEER = (function(){
         alert('Send failed: ' + ((err && err.message) || 'network error'));
         repaint();
       });
+    }  // _submitStatusFlip
   }
 
   // ── Media upload / management ───────────────────────────────────
@@ -9274,10 +9343,20 @@ window.AR2_ENGINEER = (function(){
       +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + allPools.length + ' complete')
       +   stepperHtml(3)
       +   pumpRoomsSection
-      +   lockBanner
-      +   applyToolbar
-      +   '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
-      +   addPoolBtn
+      // Hard visual break between the Pump-Rooms section above and the
+      // Pools section below. The eyebrow + lede pair mirrors the
+      // Pump-Rooms section so the structure is symmetric and the
+      // engineer's ask shifts unmistakably from rooms → pools.
+      +   '<div class="ar-eng-pools-section">'
+      +     '<div class="ar-eng-section-hd">'
+      +       '<div class="ar-eng-section-eyebrow">Pools</div>'
+      +       '<div class="ar-eng-section-sub">Verify each pool below — gallons, water type, return lines, and at least one return-line photo. Link each pool to the pump room that serves it.</div>'
+      +     '</div>'
+      +     lockBanner
+      +     applyToolbar
+      +     '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
+      +     addPoolBtn
+      +   '</div>'
       // Hidden file input — shared across pool cards. When the engineer
       // taps + Photo or + Video on a card, the data-pool + data-media-type
       // are stashed on the input before .click() so the change handler
@@ -9502,14 +9581,7 @@ window.AR2_ENGINEER = (function(){
 
       +   imageBlock
 
-      +   '<div class="ar-eng-field"><label>Water type</label>'
-      +     '<select class="ar-eng-pool-type-select" data-action="ar-eng-pool-type" data-pool="' + p.index + '"' + dis + '>'
-      +       '<option value=""' + (!v.pool_type ? ' selected' : '') + '>— Select water type —</option>'
-      +       '<option value="fresh"' + (v.pool_type === 'fresh' ? ' selected' : '') + '>Fresh Water / Chlorine</option>'
-      +       '<option value="saltwater"' + (v.pool_type === 'saltwater' ? ' selected' : '') + '>Saltwater</option>'
-      +     '</select>'
-      +   '</div>'
-
+      // — Gallons first —
       +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
       +     '<div class="ar-eng-inline">'
       +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
@@ -9518,7 +9590,16 @@ window.AR2_ENGINEER = (function(){
       +     divergenceWarning
       +   '</div>'
 
-      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count + diameter per line)</span></label>'
+      // — Water type (moved below gallons) —
+      +   '<div class="ar-eng-field"><label>Water type' + (v._seededFromAssessment && v.pool_type ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm</span>' : '') + '</label>'
+      +     '<select class="ar-eng-pool-type-select" data-action="ar-eng-pool-type" data-pool="' + p.index + '"' + dis + '>'
+      +       '<option value=""' + (!v.pool_type ? ' selected' : '') + '>— Select water type —</option>'
+      +       '<option value="fresh"' + (v.pool_type === 'fresh' ? ' selected' : '') + '>Fresh Water / Chlorine</option>'
+      +       '<option value="saltwater"' + (v.pool_type === 'saltwater' ? ' selected' : '') + '>Saltwater</option>'
+      +     '</select>'
+      +   '</div>'
+
+      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count + diameter per line)</span>') + '</label>'
       +     '<div class="ar-eng-lines">' + (lines.length ? lines.map(function(line, li){
               var diaOpts = DIAMETERS.map(function(d){
                 return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
@@ -9542,15 +9623,24 @@ window.AR2_ENGINEER = (function(){
       +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?"' + dis + '>' + esc(v.notes || '') + '</textarea>'
       +   '</div>'
 
+      // — Return-line media — compact single-row layout. The verbose
+      // callout collapses to a tooltip on the help (?) chip; the
+      // required-state is expressed by the orange "Required" pill
+      // beside the label and a single small caption. Buttons + thumbs
+      // share one row when there's space.
       +   '<div class="ar-eng-field ar-eng-return-media-field">'
-      +     '<label>Return-line photos &amp; videos <span class="ar-eng-hint required">required · ' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
-      +     '<div class="ar-eng-return-media-callout">'
-      +       svgIconCamera() + ' <b>Capture each return line on this pool.</b> One clear shot per pipe size minimum — close-up of the return jet showing the diameter, plus a wider shot of the full return wall. Add a short video panning across the lines if pipes are clustered.'
+      +     '<div class="ar-eng-return-media-hd">'
+      +       '<label>Return-line media</label>'
+      +       (hasMedia
+              ? '<span class="ar-eng-pill green sm">' + svgIconCheck() + ' Captured</span>'
+              : '<span class="ar-eng-pill amber sm">Required</span>')
+      +       '<span class="ar-eng-media-tally">' + counts.photo + '/10 photos · ' + counts.video + '/4 videos</span>'
+      +       '<button class="ar-eng-mini-help" data-action="ar-eng-return-media-tip" type="button" aria-label="What to shoot" title="One clear close-up per pipe size showing diameter, plus a wider shot of the full return wall. Pan video helps for clustered piping.">?</button>'
       +     '</div>'
-      +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No return-line media yet — at least one photo or video is required to mark this pool complete</div>') + '</div>'
+      +     (thumbsHtml ? '<div class="ar-eng-thumbs">' + thumbsHtml + '</div>' : '')
       +     '<div class="ar-eng-media-actions">'
-      +       '<button class="ar-eng-media-btn' + (photoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconCamera() + ' Add return-line photo</button>'
-      +       '<button class="ar-eng-media-btn' + (videoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconVideo() + ' Add return-line video</button>'
+      +       '<button class="ar-eng-media-btn' + (photoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconCamera() + ' Photo</button>'
+      +       '<button class="ar-eng-media-btn' + (videoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconVideo() + ' Video</button>'
       +     '</div>'
       +   '</div>'
       +   missingHint
@@ -9842,6 +9932,10 @@ window.AR2_ENGINEER = (function(){
       var pIdx = parseInt(target.getAttribute('data-pool-image'), 10);
       var pool = s.pools.find(function(x){ return x.index === pIdx; });
       if (pool && pool.image) openMediaLightbox(pool.image, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-return-media-tip'){
+      alert('What to shoot for each pool:\n\n• One close-up of each return-jet showing the pipe diameter\n• One wider shot of the full return wall\n• Optional pan video when pipes are clustered\n\nCameras open automatically on mobile. Photos compress before upload.');
       return true;
     }
     if (action === 'ar-eng-pool-type'){

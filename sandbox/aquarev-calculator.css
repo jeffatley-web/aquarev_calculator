@@ -2455,12 +2455,33 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-pool-missing{display:flex;align-items:center;gap:7px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.32);color:#f0a500;font-size:11.5px;border-radius:8px;padding:7px 11px;margin-top:12px;line-height:1.45;}
 #ar2 .ar-eng-hint.required{color:#f0a500;}
 
-/* Return-line media callout — reminds the engineer that the media slot
-   is specifically for return-line evidence, not generic pool photos.
-   Sits inside .ar-eng-return-media-field between the label and thumbs. */
-#ar2 .ar-eng-return-media-field .ar-eng-return-media-callout{display:flex;align-items:flex-start;gap:8px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.32);border-left:3px solid #48cae4;color:#cfe2eb;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:7px;margin:6px 0 10px;}
-#ar2 .ar-eng-return-media-field .ar-eng-return-media-callout b{color:#48cae4;font-weight:700;}
-#ar2 .ar-eng-return-media-field .ar-eng-return-media-callout .ar-eng-svg-icon{flex-shrink:0;margin-top:2px;color:#48cae4;}
+/* Pre-fill tag — appears beside field labels (Water type, Return lines)
+   when the value was seeded from the rep's assessment. Subtle cue that
+   the engineer should confirm or edit, not enter from scratch. */
+#ar2 .ar-eng-prefilled-tag{display:inline-block;font-size:9.5px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:#48cae4;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.34);padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px;}
+
+/* Pools section wrapper — explicit visual break between the Pump
+   Rooms section above and the Pools work area below. Adds its own
+   eyebrow + lede so engineers can't conflate the two asks. */
+#ar2 .ar-eng-pools-section{margin-top:8px;padding-top:18px;border-top:1px dashed rgba(0,180,216,.25);}
+#ar2 .ar-eng-pools-section > .ar-eng-section-hd{margin-bottom:16px;}
+#ar2 .ar-eng-pools-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
+#ar2 .ar-eng-pools-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
+
+/* Compact return-line media block — replaces the bulky cyan callout.
+   Single header row holds label + Required/Captured pill + tally + ?
+   help chip. Thumbs render in their own row (hidden when empty).
+   Buttons sit beside each other. Everything fits in ~120px height. */
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-hd{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-hd > label{margin:0;}
+#ar2 .ar-eng-media-tally{font-size:10.5px;color:var(--mu);letter-spacing:.3px;font-family:'JetBrains Mono',monospace;margin-left:auto;}
+#ar2 .ar-eng-mini-help{width:18px;height:18px;border-radius:50%;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.4);color:#48cae4;font-size:10px;font-weight:700;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;}
+#ar2 .ar-eng-mini-help:hover{background:rgba(0,180,216,.24);color:#fff;}
+
+/* Smaller variant of the existing engineer status pills — used inline
+   beside labels (Required / Captured). */
+#ar2 .ar-eng-pill.sm{padding:2px 7px;font-size:9.5px;letter-spacing:.6px;display:inline-flex;align-items:center;gap:3px;}
+#ar2 .ar-eng-pill.sm .ar-eng-svg-icon{width:10px;height:10px;}
 
 /* Step-4 PDF row — outline button + helper hint paired side-by-side. */
 #ar2 .ar-eng-pdf-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;}
