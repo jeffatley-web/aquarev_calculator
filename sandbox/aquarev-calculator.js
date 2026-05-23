@@ -7295,13 +7295,134 @@ function renderFieldReport(){
     +   '</div>'
     +   '<div class="ar-fr-hero-r">' + actionsHtml + '</div>'
     + '</div>'
-    // Placeholder bands — built out in sub-ships #7b/c/d.
+    + _frRenderKpis(b)
+    + _frRenderPumpRoomsStrip(b)
     + '<div class="ar-fr-placeholder">'
-    +   '<div class="ar-fr-placeholder-title">Verification Summary</div>'
-    +   '<div class="ar-fr-placeholder-body">Pools documented: <b>' + b.verifications.length + '</b> · Pump rooms: <b>' + b.pumpRooms.length + '</b> · Media files: <b>' + b.media.length + '</b></div>'
-    +   '<div class="ar-fr-placeholder-hint">Detailed pool compare + pump-room walkthrough cards + media gallery will appear here in the next ship.</div>'
+    +   '<div class="ar-fr-placeholder-title">Pool comparison</div>'
+    +   '<div class="ar-fr-placeholder-hint">Per-pool Estimate-vs-Engineer compare cards land in the next ship (#7c) — return-line chips, media gallery, and discrepancy callouts.</div>'
     + '</div>'
     + '</div>';
+}
+
+/* KPI grid — 6 tiles summarizing the engineer's submission at a
+   glance. Counts derive entirely from the loaded bundle, so this
+   re-renders cleanly when the bundle changes (after Lock / Mark
+   Reviewed / refetch).
+   Tiles:
+     1. Pools documented — verification rows authored
+     2. Pump rooms      — engineer_pump_rooms count
+     3. Photos          — engineer_media WHERE media_type='photo'
+     4. Videos          — engineer_media WHERE media_type='video'
+     5. Estimate gallons — sum of rep gallonsRep across pools (from S.bodies / manualTotalGallons)
+     6. Confirmed gallons — sum of v.confirmed_gallons across verifications */
+function _frRenderKpis(bundle){
+  var verifs   = bundle.verifications || [];
+  var media    = bundle.media         || [];
+  var pumpRooms= bundle.pumpRooms     || [];
+  var photos = media.filter(function(m){ return m.media_type === 'photo'; }).length;
+  var videos = media.filter(function(m){ return m.media_type === 'video'; }).length;
+  // Estimate total — pull from the current S state since it's already
+  // hydrated on this view (the calculator just paints into the same
+  // shared state object).
+  var estGal = 0;
+  try {
+    if (S && S.manualVolume){ estGal = Number(S.manualTotalGallons) || 0; }
+    else if (S && Array.isArray(S.bodies)){
+      S.bodies.forEach(function(b){
+        if (typeof bodyGallons === 'function') estGal += bodyGallons(b) || 0;
+      });
+    }
+  } catch(_){}
+  var confirmedGal = 0;
+  verifs.forEach(function(v){ if (v.confirmed_gallons) confirmedGal += Number(v.confirmed_gallons); });
+  // Confirmed-vs-Estimate delta — when both are non-zero, tag the
+  // engineer tile with a color hint so the admin can see drift at a
+  // glance. Green: within 5% · Amber: 5–15% off · Red: >15% off.
+  var confirmedHint = 'gray';
+  if (estGal > 0 && confirmedGal > 0){
+    var pct = Math.abs(confirmedGal - estGal) / estGal;
+    confirmedHint = pct <= 0.05 ? 'green' : (pct <= 0.15 ? 'amber' : 'red');
+  }
+  function tile(lbl, val, sub, tone){
+    return '<div class="ar-fr-kpi' + (tone ? ' tone-' + tone : '') + '">'
+      + '<div class="ar-fr-kpi-lbl">' + lbl + '</div>'
+      + '<div class="ar-fr-kpi-val">' + val + '</div>'
+      + (sub ? '<div class="ar-fr-kpi-sub">' + sub + '</div>' : '')
+      + '</div>';
+  }
+  return '<div class="ar-fr-kpis">'
+    + tile('Pools documented', String(verifs.length), null, null)
+    + tile('Pump rooms',       String(pumpRooms.length), null, null)
+    + tile('Photos',           String(photos), null, null)
+    + tile('Videos',           String(videos), null, null)
+    + tile('Estimate gal',     estGal ? fn(Math.round(estGal)) : '—', null, null)
+    + tile('Engineer gal',     confirmedGal ? fn(Math.round(confirmedGal)) : '—',
+        (estGal > 0 && confirmedGal > 0
+          ? ((confirmedGal === estGal) ? 'Exact match'
+             : (Math.round(Math.abs(confirmedGal - estGal) / estGal * 100)) + '% ' + (confirmedGal > estGal ? 'over' : 'under') + ' estimate')
+          : null),
+        confirmedHint)
+    + '</div>';
+}
+
+/* Pump-rooms strip — one card per engineer-captured pump room,
+   horizontally scrollable. Each card surfaces:
+     • Walkthrough video tile (plays in the existing media lightbox)
+     • Supporting photo count
+     • Pools-served count (from verifications WHERE pump_room_id = r.id)
+     • Room label
+   When no pump rooms were captured, renders a compact empty hint
+   instead of an empty strip. */
+function _frRenderPumpRoomsStrip(bundle){
+  var rooms = bundle.pumpRooms || [];
+  var media = bundle.media     || [];
+  var verifs= bundle.verifications || [];
+  if (!rooms.length){
+    return '<div class="ar-fr-section">'
+      + '<div class="ar-fr-section-hd"><div class="ar-fr-section-title">Pump Rooms</div></div>'
+      + '<div class="ar-fr-empty-mini">No pump rooms captured on this assignment.</div>'
+      + '</div>';
+  }
+  // Pools-served counts (pool_index → not needed; we just count
+  // verifications referencing each pump_room_id).
+  var poolsPerRoom = {};
+  verifs.forEach(function(v){ if (v.pump_room_id) poolsPerRoom[v.pump_room_id] = (poolsPerRoom[v.pump_room_id] || 0) + 1; });
+  var cards = rooms.map(function(r){
+    var roomMedia = media.filter(function(m){ return m.pump_room_id === r.id; });
+    var walkthrough = roomMedia.find(function(m){ return m.media_type === 'video'; });
+    var photoCount  = roomMedia.filter(function(m){ return m.media_type === 'photo'; }).length;
+    var poolsServed = poolsPerRoom[r.id] || 0;
+    var videoTile = walkthrough
+      ? '<button class="ar-fr-pr-video" data-action="ar-eng-media-lightbox" data-storage-path="' + esc(walkthrough.storage_path) + '" data-media-type="video" title="Play walkthrough video">'
+        + '<div class="ar-fr-pr-video-icon">' + _svgFrPlay() + '</div>'
+        + '<div class="ar-fr-pr-video-lbl">Walkthrough video</div>'
+        + '</button>'
+      : '<div class="ar-fr-pr-video empty"><div class="ar-fr-pr-video-icon">' + _svgFrCamera() + '</div><div class="ar-fr-pr-video-lbl">No walkthrough uploaded</div></div>';
+    return '<div class="ar-fr-pr-card">'
+      + '<div class="ar-fr-pr-head">'
+      +   '<div class="ar-fr-pr-label">' + esc(r.label) + '</div>'
+      +   '<div class="ar-fr-pr-stat">' + poolsServed + ' pool' + (poolsServed === 1 ? '' : 's') + ' served</div>'
+      + '</div>'
+      + videoTile
+      + '<div class="ar-fr-pr-foot">'
+      +   '<span>' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + '</span>'
+      +   (r.notes ? '<span class="ar-fr-pr-has-notes" title="' + esc(r.notes) + '">Notes</span>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="ar-fr-section">'
+    + '<div class="ar-fr-section-hd"><div class="ar-fr-section-title">Pump Rooms <span class="ar-fr-section-count">' + rooms.length + '</span></div>'
+    +   '<div class="ar-fr-section-sub">Each room\'s walkthrough video opens at full size in the media viewer. Linked pool count reflects engineer\'s pool ↔ pump-room mapping.</div>'
+    + '</div>'
+    + '<div class="ar-fr-pr-strip">' + cards + '</div>'
+    + '</div>';
+}
+
+function _svgFrPlay(){
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+}
+function _svgFrCamera(){
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 }
 
 /* SVG glyphs used inside the Field Report. Kept small and inline
