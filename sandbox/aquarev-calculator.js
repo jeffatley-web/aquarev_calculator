@@ -7051,56 +7051,90 @@ function setAdminActiveTab(tabId){
    Trigger: from the admin review modal's "Download verification PDF"
    button (added below).
    ────────────────────────────────────────────────────────────────── */
-/* In-page preview wrapper for the engineer verification report. The
-   report HTML lives in #ar2-report (rendered by _engineerReport_renderHtml).
-   This overlay clones that content into a scrollable modal so the
-   engineer can read it without firing the browser print dialog. A
-   Download PDF button inside the preview kicks off the real print flow. */
+/* In-page preview wrapper for the engineer verification report.
+   Mirrors the calculator's report preview pattern (hide all body
+   children except #ar2-report, slap a fixed toolbar on top, restore
+   everything on Back). Result: the preview is a 1:1 visual replica
+   of the PDF that gets printed — same .rpt-head, .rpt-body, .rpt-foot
+   chrome the production report uses. */
 function openEngineerReportPreview(assignmentId){
-  var existing = document.getElementById('ar-eng-report-preview');
-  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
   var rep = document.getElementById('ar2-report');
   if (!rep || !rep.innerHTML.trim()){
     alert('Could not open preview — report content missing.');
     return;
   }
-  var bd = document.createElement('div');
-  bd.id = 'ar-eng-report-preview';
-  bd.className = 'ar-eng-report-preview-backdrop';
-  bd.innerHTML = '<div class="ar-eng-report-preview-panel" role="dialog" aria-modal="true" aria-labelledby="ar-eng-report-preview-title">'
-    + '<div class="ar-eng-report-preview-head">'
-    +   '<div class="ar-eng-report-preview-title" id="ar-eng-report-preview-title">Verification Report Preview</div>'
-    +   '<div class="ar-eng-report-preview-actions">'
-    +     '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-report-preview-download" type="button">Download PDF</button>'
-    +     '<button class="ar-eng-help-close" data-action="ar-eng-report-preview-close" type="button" aria-label="Close">×</button>'
-    +   '</div>'
-    + '</div>'
-    + '<div class="ar-eng-report-preview-body">' + rep.innerHTML + '</div>'
-    + '</div>';
-  document.body.appendChild(bd);
-  bd.addEventListener('click', function(e){
-    if (e.target === bd){ closeEngineerReportPreview(); return; }
-    var btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    var act = btn.getAttribute('data-action');
-    if (act === 'ar-eng-report-preview-close')    { closeEngineerReportPreview(); return; }
-    if (act === 'ar-eng-report-preview-download') {
-      closeEngineerReportPreview();
-      // Re-run the generator without previewOnly so the print dialog fires.
-      if (typeof generateEngineerReport === 'function') generateEngineerReport(assignmentId);
-      return;
+  // Force portrait letter @page rule so the on-screen layout matches
+  // the printed sheet width-for-width.
+  var orientEl = document.getElementById('ar2-orient');
+  if (!orientEl){ orientEl = document.createElement('style'); orientEl.id = 'ar2-orient'; document.head.appendChild(orientEl); }
+  orientEl.textContent = '@media print{@page{size:portrait;margin:0mm;}}';
+
+  // Hide every body child except #ar2-report so the preview takes the
+  // full viewport. Stash original inline styles to restore on close.
+  var hiddenEls = [];
+  var bodyKids = document.body.children;
+  for (var bi = 0; bi < bodyKids.length; bi++){
+    if (bodyKids[bi].id !== 'ar2-report' && bodyKids[bi].id !== 'ar2-orient'){
+      hiddenEls.push({ el: bodyKids[bi], prev: bodyKids[bi].style.cssText });
+      bodyKids[bi].style.cssText += 'display:none!important;';
     }
-  });
-  var onKey = function(e){ if (e.key === 'Escape') closeEngineerReportPreview(); };
+  }
+  var rElParent = rep.parentNode;
+  var rElNext   = rep.nextSibling;
+  if (rep.parentNode !== document.body) document.body.appendChild(rep);
+  rep.style.cssText = 'display:block;';
+  var origDocTitle = document.title;
+
+  // Floating toolbar: Back + Download PDF. Matches the calculator's
+  // portfolio-report preview toolbar styling.
+  var tb = document.createElement('div');
+  tb.id = 'ar2-eng-preview-toolbar';
+  tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  tb.innerHTML = '<button id="ar2-eng-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Close Preview</button>'
+    + '<div style="color:#fff;font-size:13px;font-weight:600;letter-spacing:.5px">Engineer Verification — Preview</div>'
+    + '<button id="ar2-eng-prev-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">Download PDF</button>';
+  document.body.appendChild(tb);
+  rep.style.paddingTop = '56px';
+
+  var restored = false;
+  function restoreApp(){
+    if (restored) return; restored = true;
+    document.title = origDocTitle;
+    if (tb.parentNode) tb.parentNode.removeChild(tb);
+    rep.style.cssText = 'display:none;';
+    rep.style.paddingTop = '';
+    if (rElNext) rElParent.insertBefore(rep, rElNext);
+    else         rElParent.appendChild(rep);
+    for (var ri = 0; ri < hiddenEls.length; ri++){
+      hiddenEls[ri].el.style.cssText = hiddenEls[ri].prev;
+    }
+    window.scrollTo(0, 0);
+    if (orientEl && orientEl.parentNode) orientEl.parentNode.removeChild(orientEl);
+    document.removeEventListener('keydown', onKey);
+  }
+  document.getElementById('ar2-eng-prev-back').onclick = restoreApp;
+  document.getElementById('ar2-eng-prev-dl').onclick = function(){
+    // Keep the report in place; toolbar must go because it's no-print
+    // anyway, but removing the wrapper avoids print-flow surprises.
+    if (tb.parentNode) tb.parentNode.removeChild(tb);
+    rep.style.paddingTop = '';
+    var fnDate = new Date().toISOString().slice(0,10);
+    var pName = '';
+    try { pName = (document.querySelector('#ar2-report .rpt-eng-prop-name') || {}).textContent || 'Verification'; } catch(_){ pName = 'Verification'; }
+    document.title = 'AquaRev_EngVerification_' + (pName || 'Verification').replace(/[^A-Za-z0-9]+/g,'_') + '_' + fnDate;
+    window.addEventListener('afterprint', function onAfter(){
+      window.removeEventListener('afterprint', onAfter);
+      setTimeout(restoreApp, 100);
+    });
+    window.print();
+    setTimeout(function(){ if (!restored) restoreApp(); }, 3000);
+  };
+  var onKey = function(e){ if (e.key === 'Escape') restoreApp(); };
   document.addEventListener('keydown', onKey);
-  bd._onKey = onKey;
 }
 function closeEngineerReportPreview(){
-  var el = document.getElementById('ar-eng-report-preview');
-  if (el){
-    if (el._onKey) document.removeEventListener('keydown', el._onKey);
-    if (el.parentNode) el.parentNode.removeChild(el);
-  }
+  var tb = document.getElementById('ar2-eng-preview-toolbar');
+  if (tb && tb.parentNode) tb.parentNode.removeChild(tb);
 }
 
 function generateEngineerReport(assignmentId, opts){
@@ -7402,7 +7436,72 @@ function _engineerReport_renderHtml(bundle){
     +   '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
     + '</div>';
 
-  rep.innerHTML = coverHtml + poolPagesHtml;
+  // Per-pump-room summary pages. One page per pump room with the
+  // walkthrough video filename, supporting photos, and the full list
+  // of pools served (with confirmed gallons + return-line chips so
+  // the rep can cross-reference at a glance).
+  var pumpRoomPagesHtml = pumpRooms.map(function(r){
+    var roomMedia = media.filter(function(m){ return m.pump_room_id === r.id; });
+    var walkthrough = roomMedia.find(function(m){ return m.media_type === 'video'; });
+    var roomPhotos  = roomMedia.filter(function(m){ return m.media_type === 'photo'; });
+    var roomPhotosHtml = roomPhotos.length
+      ? '<div class="rpt-eng-photos">'
+        + roomPhotos.map(function(m){
+            return '<div class="rpt-eng-photo">'
+              + (m._signedUrl ? '<img src="' + esc(m._signedUrl) + '" alt="" crossorigin="anonymous" />' : '<div class="rpt-eng-photo-missing">Photo unavailable</div>')
+              + '</div>';
+          }).join('')
+        + '</div>'
+      : '';
+    // Pools served — walk verifications looking for pump_room_id match.
+    // Order matches the engineer's pool roster.
+    var poolsServedRows = pools
+      .map(function(p){
+        var v = verifs.find(function(x){ return x.pool_index === p.index; });
+        if (!v || v.pump_room_id !== r.id) return null;
+        var poolDisplayName = (v && v.pool_name_override) || p.name;
+        var poolLines = (v.return_lines || []).map(function(l){
+          return '<span class="rpt-eng-line-chip">' + (l.count||1) + '&times;' + (l.diameter||'?') + '&quot;</span>';
+        }).join('');
+        if (!poolLines) poolLines = '<span style="color:#888">—</span>';
+        return '<tr>'
+          + '<td><b>' + esc(poolDisplayName) + '</b></td>'
+          + '<td>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : '—') + '</td>'
+          + '<td>' + poolLines + '</td>'
+          + '</tr>';
+      })
+      .filter(Boolean)
+      .join('');
+    var poolsServedHtml = poolsServedRows
+      ? '<table class="rpt-tbl"><thead><tr><th>Pool</th><th>Gallons</th><th>Return lines</th></tr></thead><tbody>' + poolsServedRows + '</tbody></table>'
+      : '<div class="rpt-row" style="color:#888">No pools linked to this pump room yet.</div>';
+    var poolsServedCount = poolsPerRoom[r.id] || 0;
+
+    return '<div class="rpt">'
+      + '<div class="rpt-head">'
+      +   '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Pump Room Summary</div></div>'
+      +   '<div class="rpt-head-right"><div class="rpt-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
+      + '</div>'
+      + '<div class="rpt-body">'
+      +   '<div class="rpt-sec">'
+      +     '<div class="rpt-stitle">' + esc(r.label) + '</div>'
+      +     '<div class="rpt-row"><span class="k">Walkthrough video</span><span class="v">' + (walkthrough ? esc(walkthrough.filename_original || 'video') : '<span style="color:#888">Not uploaded</span>') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Supporting photos</span><span class="v">' + roomPhotos.length + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Pools served</span><span class="v">' + poolsServedCount + (poolsServedCount === 1 ? ' pool' : ' pools') + '</span></div>'
+      +     (r.notes ? '<div class="rpt-stitle" style="margin-top:14px">Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(r.notes) + '</div>' : '')
+      +   '</div>'
+      +   '<div class="rpt-sec">'
+      +     '<div class="rpt-stitle">Pools served by this pump room</div>'
+      +     poolsServedHtml
+      +   '</div>'
+      +   (roomPhotos.length ? '<div class="rpt-sec"><div class="rpt-stitle">Supporting Photos</div>' + roomPhotosHtml + '</div>' : '')
+      + '</div>'
+      + '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + ' · ' + esc(r.label) + '</span></div>'
+      + '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
+      + '</div>';
+  }).join('');
+
+  rep.innerHTML = coverHtml + pumpRoomPagesHtml + poolPagesHtml;
 }
 
 function _engineerReport_preloadImages(){

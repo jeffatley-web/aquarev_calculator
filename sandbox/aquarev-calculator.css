@@ -2621,17 +2621,15 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-admin-eng-search:focus{border-color:rgba(0,180,216,.65);}
 #ar2 .ar-admin-eng-search::placeholder{color:rgba(125,184,204,.55);}
 
-/* In-page report preview overlay. Scrollable; download button inside
-   kicks the print flow without the engineer leaving the portal. */
-.ar-eng-report-preview-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.86);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;}
-.ar-eng-report-preview-panel{width:min(900px,100%);max-height:92vh;background:#fff;color:#111;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 28px 80px rgba(0,0,0,.5);}
-.ar-eng-report-preview-head{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;background:#0a2540;color:#fff;}
-.ar-eng-report-preview-title{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;}
-.ar-eng-report-preview-actions{display:flex;align-items:center;gap:10px;}
-.ar-eng-report-preview-actions .ar-eng-btn{padding:8px 14px;font-size:12px;}
-.ar-eng-report-preview-actions .ar-eng-help-close{background:transparent;border:none;color:#cfe2eb;font-size:22px;line-height:1;cursor:pointer;width:32px;height:32px;border-radius:6px;}
-.ar-eng-report-preview-actions .ar-eng-help-close:hover{background:rgba(255,255,255,.12);color:#fff;}
-.ar-eng-report-preview-body{overflow-y:auto;padding:28px;background:#fff;flex:1;}
+/* Engineer report — pump-room pool-list chip styling. Mirrors the
+   per-pool return-line chip family but matches the print color palette
+   (light bg so it reads on the white PDF page). */
+#ar2-report .rpt-eng-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:#e6f4f9;border:1px solid #b8dbe6;color:#0a2540;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
+
+/* The previous .ar-eng-report-preview-* overlay is retired in favor of
+   the calculator-style hide-body + fixed-toolbar pattern. The toolbar
+   itself is built inline (#ar2-eng-preview-toolbar) so no class hook
+   is required here. */
 
 /* ───────── Pump Rooms (Ship #2) ─────────
    Section lives at the top of Step 3, above the pool grid. Each card
