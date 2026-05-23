@@ -543,6 +543,14 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-gen-btn:disabled{opacity:.5;cursor:not-allowed;}
 /* ── Print: hide app, show report ── */
 #ar2-report{display:none;}
+/* Preview mode — when generateEngineerReport(..., {previewOnly:true})
+   opens the in-page preview, the report root gets .is-preview so the
+   page can fill the full viewport instead of being capped at the
+   default 860px narrow column. Print CSS already overrides max-width
+   separately, so paper output isn't affected. */
+#ar2-report.is-preview{background:#1a2a3a;min-height:100vh;}
+#ar2-report.is-preview .rpt{max-width:none!important;width:100%!important;margin:0!important;box-shadow:0 0 0 1px rgba(255,255,255,.04);}
+#ar2-report.is-preview .rpt + .rpt{margin-top:24px!important;}
 
 /* Engineer verification PDF — minimal additions on top of existing .rpt-* chrome. */
 #ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;}

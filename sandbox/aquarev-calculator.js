@@ -7647,6 +7647,10 @@ function openEngineerReportPreview(assignmentId){
   var rElNext   = rep.nextSibling;
   if (rep.parentNode !== document.body) document.body.appendChild(rep);
   rep.style.cssText = 'display:block;';
+  // Flag the report root so the preview-only CSS rules widen the
+  // .rpt page to fill the viewport (instead of the default 860px
+  // narrow column). Removed on close.
+  rep.classList.add('is-preview');
   var origDocTitle = document.title;
 
   // Floating toolbar: Back + Download PDF. Matches the calculator's
@@ -7666,6 +7670,7 @@ function openEngineerReportPreview(assignmentId){
     document.title = origDocTitle;
     if (tb.parentNode) tb.parentNode.removeChild(tb);
     rep.style.cssText = 'display:none;';
+    rep.classList.remove('is-preview');
     rep.style.paddingTop = '';
     if (rElNext) rElParent.insertBefore(rep, rElNext);
     else         rElParent.appendChild(rep);
