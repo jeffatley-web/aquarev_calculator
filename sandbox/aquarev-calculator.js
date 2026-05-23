@@ -9614,7 +9614,28 @@ window.AR2_ENGINEER = (function(){
         if (window.AR_AUDIT) AR_AUDIT.log('engineer_assignments', s.assignmentId, {
           status: { from: oldStatus, to: 'submitted' }
         }, 'engineer submit');
-        if (window.AR_NOTIFY) AR_NOTIFY.engineerSubmitted(s.assignmentId);
+        if (window.AR_NOTIFY){
+          AR_NOTIFY.engineerSubmitted(s.assignmentId).then(function(res){
+            if (res && res.error){
+              // Surface notification failure so the engineer doesn't
+              // think the rep got pinged when they didn't. The
+              // submission itself succeeded — only the notification
+              // fan-out failed.
+              try {
+                var msg = (res.error.message || res.error.code || 'unknown');
+                console.warn('[engineer submit] notifications skipped:', msg);
+                var bdN = document.querySelector('#ar2-bank .ar-eng-flow-header');
+                if (bdN){
+                  var warnEl = document.createElement('div');
+                  warnEl.className = 'ar-eng-admin-banner';
+                  warnEl.style.cssText = 'background:rgba(240,165,0,.1);border-color:rgba(240,165,0,.42);';
+                  warnEl.innerHTML = '<b style="color:#f0a500">⚠ Sent, but admin notification failed.</b> Reason: <code>' + esc(msg) + '</code>';
+                  bdN.appendChild(warnEl);
+                }
+              } catch(_){}
+            }
+          });
+        }
         // Confetti! The engineer just finished a full property review —
         // fire from the Send button if we can find it, otherwise center
         // burst. confettiBurst is a no-op if it errors so the success
@@ -11646,13 +11667,28 @@ window.AR_NOTIFY = {
   },
   // Engineer-side RPC: notifies admins + rep about an engineer submission.
   // Engineers can't write notifications directly; this routes through
-  // the SECURITY DEFINER notify_engineer_submitted() function.
+  // the SECURITY DEFINER notify_engineer_submitted() function. Errors
+  // are logged + returned so the caller (submit()) can surface them
+  // instead of swallowing silently.
   engineerSubmitted: function(assignmentId){
     try {
       var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
-      if (!c || !assignmentId) return Promise.resolve();
-      return c.rpc('notify_engineer_submitted', { p_assignment_id: assignmentId });
-    } catch(_){ return Promise.resolve(); }
+      if (!c || !assignmentId) return Promise.resolve({ skipped: true });
+      return c.rpc('notify_engineer_submitted', { p_assignment_id: assignmentId }).then(function(rs){
+        if (rs && rs.error){
+          try { console.error('[notify_engineer_submitted] RPC error', rs.error); } catch(_){}
+          return { error: rs.error };
+        }
+        try { console.info('[notify_engineer_submitted] queued', rs && rs.data); } catch(_){}
+        return rs;
+      }, function(err){
+        try { console.error('[notify_engineer_submitted] network error', err); } catch(_){}
+        return { error: err };
+      });
+    } catch(e){
+      try { console.error('[notify_engineer_submitted] throw', e); } catch(_){}
+      return Promise.resolve({ error: e });
+    }
   }
 };
 
