@@ -3226,6 +3226,12 @@ window.AR2_PF = (function(){
       // Show calculator (hide archive), then re-render with new S.
       if (typeof showView === 'function') showView('form');
       if (typeof render === 'function') render();
+      // Side-load engineer verification status for this property so the
+      // body cards can surface the green "Verified" pill where the
+      // engineer has fully documented a pool.
+      if (typeof window.loadEngineerVerifiedPoolsForRecord === 'function'){
+        window.loadEngineerVerifiedPoolsForRecord(propertyId, 'property');
+      }
       // Restore Map Pools state (polygons, boundary, centre, property name).
       // Done AFTER render() so the persistent #ap2 mount has finished its
       // own paint cycle and is ready to accept the snapshot.
@@ -6304,7 +6310,52 @@ function bankDeleteReport(id){
   }).then(function(){renderBank();}).catch(function(){renderBank();});
 }
 
-function bankRecall(snapshot){
+/* Loads engineer verifications + pump rooms for the record currently
+   being viewed by the rep, and populates S._engineerVerifiedPools so
+   the body-card renderer can display a green "Verified" pill on pools
+   the engineer has fully documented (return lines + at least one
+   media file). Best-effort — silent on RLS denial / network failure. */
+function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
+  S._engineerVerifiedPools = {};
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !recordId) return Promise.resolve();
+  var col = recordType === 'property' ? 'property_id'
+          : recordType === 'portfolio' ? 'portfolio_id'
+          : 'assessment_id';
+  return c.from('engineer_assignments').select('id').eq(col, recordId).then(function(r1){
+    var assignIds = (r1.data || []).map(function(a){ return a.id; });
+    if (!assignIds.length) return null;
+    return Promise.all([
+      c.from('engineer_verifications').select('assignment_id,pool_index,return_lines,confirmed_gallons,pump_room_id,pool_type').in('assignment_id', assignIds),
+      c.from('engineer_media').select('pool_index').in('assignment_id', assignIds).not('pool_index','is',null),
+      c.from('engineer_pump_rooms').select('id,label').in('assignment_id', assignIds)
+    ]).then(function(arr){
+      var verifs = arr[0].data || [];
+      var media  = arr[1].data || [];
+      var rooms  = arr[2].data || [];
+      var roomsById = {}; rooms.forEach(function(r){ roomsById[r.id] = r.label; });
+      var mediaCountByPool = {};
+      media.forEach(function(m){ mediaCountByPool[m.pool_index] = (mediaCountByPool[m.pool_index]||0) + 1; });
+      verifs.forEach(function(v){
+        var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
+        var hasMedia = (mediaCountByPool[v.pool_index] || 0) > 0;
+        if (hasLines && hasMedia){
+          S._engineerVerifiedPools[v.pool_index] = {
+            assignment_id:    v.assignment_id,
+            confirmed_gallons: v.confirmed_gallons,
+            pool_type:         v.pool_type,
+            pump_room_label:   v.pump_room_id ? (roomsById[v.pump_room_id] || '') : ''
+          };
+        }
+      });
+    });
+  }).then(function(){
+    if (typeof render === 'function') render();
+  }, function(){ /* silent — verified icon stays absent */ });
+}
+window.loadEngineerVerifiedPoolsForRecord = loadEngineerVerifiedPoolsForRecord;
+
+function bankRecall(snapshot, recordId){
   // Restore calculator state from snapshot
   Object.assign(S, snapshot.state);
   syncGallons();
@@ -6354,6 +6405,12 @@ function bankRecall(snapshot){
   // previously "Pricing & Settings" (step 1) → now step 2.
   S.step=2;
   showView('form');
+  // Side-load engineer verification status (best-effort) so the body-card
+  // headers can show a green "Verified" pill on pools the engineer has
+  // fully documented. Fires after showView so the calculator is painted.
+  if (recordId && typeof loadEngineerVerifiedPoolsForRecord === 'function'){
+    loadEngineerVerifiedPoolsForRecord(recordId, 'assessment');
+  }
 }
 
 function bankDownloadPdf(snapshot, layout){
@@ -6386,7 +6443,7 @@ function bankAction(id, action){
       if(!r){alert('Report not found. It may have been deleted.');renderBank();return;}
       var s=typeof r==='string'?r:r.value;
       var snap=JSON.parse(s);
-      if(action==='recall') bankRecall(snap);
+      if(action==='recall') bankRecall(snap, id);
       else if(action==='duplicate') bankDuplicate(snap);
       else if(action==='portrait') bankDownloadPdf(snap,'portrait');
       else if(action==='landscape') bankDownloadPdf(snap,'landscape');
@@ -7054,8 +7111,9 @@ function generateEngineerReport(assignmentId, opts){
 
   Promise.all([
     c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
-    c.from('engineer_media').select('id,pool_index,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true})
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_media').select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true}),
+    c.from('engineer_pump_rooms').select('id,label,notes,created_at').eq('assignment_id', assignmentId).order('created_at',{ascending:true})
   ]).then(function(arr){
     var asgn = arr[0].data;
     if (!asgn) throw new Error('Assignment not found.');
@@ -7065,8 +7123,9 @@ function generateEngineerReport(assignmentId, opts){
     ]).then(function(linked){
       return {
         asgn: asgn,
-        verifs: arr[1].data || [],
-        media:  arr[2].data || [],
+        verifs:    arr[1].data || [],
+        media:     arr[2].data || [],
+        pumpRooms: arr[3].data || [],
         record: linked[0],
         engineer: linked[1]
       };
@@ -7157,29 +7216,67 @@ function _engineerReport_renderHtml(bundle){
   var asgn = bundle.asgn;
   var rec  = bundle.record || {};
   var eng  = bundle.engineer || {};
-  var verifs = bundle.verifs || [];
-  var media  = bundle.media  || [];
+  var verifs    = bundle.verifs    || [];
+  var media     = bundle.media     || [];
+  var pumpRooms = bundle.pumpRooms || [];
   var today  = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
   var submitted = asgn.submitted_at
     ? new Date(asgn.submitted_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})
     : 'In progress';
 
+  // Pump-room index maps for quick lookups while building per-pool rows.
+  var pumpRoomById = {}; pumpRooms.forEach(function(r){ pumpRoomById[r.id] = r; });
+  // pool_index → pump_room linkage from verifications
+  var poolPumpRoom = {};
+  verifs.forEach(function(v){ if (v.pump_room_id) poolPumpRoom[v.pool_index] = v.pump_room_id; });
+  // Pools served per pump_room (used by the cover summary)
+  var poolsPerRoom = {};
+  Object.keys(poolPumpRoom).forEach(function(k){
+    var rid = poolPumpRoom[k];
+    poolsPerRoom[rid] = (poolsPerRoom[rid] || 0) + 1;
+  });
+
   // Derive pool list from state_json so pools with no verification still
-  // show in the report as "Not yet documented".
+  // show in the report as "Not yet documented". Engineer-added pools
+  // (is_engineer_added=true with pool_index >= original count) get folded
+  // in from the verifications too.
   var pools = [];
   var sj = rec.state_json || {};
   if (sj.manualVolume){
-    var n = Math.max(1, Number(sj.manualPoolCount) || 1);
-    for (var i = 0; i < n; i++) pools.push({ index: i, name: 'Pool ' + (i+1), gallonsRep: Math.round((Number(sj.manualTotalGallons)||0)/n) });
+    var nManual = Math.max(1, Number(sj.manualPoolCount) || 1);
+    for (var iM = 0; iM < nManual; iM++) pools.push({ index: iM, name: 'Pool ' + (iM+1), gallonsRep: Math.round((Number(sj.manualTotalGallons)||0)/nManual) });
   } else if (Array.isArray(sj.bodies)){
     sj.bodies.forEach(function(b, i){
-      pools.push({ index: i, name: b.label || ('Pool ' + (i+1)), gallonsRep: typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0, depth: b.depth || '' });
+      pools.push({
+        index: i,
+        name: b.label || ('Pool ' + (i+1)),
+        gallonsRep: typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0,
+        depth: b.depth || '',
+        repPoolType: b.poolType || ''
+      });
     });
   } else {
-    // Fall back to verification rows if state_json doesn't have a roster
     verifs.forEach(function(v){ pools.push({ index: v.pool_index, name: 'Pool ' + (v.pool_index+1), gallonsRep: 0 }); });
   }
   if (!pools.length){ pools = [{ index: 0, name: 'Pool 1', gallonsRep: 0 }]; }
+  // Engineer-added pools — pool_index beyond the rep roster
+  verifs.forEach(function(v){
+    if (v.is_engineer_added && !pools.find(function(p){ return p.index === v.pool_index; })){
+      pools.push({
+        index: v.pool_index,
+        name: v.pool_name_override || ('Pool ' + (v.pool_index + 1)),
+        gallonsRep: 0,
+        engineerAdded: true
+      });
+    }
+  });
+  pools.sort(function(a,b){ return a.index - b.index; });
+
+  function poolTypeLabel(t){
+    if (t === 'fresh' || t === 'chlorine') return 'Fresh Water / Chlorine';
+    if (t === 'saltwater') return 'Saltwater';
+    return '—';
+  }
 
   var poolPagesHtml = pools.map(function(p){
     var v = verifs.find(function(x){ return x.pool_index === p.index; });
@@ -7187,6 +7284,9 @@ function _engineerReport_renderHtml(bundle){
     var poolMedia = media.filter(function(m){ return m.pool_index === p.index; });
     var photos = poolMedia.filter(function(m){ return m.media_type === 'photo'; });
     var videos = poolMedia.filter(function(m){ return m.media_type === 'video'; });
+    var displayName = (v && v.pool_name_override) || p.name;
+    var pumpRoom = poolPumpRoom[p.index] ? pumpRoomById[poolPumpRoom[p.index]] : null;
+    var engType = (v && v.pool_type) || p.repPoolType || '';
 
     var linesTable = lines.length
       ? '<table class="rpt-tbl"><thead><tr><th>Count</th><th>Diameter</th></tr></thead><tbody>'
@@ -7215,14 +7315,16 @@ function _engineerReport_renderHtml(bundle){
 
     return '<div class="rpt">'
       + '<div class="rpt-head">'
-      +   '<div class="rpt-head-l"><div class="rpt-head-title">ENGINEER VERIFICATION</div><div class="rpt-head-sub">AquaRev Water</div></div>'
-      +   '<div class="rpt-head-r"><div class="rpt-head-prop">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-head-date">' + esc(today) + '</div><span class="rpt-head-nsf">NSF/ANSI 50 Certified · IAPMO</span></div>'
+      +   '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Engineer Verification</div></div>'
+      +   '<div class="rpt-head-right"><div class="rpt-prop-name rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
       + '</div>'
       + '<div class="rpt-body">'
       +   '<div class="rpt-sec">'
-      +     '<div class="rpt-stitle">' + esc(p.name) + '</div>'
-      +     '<div class="rpt-row"><span class="k">Rep-stated gallons</span><span class="v">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal' : '—') + '</span></div>'
+      +     '<div class="rpt-stitle">' + esc(displayName) + (p.engineerAdded ? ' · Engineer-added' : '') + '</div>'
+      +     '<div class="rpt-row"><span class="k">Water type</span><span class="v">' + esc(poolTypeLabel(engType)) + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Estimate gallons</span><span class="v">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal' : '—') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Engineer-confirmed gallons</span><span class="v">' + (v && v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : 'Not confirmed') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
       +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines</div>'
       +     linesTable
       +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
@@ -7231,17 +7333,44 @@ function _engineerReport_renderHtml(bundle){
       +   (photos.length ? '<div class="rpt-sec"><div class="rpt-stitle">Photos (' + photos.length + ')</div>' + photoGrid + '</div>' : '')
       +   (videos.length ? '<div class="rpt-sec">' + videosList + '</div>' : '')
       + '</div>'
-      + '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + ' · ' + esc(p.name) + '</span></div>'
+      + '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + ' · ' + esc(displayName) + '</span></div>'
       + '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
       + '</div>';
   }).join('');
 
-  // Cover page mimics .rpt structure but with engineer-specific copy.
+  // Pump-Rooms summary block on the cover page. Each room lists label,
+  // walkthrough video filename (if uploaded), supporting photo count,
+  // and how many pools it serves.
+  var pumpRoomsHtml = '';
+  if (pumpRooms.length){
+    pumpRoomsHtml = '<div class="rpt-sec">'
+      + '<div class="rpt-stitle">Pump Rooms (' + pumpRooms.length + ')</div>'
+      + '<table class="rpt-tbl">'
+      +   '<thead><tr><th>ID</th><th>Walkthrough</th><th>Photos</th><th>Pools served</th></tr></thead>'
+      +   '<tbody>'
+      +     pumpRooms.map(function(r){
+            var roomMedia = media.filter(function(m){ return m.pump_room_id === r.id; });
+            var walkthrough = roomMedia.find(function(m){ return m.media_type === 'video'; });
+            var roomPhotos  = roomMedia.filter(function(m){ return m.media_type === 'photo'; });
+            return '<tr>'
+              + '<td>' + esc(r.label) + '</td>'
+              + '<td>' + (walkthrough ? esc(walkthrough.filename_original || 'video') : '<span style="color:#888">Not uploaded</span>') + '</td>'
+              + '<td>' + roomPhotos.length + '</td>'
+              + '<td>' + (poolsPerRoom[r.id] || 0) + '</td>'
+            + '</tr>';
+          }).join('')
+      +   '</tbody>'
+      + '</table>'
+      + '</div>';
+  }
+
+  // Cover page — switched to .rpt-head-left/right + .rpt-logo + .rpt-prop-name
+  // classes so colors and typography MATCH the standard AquaRev report.
   var coverHtml = ''
     + '<div class="rpt">'
     +   '<div class="rpt-head">'
-    +     '<div class="rpt-head-l"><div class="rpt-head-title">ENGINEER VERIFICATION</div><div class="rpt-head-sub">AquaRev Water</div></div>'
-    +     '<div class="rpt-head-r"><div class="rpt-head-prop rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-head-date">' + esc(today) + '</div><span class="rpt-head-nsf">NSF/ANSI 50 Certified · IAPMO</span></div>'
+    +     '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Engineer Verification</div></div>'
+    +     '<div class="rpt-head-right"><div class="rpt-prop-name rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
     +   '</div>'
     +   '<div class="rpt-body">'
     +     '<div class="rpt-sec">'
@@ -7257,10 +7386,12 @@ function _engineerReport_renderHtml(bundle){
     +     '<div class="rpt-sec">'
     +       '<div class="rpt-stitle">Verification Summary</div>'
     +       '<div class="rpt-row"><span class="k">Pools documented</span><span class="v">' + verifs.length + ' of ' + pools.length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Pump rooms captured</span><span class="v">' + pumpRooms.length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Photos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='photo';}).length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Videos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='video';}).length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Submitted</span><span class="v">' + esc(submitted) + '</span></div>'
     +     '</div>'
+    +     pumpRoomsHtml
     +     '<div class="rpt-disc">This document captures pool-level field verification data collected by the assigned engineer. It excludes commercial terms; final pricing is communicated separately by the AquaRev sales team.</div>'
     +   '</div>'
     +   '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + '</span></div>'
@@ -7320,9 +7451,23 @@ function renderAdminEngineerSubmissions(){
   var bundle = window.AR2_ADMIN_ENG;
   if (!bundle){ mount.innerHTML = '<div class="ar-admin-empty">No submissions yet.</div>'; return; }
   var filter = '';
-  try { filter = localStorage.getItem('ar2:admin-eng-filter') || ''; } catch(_){}
+  var searchQ = '';
+  try { filter  = localStorage.getItem('ar2:admin-eng-filter') || ''; } catch(_){}
+  try { searchQ = (window.AR2_ADMIN_ENG_SEARCH || '').toLowerCase(); } catch(_){}
   var rows = bundle.assignments;
-  if (filter) rows = rows.filter(function(r){ return r.status === filter; });
+  if (filter)  rows = rows.filter(function(r){ return r.status === filter; });
+  if (searchQ){
+    rows = rows.filter(function(r){
+      // Search matches property/portfolio/assessment name + engineer name
+      var hay = [];
+      if (r.property_id  && bundle.propById[r.property_id])  hay.push(bundle.propById[r.property_id].property_name || '');
+      if (r.portfolio_id && bundle.pfById[r.portfolio_id])   hay.push(bundle.pfById[r.portfolio_id].name || '');
+      if (r.assessment_id && bundle.assById[r.assessment_id]) hay.push(bundle.assById[r.assessment_id].property_name || '');
+      if (bundle.engById[r.engineer_user_id]) hay.push(bundle.engById[r.engineer_user_id].name || '');
+      if (r.assignment_notes) hay.push(r.assignment_notes);
+      return hay.join(' ').toLowerCase().indexOf(searchQ) !== -1;
+    });
+  }
 
   function statusPill(s){
     if (s === 'pending')     return '<span class="ar-eng-pill amber">Pending</span>';
@@ -7357,6 +7502,9 @@ function renderAdminEngineerSubmissions(){
     var active = (st === filter) ? ' active' : '';
     filterHtml += '<button class="ar-admin-eng-filter' + active + '" data-action="admin-eng-filter" data-filter="' + st + '" type="button">' + labels[i] + '</button>';
   });
+  filterHtml += '<div class="ar-admin-eng-search-wrap">'
+    +   '<input type="search" class="ar-admin-eng-search" placeholder="Search property, engineer, notes…" value="' + esc(searchQ) + '" data-action="admin-eng-search" />'
+    + '</div>';
   filterHtml += '<span class="ar-admin-eng-count">' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</span>';
   filterHtml += '<button class="ar-admin-eng-refresh" data-action="admin-eng-refresh" type="button" title="Refresh">↻</button>';
   filterHtml += '</div>';
@@ -8408,6 +8556,7 @@ window.AR2_ENGINEER = (function(){
       pump_room_id: v.pump_room_id || null,
       pool_name_override: v.pool_name_override || null,
       is_engineer_added: !!v.is_engineer_added,
+      pool_type: v.pool_type || null,
       updated_at: new Date().toISOString()
     };
     c.from('engineer_verifications')
@@ -9297,6 +9446,14 @@ window.AR2_ENGINEER = (function(){
 
       +   imageBlock
 
+      +   '<div class="ar-eng-field"><label>Water type</label>'
+      +     '<select class="ar-eng-pool-type-select" data-action="ar-eng-pool-type" data-pool="' + p.index + '"' + dis + '>'
+      +       '<option value=""' + (!v.pool_type ? ' selected' : '') + '>— Select water type —</option>'
+      +       '<option value="fresh"' + (v.pool_type === 'fresh' ? ' selected' : '') + '>Fresh Water / Chlorine</option>'
+      +       '<option value="saltwater"' + (v.pool_type === 'saltwater' ? ' selected' : '') + '>Saltwater</option>'
+      +     '</select>'
+      +   '</div>'
+
       +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
       +     '<div class="ar-eng-inline">'
       +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
@@ -9626,6 +9783,12 @@ window.AR2_ENGINEER = (function(){
       var pIdx = parseInt(target.getAttribute('data-pool-image'), 10);
       var pool = s.pools.find(function(x){ return x.index === pIdx; });
       if (pool && pool.image) openMediaLightbox(pool.image, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-pool-type'){
+      var ptPool = parseInt(target.getAttribute('data-pool'), 10);
+      var ptVal  = target.value || null;
+      updateVerification(ptPool, { pool_type: ptVal });
       return true;
     }
     if (action === 'ar-eng-preview-pdf'){
@@ -10930,10 +11093,41 @@ function renderStep0(){
         +'</div>';
     }
 
-    return '<div class="ar-body-card'+(g>0?' has-gal':'')+'" id="bc-'+b.id+'">'
+    // Engineer-verified badge — green check appears on the body card
+    // header when an engineer has FULLY verified this pool (return lines
+    // saved AND at least one media uploaded). Tooltip shows the engineer's
+    // confirmed gallons + linked pump room when available. Click opens
+    // the Engineer Submission Review modal so the rep / admin can jump
+    // straight into the engineer's record.
+    var engVerified = '';
+    var loopIdx = arguments.length > 1 ? arguments[1] : null;
+    // bodiesHtml uses .map(function(b){...}) without index — pull from
+    // S.bodies position so we have a stable pool_index reference.
+    var bodyIdx = (S.bodies || []).indexOf(b);
+    var engInfo = (S._engineerVerifiedPools || {})[bodyIdx];
+    if (engInfo){
+      // Admin-only click handler — opens the Engineer Submission Review
+      // modal. Non-admin reps see the badge as a static indicator.
+      var isAdminEv = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+      var clickAttrs = (isAdminEv && engInfo.assignment_id)
+        ? ' data-action="admin-review-submission" data-assignment-id="' + esc(engInfo.assignment_id) + '" style="cursor:pointer"'
+        : ' style="cursor:default"';
+      var ttBits = [];
+      if (engInfo.confirmed_gallons) ttBits.push('Confirmed ' + fn(engInfo.confirmed_gallons) + ' gal');
+      if (engInfo.pool_type)         ttBits.push(engInfo.pool_type === 'saltwater' ? 'Saltwater' : 'Fresh / Chlorine');
+      if (engInfo.pump_room_label)   ttBits.push('Pump room: ' + engInfo.pump_room_label);
+      var tt = ttBits.length ? ttBits.join(' · ') : 'Verified by engineer';
+      engVerified = '<span class="ar-body-eng-verified" title="' + esc(tt) + '"' + clickAttrs + '>'
+        + '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12.5 10 18 20 6"/></svg>'
+        + '<span class="ar-body-eng-verified-lbl">Verified</span>'
+        + '</span>';
+    }
+
+    return '<div class="ar-body-card'+(g>0?' has-gal':'')+(engInfo?' eng-verified':'')+'" id="bc-'+b.id+'">'
       +'<div class="ar-body-hd">'
         +'<input class="ar-inp sm" style="flex:1;min-width:80px" data-bf="label" data-bid="'+b.id+'" value="'+esc(b.label)+'" placeholder="Pool name" />'
         +(b.fromMap?'<span class="ar-body-map-tag" title="Traced on the Map Pool step">MAP</span>':'')
+        +engVerified
         +'<div style="display:flex;align-items:center;gap:7px;flex-shrink:0">'
           +'<div class="ar-body-type">'
             +'<button class="ar-btype-btn'+(b.poolType==='chlorine'?' on':'')+'" data-bpt="chlorine" data-bid="'+b.id+'">Chlorine</button>'
@@ -14133,7 +14327,31 @@ function handleClick(e){
   }
   var engReview=e.target.closest('[data-action="admin-review-submission"]');
   if(engReview){
-    openAdminReviewModal(engReview.getAttribute('data-assignment-id'));
+    var asgnIdOpen = engReview.getAttribute('data-assignment-id');
+    // The review modal reads the assignment from window.AR2_ADMIN_ENG —
+    // which is only populated when the Engineer Submissions tab is open.
+    // When the click originates outside that tab (e.g. the green Verified
+    // badge on a body card in the calculator), prime the cache first.
+    if (!window.AR2_ADMIN_ENG && typeof populateAdminEngineerSubmissions === 'function'){
+      // Stash the pending id; re-open after population completes.
+      window.AR2_ADMIN_ENG_PENDING_OPEN = asgnIdOpen;
+      populateAdminEngineerSubmissions();
+      // Poll briefly for the cache to land (populate is async).
+      var tries = 0;
+      var iv = setInterval(function(){
+        if (window.AR2_ADMIN_ENG || tries > 50){
+          clearInterval(iv);
+          if (window.AR2_ADMIN_ENG_PENDING_OPEN){
+            var id = window.AR2_ADMIN_ENG_PENDING_OPEN;
+            window.AR2_ADMIN_ENG_PENDING_OPEN = null;
+            openAdminReviewModal(id);
+          }
+        }
+        tries++;
+      }, 100);
+      return;
+    }
+    openAdminReviewModal(asgnIdOpen);
     return;
   }
   // Admin User Manager actions (admin-only)
@@ -14672,6 +14890,23 @@ function handleClick(e){
 
 function handleInput(e){
   var el=e.target;
+  // Engineer Submissions search input (admin tab). Updates the in-memory
+  // query and re-renders the table. Preserves focus + caret because we
+  // re-set value in the new DOM with the same string.
+  if (el && el.getAttribute && el.getAttribute('data-action') === 'admin-eng-search'){
+    window.AR2_ADMIN_ENG_SEARCH = el.value || '';
+    if (typeof renderAdminEngineerSubmissions === 'function'){
+      renderAdminEngineerSubmissions();
+      // Refocus the new input so typing keeps working.
+      setTimeout(function(){
+        var ne = document.querySelector('[data-action="admin-eng-search"]');
+        if (ne){
+          try { ne.focus(); ne.setSelectionRange(ne.value.length, ne.value.length); } catch(_){}
+        }
+      }, 0);
+    }
+    return;
+  }
   // P3: Quote builder field — write back to pfState quote draft.
   if (el.dataset && el.dataset.qbKey && window.AR2_PF && AR2_PF.selectedPortfolioId){
     var pidQ = AR2_PF.selectedPortfolioId();

@@ -2532,6 +2532,27 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-btn.primary.send-green:hover:not(:disabled){filter:brightness(1.08);}
 #ar2 .ar-eng-btn.primary.send-green:disabled{background:linear-gradient(135deg,rgba(34,197,94,.32),rgba(22,163,74,.32));color:rgba(255,255,255,.72);}
 
+/* Engineer-verified badge on the rep's pool body card. Sits beside
+   the pool name input. Click opens the Engineer Submission Review
+   modal (admin only — data-action routes through admin-review-submission
+   which checks isAdmin() before opening). */
+#ar2 .ar-body-eng-verified{display:inline-flex;align-items:center;gap:4px;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.5);color:#4ade80;padding:3px 8px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;transition:background .15s,color .15s;}
+#ar2 .ar-body-eng-verified:hover{background:rgba(34,197,94,.28);color:#fff;}
+#ar2 .ar-body-eng-verified svg{flex-shrink:0;}
+#ar2 .ar-body-eng-verified-lbl{line-height:1;}
+#ar2 .ar-body-card.eng-verified{border-color:rgba(34,197,94,.35);}
+
+/* Pool Water-type dropdown inside the engineer pool card. */
+#ar2 .ar-eng-pool-type-select{width:100%;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.28);color:#fff;padding:9px 12px;border-radius:7px;font-family:inherit;font-size:13px;outline:none;cursor:pointer;}
+#ar2 .ar-eng-pool-type-select:focus{border-color:rgba(0,180,216,.65);}
+#ar2 .ar-eng-pool-type-select:disabled{opacity:.55;cursor:not-allowed;}
+
+/* Engineer Submissions search input — paired with the filter chips. */
+#ar2 .ar-admin-eng-search-wrap{flex:1 1 220px;min-width:160px;max-width:320px;display:flex;align-items:center;}
+#ar2 .ar-admin-eng-search{width:100%;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.25);color:#fff;padding:5px 12px;border-radius:99px;font-family:inherit;font-size:11.5px;outline:none;transition:border-color .12s;}
+#ar2 .ar-admin-eng-search:focus{border-color:rgba(0,180,216,.65);}
+#ar2 .ar-admin-eng-search::placeholder{color:rgba(125,184,204,.55);}
+
 /* In-page report preview overlay. Scrollable; download button inside
    kicks the print flow without the engineer leaving the portal. */
 .ar-eng-report-preview-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.86);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;}
