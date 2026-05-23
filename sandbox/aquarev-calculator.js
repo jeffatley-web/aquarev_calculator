@@ -1745,103 +1745,118 @@ window.AR2_PF = (function(){
   }
 
   function _loadAssignmentsForPortfolio(portfolioId){
-    // Builds two indexes:
-    //   pfState.engineerAssignmentsByProperty[propertyId] = assignmentRow
-    //   pfState.engineerAssignmentsByPortfolio[portfolioId] = assignmentRow
-    // Result is cached; renderPortfolioOverview waits on it before painting
-    // the assignment chips on each row.
-    if (!pfState.engineerAssignmentsByProperty) pfState.engineerAssignmentsByProperty = {};
+    // Builds three indexes — each VALUE is an array of assignment rows
+    // since multiple engineers can be assigned to the same scope.
+    //   pfState.engineerAssignmentsByProperty[propertyId]   = [assignment, ...]
+    //   pfState.engineerAssignmentsByPortfolio[portfolioId] = [assignment, ...]
+    if (!pfState.engineerAssignmentsByProperty)  pfState.engineerAssignmentsByProperty  = {};
     if (!pfState.engineerAssignmentsByPortfolio) pfState.engineerAssignmentsByPortfolio = {};
     var c = client();
     if (!c) return Promise.resolve();
-    // Fetch the portfolio + per-property assignments in parallel queries.
-    // RLS lets admins see everything; non-admins won't render the chips.
     var slot = pfState.properties[portfolioId];
     if (!slot || !slot.rows) return Promise.resolve();
     var propIds = slot.rows.map(function(r){ return r.id; });
+    var q;
     if (!propIds.length){
-      // Still fetch any portfolio-level assignment.
-      return c.from('engineer_assignments')
-        .select('id,engineer_user_id,property_id,portfolio_id,status,assignment_notes,assigned_at,last_modified_at')
-        .eq('portfolio_id', portfolioId)
-        .then(function(rs){
-          (rs.data || []).forEach(function(a){
-            pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = a;
-          });
-        }, function(){});
+      q = c.from('engineer_assignments')
+        .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+        .eq('portfolio_id', portfolioId);
+    } else {
+      q = c.from('engineer_assignments')
+        .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+        .or('property_id.in.(' + propIds.join(',') + '),portfolio_id.eq.' + portfolioId);
     }
+    return q.then(function(rs){
+      // Reset slots we own so a refetch doesn't double-stack.
+      propIds.forEach(function(pid){ pfState.engineerAssignmentsByProperty[pid] = []; });
+      pfState.engineerAssignmentsByPortfolio[portfolioId] = [];
+      (rs.data || []).forEach(function(a){
+        if (a.property_id){
+          if (!pfState.engineerAssignmentsByProperty[a.property_id]) pfState.engineerAssignmentsByProperty[a.property_id] = [];
+          pfState.engineerAssignmentsByProperty[a.property_id].push(a);
+        }
+        if (a.portfolio_id){
+          if (!pfState.engineerAssignmentsByPortfolio[a.portfolio_id]) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = [];
+          pfState.engineerAssignmentsByPortfolio[a.portfolio_id].push(a);
+        }
+      });
+    }, function(){});
+  }
+
+  /* Loader for single-assessment scope. Admin-only entry point; called
+     from renderBank when the admin sees the unified archive list.
+     pfState.engineerAssignmentsByAssessment[assessmentId] = [...] */
+  function _loadAssignmentsForAssessments(assessmentIds){
+    if (!pfState.engineerAssignmentsByAssessment) pfState.engineerAssignmentsByAssessment = {};
+    var c = client();
+    if (!c || !assessmentIds || !assessmentIds.length) return Promise.resolve();
     return c.from('engineer_assignments')
-      .select('id,engineer_user_id,property_id,portfolio_id,status,assignment_notes,assigned_at,last_modified_at')
-      .or('property_id.in.(' + propIds.join(',') + '),portfolio_id.eq.' + portfolioId)
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+      .in('assessment_id', assessmentIds)
       .then(function(rs){
+        // Reset only the slots we're asked about
+        assessmentIds.forEach(function(aid){ pfState.engineerAssignmentsByAssessment[aid] = []; });
         (rs.data || []).forEach(function(a){
-          if (a.property_id) pfState.engineerAssignmentsByProperty[a.property_id] = a;
-          if (a.portfolio_id) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = a;
+          if (a.assessment_id){
+            if (!pfState.engineerAssignmentsByAssessment[a.assessment_id]) pfState.engineerAssignmentsByAssessment[a.assessment_id] = [];
+            pfState.engineerAssignmentsByAssessment[a.assessment_id].push(a);
+          }
         });
       }, function(){});
   }
 
   function openAssignEngineerModal(scope){
-    // scope = { kind: 'property'|'portfolio', id, name }
+    // scope = { kind: 'property'|'portfolio'|'assessment', id, name }
     var existing = document.getElementById('ar-eng-assign-modal');
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-
-    var existingAssignment = scope.kind === 'property'
-      ? (pfState.engineerAssignmentsByProperty || {})[scope.id]
-      : (pfState.engineerAssignmentsByPortfolio || {})[scope.id];
 
     var bd = document.createElement('div');
     bd.id = 'ar-eng-assign-modal';
     bd.className = 'ar-pf-modal-backdrop';
-    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-eng-assign-title" style="max-width:520px">'
-      + '<div class="ar-pf-modal-title" id="ar-eng-assign-title">' + (existingAssignment ? 'Manage Engineer Assignment' : 'Assign Engineer') + '</div>'
+    bd.dataset.scopeKind = scope.kind;
+    bd.dataset.scopeId   = scope.id;
+    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-eng-assign-title" style="max-width:560px">'
+      + '<div class="ar-pf-modal-title" id="ar-eng-assign-title">Engineer Assignments</div>'
       + '<div style="font-size:13px;color:#cfe2eb;line-height:1.5;margin-bottom:14px">'
-      +   (existingAssignment
-            ? 'Currently assigned for <b style="color:#fff">' + esc(scope.name || 'this record') + '</b>. Change engineer or remove the assignment.'
-            : 'Send <b style="color:#fff">' + esc(scope.name || 'this record') + '</b> to an engineer for field verification.')
+      +   'For <b style="color:#fff">' + esc(scope.name || 'this record') + '</b>. Multiple engineers can be assigned to the same record — each gets their own portal access and audit trail.'
       + '</div>'
-      + '<label class="ar-pf-modal-lbl" for="ar-eng-assign-select">Engineer</label>'
+
+      + '<div class="ar-pf-modal-lbl">Currently assigned</div>'
+      + '<div id="ar-eng-assign-list" style="margin-bottom:14px;min-height:34px"><div style="color:var(--mu);font-size:11.5px;padding:8px">Loading…</div></div>'
+
+      + '<div class="ar-pf-modal-lbl" style="margin-top:6px">Add another engineer</div>'
       + '<select class="ar-pf-modal-input" id="ar-eng-assign-select"><option value="">— Loading engineers… —</option></select>'
-      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-eng-assign-notes">Notes for engineer <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(optional)</span></label>'
-      + '<textarea class="ar-pf-modal-input" id="ar-eng-assign-notes" rows="3" placeholder="e.g. Access via service entrance, contact Maria at front desk for key…">' + esc(existingAssignment ? (existingAssignment.assignment_notes || '') : '') + '</textarea>'
+      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-eng-assign-notes">Notes for this engineer <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(optional)</span></label>'
+      + '<textarea class="ar-pf-modal-input" id="ar-eng-assign-notes" rows="2" placeholder="e.g. Access via service entrance, contact Maria at front desk for key…"></textarea>'
+
       + '<div class="ar-pf-modal-err" id="ar-eng-assign-err"></div>'
       + '<div class="ar-pf-modal-actions">'
-      +   '<button class="ar-pf-modal-btn" data-eng-assign-action="cancel" type="button">Cancel</button>'
-      +   (existingAssignment ? '<button class="ar-pf-modal-btn danger" data-eng-assign-action="remove" type="button">Remove assignment</button>' : '')
-      +   '<button class="ar-pf-modal-btn primary" data-eng-assign-action="save" type="button">' + (existingAssignment ? 'Update' : 'Assign') + '</button>'
+      +   '<button class="ar-pf-modal-btn" data-eng-assign-action="cancel" type="button">Close</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-eng-assign-action="add" type="button">+ Add Engineer</button>'
       + '</div>'
       + '</div>';
     document.body.appendChild(bd);
-    bd.dataset.scopeKind = scope.kind;
-    bd.dataset.scopeId   = scope.id;
-    bd.dataset.assignmentId = (existingAssignment && existingAssignment.id) || '';
 
-    // Populate engineers list.
+    _renderAssignmentList();
     _loadActiveEngineers().then(function(engineers){
-      var sel = document.getElementById('ar-eng-assign-select');
-      if (!sel) return;
-      if (!engineers.length){
-        sel.innerHTML = '<option value="">— No active engineers — create one in User Management —</option>';
-        return;
-      }
-      var currentId = existingAssignment ? existingAssignment.engineer_user_id : '';
-      sel.innerHTML = '<option value="">— Select an engineer —</option>' + engineers.map(function(e){
-        var label = esc(e.name) + (e.phone ? ' · ' + esc(e.phone) : '');
-        var selected = e.id === currentId ? ' selected' : '';
-        return '<option value="' + esc(e.id) + '"' + selected + '>' + label + '</option>';
-      }).join('');
+      _refreshEngineerDropdown(engineers);
     });
 
     // Event handlers
     bd.addEventListener('click', function(e){
       if (e.target === bd) { closeAssignEngineerModal(); return; }
+      var rmBtn = e.target.closest('[data-eng-assign-action="remove-row"]');
+      if (rmBtn){
+        e.stopPropagation();
+        removeEngineerAssignmentRow(rmBtn.getAttribute('data-assignment-id'));
+        return;
+      }
       var btn = e.target.closest('[data-eng-assign-action]');
       if (!btn) return;
       e.stopPropagation();
       var act = btn.getAttribute('data-eng-assign-action');
       if (act === 'cancel') return closeAssignEngineerModal();
-      if (act === 'save')   return submitAssignEngineer();
-      if (act === 'remove') return removeEngineerAssignment();
+      if (act === 'add')    return submitAddEngineer();
     });
     bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAssignEngineerModal(); });
   }
@@ -1850,17 +1865,84 @@ window.AR2_PF = (function(){
     if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
-  function submitAssignEngineer(){
+  function _getScopeAssignments(){
+    var bd = document.getElementById('ar-eng-assign-modal');
+    if (!bd) return [];
+    var kind = bd.dataset.scopeKind;
+    var id   = bd.dataset.scopeId;
+    if (kind === 'property')   return (pfState.engineerAssignmentsByProperty   || {})[id] || [];
+    if (kind === 'portfolio')  return (pfState.engineerAssignmentsByPortfolio  || {})[id] || [];
+    if (kind === 'assessment') return (pfState.engineerAssignmentsByAssessment || {})[id] || [];
+    return [];
+  }
+
+  function _statusLabel(s){
+    if (s === 'pending')     return 'Pending';
+    if (s === 'in_progress') return 'In progress';
+    if (s === 'submitted')   return 'Sent for review';
+    if (s === 'reviewed')    return 'Reviewed';
+    if (s === 'locked')      return 'Locked';
+    return s || '—';
+  }
+
+  function _renderAssignmentList(){
+    var listEl = document.getElementById('ar-eng-assign-list');
+    if (!listEl) return;
+    var assignments = _getScopeAssignments();
+    var engs = pfState.activeEngineers || [];
+    var engNameById = {};
+    engs.forEach(function(e){ engNameById[e.id] = e.name; });
+    if (!assignments.length){
+      listEl.innerHTML = '<div style="padding:10px 12px;background:rgba(0,0,0,.16);border:1px dashed rgba(0,180,216,.18);border-radius:8px;color:var(--mu);font-size:12px">No engineers assigned yet — add one below.</div>';
+      return;
+    }
+    listEl.innerHTML = assignments.map(function(a){
+      var name = engNameById[a.engineer_user_id] || 'Engineer';
+      return '<div class="ar-eng-assign-row">'
+        +   '<div class="ar-eng-assign-row-main">'
+        +     '<div class="ar-eng-assign-row-name">👷 ' + esc(name) + '</div>'
+        +     '<div class="ar-eng-assign-row-meta">' + esc(_statusLabel(a.status)) + (a.assignment_notes ? ' · ' + esc(a.assignment_notes) : '') + '</div>'
+        +   '</div>'
+        +   '<button class="ar-eng-assign-row-x" data-eng-assign-action="remove-row" data-assignment-id="' + esc(a.id) + '" type="button" aria-label="Remove">×</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  function _refreshEngineerDropdown(engineers){
+    var sel = document.getElementById('ar-eng-assign-select');
+    if (!sel) return;
+    if (!engineers || !engineers.length){
+      sel.innerHTML = '<option value="">— No active engineers — create one in User Management —</option>';
+      return;
+    }
+    // Hide engineers already on this record from the dropdown so admins
+    // don't accidentally double-assign.
+    var assignedIds = {};
+    _getScopeAssignments().forEach(function(a){ assignedIds[a.engineer_user_id] = true; });
+    var available = engineers.filter(function(e){ return !assignedIds[e.id]; });
+    if (!available.length){
+      sel.innerHTML = '<option value="">— All active engineers are already assigned —</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">— Select an engineer —</option>' + available.map(function(e){
+      var label = esc(e.name) + (e.phone ? ' · ' + esc(e.phone) : '');
+      return '<option value="' + esc(e.id) + '">' + label + '</option>';
+    }).join('');
+  }
+
+  /* Add a new engineer assignment to the current scope. Each Add creates
+     a fresh engineer_assignments row — supports multiple engineers per
+     record. Modal stays open after each add so admins can chain. */
+  function submitAddEngineer(){
     var bd = document.getElementById('ar-eng-assign-modal');
     if (!bd) return;
     var scopeKind = bd.dataset.scopeKind;
     var scopeId   = bd.dataset.scopeId;
-    var assignmentId = bd.dataset.assignmentId || null;
-    var sel  = document.getElementById('ar-eng-assign-select');
-    var notes= document.getElementById('ar-eng-assign-notes');
-    var err  = document.getElementById('ar-eng-assign-err');
+    var sel   = document.getElementById('ar-eng-assign-select');
+    var notes = document.getElementById('ar-eng-assign-notes');
+    var err   = document.getElementById('ar-eng-assign-err');
     var engineerUserId = sel && sel.value;
-    if (!engineerUserId){ if (err) err.textContent = 'Pick an engineer.'; if (sel) try { sel.focus(); } catch(_){} return; }
+    if (!engineerUserId){ if (err) err.textContent = 'Pick an engineer to add.'; if (sel) try { sel.focus(); } catch(_){} return; }
     var c = client();
     if (!c){ if (err) err.textContent = 'Cloud unavailable.'; return; }
     var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
@@ -1873,71 +1955,91 @@ window.AR2_PF = (function(){
       engineer_user_id: engineerUserId,
       assignment_notes: (notes && notes.value || '') || null,
       assigned_by_user_id: u.id,
+      status: 'pending',
+      assigned_at: new Date().toISOString(),
       last_modified_at: new Date().toISOString()
     };
-    if (scopeKind === 'property')  payload.property_id  = scopeId;
-    if (scopeKind === 'portfolio') payload.portfolio_id = scopeId;
+    if (scopeKind === 'property')   payload.property_id   = scopeId;
+    if (scopeKind === 'portfolio')  payload.portfolio_id  = scopeId;
+    if (scopeKind === 'assessment') payload.assessment_id = scopeId;
 
-    var p;
-    if (assignmentId){
-      // Update an existing assignment (reassign or change notes).
-      p = c.from('engineer_assignments').update(payload).eq('id', assignmentId).select('id').single();
-    } else {
-      // Fresh insert.
-      payload.status = 'pending';
-      payload.assigned_at = new Date().toISOString();
-      p = c.from('engineer_assignments').insert(payload).select('id').single();
-    }
-    p.then(function(rs){
+    c.from('engineer_assignments').insert(payload).select('*').single().then(function(rs){
       if (rs && rs.error) throw new Error(rs.error.message);
-      // Audit + notify the engineer about the new/updated assignment.
-      // Best-effort — failures don't abort the user flow.
-      var newAssignmentId = rs.data && rs.data.id;
-      if (newAssignmentId && window.AR_AUDIT){
-        AR_AUDIT.log('engineer_assignments', newAssignmentId, {
+      var newRow = rs.data;
+      // Audit + notify (best-effort)
+      if (newRow && window.AR_AUDIT){
+        AR_AUDIT.log('engineer_assignments', newRow.id, {
           engineer_user_id: engineerUserId,
-          assignment_notes: (notes && notes.value) || null
-        }, assignmentId ? 'admin update assignment' : 'admin create assignment');
+          assignment_notes: payload.assignment_notes
+        }, 'admin add engineer');
       }
       if (window.AR_NOTIFY && engineerUserId){
-        var msg = assignmentId
-          ? 'Your AquaRev rep updated your engineer assignment.'
-          : 'You have a new assignment — open AquaRev to start.';
-        AR_NOTIFY.push(engineerUserId, assignmentId ? 'assignment_updated' : 'assignment_created', msg, null, newAssignmentId);
+        AR_NOTIFY.push(engineerUserId, 'assignment_created', 'You have a new assignment — open AquaRev to start.', null, newRow && newRow.id);
       }
-      // Invalidate local caches so the row chip refreshes.
-      pfState.engineerAssignmentsByProperty = null;
-      pfState.engineerAssignmentsByPortfolio = null;
-      closeAssignEngineerModal();
+      // Update local caches in-place so the list re-renders immediately
+      _insertAssignmentIntoCache(newRow);
+      _renderAssignmentList();
+      _refreshEngineerDropdown(pfState.activeEngineers || []);
+      // Clear notes so admin can add another fresh
+      if (notes) notes.value = '';
+      for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
+      // Outer chip refresh on next archive render
       if (typeof renderArchive === 'function') renderArchive();
     }, function(e){
-      for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
+      for (var j2 = 0; j2 < btns.length; j2++) btns[j2].disabled = false;
       if (err) err.textContent = (e && e.message) || 'Assignment failed.';
     });
   }
 
-  function removeEngineerAssignment(){
-    var bd = document.getElementById('ar-eng-assign-modal');
-    if (!bd) return;
-    var assignmentId = bd.dataset.assignmentId;
+  /* Remove one engineer's assignment for the current scope. Only deletes
+     that single row — other engineers remain assigned. */
+  function removeEngineerAssignmentRow(assignmentId){
     if (!assignmentId) return;
-    if (!confirm('Remove this engineer assignment? The engineer will lose access to the record.')) return;
+    if (!confirm('Remove this engineer? They\'ll lose access to the record. Other assigned engineers stay.')) return;
     var c = client();
     if (!c) return;
-    var btns = bd.querySelectorAll('[data-eng-assign-action]');
-    for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
     c.from('engineer_assignments').delete().eq('id', assignmentId).then(function(rs){
       if (rs && rs.error){
         var err = document.getElementById('ar-eng-assign-err');
         if (err) err.textContent = rs.error.message;
-        for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
         return;
       }
-      pfState.engineerAssignmentsByProperty = null;
-      pfState.engineerAssignmentsByPortfolio = null;
-      closeAssignEngineerModal();
+      // Pull from caches
+      _removeAssignmentFromCache(assignmentId);
+      _renderAssignmentList();
+      _refreshEngineerDropdown(pfState.activeEngineers || []);
       if (typeof renderArchive === 'function') renderArchive();
     });
+  }
+
+  function _insertAssignmentIntoCache(a){
+    if (!a) return;
+    if (a.property_id){
+      if (!pfState.engineerAssignmentsByProperty) pfState.engineerAssignmentsByProperty = {};
+      if (!pfState.engineerAssignmentsByProperty[a.property_id]) pfState.engineerAssignmentsByProperty[a.property_id] = [];
+      pfState.engineerAssignmentsByProperty[a.property_id].push(a);
+    }
+    if (a.portfolio_id){
+      if (!pfState.engineerAssignmentsByPortfolio) pfState.engineerAssignmentsByPortfolio = {};
+      if (!pfState.engineerAssignmentsByPortfolio[a.portfolio_id]) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = [];
+      pfState.engineerAssignmentsByPortfolio[a.portfolio_id].push(a);
+    }
+    if (a.assessment_id){
+      if (!pfState.engineerAssignmentsByAssessment) pfState.engineerAssignmentsByAssessment = {};
+      if (!pfState.engineerAssignmentsByAssessment[a.assessment_id]) pfState.engineerAssignmentsByAssessment[a.assessment_id] = [];
+      pfState.engineerAssignmentsByAssessment[a.assessment_id].push(a);
+    }
+  }
+  function _removeAssignmentFromCache(assignmentId){
+    function strip(map){
+      if (!map) return;
+      Object.keys(map).forEach(function(k){
+        map[k] = (map[k] || []).filter(function(a){ return a.id !== assignmentId; });
+      });
+    }
+    strip(pfState.engineerAssignmentsByProperty);
+    strip(pfState.engineerAssignmentsByPortfolio);
+    strip(pfState.engineerAssignmentsByAssessment);
   }
 
   /* Delete a single property from a portfolio. Hard-delete (no soft-delete
@@ -2283,23 +2385,39 @@ window.AR2_PF = (function(){
         var country = prop.country ? esc(prop.country) : '';
         var subline = country ? country : (prop.formatted_address ? esc(prop.formatted_address) : '');
         var incomplete = nDev === 0;
-        // Engineer assignment chip — visible to admins only. Status
-        // dictates styling: pending=amber, in_progress=yellow,
-        // submitted=blue, reviewed=green, locked=gray. Unassigned shows
-        // an outline-style "+ Assign" chip.
+        // Engineer assignment chip — visible to admins only. Multi-engineer
+        // support: 0 engineers → outline "+ Assign engineer"; 1 → name +
+        // status; 2+ → "N engineers" with the "newest" status color.
+        // Status priority for the chip color when multiple engineers are
+        // present: locked > reviewed > submitted > in_progress > pending.
         var engChip = '';
         if (isAdminForChips){
-          var asgn = engMap[prop.id];
-          if (asgn){
-            var engName = engNameById[asgn.engineer_user_id] || 'Engineer';
-            var statusCls = asgn.status === 'in_progress' ? 'yellow'
-                          : asgn.status === 'submitted'   ? 'blue'
-                          : asgn.status === 'reviewed'    ? 'green'
-                          : asgn.status === 'locked'      ? 'gray'
-                          : 'amber';
-            engChip = '<div class="ar-pf-prop-eng-chip ' + statusCls + '" data-pf-action="assign-engineer" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" role="button" tabindex="0" title="Engineer: ' + esc(engName) + ' · ' + esc(asgn.status) + '">👷 ' + esc(engName) + '</div>';
-          } else {
+          var asgns = engMap[prop.id] || [];
+          if (asgns.length === 0){
             engChip = '<div class="ar-pf-prop-eng-chip outline" data-pf-action="assign-engineer" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" role="button" tabindex="0" title="Assign an engineer to verify this property">+ Assign engineer</div>';
+          } else {
+            // Pick the "most advanced" status for chip color
+            var priority = { locked:5, reviewed:4, submitted:3, in_progress:2, pending:1 };
+            var topStatus = asgns.reduce(function(best, a){
+              return (priority[a.status]||0) > (priority[best]||0) ? a.status : best;
+            }, 'pending');
+            var statusCls = topStatus === 'in_progress' ? 'yellow'
+                          : topStatus === 'submitted'   ? 'blue'
+                          : topStatus === 'reviewed'    ? 'green'
+                          : topStatus === 'locked'      ? 'gray'
+                          : 'amber';
+            var label;
+            if (asgns.length === 1){
+              var engName1 = engNameById[asgns[0].engineer_user_id] || 'Engineer';
+              label = '👷 ' + esc(engName1);
+            } else {
+              label = '👷 ' + asgns.length + ' engineers';
+            }
+            var titleAttr = asgns.map(function(a){
+              var nm = engNameById[a.engineer_user_id] || 'Engineer';
+              return nm + ' · ' + a.status;
+            }).join(', ');
+            engChip = '<div class="ar-pf-prop-eng-chip ' + statusCls + '" data-pf-action="assign-engineer" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" role="button" tabindex="0" title="' + esc(titleAttr) + '">' + label + '</div>';
           }
         }
         return '<div class="ar-pf-prop-row" data-pf-property="' + prop.id + '" role="button" tabindex="0" draggable="true">'
@@ -3463,15 +3581,19 @@ window.AR2_PF = (function(){
     openAddPropertyModal: openAddPropertyModal,
     closeAddPropertyModal: closeAddPropertyModal,
     submitNewProperty: submitNewProperty,
-    // Phase 2.5 — engineer assignment surface
-    loadAssignmentsForPortfolio: _loadAssignmentsForPortfolio,
-    openAssignEngineerModal: openAssignEngineerModal,
-    closeAssignEngineerModal: closeAssignEngineerModal,
-    engineerAssignmentForProperty: function(pid){
-      return (pfState.engineerAssignmentsByProperty || {})[pid] || null;
+    // Phase 2.5 — engineer assignment surface (multi-engineer support)
+    loadAssignmentsForPortfolio:   _loadAssignmentsForPortfolio,
+    loadAssignmentsForAssessments: _loadAssignmentsForAssessments,
+    openAssignEngineerModal:       openAssignEngineerModal,
+    closeAssignEngineerModal:      closeAssignEngineerModal,
+    engineerAssignmentsForProperty: function(pid){
+      return (pfState.engineerAssignmentsByProperty || {})[pid] || [];
     },
-    engineerAssignmentForPortfolio: function(pid){
-      return (pfState.engineerAssignmentsByPortfolio || {})[pid] || null;
+    engineerAssignmentsForPortfolio: function(pid){
+      return (pfState.engineerAssignmentsByPortfolio || {})[pid] || [];
+    },
+    engineerAssignmentsForAssessment: function(aid){
+      return (pfState.engineerAssignmentsByAssessment || {})[aid] || [];
     },
     // Phase 1c — property mode
     inPropertyMode: inPropertyMode,
@@ -8808,6 +8930,32 @@ function renderBank(targetId){
   +'</div><div class="ar-bank-loading">Loading\u2026</div></div>';
 
   getArchiveListIndex().then(function(idx){
+    // Phase 2.5 follow-up: load engineer assignments for single
+    // assessments in the visible list (admin-only) so each row's chip
+    // renders with current state. We fire-and-forget then re-render via
+    // renderArchive once the cache is populated.
+    var isAdminBank = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    if (isAdminBank && idx && idx.length && window.AR2_PF){
+      var singleIds = idx.filter(function(e){ return e.archiveType !== 'portfolio'; }).map(function(e){ return e.id; });
+      var pfState_ = AR2_PF._state || {};
+      var needsAssignFetch = singleIds.length && !pfState_.engineerAssignmentsByAssessment;
+      var needsEngFetch    = !pfState_.activeEngineers;
+      if (needsAssignFetch || needsEngFetch){
+        var jobs = [];
+        if (needsAssignFetch) jobs.push(AR2_PF.loadAssignmentsForAssessments(singleIds));
+        if (needsEngFetch){
+          var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+          if (c){
+            jobs.push(c.from('app_users').select('id,name,phone').eq('role','engineer').eq('active',true).then(function(rs){
+              pfState_.activeEngineers = (rs && rs.data) || [];
+            }));
+          }
+        }
+        Promise.all(jobs).then(function(){
+          if (typeof renderArchive === 'function') renderArchive();
+        });
+      }
+    }
     var wrap=el.querySelector('.ar-bank-wrap');
     if(!idx||idx.length===0){
       wrap.innerHTML='<div class="ar-bank-hero">'
@@ -8887,11 +9035,42 @@ function renderBank(targetId){
         var countLabel = isPortfolio
           ? (s.devices||0) + (s.devices===1?' prop':' props')
           : (s.devices||'\u2014');
+        // Engineer assignment chip for SINGLE assessments (admin only).
+        // Portfolios skip this — they get their chip on the portfolio
+        // detail's property rows instead, where it's per-property
+        // rather than per-portfolio.
+        var bankEngChip = '';
+        if (isAdmin && !isPortfolio){
+          var asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
+            ? AR2_PF.engineerAssignmentsForAssessment(entry.id)
+            : [];
+          if (asgnList.length === 0){
+            bankEngChip = '<div class="ar-pf-prop-eng-chip outline" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" role="button" tabindex="0" title="Assign an engineer to verify this assessment">+ Assign engineer</div>';
+          } else {
+            var pri = { locked:5, reviewed:4, submitted:3, in_progress:2, pending:1 };
+            var top = asgnList.reduce(function(b,a){ return (pri[a.status]||0) > (pri[b]||0) ? a.status : b; }, 'pending');
+            var sc = top === 'in_progress' ? 'yellow'
+                   : top === 'submitted'   ? 'blue'
+                   : top === 'reviewed'    ? 'green'
+                   : top === 'locked'      ? 'gray'
+                   : 'amber';
+            var bankEngNameMap = {};
+            (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
+            var bankLabel;
+            if (asgnList.length === 1){
+              bankLabel = '👷 ' + esc(bankEngNameMap[asgnList[0].engineer_user_id] || 'Engineer');
+            } else {
+              bankLabel = '👷 ' + asgnList.length + ' engineers';
+            }
+            bankEngChip = '<div class="ar-pf-prop-eng-chip ' + sc + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" role="button" tabindex="0">' + bankLabel + '</div>';
+          }
+        }
         return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'">'
           +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
             +'<div class="ar-bank-prop">'+typeBadge+esc(entry.propertyName)+'</div>'
             +'<div class="ar-bank-date">'+dateStr+'</div>'
+            +bankEngChip
           +'</div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+fc(s.annual,0)+'</div></div>'
@@ -12969,6 +13148,21 @@ function handleClick(e){
         if (AR2_ENGINEER.handleAction(engActName, engAction)) return;
       }
     }
+  }
+  // Bank-row engineer assignment chip (Phase 2.5 follow-up — single
+  // assessments). Opens the same modal as the portfolio chip with
+  // scope=assessment.
+  var asgnBank = e.target.closest('[data-action="assign-engineer-bank"]');
+  if (asgnBank){
+    e.stopPropagation();
+    if (window.AR2_PF && AR2_PF.openAssignEngineerModal){
+      AR2_PF.openAssignEngineerModal({
+        kind: 'assessment',
+        id:   asgnBank.getAttribute('data-bank-id'),
+        name: asgnBank.getAttribute('data-bank-name') || 'this assessment'
+      });
+    }
+    return;
   }
   // Notification bell (Phase 5)
   var notifBell = e.target.closest('[data-action="notif-bell-open"]');
