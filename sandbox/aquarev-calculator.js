@@ -9009,6 +9009,48 @@ function renderBank(targetId){
         var reassignBtn = (isAdmin && !isPortfolio)
           ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">\u2192</button>'
           : '';
+
+        // Engineer assignment button for SINGLE assessments (admin only).
+        // Must be computed BEFORE the `actions` string concatenation
+        // below \u2014 `var` hoisting alone doesn't carry the assignment, so
+        // referencing it from the string template before this point
+        // emits the literal "undefined".
+        var bankEngBtn = '';
+        if (isAdmin && !isPortfolio){
+          var asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
+            ? AR2_PF.engineerAssignmentsForAssessment(entry.id)
+            : [];
+          var bankEngNameMap = {};
+          (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
+          var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
+          var labelText = '';
+          if (asgnList.length === 0){
+            titleText = 'Assign an engineer to verify this assessment';
+            btnCls += ' unassigned';
+          } else {
+            btnCls += ' assigned';
+            titleText = asgnList.map(function(a){
+              var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
+              return nm + ' \u00b7 ' + a.status;
+            }).join('\n');
+            if (asgnList.length === 1){
+              var fullName = bankEngNameMap[asgnList[0].engineer_user_id] || 'Engineer';
+              labelText = String(fullName).split(/\s+/)[0];
+            } else {
+              labelText = asgnList.length + ' engineers';
+            }
+          }
+          var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
+          bankEngBtn = '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
+            + '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
+            +   '<path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/>'
+            +   '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'
+            +   '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'
+            + '</svg>'
+            + (labelText ? '<span class="ar-bank-act-engineer-lbl">' + esc(labelText) + '</span>' : '')
+            + badge
+          + '</button>';
+        }
         // Per-row actions branch by type:
         //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
         //   Portfolios \u2014 open (recall) \u00b7 delete  (PDF + duplicate live at portfolio level)
@@ -9036,51 +9078,6 @@ function renderBank(targetId){
         var countLabel = isPortfolio
           ? (s.devices||0) + (s.devices===1?' prop':' props')
           : (s.devices||'\u2014');
-        // Engineer assignment button for SINGLE assessments (admin only).
-        // Rendered in the actions strip as a small green hardhat icon
-        // button, placed before the reassign button. Tooltip lists the
-        // currently-assigned engineers with their statuses. Badge shows
-        // count when 2+ engineers are assigned. Portfolios use the
-        // per-property chip on the portfolio detail screen instead.
-        var bankEngBtn = '';
-        if (isAdmin && !isPortfolio){
-          var asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
-            ? AR2_PF.engineerAssignmentsForAssessment(entry.id)
-            : [];
-          var bankEngNameMap = {};
-          (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
-          var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
-          var labelText = '';
-          if (asgnList.length === 0){
-            titleText = 'Assign an engineer to verify this assessment';
-            btnCls += ' unassigned';
-          } else {
-            btnCls += ' assigned';
-            titleText = asgnList.map(function(a){
-              var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
-              return nm + ' · ' + a.status;
-            }).join('\n');
-            // Inline label: single → engineer's first name; multiple → "N engineers"
-            // First name keeps the actions row compact; full name + status
-            // still surfaces in the tooltip and the assignment modal.
-            if (asgnList.length === 1){
-              var fullName = bankEngNameMap[asgnList[0].engineer_user_id] || 'Engineer';
-              labelText = String(fullName).split(/\s+/)[0];
-            } else {
-              labelText = asgnList.length + ' engineers';
-            }
-          }
-          var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
-          bankEngBtn = '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
-            + '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
-            +   '<path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/>'                /* hardhat dome */
-            +   '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'  /* brim */
-            +   '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'   /* center ridge */
-            + '</svg>'
-            + (labelText ? '<span class="ar-bank-act-engineer-lbl">' + esc(labelText) + '</span>' : '')
-            + badge
-          + '</button>';
-        }
         return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'">'
           +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
