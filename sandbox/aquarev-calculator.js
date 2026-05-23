@@ -917,18 +917,20 @@ var Cloud = (function(){
     });
   }
 
-  // 90-day daily series, bucketed by EST day, grouped by user.
+  // 30-day daily series, bucketed by EST day, grouped by user.
   // Returns { users:[name...], days:[YYYY-MM-DD...], series:{name:[count per day]} }
-  function stats90DailyByUser(){
+  // Originally 90 days; reduced to 30 for a tighter activity view.
+  function stats30DailyByUser(){
     var c = getClient();
     if(!c || !user) return Promise.reject(new Error('not_signed_in'));
-    var since = new Date(Date.now() - 90*86400000).toISOString();
+    var DAYS = 30;
+    var since = new Date(Date.now() - DAYS*86400000).toISOString();
     var isAdmin = user.role === 'admin';
     var sel = 'id,user_id,created_at' + (isAdmin ? ',app_users!assessments_user_id_fkey(name)' : '');
     return c.from('assessments').select(sel).gte('created_at', since).eq('app_id', APP_ID).order('created_at').then(function(r){
       if(r.error) throw r.error;
       var rows = r.data || [];
-      // Build day axis (90 days ending today, EST)
+      // Build day axis (DAYS days ending today, EST)
       var EST_OFFSET_MIN = -300; // -5h. Approx — does not honour DST; close enough for daily buckets.
       function ymdEst(iso){
         var d = new Date(iso);
@@ -938,7 +940,7 @@ var Cloud = (function(){
       }
       var days = [];
       var todayEst = new Date(Date.now() + (EST_OFFSET_MIN - new Date().getTimezoneOffset())*60000);
-      for(var i=89; i>=0; i--){
+      for(var i=DAYS-1; i>=0; i--){
         var dd = new Date(todayEst.getTime() - i*86400000);
         days.push(dd.getUTCFullYear() + '-' + String(dd.getUTCMonth()+1).padStart(2,'0') + '-' + String(dd.getUTCDate()).padStart(2,'0'));
       }
@@ -1065,7 +1067,7 @@ var Cloud = (function(){
     listUsers: listUsers,
     statsLast30Days: statsLast30Days,
     statsAdminKpis:  statsAdminKpis,
-    stats90DailyByUser: stats90DailyByUser,
+    stats30DailyByUser: stats30DailyByUser,
     adminUserStats: adminUserStats,
     isClient: function(){ return !!user && user.role === 'client'; },
     // Engineer is a new role added Phase 1 of the Engineer Portal build.
@@ -6898,7 +6900,7 @@ function populateAdminDashboard(){
         }).join('')
       + '</tbody></table>';
   }).catch(function(){});
-  AR2_CLOUD.stats90DailyByUser().then(function(d){
+  AR2_CLOUD.stats30DailyByUser().then(function(d){
     var mount=document.getElementById('ar-admin-chart-mount');
     var legendEl=document.getElementById('ar-admin-chart-legend');
     if(!mount) return;
@@ -6931,6 +6933,15 @@ function setAdminActiveTab(tabId){
   var panes = document.querySelectorAll('[data-admin-tab-pane]');
   for (var p = 0; p < panes.length; p++){
     panes[p].style.display = (panes[p].getAttribute('data-admin-tab-pane') === tabId) ? '' : 'none';
+  }
+  // Defensive re-populate when switching into Overview. The initial
+  // populate fires on renderBank, but if the dashboard had been
+  // collapsed at that moment OR if the tab order put us on Users /
+  // Engineer Submissions first, the KPI tiles can stay on em-dashes
+  // until something nudges them. A fresh populate here is cheap (one
+  // batched query) and guarantees the tiles are fresh on every visit.
+  if (tabId === 'overview' && typeof populateAdminDashboard === 'function'){
+    populateAdminDashboard();
   }
 }
 
@@ -9188,7 +9199,7 @@ function renderBank(targetId){
                   +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
                 +'</div>'
                 +'<div class="ar-admin-chart">'
-                  +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
+                  +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 30 Days \u00b7 By User (EST)</div>'
                   +'<div id="ar-admin-chart-mount"></div>'
                   +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
                 +'</div>';
@@ -9241,6 +9252,11 @@ function renderBank(targetId){
           var willOpen = !dashEl.classList.contains('open');
           dashEl.classList.toggle('open', willOpen);
           try { localStorage.setItem('ar2:admin-dash-open', willOpen ? '1' : '0'); } catch(_){}
+          // Re-populate every time the admin expands the drawer. Cheap
+          // (one batched query) and guarantees the KPI tiles, user
+          // table, and 30-day chart are fresh — covers any race where
+          // the initial render fired before the DOM was ready.
+          if (willOpen && typeof populateAdminDashboard === 'function') populateAdminDashboard();
         });
         // Mark loaded since populateAdminDashboard ran unconditionally above.
         dashEl.dataset.loaded = '1';
