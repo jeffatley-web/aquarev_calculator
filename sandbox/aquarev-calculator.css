@@ -2455,6 +2455,13 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-pool-missing{display:flex;align-items:center;gap:7px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.32);color:#f0a500;font-size:11.5px;border-radius:8px;padding:7px 11px;margin-top:12px;line-height:1.45;}
 #ar2 .ar-eng-hint.required{color:#f0a500;}
 
+/* Return-line media callout — reminds the engineer that the media slot
+   is specifically for return-line evidence, not generic pool photos.
+   Sits inside .ar-eng-return-media-field between the label and thumbs. */
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-callout{display:flex;align-items:flex-start;gap:8px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.32);border-left:3px solid #48cae4;color:#cfe2eb;font-size:12px;line-height:1.5;padding:9px 12px;border-radius:7px;margin:6px 0 10px;}
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-callout b{color:#48cae4;font-weight:700;}
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-callout .ar-eng-svg-icon{flex-shrink:0;margin-top:2px;color:#48cae4;}
+
 /* Step-4 PDF row — outline button + helper hint paired side-by-side. */
 #ar2 .ar-eng-pdf-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;}
 #ar2 .ar-eng-pdf-hint{font-size:11.5px;color:var(--mu);line-height:1.4;flex:1 1 200px;}

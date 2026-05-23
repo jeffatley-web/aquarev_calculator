@@ -9014,7 +9014,7 @@ window.AR2_ENGINEER = (function(){
         + '<p><b>For each pool, you need three things to mark it complete:</b></p>'
         + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Match Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
         + '<p style="margin-left:14px"><b>2. Add return lines</b> — one row per pipe configuration. Use +/− for line count, the dropdown for diameter. Add multiple rows if pipe sizes vary.</p>'
-        + '<p style="margin-left:14px"><b>3. Upload at least one photo or video</b> — required for every pool. Cameras open automatically on mobile. Photos are compressed before upload.</p>'
+        + '<p style="margin-left:14px"><b>3. Photograph the return lines</b> — required for every pool. Get one clear close-up of each pipe size showing the diameter, plus a wider shot of the full return wall. A short video panning across the lines is great for clustered piping. Cameras open automatically on mobile; photos are compressed before upload.</p>'
         + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
@@ -9427,7 +9427,7 @@ window.AR2_ENGINEER = (function(){
     if (!complete){
       var missing = [];
       if (!hasLines) missing.push('add at least one return line');
-      if (!hasMedia) missing.push('upload at least one photo or video');
+      if (!hasMedia) missing.push('capture at least one photo or video of the return lines');
       if (missing.length){
         missingHint = '<div class="ar-eng-pool-missing">'
           + svgIconWarn() + ' To complete this pool: ' + missing.join(' &amp; ') + '.'
@@ -9486,12 +9486,15 @@ window.AR2_ENGINEER = (function(){
       +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?"' + dis + '>' + esc(v.notes || '') + '</textarea>'
       +   '</div>'
 
-      +   '<div class="ar-eng-field">'
-      +     '<label>Photos &amp; videos <span class="ar-eng-hint required">required · ' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
-      +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No media yet — required to complete this pool</div>') + '</div>'
+      +   '<div class="ar-eng-field ar-eng-return-media-field">'
+      +     '<label>Return-line photos &amp; videos <span class="ar-eng-hint required">required · ' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
+      +     '<div class="ar-eng-return-media-callout">'
+      +       svgIconCamera() + ' <b>Capture each return line on this pool.</b> One clear shot per pipe size minimum — close-up of the return jet showing the diameter, plus a wider shot of the full return wall. Add a short video panning across the lines if pipes are clustered.'
+      +     '</div>'
+      +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No return-line media yet — at least one photo or video is required to mark this pool complete</div>') + '</div>'
       +     '<div class="ar-eng-media-actions">'
-      +       '<button class="ar-eng-media-btn' + (photoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconCamera() + ' Add photo</button>'
-      +       '<button class="ar-eng-media-btn' + (videoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconVideo() + ' Add video</button>'
+      +       '<button class="ar-eng-media-btn' + (photoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconCamera() + ' Add return-line photo</button>'
+      +       '<button class="ar-eng-media-btn' + (videoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconVideo() + ' Add return-line video</button>'
       +     '</div>'
       +   '</div>'
       +   missingHint
