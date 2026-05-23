@@ -7645,6 +7645,15 @@ function renderArchive(){
    to refresh save-timestamps, etc.).
    ─────────────────────────────────────────────────────────────────── */
 function renderEngineerPortalShell(mountEl){
+  // Engineer-mode body class — hides Calculator-only buttons (Archive,
+  // New, calc tutorial Help icon, stepper) and flips the brand subtitle
+  // to "Engineering Review". Toggled per-render so a role flip clears it.
+  document.body.classList.add('pf-engineer-mode');
+  var subEl = document.querySelector('#ar2 .ar-bs');
+  if (subEl){
+    if (subEl.dataset.origText == null) subEl.dataset.origText = subEl.textContent;
+    subEl.textContent = 'Engineering Review';
+  }
   // If an assignment is currently open, route into the 4-step flow.
   if (window.AR2_ENGINEER && AR2_ENGINEER.state && AR2_ENGINEER.state().assignmentId){
     return AR2_ENGINEER.renderCurrentStep(mountEl);
@@ -7715,7 +7724,7 @@ function renderEngineerAssignmentList(mountEl){
       if (!rows.length){
         listEl.innerHTML = ''
           + '<div class="ar-eng-empty">'
-          +   '<div class="ar-eng-empty-icon">○</div>'
+          +   '<div class="ar-eng-empty-icon"><svg viewBox="0 0 32 32" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="24" height="22" rx="3"/><line x1="4" y1="12" x2="28" y2="12"/><line x1="11" y1="4" x2="11" y2="9"/><line x1="21" y1="4" x2="21" y2="9"/></svg></div>'
           +   '<div class="ar-eng-empty-title">No assignments yet</div>'
           +   '<div class="ar-eng-empty-body">Your AquaRev rep will send you a property to verify when they\'re ready. Check back later.</div>'
           + '</div>';
@@ -7801,6 +7810,89 @@ window.AR2_ENGINEER = (function(){
     }
   };
 
+  // ── Inline SVG icon helpers ─────────────────────────────────────
+  // Replaces all engineer-facing emojis (📷 🎥 ⚠ ✓ ↔ ↗ ↻ × ← → ○ ↳)
+  // with stroke-based SVG badges so they render consistently across
+  // OSes (iOS/Android emoji fonts differ wildly) and inherit color
+  // from the surrounding button for hover/disabled states.
+  function svgIconCamera(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/>'
+      + '<circle cx="12" cy="13" r="3.5"/>'
+      + '</svg>';
+  }
+  function svgIconVideo(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="2.5" y="6.5" width="13" height="11" rx="1.6"/>'
+      + '<path d="M15.5 10.2 21 7.5v9l-5.5-2.7Z"/>'
+      + '</svg>';
+  }
+  function svgIconCheck(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="4 12.5 10 18 20 6"/>'
+      + '</svg>';
+  }
+  function svgIconWarn(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M12 3.2 22 19.5H2L12 3.2Z"/>'
+      + '<line x1="12" y1="10" x2="12" y2="14.5"/>'
+      + '<circle cx="12" cy="17.4" r="0.9" fill="currentColor"/>'
+      + '</svg>';
+  }
+  function svgIconClose(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+      + '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>'
+      + '</svg>';
+  }
+  function svgIconArrowLeft(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="14 5 7 12 14 19"/><line x1="7" y1="12" x2="20" y2="12"/>'
+      + '</svg>';
+  }
+  function svgIconArrowRight(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="10 5 17 12 10 19"/><line x1="4" y1="12" x2="17" y2="12"/>'
+      + '</svg>';
+  }
+  function svgIconReplay(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M3 12a9 9 0 1 0 3.2-6.9"/><polyline points="3 4 3 10 9 10"/>'
+      + '</svg>';
+  }
+  function svgIconHelp(){
+    // Matches the calculator header help icon style (circular ?).
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="9.5"/>'
+      + '<path d="M9.2 9.5a3 3 0 0 1 5.8 1c0 1.8-2.2 2.4-2.8 3.4-.2.4-.2.8-.2 1.2"/>'
+      + '<circle cx="12" cy="18" r="0.9" fill="currentColor" stroke="none"/>'
+      + '</svg>';
+  }
+  function svgIconDownload(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M12 3.5v12.5"/><polyline points="6.5 11 12 16.5 17.5 11"/><path d="M4 20h16"/>'
+      + '</svg>';
+  }
+  function svgIconSend(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M3 12 21 3 14 21l-3-8Z"/><path d="M11 13 21 3"/>'
+      + '</svg>';
+  }
+  function svgIconEmpty(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="3.5" y="5" width="17" height="14" rx="2.2"/><line x1="3.5" y1="9.5" x2="20.5" y2="9.5"/>'
+      + '</svg>';
+  }
+  function svgArrowOut(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px;margin-left:2px">'
+      + '<path d="M14 4h6v6"/><line x1="20" y1="4" x2="10" y2="14"/><path d="M4 8v12h12"/>'
+      + '</svg>';
+  }
+  function svgIconApplyDown(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="5 5 5 13 16 13"/><polyline points="12 9 16 13 12 17"/>'
+      + '</svg>';
+  }
+
   function client(){
     return (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
   }
@@ -7826,6 +7918,14 @@ window.AR2_ENGINEER = (function(){
     s.media = [];
     s.loading = true;
     s.loadError = null;
+    // Implicit access confirmation: the act of opening the assignment
+    // from the portal already proves the engineer is on-site / on-record
+    // for this property. Drop the explicit "Confirm Access" gate on
+    // Step 2 — the engineer keeps the option to FLAG blocked access if
+    // something is wrong, but no longer has to click "I have access"
+    // every time they open a property.
+    s.propertyConfirmation.hasAccess = true;
+    s.propertyConfirmation.accessBlockedReason = '';
     // Show step 1 immediately so the engineer sees the briefing while we
     // fetch the assignment details in the background. If the engineer has
     // already skipped briefing (briefing_skipped on app_users), we jump
@@ -8008,18 +8108,42 @@ window.AR2_ENGINEER = (function(){
   function isStepComplete(n){
     if (n === 1) return true;  // Briefing is always considered complete (skippable)
     if (n === 2){
-      return s.propertyConfirmation.hasAccess === true
-          && s.propertyConfirmation.gallonsMatchesRep != null;
+      // Property step gates were removed (Phase 7.1):
+      //   • Access confirmation is implicit on portal entry — see
+      //     openAssignment() — engineers only interact with Step 2 to
+      //     FLAG access issues, not to confirm normal access.
+      //   • Total-volume confirmation happens per-pool in Steps 3 & 4,
+      //     so the property-level gallons check is redundant.
+      // Either of those steps may still be FLAGGED (blocked access,
+      // discrepancy reason) — those flags don't gate progress, they
+      // just surface in the rep's review.
+      return true;
     }
     if (n === 3){
-      // Every pool must have a verification row with non-empty return_lines.
+      // Every pool needs:
+      //   • At least one return-line row (pipe count + diameter), AND
+      //   • At least one photo OR video uploaded.
+      // Media requirement enforces the "Pool profile is not complete
+      // if there is no media uploaded" rule.
       if (!s.pools.length) return false;
       return s.pools.every(function(p){
         var v = s.verifications[p.index];
-        return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+        if (!v || !Array.isArray(v.return_lines) || v.return_lines.length === 0) return false;
+        return poolHasMedia(p.index);
       });
     }
     return true;
+  }
+  // Helper: does this pool have at least one persisted photo OR video?
+  // Used by isStepComplete(3) and per-card "Complete" check.
+  function poolHasMedia(poolIndex){
+    for (var i = 0; i < s.media.length; i++){
+      var m = s.media[i];
+      if (m.pool_index !== poolIndex) continue;
+      if (m._uploading) continue;     // don't count in-flight placeholders
+      if (m.media_type === 'photo' || m.media_type === 'video') return true;
+    }
+    return false;
   }
 
   // ── Save logic (debounced) ──────────────────────────────────────
@@ -8094,6 +8218,16 @@ window.AR2_ENGINEER = (function(){
           status: { from: oldStatus, to: 'submitted' }
         }, 'engineer submit');
         if (window.AR_NOTIFY) AR_NOTIFY.engineerSubmitted(s.assignmentId);
+        // Confetti! The engineer just finished a full property review —
+        // fire from the Send button if we can find it, otherwise center
+        // burst. confettiBurst is a no-op if it errors so the success
+        // path is never blocked by a sparkle bug.
+        try {
+          if (typeof confettiBurst === 'function'){
+            var btn = document.querySelector('[data-action="ar-eng-submit"]');
+            confettiBurst({ count: 70, originEl: btn || null });
+          }
+        } catch(_){}
         repaint();
       }, function(err){
         s.saving = false;
@@ -8374,7 +8508,7 @@ window.AR2_ENGINEER = (function(){
     for (var i = 1; i <= 4; i++){
       var stateCls = i < current ? 'done' : (i === current ? 'current' : 'pending');
       html += '<button class="ar-eng-step ' + stateCls + '" data-action="ar-eng-goto-step" data-step="' + i + '" type="button">'
-            +   '<span class="ar-eng-step-num">' + (i < current ? '✓' : i) + '</span>'
+            +   '<span class="ar-eng-step-num">' + (i < current ? svgIconCheck() : i) + '</span>'
             +   '<span class="ar-eng-step-lbl">' + labels[i-1] + '</span>'
             + '</button>';
       if (i < 4) html += '<span class="ar-eng-step-bar ' + (i < current ? 'done' : '') + '"></span>';
@@ -8397,8 +8531,8 @@ window.AR2_ENGINEER = (function(){
     }
     return '<div class="ar-eng-flow-header">'
       +   '<div class="ar-eng-header-top">'
-      +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + I.back + ' All assignments</button>'
-      +     '<button class="ar-eng-help-btn" data-action="ar-eng-help-open" type="button" title="Help">?</button>'
+      +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' All assignments</button>'
+      +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
       +   '</div>'
       +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
       +   (subtitle ? '<div class="ar-eng-prop-sub">' + esc(subtitle) + '</div>' : '')
@@ -8416,44 +8550,58 @@ window.AR2_ENGINEER = (function(){
     var step = s.currentStep;
     var stepContent = {
       1: ''
-        + '<div class="ar-eng-help-section"><b>Step 1 — Briefing</b></div>'
-        + '<p>A 60–90 second orientation video. Watch once, then check "Don\'t show this again" to skip on future logins.</p>'
+        + '<div class="ar-eng-help-section">Step 1 — Briefing</div>'
+        + '<p>A 60–90 second orientation video. Watch once, then check <b>"Don\'t show this again"</b> to skip it on future logins.</p>'
         + '<p>If you ever want to rewatch it, tap the button below.</p>'
-        + '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="1" type="button">↻ Watch the briefing again</button>',
+        + '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconReplay() + ' Watch the briefing again</button>',
       2: ''
-        + '<div class="ar-eng-help-section"><b>Step 2 — Property review</b></div>'
-        + '<p><b>Confirm access</b> first. If something is blocking you (locked equipment room, missing keys), tap "Access blocked" and add a quick note. Your rep gets it immediately.</p>'
-        + '<p><b>Confirm total volume</b> — if the rep\'s value is close enough, tap "Matches rep value". If you measured a different number, tap "Override value" and enter what you observed.</p>',
+        + '<div class="ar-eng-help-section">Step 2 — Property review</div>'
+        + '<p><b>Access is auto-confirmed</b> the moment you open this assignment from the portal — so you don\'t need to tap anything to start.</p>'
+        + '<p>If something blocks you on-site (locked equipment room, missing keys), tap <b>Report blocked access</b> and add a quick note. Your rep gets it immediately.</p>'
+        + '<p>Total volume is verified per-pool in Step 3 and rolled up in Step 4 — no separate check on this page.</p>',
       3: ''
-        + '<div class="ar-eng-help-section"><b>Step 3 — Pool profiles</b></div>'
-        + '<p><b>For each pool:</b> confirm the gallons (or override if your measurement differs), then add a return line for each pipe you see on the equipment.</p>'
-        + '<p><b>Return lines:</b> use the +/− stepper for how many lines of that size, and the dropdown for diameter (2", 3", 4", 6", 8"). Add more lines if multiple sizes are present.</p>'
+        + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
+        + '<p><b>For each pool, you need three things to mark it complete:</b></p>'
+        + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Match Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
+        + '<p style="margin-left:14px"><b>2. Add return lines</b> — one row per pipe configuration. Use +/− for line count, the dropdown for diameter. Add multiple rows if pipe sizes vary.</p>'
+        + '<p style="margin-left:14px"><b>3. Upload at least one photo or video</b> — required for every pool. Cameras open automatically on mobile. Photos are compressed before upload.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
-        + '<p style="font-size:11px;color:#7db8cc">Tip: a quarter is ~24 mm or about a 1-inch diameter. Use it for scale against the pipe.</p>'
-        + '<p><b>Photos:</b> tap "+ Add photo" on a pool. Aim for one clear photo per pipe configuration. Photos are compressed automatically before upload.</p>'
-        + '<p><b>Apply Pool 1 to remaining pools</b> when the deck has multiple identical pools — saves typing.</p>',
+        + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across. Set one next to the pipe for scale in your photo.</p>'
+        + '<p>If the deck has multiple identical pools, tap <b>Apply Pool 1 to remaining pools</b> — saves typing.</p>',
       4: ''
-        + '<div class="ar-eng-help-section"><b>Step 4 — Review and send</b></div>'
-        + '<p>Glance over the summary. If anything is missing it\'s called out in amber — step back and fix.</p>'
-        + '<p>Tap "Send to AquaRev for review" when you\'re done. Your rep is notified automatically.</p>'
-        + '<p>You can still edit after sending unless your rep locks the record.</p>'
+        + '<div class="ar-eng-help-section">Step 4 — Review and send</div>'
+        + '<p>Skim the summary. Any pool missing required items (return lines, media) is flagged in amber — tap <b>Back to pools</b> to fix.</p>'
+        + '<p>Tap <b>Send to AquaRev for review</b> when you\'re done. Your rep gets a notification instantly.</p>'
+        + '<p><b>You can keep editing after sending</b> — re-open any record from your assignment list to upload more photos or correct mistakes. Resending just notifies your rep that there\'s a fresh update.</p>'
+        + '<p>You can also <b>download a PDF</b> of your verification report from this step for your own records.</p>'
     };
     var bd = document.createElement('div');
     bd.id = 'ar-eng-help-drawer';
     bd.className = 'ar-eng-help-drawer-backdrop';
     bd.innerHTML = '<div class="ar-eng-help-drawer-panel" role="dialog" aria-modal="true">'
       + '<div class="ar-eng-help-drawer-head">'
-      +   '<div class="ar-eng-help-drawer-title">Help & tips</div>'
-      +   '<button class="ar-eng-help-close" data-action="ar-eng-help-close" type="button" aria-label="Close">×</button>'
+      +   '<div class="ar-eng-help-drawer-title">Help &amp; Tips</div>'
+      +   '<button class="ar-eng-help-close" data-action="ar-eng-help-close" type="button" aria-label="Close">' + svgIconClose() + '</button>'
       + '</div>'
       + '<div class="ar-eng-help-drawer-body">' + (stepContent[step] || '<p>No tips for this step.</p>') + '</div>'
       + '</div>';
     document.body.appendChild(bd);
     bd.addEventListener('click', function(e){
-      if (e.target === bd) closeHelpDrawer();
+      if (e.target === bd){ closeHelpDrawer(); return; }
       var act = e.target.closest('[data-action]');
-      if (act && act.getAttribute('data-action') === 'ar-eng-help-close') closeHelpDrawer();
+      if (!act) return;
+      var actName = act.getAttribute('data-action');
+      if (actName === 'ar-eng-help-close'){ closeHelpDrawer(); return; }
+      // Drawer is mounted on document.body, OUTSIDE #ar2, so the root
+      // click router never sees these clicks. Route ar-eng-* manually so
+      // the "Watch the briefing again" button (and any future drawer
+      // actions) work. Always close the drawer first so the engineer
+      // sees the destination step they navigated to.
+      if (actName.indexOf('ar-eng-') === 0){
+        closeHelpDrawer();
+        try { handleAction(actName, act); } catch(_){}
+      }
     });
     var onKey = function(e){ if (e.key === 'Escape') closeHelpDrawer(); };
     document.addEventListener('keydown', onKey);
@@ -8514,7 +8662,7 @@ window.AR2_ENGINEER = (function(){
       +       '<span>Don\'t show this briefing on future visits</span>'
       +     '</label>'
       +     '<div class="ar-eng-actions">'
-      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review →</button>'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review ' + svgIconArrowRight() + '</button>'
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -8542,34 +8690,34 @@ window.AR2_ENGINEER = (function(){
       +   '<div class="ar-eng-card">'
       +     '<div class="ar-eng-eyebrow">Property</div>'
       +     '<div class="ar-eng-h2">' + nameDisplay + '</div>'
-      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Address</span><span class="ar-eng-v">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener">Open in Maps ↗</a>' : '') + '</span></div>'
+      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Address</span><span class="ar-eng-v">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span></div>'
       +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Pools on file</span><span class="ar-eng-v">' + (s.pools.length || '—') + '</span></div>'
-      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Total volume (rep value)</span><span class="ar-eng-v">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span></div>'
+      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Total volume (Estimate)</span><span class="ar-eng-v">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span></div>'
       +     (s.assignment && s.assignment.assignment_notes
           ? '<div class="ar-eng-notes"><b>Rep notes</b><div>' + esc(s.assignment.assignment_notes) + '</div></div>'
           : '')
 
-      +     '<div class="ar-eng-section-title">Confirm access</div>'
-      +     '<div class="ar-eng-choice">'
-      +       '<button class="ar-eng-choice-btn ' + (pc.hasAccess === true ? 'on green' : '') + '" data-action="ar-eng-set-access" data-access="yes" type="button">✓ I have access</button>'
-      +       '<button class="ar-eng-choice-btn ' + (pc.hasAccess === false ? 'on red' : '') + '" data-action="ar-eng-set-access" data-access="no" type="button">⚠ Access blocked</button>'
-      +     '</div>'
+      // Access flag — implicit on portal entry, so we don't ask the
+      // engineer to re-confirm. The toggle only surfaces if the engineer
+      // actively says access is blocked, in which case the reason
+      // textarea opens for them to leave a note for the rep.
+      +     '<div class="ar-eng-section-title">Property access</div>'
       +     (pc.hasAccess === false
-          ? '<div class="ar-eng-field"><label>What\'s blocking access?</label><textarea data-action="ar-eng-update-access-reason" rows="2" placeholder="e.g. Security key not available · Equipment room locked">' + esc(pc.accessBlockedReason || '') + '</textarea></div>'
-          : '')
-
-      +     '<div class="ar-eng-section-title">Confirm total volume</div>'
-      +     '<div class="ar-eng-choice">'
-      +       '<button class="ar-eng-choice-btn ' + (pc.gallonsMatchesRep === true ? 'on green' : '') + '" data-action="ar-eng-set-gallons-match" data-match="yes" type="button">✓ Matches rep value</button>'
-      +       '<button class="ar-eng-choice-btn ' + (pc.gallonsMatchesRep === false ? 'on amber' : '') + '" data-action="ar-eng-set-gallons-match" data-match="no" type="button">↔ Override value</button>'
-      +     '</div>'
-      +     (pc.gallonsMatchesRep === false
-          ? '<div class="ar-eng-field"><label>Engineer-verified total gallons</label><input type="number" inputmode="numeric" data-action="ar-eng-update-gallons-override" value="' + esc(pc.gallonsOverride || '') + '" placeholder="' + (totalGallons ? Math.round(totalGallons) : '') + '" /></div>'
-          : '')
+          ? '<div class="ar-eng-access-blocked-card">'
+          +    '<div class="ar-eng-access-blocked-hd">' + svgIconWarn() + ' Access reported as blocked</div>'
+          +    '<div class="ar-eng-field"><label>What\'s blocking access?</label><textarea data-action="ar-eng-update-access-reason" rows="2" placeholder="e.g. Security key not available · Equipment room locked">' + esc(pc.accessBlockedReason || '') + '</textarea></div>'
+          +    '<div style="display:flex;gap:8px;margin-top:8px">'
+          +      '<button class="ar-eng-tiny" data-action="ar-eng-set-access" data-access="yes" type="button">' + svgIconCheck() + ' Access restored</button>'
+          +    '</div>'
+          + '</div>'
+          : '<div class="ar-eng-access-ok-row">'
+          +    '<div class="ar-eng-access-ok-msg">' + svgIconCheck() + ' Access confirmed by opening this assignment.</div>'
+          +    '<button class="ar-eng-tiny danger" data-action="ar-eng-set-access" data-access="no" type="button">' + svgIconWarn() + ' Report blocked access</button>'
+          + '</div>')
 
       +     '<div class="ar-eng-actions">'
-      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="1" type="button">← Back</button>'
-      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="3" type="button"' + (isStepComplete(2) ? '' : ' disabled') + '>Continue to pools →</button>'
+      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconArrowLeft() + ' Back</button>'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="3" type="button">Continue to pools ' + svgIconArrowRight() + '</button>'
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -8588,7 +8736,8 @@ window.AR2_ENGINEER = (function(){
     var cardsHtml = s.pools.map(function(p){ return poolCardHtml(p); }).join('');
     var doneCount = s.pools.filter(function(p){
       var v = s.verifications[p.index];
-      return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      return hasLines && poolHasMedia(p.index);
     }).length;
     // Apply Pool 1 to Rest is only meaningful when there are 2+ pools AND
     // Pool 1 has been documented at least partially. Hidden otherwise to
@@ -8598,7 +8747,7 @@ window.AR2_ENGINEER = (function(){
       && Array.isArray(s.verifications[0].return_lines)
       && s.verifications[0].return_lines.length > 0;
     var applyToolbar = canApplyToRest
-      ? '<div class="ar-eng-pool-toolbar"><button class="ar-eng-tiny" data-action="ar-eng-apply-pool-1" type="button">↳ Apply Pool 1 setup to remaining pools</button></div>'
+      ? '<div class="ar-eng-pool-toolbar"><button class="ar-eng-tiny" data-action="ar-eng-apply-pool-1" type="button">' + svgIconApplyDown() + ' Apply Pool 1 setup to remaining pools</button></div>'
       : '';
     mount.innerHTML = ''
       + '<div class="ar-eng-wrap ar-eng-flow">'
@@ -8612,8 +8761,8 @@ window.AR2_ENGINEER = (function(){
       // knows where to attach the uploaded file.
       +   '<input type="file" id="ar-eng-media-input" style="position:absolute;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px" data-action="ar-eng-media-picked" />'
       +   '<div class="ar-eng-actions">'
-      +     '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="2" type="button">← Back</button>'
-      +     '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="4" type="button"' + (isStepComplete(3) ? '' : ' disabled') + '>Continue to review →</button>'
+      +     '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="2" type="button">' + svgIconArrowLeft() + ' Back</button>'
+      +     '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="4" type="button"' + (isStepComplete(3) ? '' : ' disabled') + '>Continue to review ' + svgIconArrowRight() + '</button>'
       +   '</div>'
       + '</div>';
     // Post-render — lazy-load signed URLs for every thumbnail. The
@@ -8633,7 +8782,9 @@ window.AR2_ENGINEER = (function(){
 
   function poolCardHtml(p){
     var v = s.verifications[p.index] || { return_lines: [] };
-    var complete = Array.isArray(v.return_lines) && v.return_lines.length > 0;
+    var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
+    var hasMedia = poolHasMedia(p.index);
+    var complete = hasLines && hasMedia;
     var lines = v.return_lines || [];
     var DIAMETERS = [2, 3, 4, 6, 8];
 
@@ -8645,18 +8796,18 @@ window.AR2_ENGINEER = (function(){
 
     var thumbsHtml = poolMedia.map(function(m){
       if (m._uploading){
-        return '<div class="ar-eng-thumb uploading" title="Uploading ' + esc(m.filename_original || '') + '…">' + (m.media_type === 'video' ? '🎥' : '📷') + '<span class="ar-eng-thumb-spin"></span></div>';
+        return '<div class="ar-eng-thumb uploading" title="Uploading ' + esc(m.filename_original || '') + '…">' + (m.media_type === 'video' ? svgIconVideo() : svgIconCamera()) + '<span class="ar-eng-thumb-spin"></span></div>';
       }
-      var typeIcon = m.media_type === 'video' ? '🎥' : '';
+      var typeIcon = m.media_type === 'video' ? svgIconVideo() : '';
       return '<div class="ar-eng-thumb" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(m.id) + '" data-storage-path="' + esc(m.storage_path) + '" data-media-type="' + esc(m.media_type) + '">'
         +   '<div class="ar-eng-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
         +   (typeIcon ? '<span class="ar-eng-thumb-type">' + typeIcon + '</span>' : '')
-        +   '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(m.id) + '" type="button" aria-label="Remove">×</button>'
+        +   '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(m.id) + '" type="button" aria-label="Remove">' + svgIconClose() + '</button>'
         + '</div>';
     }).join('');
 
     // Discrepancy warning state — surface a soft inline note if engineer's
-    // confirmed_gallons differs from rep's saved value by more than 5%.
+    // confirmed_gallons differs from the Estimate by more than 5%.
     // Per decision: discrepancy_reason becomes required at app layer when
     // the difference exceeds the threshold.
     var divergenceWarning = '';
@@ -8665,24 +8816,38 @@ window.AR2_ENGINEER = (function(){
       var pct  = diff / p.gallonsRep;
       if (pct > 0.05){
         divergenceWarning = '<div class="ar-eng-discrepancy">'
-          + '<div class="ar-eng-discrepancy-title">⚠ ' + Math.round(pct * 100) + '% off rep value</div>'
+          + '<div class="ar-eng-discrepancy-title">' + svgIconWarn() + ' ' + Math.round(pct * 100) + '% off Estimate</div>'
           + '<div class="ar-eng-discrepancy-body">Add a quick note explaining what you measured.</div>'
           + '<textarea data-action="ar-eng-discrepancy-reason" data-pool="' + p.index + '" rows="2" placeholder="e.g. Measured at fill line vs auto-fill marker, pool was partially drained, etc.">' + esc(v.discrepancy_reason || '') + '</textarea>'
         + '</div>';
       }
     }
 
+    // Incomplete-requirements hint — show which item is still missing so
+    // the engineer doesn't have to guess. Hidden once complete=true.
+    var missingHint = '';
+    if (!complete){
+      var missing = [];
+      if (!hasLines) missing.push('add at least one return line');
+      if (!hasMedia) missing.push('upload at least one photo or video');
+      if (missing.length){
+        missingHint = '<div class="ar-eng-pool-missing">'
+          + svgIconWarn() + ' To complete this pool: ' + missing.join(' &amp; ') + '.'
+          + '</div>';
+      }
+    }
+
     return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + '" data-pool-card="' + p.index + '">'
       +   '<div class="ar-eng-pool-head">'
       +     '<div class="ar-eng-pool-name">' + esc(p.name) + '</div>'
-      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (rep) · ' : '') + (p.depth ? p.depth + ' ft deep' : '') + '</div>'
-      +     (complete ? '<div class="ar-eng-pool-check">✓ Complete</div>' : '')
+      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : '') + '</div>'
+      +     (complete ? '<div class="ar-eng-pool-check">' + svgIconCheck() + ' Complete</div>' : '')
       +   '</div>'
 
       +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
       +     '<div class="ar-eng-inline">'
       +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '" />'
-      +       '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button">Matches rep</button>'
+      +       '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button">Match Estimate</button>'
       +     '</div>'
       +     divergenceWarning
       +   '</div>'
@@ -8699,7 +8864,7 @@ window.AR2_ENGINEER = (function(){
                 +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button">+</button>'
                 +   '</div>'
                 +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '">' + diaOpts + '</select>'
-                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line">×</button>'
+                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line">' + svgIconClose() + '</button>'
                 + '</div>';
             }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button">+ Add return line</button>'
@@ -8710,13 +8875,14 @@ window.AR2_ENGINEER = (function(){
       +   '</div>'
 
       +   '<div class="ar-eng-field">'
-      +     '<label>Photos &amp; videos <span class="ar-eng-hint">' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
-      +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No media yet</div>') + '</div>'
+      +     '<label>Photos &amp; videos <span class="ar-eng-hint required">required · ' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
+      +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No media yet — required to complete this pool</div>') + '</div>'
       +     '<div class="ar-eng-media-actions">'
-      +       '<button class="ar-eng-media-btn' + (photoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit ? ' disabled' : '') + '>📷 Add photo</button>'
-      +       '<button class="ar-eng-media-btn' + (videoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit ? ' disabled' : '') + '>🎥 Add video</button>'
+      +       '<button class="ar-eng-media-btn' + (photoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit ? ' disabled' : '') + '>' + svgIconCamera() + ' Add photo</button>'
+      +       '<button class="ar-eng-media-btn' + (videoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit ? ' disabled' : '') + '>' + svgIconVideo() + ' Add video</button>'
       +     '</div>'
       +   '</div>'
+      +   missingHint
       + '</div>';
   }
 
@@ -8725,11 +8891,27 @@ window.AR2_ENGINEER = (function(){
     var submitted = s.assignment && (s.assignment.status === 'submitted' || s.assignment.status === 'reviewed');
     var doneCount = s.pools.filter(function(p){
       var v = s.verifications[p.index];
-      return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      return hasLines && poolHasMedia(p.index);
     }).length;
-    var allReady = doneCount === s.pools.length && s.pools.length > 0
-                && s.propertyConfirmation.hasAccess === true
-                && s.propertyConfirmation.gallonsMatchesRep != null;
+    var allReady = doneCount === s.pools.length && s.pools.length > 0;
+    var totalMedia = 0;
+    s.media.forEach(function(m){ if (!m._uploading) totalMedia++; });
+    // Submission state copy. The action button toggles between Send and
+    // Send updates depending on whether the assignment has already been
+    // submitted at least once. Engineers can re-send any number of times
+    // (each re-send re-notifies the rep) until the record is locked.
+    var ctaLabel;
+    if (locked) ctaLabel = 'Record locked';
+    else if (s.saving) ctaLabel = submitted ? 'Sending update…' : 'Sending…';
+    else if (submitted) ctaLabel = svgIconSend() + ' Send updated review';
+    else ctaLabel = svgIconSend() + ' Send to AquaRev for review';
+
+    var sentBanner = submitted && !locked
+      ? '<div class="ar-eng-sent-banner">'
+        + svgIconCheck() + ' <b>Sent for review.</b> Your rep was notified — feel free to edit pool cards or upload more media. Tap <b>Send updated review</b> to alert them about the changes.'
+        + '</div>'
+      : '';
 
     mount.innerHTML = ''
       + '<div class="ar-eng-wrap ar-eng-flow">'
@@ -8737,25 +8919,28 @@ window.AR2_ENGINEER = (function(){
       +   stepperHtml(4)
       +   '<div class="ar-eng-card">'
       +     '<div class="ar-eng-eyebrow">Review</div>'
-      +     '<div class="ar-eng-h2">Ready to send?</div>'
-      +     '<div class="ar-eng-lede">Your AquaRev rep will see everything below the moment you tap send. You can keep editing afterward unless they lock the record.</div>'
-
+      +     '<div class="ar-eng-h2">' + (submitted ? 'Review &amp; resend' : 'Ready to send?') + '</div>'
+      +     '<div class="ar-eng-lede">Your AquaRev rep sees everything below the moment you tap send. You can keep editing — and resending — until the record is locked.</div>'
+      +     sentBanner
       +     '<div class="ar-eng-summary">'
       +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Property</span><span class="ar-eng-v">' + esc((s.record && s.record.property_name) || '—') + '</span></div>'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Access</span><span class="ar-eng-v">' + (s.propertyConfirmation.hasAccess === true ? '✓ Confirmed' : s.propertyConfirmation.hasAccess === false ? '⚠ Blocked — ' + esc(s.propertyConfirmation.accessBlockedReason || '') : 'Not confirmed') + '</span></div>'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Gallons</span><span class="ar-eng-v">' + (s.propertyConfirmation.gallonsMatchesRep === true ? '✓ Matches rep' : s.propertyConfirmation.gallonsMatchesRep === false ? 'Override: ' + esc(s.propertyConfirmation.gallonsOverride || '—') + ' gal' : 'Not confirmed') + '</span></div>'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Access</span><span class="ar-eng-v">' + (s.propertyConfirmation.hasAccess === false ? svgIconWarn() + ' Blocked — ' + esc(s.propertyConfirmation.accessBlockedReason || '(no note)') : svgIconCheck() + ' Confirmed on portal entry') + '</span></div>'
       +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Pools documented</span><span class="ar-eng-v">' + doneCount + ' of ' + s.pools.length + '</span></div>'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Media uploaded</span><span class="ar-eng-v">' + totalMedia + ' file' + (totalMedia === 1 ? '' : 's') + '</span></div>'
       +     '</div>'
 
       +     (allReady
           ? ''
-          : '<div class="ar-eng-warn">⚠ Some required items are missing. Step back and complete them before sending.</div>')
+          : '<div class="ar-eng-warn">' + svgIconWarn() + ' Some required items are missing. Step back and complete them before sending.</div>')
+
+      +     '<div class="ar-eng-pdf-row">'
+      +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-download-pdf" type="button" title="Preview &amp; download your verification PDF">' + svgIconDownload() + ' Preview &amp; download PDF</button>'
+      +       '<div class="ar-eng-pdf-hint">Opens your browser print dialog. Save as PDF for your own records.</div>'
+      +     '</div>'
 
       +     '<div class="ar-eng-actions">'
-      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">← Back to pools</button>'
-      +       (submitted
-            ? '<button class="ar-eng-btn primary" disabled type="button">' + (locked ? 'Record locked' : 'Sent — your rep has been notified') + '</button>'
-            : '<button class="ar-eng-btn primary" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving ? '' : ' disabled') + '>' + (s.saving ? 'Sending…' : 'Send to AquaRev for review') + '</button>')
+      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>'
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -8932,6 +9117,20 @@ window.AR2_ENGINEER = (function(){
     }
     if (action === 'ar-eng-submit'){
       submit();
+      return true;
+    }
+    if (action === 'ar-eng-download-pdf'){
+      // Same generator the admin uses (Phase 6). Opens the print dialog;
+      // engineer can Save-as-PDF or print to keep a record of their work.
+      try {
+        if (typeof generateEngineerReport === 'function' && s.assignmentId){
+          generateEngineerReport(s.assignmentId);
+        } else {
+          alert('PDF generator not loaded yet — please reload and try again.');
+        }
+      } catch(err){
+        alert('Could not open PDF: ' + ((err && err.message) || 'unknown error'));
+      }
       return true;
     }
     return false;
@@ -11039,6 +11238,9 @@ function render(){
     if (VIEW !== 'bank' && typeof showView === 'function') showView('bank');
     return;
   }
+  // Not an engineer — clear engineer-mode body class so calculator
+  // chrome reappears (Archive, New, help icon, stepper).
+  document.body.classList.remove('pf-engineer-mode');
   // Toggle map-step class so CSS hides calc columns + shows #ap2
   var root=document.getElementById('ar2');
   if(root) root.classList.toggle('map-step', S.step===0);
@@ -13220,7 +13422,15 @@ function handleClick(e){
     if (engAction){
       var engActName = engAction.getAttribute('data-action');
       if (engActName && engActName.indexOf('ar-eng-') === 0){
-        if (AR2_ENGINEER.handleAction(engActName, engAction)) return;
+        // Form-element actions (select/input/textarea) handle their own
+        // change/input events via relayEngineerInput. Routing the click
+        // through handleAction would call repaint(), which destroys the
+        // currently-open <select> dropdown before the user can pick an
+        // option — exactly the "dropdown doesn't fire correctly" bug.
+        var engTag = engAction.tagName;
+        if (engTag !== 'SELECT' && engTag !== 'INPUT' && engTag !== 'TEXTAREA'){
+          if (AR2_ENGINEER.handleAction(engActName, engAction)) return;
+        }
       }
     }
   }

@@ -2418,12 +2418,57 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 
 /* Action bar */
 #ar2 .ar-eng-actions{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-top:18px;}
-#ar2 .ar-eng-btn{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.25);color:#cfe2eb;padding:12px 22px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .12s,background .15s,border-color .15s;}
+#ar2 .ar-eng-btn{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.25);color:#cfe2eb;padding:12px 22px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .12s,background .15s,border-color .15s;display:inline-flex;align-items:center;gap:7px;justify-content:center;}
 #ar2 .ar-eng-btn:hover:not(:disabled){background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.5);color:#fff;}
 #ar2 .ar-eng-btn.primary{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border-color:transparent;}
 #ar2 .ar-eng-btn.primary:hover:not(:disabled){filter:brightness(1.08);background:linear-gradient(135deg,#00b4d8,#48cae4);}
 #ar2 .ar-eng-btn:disabled{opacity:.5;cursor:not-allowed;}
 #ar2 .ar-eng-btn.secondary:hover:not(:disabled){background:rgba(125,184,204,.08);}
+/* Ghost-aqua: high-contrast outlined button used inside the help drawer
+   and for the engineer-side PDF preview button. Replaces the low-contrast
+   .secondary that disappeared into the drawer background. */
+#ar2 .ar-eng-btn.ghost-aq,
+.ar-eng-help-drawer-body .ar-eng-btn.ghost-aq{background:rgba(0,180,216,.14);border:1px solid rgba(0,180,216,.55);color:#48cae4;}
+#ar2 .ar-eng-btn.ghost-aq:hover:not(:disabled),
+.ar-eng-help-drawer-body .ar-eng-btn.ghost-aq:hover:not(:disabled){background:rgba(0,180,216,.24);border-color:rgba(0,180,216,.85);color:#fff;}
+
+/* Engineer inline icons — replace OS emojis. Default to vertically
+   centered with the button text. Currentcolor makes them inherit hover
+   state styling automatically. */
+.ar-eng-svg-icon{display:inline-block;vertical-align:-2px;flex-shrink:0;}
+#ar2 .ar-eng-btn .ar-eng-svg-icon,
+#ar2 .ar-eng-tiny .ar-eng-svg-icon{vertical-align:-1px;}
+
+/* Step-2 access UI (Phase 7.1) — replaces the binary Confirm Access
+   buttons. The "ok" row sits inline (badge + tiny report button); the
+   "blocked" card opens when the engineer reports an issue. */
+#ar2 .ar-eng-access-ok-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:11px 14px;flex-wrap:wrap;}
+#ar2 .ar-eng-access-ok-msg{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#4ade80;font-weight:600;}
+#ar2 .ar-eng-access-blocked-card{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.32);border-radius:10px;padding:14px;}
+#ar2 .ar-eng-access-blocked-hd{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#fca5a5;margin-bottom:10px;letter-spacing:.3px;}
+#ar2 .ar-eng-tiny.danger{border-color:rgba(239,68,68,.45);color:#fca5a5;}
+#ar2 .ar-eng-tiny.danger:hover{background:rgba(239,68,68,.15);color:#fff;}
+
+/* Pool-card "still missing" inline hint — surfaces which specific item
+   is blocking the Complete state so the engineer can act without
+   guessing. Amber to match the "warn" color family. */
+#ar2 .ar-eng-pool-missing{display:flex;align-items:center;gap:7px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.32);color:#f0a500;font-size:11.5px;border-radius:8px;padding:7px 11px;margin-top:12px;line-height:1.45;}
+#ar2 .ar-eng-hint.required{color:#f0a500;}
+
+/* Step-4 PDF row — outline button + helper hint paired side-by-side. */
+#ar2 .ar-eng-pdf-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;}
+#ar2 .ar-eng-pdf-hint{font-size:11.5px;color:var(--mu);line-height:1.4;flex:1 1 200px;}
+
+/* Step-4 "already sent" banner. Soft success tint with reinforcing
+   message that re-edit + re-send is normal/expected. */
+#ar2 .ar-eng-sent-banner{display:flex;align-items:flex-start;gap:8px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);color:#cfe2eb;font-size:12.5px;line-height:1.5;padding:11px 14px;border-radius:10px;margin:10px 0 14px;}
+#ar2 .ar-eng-sent-banner b{color:#4ade80;font-weight:700;}
+#ar2 .ar-eng-sent-banner .ar-eng-svg-icon{color:#4ade80;flex-shrink:0;margin-top:1px;}
+
+/* Engineer help button — match the calculator header's .ar-help-icon
+   (32x32 circle with aqua tint). Overrides the older 28x28 ? style. */
+#ar2 .ar-eng-help-btn.ar-help-icon{width:32px;height:32px;font-size:16px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);}
+#ar2 .ar-eng-help-btn.ar-help-icon:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.7);color:#fff;}
 
 /* Review summary */
 #ar2 .ar-eng-summary{background:rgba(0,0,0,.18);border:1px solid rgba(0,180,216,.12);border-radius:10px;padding:14px 16px;margin:14px 0 18px;}
@@ -2742,3 +2787,12 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    the Archive button label is replaced by the breadcrumb so we hide
    it. The .pf-property-mode body class scopes these overrides. */
 body.pf-property-mode #ar2 #ar2-bar-actions{display:none!important;}
+
+/* Engineer mode — hide calculator-specific affordances (Archive, New,
+   Help tutorial icon, stepper) since engineers only use the field
+   verification portal. The user chip + notification bell remain visible
+   via id-specific exceptions so engineers can still sign out. */
+body.pf-engineer-mode #ar2 #ar2-bank-nav,
+body.pf-engineer-mode #ar2 #ar2-bar-actions [data-action="reset-app"],
+body.pf-engineer-mode #ar2 #ar2-help-btn,
+body.pf-engineer-mode #ar2 #ar2-stepper{display:none!important;}
