@@ -6768,6 +6768,285 @@ function populateAdminDashboard(){
       }).join('');
     }
   }).catch(function(){});
+
+  // Phase 3 — populate the Engineer Submissions tab. Loads concurrently
+  // with the other dashboard sections so the admin sees data the moment
+  // they switch tabs.
+  populateAdminEngineerSubmissions();
+}
+
+/* Switches the admin dashboard's active tab. Updates the active pill
+   styling on the tab strip, shows/hides matching panes, and remembers
+   the selection in localStorage so the next admin session lands on the
+   same tab. */
+function setAdminActiveTab(tabId){
+  if (tabId !== 'overview' && tabId !== 'users' && tabId !== 'engineer-submissions') tabId = 'overview';
+  try { localStorage.setItem('ar2:admin-active-tab', tabId); } catch(_){}
+  var tabs = document.querySelectorAll('[data-action="admin-tab-switch"]');
+  for (var i = 0; i < tabs.length; i++){
+    tabs[i].classList.toggle('active', tabs[i].getAttribute('data-admin-tab') === tabId);
+  }
+  var panes = document.querySelectorAll('[data-admin-tab-pane]');
+  for (var p = 0; p < panes.length; p++){
+    panes[p].style.display = (panes[p].getAttribute('data-admin-tab-pane') === tabId) ? '' : 'none';
+  }
+}
+
+/* Loads engineer assignments + joins engineer names + linked
+   property/portfolio/assessment names into the Engineer Submissions
+   tab's table. Cached on window.AR2_ADMIN_ENG so tab-switch re-renders
+   don't refetch (refetch is admin-triggered via the refresh button).
+   ─────────────────────────────────────────────────────────────────── */
+function populateAdminEngineerSubmissions(){
+  if (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())) return;
+  var mount = document.getElementById('ar-admin-eng-submissions');
+  if (!mount) return;
+  var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  if (!c){ mount.innerHTML = '<div class="ar-admin-empty">Cloud unavailable.</div>'; return; }
+  // Fetch assignments + engineer names + linked record names in parallel.
+  Promise.all([
+    c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at').order('last_modified_at',{ascending:false}),
+    c.from('app_users').select('id,name,phone').eq('role','engineer'),
+    c.from('portfolio_properties').select('id,property_name,portfolio_id'),
+    c.from('portfolios').select('id,name'),
+    c.from('assessments').select('id,property_name')
+  ]).then(function(arr){
+    var asgnRows = (arr[0].data || []);
+    var engById  = {}; (arr[1].data || []).forEach(function(e){ engById[e.id] = e; });
+    var propById = {}; (arr[2].data || []).forEach(function(p){ propById[p.id] = p; });
+    var pfById   = {}; (arr[3].data || []).forEach(function(p){ pfById[p.id]   = p; });
+    var assById  = {}; (arr[4].data || []).forEach(function(a){ assById[a.id]  = a; });
+    window.AR2_ADMIN_ENG = { assignments: asgnRows, engById: engById, propById: propById, pfById: pfById, assById: assById };
+    renderAdminEngineerSubmissions();
+  }).catch(function(err){
+    mount.innerHTML = '<div class="ar-admin-empty" style="color:#fca5a5">Couldn\'t load submissions: ' + esc((err && err.message) || 'unknown error') + '</div>';
+  });
+}
+
+/* Renders the Engineer Submissions list using cached data. Re-callable
+   whenever the filter changes; doesn't refetch the data. */
+function renderAdminEngineerSubmissions(){
+  var mount = document.getElementById('ar-admin-eng-submissions');
+  if (!mount) return;
+  var bundle = window.AR2_ADMIN_ENG;
+  if (!bundle){ mount.innerHTML = '<div class="ar-admin-empty">No submissions yet.</div>'; return; }
+  var filter = '';
+  try { filter = localStorage.getItem('ar2:admin-eng-filter') || ''; } catch(_){}
+  var rows = bundle.assignments;
+  if (filter) rows = rows.filter(function(r){ return r.status === filter; });
+
+  function statusPill(s){
+    if (s === 'pending')     return '<span class="ar-eng-pill amber">Pending</span>';
+    if (s === 'in_progress') return '<span class="ar-eng-pill yellow">In progress</span>';
+    if (s === 'submitted')   return '<span class="ar-eng-pill blue">Sent for review</span>';
+    if (s === 'reviewed')    return '<span class="ar-eng-pill green">Reviewed</span>';
+    if (s === 'locked')      return '<span class="ar-eng-pill gray">Locked</span>';
+    return '<span class="ar-eng-pill gray">' + esc(s) + '</span>';
+  }
+  function scopeName(r){
+    if (r.property_id){
+      var p = bundle.propById[r.property_id];
+      var pf = p && p.portfolio_id ? bundle.pfById[p.portfolio_id] : null;
+      return (p ? esc(p.property_name) : '(deleted property)') + (pf ? ' <span style="color:var(--mu);font-size:11px">· ' + esc(pf.name) + '</span>' : '');
+    }
+    if (r.portfolio_id){
+      var p2 = bundle.pfById[r.portfolio_id];
+      return p2 ? '<b>' + esc(p2.name) + '</b> <span style="color:var(--mu);font-size:11px">· entire portfolio</span>' : '(deleted portfolio)';
+    }
+    if (r.assessment_id){
+      var a = bundle.assById[r.assessment_id];
+      return a ? esc(a.property_name) + ' <span style="color:var(--mu);font-size:11px">· standalone assessment</span>' : '(deleted assessment)';
+    }
+    return '(unknown scope)';
+  }
+
+  // Filter chips
+  var statuses = ['','pending','in_progress','submitted','reviewed','locked'];
+  var labels   = ['All','Pending','In progress','Sent for review','Reviewed','Locked'];
+  var filterHtml = '<div class="ar-admin-eng-filters">';
+  statuses.forEach(function(st, i){
+    var active = (st === filter) ? ' active' : '';
+    filterHtml += '<button class="ar-admin-eng-filter' + active + '" data-action="admin-eng-filter" data-filter="' + st + '" type="button">' + labels[i] + '</button>';
+  });
+  filterHtml += '<span class="ar-admin-eng-count">' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</span>';
+  filterHtml += '<button class="ar-admin-eng-refresh" data-action="admin-eng-refresh" type="button" title="Refresh">↻</button>';
+  filterHtml += '</div>';
+
+  if (!rows.length){
+    mount.innerHTML = filterHtml + '<div class="ar-admin-empty">No engineer submissions match this filter.</div>';
+    return;
+  }
+
+  var rowsHtml = rows.map(function(r){
+    var eng = bundle.engById[r.engineer_user_id];
+    var engLabel = eng ? esc(eng.name) + (eng.phone ? ' · ' + esc(eng.phone) : '') : '(engineer removed)';
+    var lastEdit = r.last_modified_at ? new Date(r.last_modified_at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+    var submitted = r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+    return ''
+      +'<tr class="ar-admin-eng-row" data-action="admin-review-submission" data-assignment-id="' + esc(r.id) + '" role="button" tabindex="0">'
+      +'<td>' + scopeName(r) + '</td>'
+      +'<td>' + engLabel + '</td>'
+      +'<td>' + statusPill(r.status) + '</td>'
+      +'<td>' + submitted + '</td>'
+      +'<td>' + lastEdit + '</td>'
+      +'</tr>';
+  }).join('');
+
+  mount.innerHTML = filterHtml
+    + '<table class="ar-admin-eng-tbl">'
+    +   '<thead><tr>'
+    +     '<th>Property / Portfolio</th>'
+    +     '<th>Engineer</th>'
+    +     '<th>Status</th>'
+    +     '<th>Sent</th>'
+    +     '<th>Last activity</th>'
+    +   '</tr></thead>'
+    +   '<tbody>' + rowsHtml + '</tbody>'
+    + '</table>';
+}
+
+/* Opens a review modal for a single engineer assignment. For Phase 3
+   MVP this is read-only: admin sees the property, the engineer's
+   verifications, and Mark Reviewed / Lock Now / Reopen actions. A
+   later phase adds side-by-side rep-vs-engineer comparison + per-field
+   Accept/Keep/Flag. */
+function openAdminReviewModal(assignmentId){
+  var bundle = window.AR2_ADMIN_ENG;
+  if (!bundle) return;
+  var asgn = bundle.assignments.find(function(a){ return a.id === assignmentId; });
+  if (!asgn) return;
+  var eng = bundle.engById[asgn.engineer_user_id];
+  var scopeName = '';
+  if (asgn.property_id){ var p = bundle.propById[asgn.property_id]; scopeName = p ? p.property_name : '(deleted)'; }
+  else if (asgn.portfolio_id){ var pf = bundle.pfById[asgn.portfolio_id]; scopeName = pf ? pf.name : '(deleted)'; }
+  else if (asgn.assessment_id){ var as = bundle.assById[asgn.assessment_id]; scopeName = as ? as.property_name : '(deleted)'; }
+
+  var existing = document.getElementById('ar-admin-review-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var bd = document.createElement('div');
+  bd.id = 'ar-admin-review-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.dataset.assignmentId = assignmentId;
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" style="max-width:720px;max-height:88vh;overflow-y:auto">'
+    + '<div class="ar-pf-modal-title">Engineer Submission Review</div>'
+    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.5;margin-bottom:14px">'
+    +   '<b style="color:#fff">' + esc(scopeName) + '</b><br>'
+    +   'Engineer: ' + esc(eng ? eng.name : '(removed)') + (eng && eng.phone ? ' · ' + esc(eng.phone) : '') + '<br>'
+    +   'Status: ' + esc(asgn.status) + (asgn.submitted_at ? ' · sent ' + new Date(asgn.submitted_at).toLocaleString() : '')
+    + '</div>'
+    + '<div id="ar-admin-review-body"><div style="color:var(--mu);font-size:12px;padding:12px">Loading verifications…</div></div>'
+    + '<div class="ar-pf-modal-err" id="ar-admin-review-err"></div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
+    +   (asgn.status === 'locked'
+        ? '<button class="ar-pf-modal-btn" data-action="admin-review-unlock" type="button">Unlock</button>'
+        : '<button class="ar-pf-modal-btn danger" data-action="admin-review-lock" type="button">Lock Now</button>')
+    +   (asgn.status !== 'reviewed' && asgn.status !== 'locked'
+        ? '<button class="ar-pf-modal-btn primary" data-action="admin-review-mark-reviewed" type="button">Mark Reviewed</button>'
+        : '')
+    + '</div>'
+  + '</div>';
+  document.body.appendChild(bd);
+  bd.addEventListener('click', function(e){
+    if (e.target === bd){ closeAdminReviewModal(); return; }
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-action');
+    if (act === 'admin-review-close')         { closeAdminReviewModal(); return; }
+    if (act === 'admin-review-lock')          { adminReviewSetStatus('locked');   return; }
+    if (act === 'admin-review-unlock')        { adminReviewSetStatus('reviewed'); return; }
+    if (act === 'admin-review-mark-reviewed') { adminReviewSetStatus('reviewed'); return; }
+  });
+  bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAdminReviewModal(); });
+
+  // Load verifications + media counts
+  var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  if (!c) return;
+  Promise.all([
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId)
+  ]).then(function(arr){
+    var verifs = arr[0].data || [];
+    var media  = arr[1].data || [];
+    var mediaByPool = {};
+    media.forEach(function(m){
+      if (!mediaByPool[m.pool_index]) mediaByPool[m.pool_index] = { photo: 0, video: 0 };
+      if (m.media_type === 'photo') mediaByPool[m.pool_index].photo++;
+      if (m.media_type === 'video') mediaByPool[m.pool_index].video++;
+    });
+    var body = document.getElementById('ar-admin-review-body');
+    if (!body) return;
+    if (!verifs.length){
+      body.innerHTML = '<div class="ar-admin-empty" style="margin:8px 0 0">No pool data recorded yet. Engineer hasn\'t saved anything on Step 3.</div>';
+      return;
+    }
+    var html = '<div class="ar-admin-review-list">';
+    verifs.forEach(function(v){
+      var linesHtml = (v.return_lines || []).map(function(ln){
+        return '<span class="ar-admin-line-chip">' + (ln.count || 1) + ' × ' + (ln.diameter || '?') + '"</span>';
+      }).join(' ');
+      if (!linesHtml) linesHtml = '<span style="color:var(--mu);font-size:11px">(no return lines logged)</span>';
+      var mc = mediaByPool[v.pool_index] || { photo: 0, video: 0 };
+      html += '<div class="ar-admin-review-pool">'
+        +   '<div class="ar-admin-review-pool-head">Pool ' + (Number(v.pool_index) + 1) + (v.has_discrepancy ? ' <span class="ar-eng-pill amber" style="margin-left:8px">Discrepancy flagged</span>' : '') + '</div>'
+        +   '<div class="ar-admin-review-pool-row"><span>Confirmed gallons</span><b>' + (v.confirmed_gallons != null ? fn(v.confirmed_gallons) + ' gal' : '—') + '</b></div>'
+        +   '<div class="ar-admin-review-pool-row"><span>Return lines</span><div>' + linesHtml + '</div></div>'
+        +   '<div class="ar-admin-review-pool-row"><span>Media</span><b>' + mc.photo + ' photo' + (mc.photo===1?'':'s') + ' · ' + mc.video + ' video' + (mc.video===1?'':'s') + '</b></div>'
+        + (v.notes ? '<div class="ar-admin-review-pool-row"><span>Notes</span><div style="font-style:italic;color:#cfe2eb">' + esc(v.notes) + '</div></div>' : '')
+        + (v.discrepancy_reason ? '<div class="ar-admin-review-pool-row"><span>Discrepancy reason</span><div style="color:#f0a500">' + esc(v.discrepancy_reason) + '</div></div>' : '')
+        + '</div>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+  }, function(err){
+    var body = document.getElementById('ar-admin-review-body');
+    if (body) body.innerHTML = '<div style="color:#fca5a5;font-size:12px;padding:8px">Couldn\'t load verifications: ' + esc((err && err.message) || 'unknown') + '</div>';
+  });
+}
+function closeAdminReviewModal(){
+  var el = document.getElementById('ar-admin-review-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+/* Updates an assignment's status (Lock / Unlock / Mark Reviewed) then
+   refreshes the submissions cache + modal contents. Status transitions
+   are gentle — we don't gate which → which because admin has full
+   authority over the record. */
+function adminReviewSetStatus(newStatus){
+  var bd = document.getElementById('ar-admin-review-modal');
+  if (!bd) return;
+  var assignmentId = bd.dataset.assignmentId;
+  var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  if (!c) return;
+  var u = AR2_CLOUD.user && AR2_CLOUD.user();
+  var patch = { status: newStatus, last_modified_at: new Date().toISOString() };
+  if (newStatus === 'locked'){
+    patch.locked_at = new Date().toISOString();
+    patch.locked_by_user_id = u && u.id;
+  } else if (newStatus === 'reviewed'){
+    patch.reviewed_at = new Date().toISOString();
+    // Unlock action: clear locked fields when transitioning OUT of locked.
+    patch.locked_at = null;
+    patch.locked_by_user_id = null;
+  }
+  var btns = bd.querySelectorAll('[data-action]');
+  for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+  c.from('engineer_assignments').update(patch).eq('id', assignmentId).then(function(rs){
+    if (rs && rs.error){
+      var err = document.getElementById('ar-admin-review-err');
+      if (err) err.textContent = rs.error.message;
+      for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
+      return;
+    }
+    closeAdminReviewModal();
+    // Refresh the submissions cache so the row's status pill flips.
+    populateAdminEngineerSubmissions();
+    // Also clear the portfolio overview's assignment cache so chips
+    // refresh next time the rep/admin opens that portfolio.
+    if (window.AR2_PF && AR2_PF._state){
+      AR2_PF._state.engineerAssignmentsByProperty = null;
+      AR2_PF._state.engineerAssignmentsByPortfolio = null;
+    }
+  });
 }
 
 var ADMIN_CHART_COLORS = ['#00b4d8','#f0a500','#22c55e','#a855f7','#ec4899','#ef4444','#3b82f6','#eab308'];
@@ -7926,29 +8205,58 @@ function renderBank(targetId){
             +'<div class="ar-admin-dash-toggle" aria-label="Toggle dashboard">\u203a</div>'
           +'</div>'
           +'<div class="ar-admin-dash-body">'
-            // 6-card KPI grid at the top of the dashboard. Hard-deleted
-            // records are excluded automatically (the underlying queries
-            // only return live rows).
-            +'<div class="ar-admin-kpis-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px">'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Records \u00b7 7 Days</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-7d" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Assessments</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-ass" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Portfolios</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pf" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Properties</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-prop" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
-            +'</div>'
-            +'<div class="ar-admin-userstats-card">'
-              +'<div class="ar-admin-userstats-title-row">'
-                +'<div class="ar-admin-userstats-title">User Activity &amp; Management</div>'
-                +'<button class="ar-admin-add-btn" data-action="admin-add-user">+ New User</button>'
-              +'</div>'
-              +'<div id="ar-admin-userstats"><div style="color:var(--mu);font-size:11px;padding:8px">Loading\u2026</div></div>'
-            +'</div>'
-            +'<div class="ar-admin-chart">'
-              +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
-              +'<div id="ar-admin-chart-mount"></div>'
-              +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
-            +'</div>'
+            // Phase 3 \u2014 tab strip inside the dashboard. Active tab is
+            // remembered in localStorage so admins land on whichever
+            // view they last used. Tabs are: Overview (KPIs + chart),
+            // Users (the existing User Activity card), and Engineer
+            // Submissions (new \u2014 engineer review queue).
+            +(function(){
+              var activeTab = 'overview';
+              try { activeTab = localStorage.getItem('ar2:admin-active-tab') || 'overview'; } catch(_){}
+              if (activeTab !== 'overview' && activeTab !== 'users' && activeTab !== 'engineer-submissions') activeTab = 'overview';
+              function tab(id, label){
+                return '<button class="ar-admin-tab' + (activeTab === id ? ' active' : '') + '" data-action="admin-tab-switch" data-admin-tab="' + id + '" type="button">' + label + '</button>';
+              }
+              var tabStrip = '<div class="ar-admin-tabs">'
+                + tab('overview',            'Overview')
+                + tab('users',               'Users')
+                + tab('engineer-submissions','Engineer Submissions')
+                + '</div>';
+              function pane(id, contentHtml){
+                var hidden = (id === activeTab) ? '' : ' style="display:none"';
+                return '<div class="ar-admin-tab-pane" data-admin-tab-pane="' + id + '"' + hidden + '>' + contentHtml + '</div>';
+              }
+              var paneOverview = ''
+                +'<div class="ar-admin-kpis-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px">'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Records \u00b7 7 Days</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-7d" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Assessments</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-ass" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Portfolios</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pf" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Properties</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-prop" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
+                +'</div>'
+                +'<div class="ar-admin-chart">'
+                  +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
+                  +'<div id="ar-admin-chart-mount"></div>'
+                  +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
+                +'</div>';
+              var paneUsers = ''
+                +'<div class="ar-admin-userstats-card" style="margin-top:4px">'
+                  +'<div class="ar-admin-userstats-title-row">'
+                    +'<div class="ar-admin-userstats-title">User Activity &amp; Management</div>'
+                    +'<button class="ar-admin-add-btn" data-action="admin-add-user">+ New User</button>'
+                  +'</div>'
+                  +'<div id="ar-admin-userstats"><div style="color:var(--mu);font-size:11px;padding:8px">Loading\u2026</div></div>'
+                +'</div>';
+              var paneEngineerSubmissions = ''
+                +'<div class="ar-admin-eng-sub-card" id="ar-admin-eng-submissions">'
+                  +'<div style="color:var(--mu);font-size:11px;padding:8px">Loading engineer submissions\u2026</div>'
+                +'</div>';
+              return tabStrip
+                + pane('overview', paneOverview)
+                + pane('users', paneUsers)
+                + pane('engineer-submissions', paneEngineerSubmissions);
+            })()
           +'</div>'
         +'</div>'
       : '';
@@ -11867,6 +12175,29 @@ function handleClick(e){
   // User chip — opens Sign Out menu
   var userMenuClick=e.target.closest('[data-action="user-menu"]');
   if(userMenuClick){ showUserMenu(userMenuClick); return; }
+  // Admin Dashboard tabs + Engineer Submissions (Phase 3)
+  var adminTab=e.target.closest('[data-action="admin-tab-switch"]');
+  if(adminTab){
+    setAdminActiveTab(adminTab.getAttribute('data-admin-tab') || 'overview');
+    return;
+  }
+  var engFilter=e.target.closest('[data-action="admin-eng-filter"]');
+  if(engFilter){
+    var f = engFilter.getAttribute('data-filter') || '';
+    try { localStorage.setItem('ar2:admin-eng-filter', f); } catch(_){}
+    renderAdminEngineerSubmissions();
+    return;
+  }
+  var engRefresh=e.target.closest('[data-action="admin-eng-refresh"]');
+  if(engRefresh){
+    populateAdminEngineerSubmissions();
+    return;
+  }
+  var engReview=e.target.closest('[data-action="admin-review-submission"]');
+  if(engReview){
+    openAdminReviewModal(engReview.getAttribute('data-assignment-id'));
+    return;
+  }
   // Admin User Manager actions (admin-only)
   var addUserClick=e.target.closest('[data-action="admin-add-user"]');
   if(addUserClick){ showAdminAddUserModal(); return; }

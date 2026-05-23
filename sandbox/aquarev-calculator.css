@@ -1482,6 +1482,39 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    record + 30-day login counts per user. Designed to read at a glance — small
    monospaced numbers in right-aligned columns. */
 #ar2 .ar-admin-userstats-card{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+
+/* ─── Admin Dashboard tabs (Phase 3) ─────────────────────────────── */
+#ar2 .ar-admin-tabs{display:flex;gap:2px;padding:3px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);border-radius:8px;margin-bottom:16px;flex-wrap:wrap;}
+#ar2 .ar-admin-tab{flex:1;min-width:120px;background:transparent;border:none;color:#7db8cc;padding:8px 14px;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .12s,color .12s;}
+#ar2 .ar-admin-tab:hover{color:#cfe2eb;background:rgba(0,180,216,.06);}
+#ar2 .ar-admin-tab.active{background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;}
+#ar2 .ar-admin-tab-pane{margin-top:4px;}
+
+/* Engineer Submissions card + filters + table */
+#ar2 .ar-admin-eng-sub-card{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:14px;}
+#ar2 .ar-admin-eng-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+#ar2 .ar-admin-eng-filter{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);color:#7db8cc;padding:5px 11px;border-radius:99px;font-family:inherit;font-size:11px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .12s,color .12s,border-color .12s;}
+#ar2 .ar-admin-eng-filter:hover{background:rgba(0,180,216,.08);color:#cfe2eb;border-color:rgba(0,180,216,.4);}
+#ar2 .ar-admin-eng-filter.active{background:linear-gradient(135deg,rgba(0,180,216,.25),rgba(72,202,228,.18));color:#fff;border-color:transparent;}
+#ar2 .ar-admin-eng-count{font-size:11px;color:var(--mu);margin-left:auto;letter-spacing:.4px;}
+#ar2 .ar-admin-eng-refresh{background:transparent;border:1px solid rgba(0,180,216,.25);color:#48cae4;width:28px;height:24px;border-radius:6px;font-family:inherit;font-size:13px;cursor:pointer;line-height:1;}
+#ar2 .ar-admin-eng-refresh:hover{background:rgba(0,180,216,.12);color:#fff;}
+#ar2 .ar-admin-eng-tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+#ar2 .ar-admin-eng-tbl thead th{text-align:left;padding:8px 10px;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;border-bottom:1px solid rgba(0,180,216,.18);}
+#ar2 .ar-admin-eng-tbl tbody td{padding:10px;border-bottom:1px solid rgba(0,180,216,.08);color:#cfe2eb;}
+#ar2 .ar-admin-eng-row{cursor:pointer;transition:background .12s;}
+#ar2 .ar-admin-eng-row:hover td{background:rgba(0,180,216,.06);}
+#ar2 .ar-admin-empty{padding:18px 12px;text-align:center;color:var(--mu);font-size:12px;}
+
+/* Review modal — verifications list */
+#ar2 .ar-admin-review-list{display:flex;flex-direction:column;gap:10px;margin-bottom:8px;}
+#ar2 .ar-admin-review-pool{background:rgba(13,45,74,.55);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:12px 14px;}
+#ar2 .ar-admin-review-pool-head{font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;display:flex;align-items:center;}
+#ar2 .ar-admin-review-pool-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:12.5px;align-items:baseline;}
+#ar2 .ar-admin-review-pool-row > span:first-child{color:var(--mu);font-size:11px;letter-spacing:.3px;text-transform:uppercase;flex:0 0 auto;}
+#ar2 .ar-admin-review-pool-row > b,
+#ar2 .ar-admin-review-pool-row > div{color:#cfe2eb;text-align:right;}
+#ar2 .ar-admin-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.25);color:#48cae4;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
 #ar2 .ar-admin-userstats-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:8px;}
 #ar2 .ar-admin-userstats-tbl{width:100%;border-collapse:collapse;font-size:11px;color:var(--tx);}
 #ar2 .ar-admin-userstats-tbl th{text-align:left;font-weight:500;color:var(--mu);font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);}
