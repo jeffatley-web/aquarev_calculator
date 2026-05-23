@@ -9193,6 +9193,40 @@ window.AR2_ENGINEER = (function(){
     s.saveTimer = setTimeout(function(){ persistVerification(poolIndex); }, 600);
     s.saving = true;
   }
+  // True when a text input / textarea inside the engineer flow has
+  // focus. Used to skip full repaints so engineers can type without
+  // losing focus + scroll position every keystroke.
+  function _engineerFlowInputFocused(){
+    var el = document.activeElement;
+    if (!el || !el.tagName) return false;
+    var tag = el.tagName;
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+    // Only count fields inside the engineer flow tree.
+    return !!(el.closest && el.closest('#ar2-bank'));
+  }
+  // Targeted DOM refresh for the "Saved Xs ago" indicator inside the
+  // header — used in place of a full repaint when an input is focused.
+  function _refreshSavedIndicator(){
+    var el = document.querySelector('#ar2-bank .ar-eng-saved');
+    if (!el) return;
+    if (s.saving){ el.textContent = 'Saving…'; return; }
+    if (s.lastSavedAt){
+      var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
+      el.textContent = 'Saved ' + (secs < 5 ? 'just now' : secs + 's ago');
+    }
+  }
+  // Conditional repaint: skip when an engineer-flow input is focused
+  // (typing in progress) and just refresh the saved-at indicator
+  // instead. Caller passes a typed-input flag explicitly when known
+  // so the heuristic doesn't have to inspect the DOM.
+  function _safeRepaint(typedInputContext){
+    if (typedInputContext || _engineerFlowInputFocused()){
+      _refreshSavedIndicator();
+      return;
+    }
+    repaint();
+  }
+
   function persistVerification(poolIndex){
     var c = client();
     if (!c) return;
@@ -9217,7 +9251,7 @@ window.AR2_ENGINEER = (function(){
       .select('id,updated_at')
       .single()
       .then(function(rs){
-        if (rs.error){ s.saving = false; repaint(); return; }
+        if (rs.error){ s.saving = false; _safeRepaint(); return; }
         if (rs.data){
           s.verifications[poolIndex].id = rs.data.id;
           s.verifications[poolIndex].updated_at = rs.data.updated_at;
@@ -9231,16 +9265,26 @@ window.AR2_ENGINEER = (function(){
             .eq('id', s.assignmentId)
             .then(function(){ s.assignment.status = 'in_progress'; });
         }
-        repaint();
-      }, function(){ s.saving = false; repaint(); });
+        _safeRepaint();
+      }, function(){ s.saving = false; _safeRepaint(); });
   }
 
-  function updateVerification(poolIndex, patch){
+  function updateVerification(poolIndex, patch, opts){
     var v = s.verifications[poolIndex] || { pool_index: poolIndex, return_lines: [] };
     for (var k in patch){ if (patch.hasOwnProperty(k)) v[k] = patch[k]; }
     s.verifications[poolIndex] = v;
     scheduleSave(poolIndex);
-    repaint();
+    // Skip the repaint when the caller is a text-input handler (which
+    // would clobber the active input and scroll the page back to the
+    // top on every keystroke). The state mutation already happened —
+    // the live DOM still shows what the engineer typed. The next
+    // user-driven repaint (button click, navigation) refreshes the
+    // dependent UI bits (Complete pill, divergence warning, etc.).
+    if (opts && opts.silent){
+      _refreshSavedIndicator();
+      return;
+    }
+    _safeRepaint();
   }
 
   // ── Submit ──────────────────────────────────────────────────────
@@ -10328,12 +10372,13 @@ window.AR2_ENGINEER = (function(){
         var diff = Math.abs(newConfirmed - pool.gallonsRep);
         if (diff / pool.gallonsRep > 0.05) discFlag = true;
       }
-      updateVerification(pi, { confirmed_gallons: newConfirmed, has_discrepancy: discFlag });
+      // Silent: don't repaint mid-keystroke or focus + scroll jump.
+      updateVerification(pi, { confirmed_gallons: newConfirmed, has_discrepancy: discFlag }, { silent: true });
       return true;
     }
     if (action === 'ar-eng-discrepancy-reason'){
       var piDR = parseInt(target.getAttribute('data-pool'), 10);
-      updateVerification(piDR, { discrepancy_reason: target.value || '' });
+      updateVerification(piDR, { discrepancy_reason: target.value || '' }, { silent: true });
       return true;
     }
     if (action === 'ar-eng-apply-pool-1'){
@@ -10452,7 +10497,8 @@ window.AR2_ENGINEER = (function(){
       var rPool = parseInt(target.getAttribute('data-pool'), 10);
       var rName = (target.value || '').trim();
       // Empty input falls back to the rep-supplied name (override cleared).
-      updateVerification(rPool, { pool_name_override: rName || null });
+      // Silent: don't repaint mid-keystroke.
+      updateVerification(rPool, { pool_name_override: rName || null }, { silent: true });
       return true;
     }
     if (action === 'ar-eng-pool-add'){
@@ -10601,7 +10647,8 @@ window.AR2_ENGINEER = (function(){
     }
     if (action === 'ar-eng-notes'){
       var pi7 = parseInt(target.getAttribute('data-pool'), 10);
-      updateVerification(pi7, { notes: target.value || '' });
+      // Silent: don't repaint mid-keystroke.
+      updateVerification(pi7, { notes: target.value || '' }, { silent: true });
       return true;
     }
     if (action === 'ar-eng-submit'){
