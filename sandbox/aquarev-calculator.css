@@ -2470,6 +2470,19 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-help-btn.ar-help-icon{width:32px;height:32px;font-size:16px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);}
 #ar2 .ar-eng-help-btn.ar-help-icon:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.7);color:#fff;}
 
+/* "Reviewing as Admin" banner — shown at the top of every engineer
+   step when an admin has opened the portal from the submission review
+   modal. Aqua tint (matches admin chrome) with the check icon. */
+#ar2 .ar-eng-admin-banner{display:flex;align-items:flex-start;gap:9px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.42);color:#cfe2eb;font-size:12.5px;line-height:1.5;padding:10px 14px;border-radius:9px;margin:12px 0 4px;}
+#ar2 .ar-eng-admin-banner b{color:#48cae4;font-weight:700;}
+#ar2 .ar-eng-admin-banner .ar-eng-svg-icon{color:#48cae4;flex-shrink:0;margin-top:2px;}
+
+/* Outline variant of the modal primary button for "Review in Portal" —
+   primary intent but visually softer than the destructive Lock or
+   confirming Mark Reviewed actions sitting beside it. */
+#ar2 .ar-pf-modal-btn.primary.outline{background:transparent;border:1px solid rgba(0,180,216,.55);color:#48cae4;}
+#ar2 .ar-pf-modal-btn.primary.outline:hover{background:rgba(0,180,216,.14);color:#fff;border-color:rgba(0,180,216,.85);}
+
 /* ───────── Pump Rooms (Ship #2) ─────────
    Section lives at the top of Step 3, above the pool grid. Each card
    captures a pump-room ID + walkthrough video + supporting photos.

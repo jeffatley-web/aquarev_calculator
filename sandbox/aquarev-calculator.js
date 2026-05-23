@@ -7365,6 +7365,7 @@ function openAdminReviewModal(assignmentId){
     + '<div class="ar-pf-modal-actions">'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-download-pdf" type="button" title="Generate engineer verification PDF">↓ PDF</button>'
+    +   '<button class="ar-pf-modal-btn primary outline" data-action="admin-review-open-portal" type="button" title="Open the engineer\'s 4-step portal for this record">Review in Portal</button>'
     +   (asgn.status === 'locked'
         ? '<button class="ar-pf-modal-btn" data-action="admin-review-unlock" type="button">Unlock</button>'
         : '<button class="ar-pf-modal-btn danger" data-action="admin-review-lock" type="button">Lock Now</button>')
@@ -7384,6 +7385,18 @@ function openAdminReviewModal(assignmentId){
     if (act === 'admin-review-unlock')        { adminReviewSetStatus('reviewed'); return; }
     if (act === 'admin-review-mark-reviewed') { adminReviewSetStatus('reviewed'); return; }
     if (act === 'admin-review-download-pdf')  { generateEngineerReport(assignmentId); return; }
+    if (act === 'admin-review-open-portal'){
+      // Closes this modal and opens the engineer's 4-step portal for
+      // this assignment. The portal renders without pf-engineer-mode
+      // (calculator chrome stays visible) and the header shows a
+      // "Reviewing as Admin" banner. Back button returns the admin to
+      // the archive list.
+      closeAdminReviewModal();
+      if (window.AR2_ENGINEER && AR2_ENGINEER.openAssignment){
+        AR2_ENGINEER.openAssignment(assignmentId);
+      }
+      return;
+    }
   });
   bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAdminReviewModal(); });
 
@@ -7645,18 +7658,35 @@ function renderArchive(){
    to refresh save-timestamps, etc.).
    ─────────────────────────────────────────────────────────────────── */
 function renderEngineerPortalShell(mountEl){
-  // Engineer-mode body class — hides Calculator-only buttons (Archive,
-  // New, calc tutorial Help icon, stepper) and flips the brand subtitle
-  // to "Engineering Review". Toggled per-render so a role flip clears it.
-  document.body.classList.add('pf-engineer-mode');
-  var subEl = document.querySelector('#ar2 .ar-bs');
-  if (subEl){
-    if (subEl.dataset.origText == null) subEl.dataset.origText = subEl.textContent;
-    subEl.textContent = 'Engineering Review';
+  // pf-engineer-mode applies ONLY when the signed-in user actually has
+  // role=engineer. When an admin opens an engineer's assignment via the
+  // submission-review "Review in portal" button, all calculator chrome
+  // (Archive, New, Help, Notifications, user chip) stays visible so the
+  // admin can jump back to the rest of the app at any time.
+  var isEng = !!(window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer());
+  if (isEng){
+    document.body.classList.add('pf-engineer-mode');
+    var subEl = document.querySelector('#ar2 .ar-bs');
+    if (subEl){
+      if (subEl.dataset.origText == null) subEl.dataset.origText = subEl.textContent;
+      subEl.textContent = 'Engineering Review';
+    }
+  } else {
+    document.body.classList.remove('pf-engineer-mode');
+    var subEl2 = document.querySelector('#ar2 .ar-bs');
+    if (subEl2 && subEl2.dataset.origText != null){
+      subEl2.textContent = subEl2.dataset.origText;
+    }
   }
   // If an assignment is currently open, route into the 4-step flow.
   if (window.AR2_ENGINEER && AR2_ENGINEER.state && AR2_ENGINEER.state().assignmentId){
     return AR2_ENGINEER.renderCurrentStep(mountEl);
+  }
+  // Admins should never see the engineer's assignment list (it's empty
+  // for them by RLS and confusing). Send them back to the archive instead.
+  if (!isEng){
+    if (typeof showView === 'function') showView('bank');
+    return;
   }
   return renderEngineerAssignmentList(mountEl);
 }
@@ -7950,6 +7980,14 @@ window.AR2_ENGINEER = (function(){
     s.currentStep = 1;
     s.loading = false;
     s.loadError = null;
+    // Admins who opened the portal via "Review in portal" should return
+    // to the archive (where their normal admin chrome lives), not the
+    // engineer assignment list (which is empty for them).
+    var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    if (isAdminViewing){
+      document.body.classList.remove('pf-engineer-mode');
+      if (typeof showView === 'function') { showView('bank'); return; }
+    }
     repaint();
   }
 
@@ -8673,11 +8711,17 @@ window.AR2_ENGINEER = (function(){
     } else if (s.saving){
       savedNote = '<span class="ar-eng-saved">Saving…</span>';
     }
+    var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    var backLabel = isAdminViewing ? 'Back to Archive' : 'All assignments';
+    var adminBanner = isAdminViewing
+      ? '<div class="ar-eng-admin-banner">' + svgIconCheck() + ' <b>Reviewing as Admin</b> — engineer fields stay editable for moderation; the engineer-side Submit button is hidden. Use Lock / Mark Reviewed from the Archive review modal when done.</div>'
+      : '';
     return '<div class="ar-eng-flow-header">'
       +   '<div class="ar-eng-header-top">'
-      +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' All assignments</button>'
+      +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' ' + backLabel + '</button>'
       +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
       +   '</div>'
+      +   adminBanner
       +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
       +   (subtitle ? '<div class="ar-eng-prop-sub">' + esc(subtitle) + '</div>' : '')
       +   savedNote
@@ -9198,7 +9242,9 @@ window.AR2_ENGINEER = (function(){
 
       +     '<div class="ar-eng-actions">'
       +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
-      +       '<button class="ar-eng-btn primary" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>'
+      +       ((window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())
+            ? '<button class="ar-eng-btn primary" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' Back to Archive</button>'
+            : '<button class="ar-eng-btn primary" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>')
       +     '</div>'
       +   '</div>'
       + '</div>';
