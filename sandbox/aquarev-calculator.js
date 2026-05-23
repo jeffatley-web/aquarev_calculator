@@ -6226,6 +6226,11 @@ function bankSaveReportImpl(replaceIds){
   // back to the legacy short id only if crypto.randomUUID is unavailable.
   var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
          : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
+  // Stash on session state so step 5 (Field Report) can resolve the
+  // current record id without re-reading the snapshot from storage.
+  // Persists across step navigation until the user starts a new
+  // assessment (resetApp clears S).
+  S._currentAssessmentId = id;
   var snapshot={
     id:id,
     propertyName:S.propertyName||'Unnamed Property',
@@ -11365,6 +11370,10 @@ function resetApp(){
   }
   S.step=0; S.activeTab='advantage';
   S.propertyName='';
+  // Forget the previously-loaded record id so Step 5 (Field Report)
+  // shows its empty-state on a fresh New assessment instead of trying
+  // to load engineer data for the prior record.
+  S._currentAssessmentId = null;
   S.bodies=[{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];
   S.devicesByPool=false;
   S.pool_gallons=0; S.chlorine_pool_gallons=0; S.co2_pool_gallons=0;
