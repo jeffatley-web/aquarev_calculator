@@ -549,8 +549,23 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    default 860px narrow column. Print CSS already overrides max-width
    separately, so paper output isn't affected. */
 #ar2-report.is-preview{background:#1a2a3a;min-height:100vh;}
-#ar2-report.is-preview .rpt{max-width:none!important;width:100%!important;margin:0!important;box-shadow:0 0 0 1px rgba(255,255,255,.04);}
-#ar2-report.is-preview .rpt + .rpt{margin-top:24px!important;}
+/* All report page types widen to the full viewport in preview mode so
+   the on-screen layout mirrors the printed paper without the 860px
+   narrow-column compression that the default screen CSS imposes. */
+#ar2-report.is-preview .rpt,
+#ar2-report.is-preview .rpt-pp-page,
+#ar2-report.is-preview .rpt-es-page,
+#ar2-report.is-preview .rpt-cover-page,
+#ar2-report.is-preview .rpt-factsheet-page,
+#ar2-report.is-preview .rpt-back-cover,
+#ar2-report.is-preview .rpt-fs-img-page{max-width:none!important;width:100%!important;margin:0!important;box-shadow:0 0 0 1px rgba(255,255,255,.04);}
+#ar2-report.is-preview .rpt + .rpt,
+#ar2-report.is-preview .rpt-pp-page + .rpt-pp-page,
+#ar2-report.is-preview .rpt + .rpt-pp-page,
+#ar2-report.is-preview .rpt-pp-page + .rpt,
+#ar2-report.is-preview .rpt-es-page + *,
+#ar2-report.is-preview .rpt-factsheet-page + *,
+#ar2-report.is-preview .rpt-pp-page + *{margin-top:24px!important;}
 
 /* Engineer verification PDF — minimal additions on top of existing .rpt-* chrome. */
 #ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;}
@@ -599,8 +614,13 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      band and footer span edge-to-edge. The grid wrapper has its own
      internal padding (.rpt-pp-grid-wrap) so the cards still have
      margin from the page edges. */
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 0!important;min-height:0!important;overflow:hidden!important;align-content:start;}
+  /* .rpt-pp-page used to be hard-clamped to height:100vh + overflow:hidden,
+     which silently CLIPPED any cards that didn't fit in a single
+     printed sheet. With the per-page chunker now sized for headroom,
+     allow the page to grow if it needs to so nothing is hidden. The
+     page-break-before still starts every chunk on a new sheet. */
+  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:none!important;height:auto!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:visible!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 auto!important;min-height:0!important;overflow:visible!important;align-content:start;}
   #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
@@ -611,7 +631,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
-  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  /* Exec Summary page — kept page-break-before / inside-avoid for
+     visual integrity but the hard height clamp was causing the same
+     clip-on-overflow problem the pool profile pages had. Allow growth. */
+  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:none!important;height:auto!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:visible!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
   /* Portrait ES body containment — both body-1 (page 1) and body-2 (page 2)

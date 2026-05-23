@@ -14493,11 +14493,12 @@ function generateReport(){
         +'</div>'
       +'</div>';
       // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
-      // Landscape: 15 cards/page (3 cols × 5 rows). Portrait: 10 cards/page (2 cols × 5 rows).
-      // Bumped from 12/8 → 15/10 (2026-05-13) for tighter presentation density.
-      // Each page renders its own header band (with "Page X of Y" subtitle when paginated)
-      // and its own footer band. Cards listed in user-defined order.
-      var CARDS_PER_PAGE=(EX.layout==='landscape')?15:10;
+      // Landscape: 12 cards/page (3 cols × 4 rows). Portrait: 8 cards/page
+      // (2 cols × 4 rows). Trimmed from 15/10 (2026-05-24) because pools
+      // with long names / notes were exceeding the printable area and the
+      // hard height clamp + overflow:hidden was clipping rows silently —
+      // exactly the "content cut at 11+ pools" bug.
+      var CARDS_PER_PAGE=(EX.layout==='landscape')?12:8;
       var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
       poolProfilesHtml='';
       for(var ppPi=0; ppPi<totalPpPages; ppPi++){
