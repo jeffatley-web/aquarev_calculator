@@ -1082,9 +1082,11 @@ var Cloud = (function(){
     // verify pool-line counts + diameters + media for assigned properties.
     isEngineer: function(){ return !!user && user.role === 'engineer'; },
     // Adds optional phone parameter for engineer accounts. Backend
-    // admin_create_user accepts (name, code, role, logo_data, phone).
-    // For non-engineer roles, phone is ignored server-side.
-    adminCreateUser: function(name, code, role, logoDataUrl, phone){
+    // admin_create_user accepts (name, code, role, logo_data, phone, email).
+    // For non-engineer roles, phone is ignored server-side. Email is
+    // optional; when omitted the row gets an aqr-…@aquarev.local
+    // placeholder (matches legacy behavior).
+    adminCreateUser: function(name, code, role, logoDataUrl, phone, email){
       var c = getClient();
       if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
       return c.rpc('admin_create_user', {
@@ -1092,11 +1094,22 @@ var Cloud = (function(){
         p_code: code,
         p_role: role,
         p_logo_data: logoDataUrl || null,
-        p_phone: phone || null
+        p_phone: phone || null,
+        p_email: email || null
       }).then(function(r){
         if(r.error) throw r.error;
         return r.data;
       });
+    },
+    // Admin-only email update. Pass null/'' to clear (reverts to a
+    // fresh aqr-…@aquarev.local placeholder).
+    adminSetUserEmail: function(userId, email){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_set_user_email', {
+        p_user_id: userId,
+        p_email:   email || null
+      }).then(function(r){ if(r.error) throw r.error; return r.data; });
     },
     adminSetUserLogo: function(userId, logoDataUrl){
       var c = getClient();
@@ -6554,6 +6567,57 @@ function showReassignModal(assessmentId){
    Add user / Reset code / Change role / Toggle active. All call into
    AR2_CLOUD admin RPCs which are admin-gated server-side. UI is local
    to the calculator — no separate page. */
+/* Admin: edit a user's display email. Opens from the per-row "Email"
+   action button. Leaving the field blank clears the address back to a
+   fresh aqr-…@aquarev.local placeholder so the column never goes NULL. */
+function showAdminEditEmailModal(uid, uname, currentEmail){
+  var existing=document.getElementById('ar2-uemail-modal');
+  if(existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-uemail-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:26px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">EDIT EMAIL</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
+    +'<div style="margin-bottom:10px"><label>Email <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(blank to remove)</span></label>'
+      +'<input id="ar2-uemail-input" type="email" placeholder="name@company.com" autocomplete="off" />'
+    +'</div>'
+    +'<div id="ar2-uemail-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-uemail-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-uemail-go" class="ar2-mb primary">Save</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  var inp=document.getElementById('ar2-uemail-input');
+  inp.value = currentEmail || '';
+  setTimeout(function(){ try { inp.focus(); inp.select && inp.select(); } catch(_){} }, 30);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-uemail-cancel').onclick=close;
+  m.addEventListener('click', function(e){ if(e.target===m) close(); });
+  document.getElementById('ar2-uemail-go').onclick=function(){
+    var err=document.getElementById('ar2-uemail-err');
+    var val=(inp.value||'').trim();
+    if (val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)){
+      err.textContent='Email looks invalid — leave blank to remove, or enter a valid address.';
+      return;
+    }
+    err.textContent='';
+    var btn=document.getElementById('ar2-uemail-go');
+    btn.disabled=true; btn.textContent='Saving…';
+    AR2_CLOUD.adminSetUserEmail(uid, val || null).then(function(){
+      close();
+      // Reload the User Activity table so the column reflects the change.
+      var dashEl=document.getElementById('ar-admin-dash');
+      if(dashEl) dashEl.dataset.loaded='';
+      populateAdminDashboard();
+    }).catch(function(e){
+      err.textContent = (e && e.message) ? e.message : 'Could not save email.';
+      btn.disabled=false; btn.textContent='Save';
+    });
+  };
+}
+
 function showAdminAddUserModal(){
   var existing=document.getElementById('ar2-admuser-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
@@ -6564,6 +6628,13 @@ function showAdminAddUserModal(){
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:14px">ADD NEW USER</div>'
     +'<div style="margin-bottom:12px"><label>Name</label>'
       +'<input id="ar2-au-name" type="text" placeholder="e.g. Sarah Johnson · or company name for Clients" autocomplete="off" />'
+    +'</div>'
+    // Email is optional. If provided it shows in the User Activity
+    // table; if blank, the row displays a muted em-dash like before.
+    // Stored in app_users.email; auth.users.email keeps the internal
+    // aqr-...@aquarev.local placeholder either way.
+    +'<div style="margin-bottom:12px"><label>Email <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(optional)</span></label>'
+      +'<input id="ar2-au-email" type="email" placeholder="name@company.com" autocomplete="off" />'
     +'</div>'
     // Access code: for user/admin/client roles this stays a 4-char code as
     // before; for engineer the field accepts the normalized E.164 phone
@@ -6689,6 +6760,13 @@ function showAdminAddUserModal(){
 
   document.getElementById('ar2-au-go').onclick=function(){
     var name=(document.getElementById('ar2-au-name').value||'').trim();
+    var emailRaw=(document.getElementById('ar2-au-email').value||'').trim();
+    var email = emailRaw || null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+      document.getElementById('ar2-au-err').textContent = 'Email looks invalid — leave blank or enter a valid address.';
+      document.getElementById('ar2-au-email').focus();
+      return;
+    }
     var role=roleSel.value;
     var err=document.getElementById('ar2-au-err');
     // For engineers, the code is the DIGITS-ONLY phone (no country-code
@@ -6715,7 +6793,7 @@ function showAdminAddUserModal(){
     var go=document.getElementById('ar2-au-go');
     go.disabled=true; go.textContent='Creating…';
     var logoArg = (role === 'client' && pendingLogoDataUrl) ? pendingLogoDataUrl : null;
-    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone).then(function(){
+    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone, email).then(function(){
       close();
       // Force the dashboard to refresh stats
       var dashEl=document.getElementById('ar-admin-dash');
@@ -7032,6 +7110,7 @@ function populateAdminDashboard(){
             + '<td class="actions">'
               + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Reset access code">Reset</button>'
               + '<button class="ar-admin-row-act" data-action="admin-change-role" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+u.role+'" title="Change role">Role</button>'
+              + '<button class="ar-admin-row-act" data-action="admin-edit-email" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uemail="'+esc(hasRealEmail?u.email:'')+'" title="Edit email">Email</button>'
               // Logo button — only Clients use logos. Show for any role so admin
               // can upload one when promoting a user, but most useful on Clients.
               + (u.role === 'client'
@@ -15648,6 +15727,15 @@ function handleClick(e){
   // Admin User Manager actions (admin-only)
   var addUserClick=e.target.closest('[data-action="admin-add-user"]');
   if(addUserClick){ showAdminAddUserModal(); return; }
+  var emailEditClick=e.target.closest('[data-action="admin-edit-email"]');
+  if(emailEditClick){
+    showAdminEditEmailModal(
+      emailEditClick.getAttribute('data-uid'),
+      emailEditClick.getAttribute('data-uname'),
+      emailEditClick.getAttribute('data-uemail') || ''
+    );
+    return;
+  }
   var resetCodeClick=e.target.closest('[data-action="admin-reset-code"]');
   if(resetCodeClick){
     showAdminResetCodeModal(resetCodeClick.dataset.uid, resetCodeClick.dataset.uname);
