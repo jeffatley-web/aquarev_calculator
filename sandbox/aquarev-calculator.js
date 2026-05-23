@@ -7794,8 +7794,9 @@ window.AR2_ENGINEER = (function(){
     record:       null,     // The linked record (with state_json)
     pools:        [],       // Derived from record.state_json.bodies
     verifications: {},      // Keyed by pool_index
-    media:        [],       // engineer_media rows (placeholder, used in
-                            // follow-up ship for media upload)
+    media:        [],       // engineer_media rows (pool + pump-room scoped)
+    pumpRooms:    [],       // engineer_pump_rooms rows for this assignment
+    pumpRoomDraft: null,    // {label:''} when Add modal is open
     currentStep:  1,
     saving:       false,
     saveTimer:    null,
@@ -7916,6 +7917,8 @@ window.AR2_ENGINEER = (function(){
     s.pools = [];
     s.verifications = {};
     s.media = [];
+    s.pumpRooms = [];
+    s.pumpRoomDraft = null;
     s.loading = true;
     s.loadError = null;
     // Implicit access confirmation: the act of opening the assignment
@@ -7942,6 +7945,8 @@ window.AR2_ENGINEER = (function(){
     s.pools = [];
     s.verifications = {};
     s.media = [];
+    s.pumpRooms = [];
+    s.pumpRoomDraft = null;
     s.currentStep = 1;
     s.loading = false;
     s.loadError = null;
@@ -7977,6 +7982,10 @@ window.AR2_ENGINEER = (function(){
       })
       .then(function(media){
         s.media = media;
+        return fetchPumpRooms(s.assignmentId);
+      })
+      .then(function(rooms){
+        s.pumpRooms = rooms;
         s.loading = false;
         // Skip the briefing step on subsequent visits if the engineer has
         // marked it dismissed. Per decision #8, that flag is DB-persisted
@@ -8052,7 +8061,7 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c) return Promise.resolve({});
     return c.from('engineer_verifications')
-      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,updated_at')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,updated_at')
       .eq('assignment_id', assignmentId)
       .then(function(rs){
         if (rs.error) return {};
@@ -8065,10 +8074,98 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c) return Promise.resolve([]);
     return c.from('engineer_media')
-      .select('id,pool_index,storage_path,media_type,filename_original,size_bytes,caption,uploaded_at')
+      .select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,caption,uploaded_at')
       .eq('assignment_id', assignmentId)
       .order('uploaded_at', { ascending: true })
       .then(function(rs){ return (rs.data || []); }, function(){ return []; });
+  }
+  function fetchPumpRooms(assignmentId){
+    var c = client();
+    if (!c) return Promise.resolve([]);
+    return c.from('engineer_pump_rooms')
+      .select('id,label,notes,created_at')
+      .eq('assignment_id', assignmentId)
+      .order('created_at', { ascending: true })
+      .then(function(rs){ return (rs.data || []); }, function(){ return []; });
+  }
+  // Create a new pump room. label is required + unique per assignment.
+  // Resolves with the new pump room row. Engineer-only; admins typically
+  // don't create pump rooms (they review the engineer's submissions).
+  function createPumpRoom(label){
+    var c = client();
+    var u = currentUser();
+    if (!c || !u || !s.assignmentId) return Promise.reject(new Error('not ready'));
+    var clean = (label || '').trim();
+    if (!clean) return Promise.reject(new Error('Pump room ID is required.'));
+    return c.from('engineer_pump_rooms').insert({
+      assignment_id:      s.assignmentId,
+      label:              clean,
+      created_by_user_id: u.id
+    }).select('id,label,notes,created_at').single().then(function(rs){
+      if (rs.error){
+        // Duplicate label or other DB error — surface clean message.
+        var msg = rs.error.message || '';
+        if (msg.indexOf('duplicate') !== -1 || msg.indexOf('unique') !== -1){
+          throw new Error('A pump room called "' + clean + '" already exists.');
+        }
+        throw new Error(msg || 'Could not save pump room.');
+      }
+      s.pumpRooms.push(rs.data);
+      bumpLastModified();
+      return rs.data;
+    });
+  }
+  // Update an existing pump room's label. Same uniqueness rules as create.
+  function renamePumpRoom(pumpRoomId, label){
+    var c = client();
+    if (!c || !pumpRoomId) return Promise.reject(new Error('not ready'));
+    var clean = (label || '').trim();
+    if (!clean) return Promise.reject(new Error('Pump room ID is required.'));
+    return c.from('engineer_pump_rooms')
+      .update({ label: clean })
+      .eq('id', pumpRoomId)
+      .select('id,label,notes,created_at').single().then(function(rs){
+        if (rs.error){
+          var msg = rs.error.message || '';
+          if (msg.indexOf('duplicate') !== -1 || msg.indexOf('unique') !== -1){
+            throw new Error('A pump room called "' + clean + '" already exists.');
+          }
+          throw new Error(msg || 'Could not rename pump room.');
+        }
+        var i;
+        for (i = 0; i < s.pumpRooms.length; i++){
+          if (s.pumpRooms[i].id === pumpRoomId){ s.pumpRooms[i] = rs.data; break; }
+        }
+        bumpLastModified();
+        return rs.data;
+      });
+  }
+  function deletePumpRoom(pumpRoomId){
+    var c = client();
+    if (!c || !pumpRoomId) return Promise.reject(new Error('not ready'));
+    // Optimistic local removal so the UI feels snappy.
+    s.pumpRooms = s.pumpRooms.filter(function(r){ return r.id !== pumpRoomId; });
+    // Also drop any walkthrough media from local state — the cascade FK
+    // takes care of the DB rows + storage path is cleaned next sweep.
+    s.media = s.media.filter(function(m){ return m.pump_room_id !== pumpRoomId; });
+    // And clear pump_room_id on any pool verification that referenced it.
+    Object.keys(s.verifications).forEach(function(k){
+      if (s.verifications[k].pump_room_id === pumpRoomId){
+        s.verifications[k].pump_room_id = null;
+      }
+    });
+    repaint();
+    return c.from('engineer_pump_rooms').delete().eq('id', pumpRoomId).then(function(){
+      bumpLastModified();
+    });
+  }
+  // Helper: bump the assignment's last_modified_at so retention windows
+  // and rep dashboards reflect the engineer's latest activity.
+  function bumpLastModified(){
+    var c = client();
+    if (!c || !s.assignmentId) return;
+    s.lastSavedAt = new Date();
+    c.from('engineer_assignments').update({ last_modified_at: new Date().toISOString() }).eq('id', s.assignmentId);
   }
 
   /* Derive the pool list from the linked record's state_json.bodies.
@@ -8165,6 +8262,7 @@ window.AR2_ENGINEER = (function(){
       notes: v.notes || null,
       has_discrepancy: !!v.has_discrepancy,
       discrepancy_reason: v.discrepancy_reason || null,
+      pump_room_id: v.pump_room_id || null,
       updated_at: new Date().toISOString()
     };
     c.from('engineer_verifications')
@@ -8295,7 +8393,8 @@ window.AR2_ENGINEER = (function(){
      the per-pool limits (10 photos, 4 videos) before kicking off the
      upload — the DB allows more so admins can override via raw SQL,
      but the client UI hard-caps. */
-  function uploadMedia(poolIndex, file){
+  // target = pool index (number) OR object { kind:'pumpRoom', id }
+  function uploadMedia(target, file){
     var c = client();
     var u = currentUser();
     if (!c || !u || !file) return Promise.reject(new Error('not ready'));
@@ -8304,14 +8403,41 @@ window.AR2_ENGINEER = (function(){
                   : null;
     if (!mediaType) return Promise.reject(new Error('Only photos and videos are supported.'));
 
-    // Per-pool counter check (decision #14: 10 photos · 4 videos per pool)
-    var counts = countMediaForPool(poolIndex);
-    if (mediaType === 'photo' && counts.photo >= 10) return Promise.reject(new Error('This pool is at the 10-photo limit. Remove a photo before adding a new one.'));
-    if (mediaType === 'video' && counts.video >= 4)  return Promise.reject(new Error('This pool is at the 4-video limit. Remove a video before adding a new one.'));
+    // Normalize the target. Numbers are still treated as pool indexes
+    // (back-compat). The pump-room form passes an explicit object.
+    var isPumpRoom = !!(target && target.kind === 'pumpRoom');
+    var poolIndex  = isPumpRoom ? null : (typeof target === 'object' ? target.poolIndex : target);
+    var pumpRoomId = isPumpRoom ? target.id : null;
+
+    if (!isPumpRoom){
+      // Per-pool counter check (decision #14: 10 photos · 4 videos per pool)
+      var counts = countMediaForPool(poolIndex);
+      if (mediaType === 'photo' && counts.photo >= 10) return Promise.reject(new Error('This pool is at the 10-photo limit. Remove a photo before adding a new one.'));
+      if (mediaType === 'video' && counts.video >= 4)  return Promise.reject(new Error('This pool is at the 4-video limit. Remove a video before adding a new one.'));
+    } else {
+      // Pump rooms get one walkthrough video (replaces on re-upload) and
+      // up to 4 supporting photos. Keep video limit at 1 by removing any
+      // previous video for the same pump room before adding a new one.
+      var prCounts = countMediaForPumpRoom(pumpRoomId);
+      if (mediaType === 'video' && prCounts.video >= 1){
+        return Promise.reject(new Error('Each pump room holds one walkthrough video. Remove the existing one first.'));
+      }
+      if (mediaType === 'photo' && prCounts.photo >= 6){
+        return Promise.reject(new Error('Pump room photo limit is 6. Remove a photo before adding a new one.'));
+      }
+    }
 
     // Mark UI as uploading so the card shows a spinner stub
     var transientId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
-    s.media.push({ id: transientId, pool_index: poolIndex, media_type: mediaType, _uploading: true, filename_original: file.name });
+    var transientRow = {
+      id: transientId,
+      pool_index: poolIndex,
+      pump_room_id: pumpRoomId,
+      media_type: mediaType,
+      _uploading: true,
+      filename_original: file.name
+    };
+    s.media.push(transientRow);
     repaint();
 
     // Compress photos before upload; videos upload as-is
@@ -8323,23 +8449,28 @@ window.AR2_ENGINEER = (function(){
       var ext = mediaType === 'photo'
         ? 'jpg'
         : (file.name.split('.').pop() || 'mp4').toLowerCase();
-      var storagePath = 'assignment_' + s.assignmentId + '/p' + poolIndex + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6) + '.' + ext;
+      var slug = isPumpRoom
+        ? 'pr_' + pumpRoomId.slice(0, 8)
+        : 'p' + poolIndex;
+      var storagePath = 'assignment_' + s.assignmentId + '/' + slug + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6) + '.' + ext;
       return c.storage.from('engineer-media').upload(storagePath, blob, {
         contentType: mediaType === 'photo' ? 'image/jpeg' : file.type,
         cacheControl: '3600',
         upsert: false
       }).then(function(rs){
         if (rs.error) throw rs.error;
-        // Insert the media row pointing at the storage path
-        return c.from('engineer_media').insert({
-          assignment_id: s.assignmentId,
-          pool_index: poolIndex,
-          storage_path: storagePath,
-          media_type: mediaType,
-          filename_original: file.name,
-          size_bytes: blob.size || file.size,
-          uploaded_by_user_id: u.id
-        }).select('id,pool_index,storage_path,media_type,filename_original,size_bytes,uploaded_at').single();
+        var insertRow = {
+          assignment_id:        s.assignmentId,
+          storage_path:         storagePath,
+          media_type:           mediaType,
+          filename_original:    file.name,
+          size_bytes:           blob.size || file.size,
+          uploaded_by_user_id:  u.id
+        };
+        if (isPumpRoom) insertRow.pump_room_id = pumpRoomId;
+        else            insertRow.pool_index   = poolIndex;
+        return c.from('engineer_media').insert(insertRow)
+          .select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').single();
       }).then(function(rs2){
         if (rs2.error) throw rs2.error;
         // Replace the transient placeholder with the real row
@@ -8358,6 +8489,19 @@ window.AR2_ENGINEER = (function(){
       repaint();
       throw err;
     });
+  }
+
+  // Pump-room media counts. Mirrors countMediaForPool — videos and
+  // photos counted separately because pump-room caps differ from pool.
+  function countMediaForPumpRoom(pumpRoomId){
+    var photo = 0, video = 0;
+    s.media.forEach(function(m){
+      if (m.pump_room_id !== pumpRoomId) return;
+      if (m._uploading) return;
+      if (m.media_type === 'photo') photo++;
+      if (m.media_type === 'video') video++;
+    });
+    return { photo: photo, video: video };
   }
 
   /* Remove a media item from Storage + DB. The Storage delete is
@@ -8561,10 +8705,12 @@ window.AR2_ENGINEER = (function(){
         + '<p>Total volume is verified per-pool in Step 3 and rolled up in Step 4 — no separate check on this page.</p>',
       3: ''
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
+        + '<p><b>Start with the Pump Rooms section at the top.</b> Tap <b>+ Add Pump Room</b> for every equipment room you walked through, give each one a short ID (e.g. <i>PR-1</i>, <i>North equipment</i>), and record a quick walkthrough video. You\'ll link pools to their rooms below.</p>'
         + '<p><b>For each pool, you need three things to mark it complete:</b></p>'
         + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Match Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
         + '<p style="margin-left:14px"><b>2. Add return lines</b> — one row per pipe configuration. Use +/− for line count, the dropdown for diameter. Add multiple rows if pipe sizes vary.</p>'
         + '<p style="margin-left:14px"><b>3. Upload at least one photo or video</b> — required for every pool. Cameras open automatically on mobile. Photos are compressed before upload.</p>'
+        + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
         + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across. Set one next to the pipe for scale in your photo.</p>'
@@ -8734,6 +8880,7 @@ window.AR2_ENGINEER = (function(){
       return;
     }
     var cardsHtml = s.pools.map(function(p){ return poolCardHtml(p); }).join('');
+    var pumpRoomsSection = pumpRoomsSectionHtml();
     var doneCount = s.pools.filter(function(p){
       var v = s.verifications[p.index];
       var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
@@ -8753,6 +8900,7 @@ window.AR2_ENGINEER = (function(){
       + '<div class="ar-eng-wrap ar-eng-flow">'
       +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + s.pools.length + ' complete')
       +   stepperHtml(3)
+      +   pumpRoomsSection
       +   applyToolbar
       +   '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
       // Hidden file input — shared across pool cards. When the engineer
@@ -8780,6 +8928,98 @@ window.AR2_ENGINEER = (function(){
     }
   }
 
+  /* Pump Rooms section — rendered above the pool grid in Step 3.
+     Engineers add one pump/equipment room per area, each owning a
+     walkthrough video + optional supporting photos. Pump rooms become
+     selectable in the per-pool dropdown so the rep can see which
+     equipment room serves each pool. */
+  function pumpRoomsSectionHtml(){
+    var rooms = s.pumpRooms || [];
+    var cards = rooms.map(function(r){ return pumpRoomCardHtml(r); }).join('');
+    var draftHtml = '';
+    if (s.pumpRoomDraft){
+      draftHtml = ''
+        + '<div class="ar-eng-pump-room-draft">'
+        +   '<input type="text" class="ar-eng-pump-room-input" data-action="ar-eng-pump-room-draft-input" placeholder="Pump Room ID (e.g. PR-1, North equipment)" value="' + esc(s.pumpRoomDraft.label || '') + '" maxlength="80" autofocus />'
+        +   '<button class="ar-eng-tiny" data-action="ar-eng-pump-room-save" type="button">' + svgIconCheck() + ' Save</button>'
+        +   '<button class="ar-eng-tiny ghost" data-action="ar-eng-pump-room-cancel" type="button">Cancel</button>'
+        + '</div>';
+    }
+    var addBtn = s.pumpRoomDraft
+      ? ''
+      : '<button class="ar-eng-add-pump-room" data-action="ar-eng-pump-room-add" type="button">+ Add Pump Room</button>';
+    return ''
+      + '<div class="ar-eng-pump-rooms-section">'
+      +   '<div class="ar-eng-section-hd">'
+      +     '<div class="ar-eng-section-eyebrow">Pump Rooms</div>'
+      +     '<div class="ar-eng-section-sub">One per equipment room you walked through. Capture an ID and a quick walkthrough video, then link each pool to its room below.</div>'
+      +   '</div>'
+      +   (cards
+          ? '<div class="ar-eng-pump-room-grid">' + cards + '</div>'
+          : (s.pumpRoomDraft ? '' : '<div class="ar-eng-pump-room-empty">No pump rooms yet — tap <b>Add Pump Room</b> when you reach the equipment area.</div>'))
+      +   draftHtml
+      +   addBtn
+      + '</div>';
+  }
+
+  function pumpRoomCardHtml(r){
+    var media   = s.media.filter(function(m){ return m.pump_room_id === r.id; });
+    var video   = media.find(function(m){ return m.media_type === 'video' && !m._uploading; });
+    var videoUp = media.find(function(m){ return m.media_type === 'video' &&  m._uploading; });
+    var photos  = media.filter(function(m){ return m.media_type === 'photo'; });
+    var counts  = countMediaForPumpRoom(r.id);
+    var photoAtLimit = counts.photo >= 6;
+    var poolsServed = 0;
+    Object.keys(s.verifications).forEach(function(k){
+      if (s.verifications[k].pump_room_id === r.id) poolsServed++;
+    });
+
+    var videoBlock;
+    if (videoUp){
+      videoBlock = '<div class="ar-eng-pump-room-video uploading">'
+        + svgIconVideo() + '<span class="ar-eng-thumb-spin"></span>'
+        + '<div class="ar-eng-pump-room-video-msg">Uploading walkthrough…</div>'
+        + '</div>';
+    } else if (video){
+      videoBlock = '<div class="ar-eng-pump-room-video has-video" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(video.id) + '" data-storage-path="' + esc(video.storage_path) + '" data-media-type="video" title="Play walkthrough video">'
+        + '<div class="ar-eng-pump-room-video-icon">' + svgIconVideo() + '</div>'
+        + '<div class="ar-eng-pump-room-video-msg">Walkthrough ready · tap to view</div>'
+        + '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(video.id) + '" type="button" aria-label="Remove video">' + svgIconClose() + '</button>'
+        + '</div>';
+    } else {
+      videoBlock = '<button class="ar-eng-pump-room-video empty" data-action="ar-eng-media-add" data-pump-room="' + esc(r.id) + '" data-media-type="video" type="button">'
+        + '<div class="ar-eng-pump-room-video-icon">' + svgIconVideo() + '</div>'
+        + '<div class="ar-eng-pump-room-video-msg">Record walkthrough video</div>'
+        + '</button>';
+    }
+
+    var photoThumbs = photos.map(function(m){
+      if (m._uploading){
+        return '<div class="ar-eng-thumb uploading" title="Uploading">' + svgIconCamera() + '<span class="ar-eng-thumb-spin"></span></div>';
+      }
+      return '<div class="ar-eng-thumb" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(m.id) + '" data-storage-path="' + esc(m.storage_path) + '" data-media-type="photo">'
+        +   '<div class="ar-eng-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
+        +   '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(m.id) + '" type="button" aria-label="Remove">' + svgIconClose() + '</button>'
+        + '</div>';
+    }).join('');
+
+    return '<div class="ar-eng-pump-room-card" data-pump-room-card="' + esc(r.id) + '">'
+      + '<div class="ar-eng-pump-room-head">'
+      +   '<input type="text" class="ar-eng-pump-room-label" data-action="ar-eng-pump-room-rename" data-pump-room="' + esc(r.id) + '" value="' + esc(r.label) + '" maxlength="80" />'
+      +   '<button class="ar-eng-thumb-x" data-action="ar-eng-pump-room-delete" data-pump-room="' + esc(r.id) + '" type="button" aria-label="Delete pump room">' + svgIconClose() + '</button>'
+      + '</div>'
+      + videoBlock
+      + '<div class="ar-eng-pump-room-photos">'
+      +   '<label class="ar-eng-pump-room-photos-lbl">Supporting photos <span class="ar-eng-hint">' + counts.photo + ' of 6 · optional</span></label>'
+      +   '<div class="ar-eng-thumbs">' + (photoThumbs || '<div class="ar-eng-empty-mini">No photos yet</div>') + '</div>'
+      +   '<button class="ar-eng-media-btn' + (photoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pump-room="' + esc(r.id) + '" data-media-type="photo" type="button"' + (photoAtLimit ? ' disabled' : '') + '>' + svgIconCamera() + ' Add photo</button>'
+      + '</div>'
+      + '<div class="ar-eng-pump-room-foot">'
+      +   '<span class="ar-eng-pump-room-stat">' + poolsServed + ' pool' + (poolsServed === 1 ? '' : 's') + ' linked</span>'
+      + '</div>'
+      + '</div>';
+  }
+
   function poolCardHtml(p){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
@@ -8788,11 +9028,26 @@ window.AR2_ENGINEER = (function(){
     var lines = v.return_lines || [];
     var DIAMETERS = [2, 3, 4, 6, 8];
 
-    // Media for this pool
+    // Media for this pool (pump-room media excluded — those rows have
+    // pool_index === null which strict-equals nothing).
     var poolMedia = s.media.filter(function(m){ return m.pool_index === p.index; });
     var counts = countMediaForPool(p.index);
     var photoAtLimit = counts.photo >= 10;
     var videoAtLimit = counts.video >= 4;
+
+    // Pump-room linkage dropdown — only rendered when at least one
+    // pump room exists. Engineers can leave it unlinked (— None —).
+    var pumpRoomLinkHtml = '';
+    if (s.pumpRooms && s.pumpRooms.length){
+      var selectedId = v.pump_room_id || '';
+      var opts = '<option value="">— Not linked —</option>'
+        + s.pumpRooms.map(function(r){
+            return '<option value="' + esc(r.id) + '"' + (r.id === selectedId ? ' selected' : '') + '>' + esc(r.label) + '</option>';
+          }).join('');
+      pumpRoomLinkHtml = '<div class="ar-eng-field"><label>Pump room <span class="ar-eng-hint">link this pool to its equipment room</span></label>'
+        + '<select class="ar-eng-pump-room-select" data-action="ar-eng-pump-room-link" data-pool="' + p.index + '">' + opts + '</select>'
+        + '</div>';
+    }
 
     var thumbsHtml = poolMedia.map(function(m){
       if (m._uploading){
@@ -8870,6 +9125,8 @@ window.AR2_ENGINEER = (function(){
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button">+ Add return line</button>'
       +   '</div>'
 
+      +   pumpRoomLinkHtml
+
       +   '<div class="ar-eng-field"><label>Notes <span class="ar-eng-hint">(optional)</span></label>'
       +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?">' + esc(v.notes || '') + '</textarea>'
       +   '</div>'
@@ -8926,6 +9183,7 @@ window.AR2_ENGINEER = (function(){
       +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Property</span><span class="ar-eng-v">' + esc((s.record && s.record.property_name) || '—') + '</span></div>'
       +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Access</span><span class="ar-eng-v">' + (s.propertyConfirmation.hasAccess === false ? svgIconWarn() + ' Blocked — ' + esc(s.propertyConfirmation.accessBlockedReason || '(no note)') : svgIconCheck() + ' Confirmed on portal entry') + '</span></div>'
       +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Pools documented</span><span class="ar-eng-v">' + doneCount + ' of ' + s.pools.length + '</span></div>'
+      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Pump rooms</span><span class="ar-eng-v">' + (s.pumpRooms.length || '—') + (s.pumpRooms.length ? ' captured' : '') + '</span></div>'
       +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Media uploaded</span><span class="ar-eng-v">' + totalMedia + ' file' + (totalMedia === 1 ? '' : 's') + '</span></div>'
       +     '</div>'
 
@@ -9009,11 +9267,16 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-media-add'){
       // Stash the pick context on module state (not the input element)
       // so a repaint between picker-open and file-pick doesn't lose
-      // the target pool. The hidden input is just a picker trigger;
-      // its DOM identity may change across repaints.
-      var mediaType = target.getAttribute('data-media-type') || 'photo';
-      var poolIdx = parseInt(target.getAttribute('data-pool'), 10);
-      s._mediaPickContext = { poolIndex: poolIdx, mediaType: mediaType };
+      // the target pool/pump-room. The hidden input is just a picker
+      // trigger; its DOM identity may change across repaints.
+      var mediaType  = target.getAttribute('data-media-type') || 'photo';
+      var pumpRoomId = target.getAttribute('data-pump-room');
+      if (pumpRoomId){
+        s._mediaPickContext = { target: { kind: 'pumpRoom', id: pumpRoomId }, mediaType: mediaType };
+      } else {
+        var poolIdx = parseInt(target.getAttribute('data-pool'), 10);
+        s._mediaPickContext = { target: poolIdx, mediaType: mediaType };
+      }
       var input = document.getElementById('ar-eng-media-input');
       if (!input) return true;
       // capture="environment" hints the OS to prefer the rear camera on
@@ -9028,11 +9291,85 @@ window.AR2_ENGINEER = (function(){
       var ctx = s._mediaPickContext;
       var file = target.files && target.files[0];
       if (!file || !ctx) return true;
-      uploadMedia(ctx.poolIndex, file).catch(function(err){
+      uploadMedia(ctx.target, file).catch(function(err){
         alert((err && err.message) || 'Upload failed.');
       });
-      // Clear context so a stale pool index doesn't leak into the next pick
+      // Clear context so a stale target doesn't leak into the next pick
       s._mediaPickContext = null;
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-add'){
+      // Open the inline draft. Engineer types a label; Save commits.
+      s.pumpRoomDraft = { label: '' };
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-cancel'){
+      s.pumpRoomDraft = null;
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-draft-input'){
+      // Live capture into the draft — no repaint, so the input keeps focus.
+      if (s.pumpRoomDraft) s.pumpRoomDraft.label = target.value || '';
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-save'){
+      // Validate + create. On success the draft closes and the new card
+      // renders with the empty walkthrough-video CTA.
+      var draftLabel = (s.pumpRoomDraft && s.pumpRoomDraft.label || '').trim();
+      if (!draftLabel){ alert('Pump room ID is required.'); return true; }
+      createPumpRoom(draftLabel).then(function(){
+        s.pumpRoomDraft = null;
+        repaint();
+      }, function(err){
+        alert((err && err.message) || 'Could not save pump room.');
+      });
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-rename'){
+      // Rename fires on every keystroke via the input/change relay. We
+      // update local state immediately (so typing feels live) but
+      // debounce the DB call by 500 ms per pump-room so a 6-character
+      // edit is one roundtrip instead of six.
+      var prId = target.getAttribute('data-pump-room');
+      var newLabel = (target.value || '').trim();
+      var current = s.pumpRooms.find(function(r){ return r.id === prId; });
+      if (!current) return true;
+      var prev = current.label;
+      current.label = newLabel;
+      if (!s._pumpRoomRenameTimers) s._pumpRoomRenameTimers = {};
+      if (s._pumpRoomRenameTimers[prId]) clearTimeout(s._pumpRoomRenameTimers[prId]);
+      s._pumpRoomRenameTimers[prId] = setTimeout(function(){
+        delete s._pumpRoomRenameTimers[prId];
+        if (!newLabel){ current.label = prev; repaint(); return; }
+        renamePumpRoom(prId, newLabel).then(function(){}, function(err){
+          current.label = prev;
+          repaint();
+          alert((err && err.message) || 'Could not rename pump room.');
+        });
+      }, 500);
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-delete'){
+      var delPrId = target.getAttribute('data-pump-room');
+      var delRoom = s.pumpRooms.find(function(r){ return r.id === delPrId; });
+      if (!delRoom) return true;
+      if (!confirm('Delete pump room "' + delRoom.label + '"? Linked pools will be un-linked, and the walkthrough video will be removed.')) return true;
+      deletePumpRoom(delPrId).then(function(){
+        repaint();
+      }, function(err){
+        alert((err && err.message) || 'Could not delete pump room.');
+        // refresh state from server on failure
+        fetchPumpRooms(s.assignmentId).then(function(rs){ s.pumpRooms = rs; repaint(); });
+      });
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-link'){
+      // Per-pool pump-room linkage. Empty string = un-link.
+      var linkPool = parseInt(target.getAttribute('data-pool'), 10);
+      var linkVal  = target.value || null;
+      updateVerification(linkPool, { pump_room_id: linkVal });
       return true;
     }
     if (action === 'ar-eng-media-remove'){
