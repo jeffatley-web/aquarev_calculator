@@ -715,6 +715,10 @@ var Cloud = (function(){
       // user on this device starts from a blank gate.
       localStorage.removeItem('ar2:cloud-remembered-code');
       localStorage.removeItem('ar2:cloud-remembered-email');
+      // Drop the engineer portal's resume token so the next user on
+      // this device doesn't get bounced into the previous engineer's
+      // assignment.
+      localStorage.removeItem('ar2:engineer:active-assignment');
     } catch(_){}
     if(localStore){ window.storage = localStore; localStore = null; }
   }
@@ -7910,6 +7914,14 @@ function renderEngineerPortalShell(mountEl){
    ─────────────────────────────────────────────────────────────────── */
 function renderEngineerAssignmentList(mountEl){
   if (!mountEl) return;
+  // Auto-resume — when the page reloads (deploy refresh, manual reload),
+  // restore the engineer to whichever assignment + step they were on.
+  // This is what makes engineering records "survive the refresh" from
+  // the user's perspective. Server data was never lost; we just put them
+  // back in the right spot.
+  if (window.AR2_ENGINEER && AR2_ENGINEER.tryResume){
+    if (AR2_ENGINEER.tryResume()) return;  // openAssignment took over; bail out
+  }
   var u = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user()) || {};
   var nameDisplay = esc(u.name || 'Engineer');
   // PWA install affordance — only shown when the app is NOT already
@@ -8149,6 +8161,42 @@ window.AR2_ENGINEER = (function(){
     if (m && typeof renderEngineerPortalShell === 'function') renderEngineerPortalShell(m);
   }
 
+  // ── Cross-reload state persistence ────────────────────────────────
+  // The deploy auto-refresher (webflow-embed-pf.html) reloads the page
+  // on every new sandbox version. Without this, engineers mid-flow get
+  // bounced back to their assignment list on every deploy. We stash
+  // the active assignmentId + currentStep in localStorage so the next
+  // boot can restore exactly where they were. Server-persisted data
+  // (verifications, media, pump rooms) is unaffected — this only
+  // restores the UI position.
+  var ENG_STATE_KEY = 'ar2:engineer:active-assignment';
+  function _persistActiveState(){
+    if (!s.assignmentId){ try { localStorage.removeItem(ENG_STATE_KEY); } catch(_){} return; }
+    try {
+      localStorage.setItem(ENG_STATE_KEY, JSON.stringify({
+        assignmentId: s.assignmentId,
+        currentStep:  s.currentStep,
+        savedAt:      Date.now()
+      }));
+    } catch(_){}
+  }
+  function _readPersistedState(){
+    try {
+      var raw = localStorage.getItem(ENG_STATE_KEY);
+      if (!raw) return null;
+      var p = JSON.parse(raw);
+      // Cap restore validity at 30 days so a stale token from a long-ago
+      // session can't pin a different engineer's user to the wrong record.
+      if (!p || !p.assignmentId) return null;
+      if (p.savedAt && (Date.now() - p.savedAt) > 30 * 24 * 60 * 60 * 1000){
+        try { localStorage.removeItem(ENG_STATE_KEY); } catch(_){}
+        return null;
+      }
+      return p;
+    } catch(_){ return null; }
+  }
+  function _clearPersistedState(){ try { localStorage.removeItem(ENG_STATE_KEY); } catch(_){} }
+
   // ── Open / close ────────────────────────────────────────────────
   function openAssignment(assignmentId){
     if (!assignmentId) return;
@@ -8170,6 +8218,7 @@ window.AR2_ENGINEER = (function(){
     // every time they open a property.
     s.propertyConfirmation.hasAccess = true;
     s.propertyConfirmation.accessBlockedReason = '';
+    _persistActiveState();
     // Show step 1 immediately so the engineer sees the briefing while we
     // fetch the assignment details in the background. If the engineer has
     // already skipped briefing (briefing_skipped on app_users), we jump
@@ -8191,6 +8240,7 @@ window.AR2_ENGINEER = (function(){
     s.currentStep = 1;
     s.loading = false;
     s.loadError = null;
+    _clearPersistedState();
     // Admins who opened the portal via "Review in portal" should return
     // to the archive (where their normal admin chrome lives), not the
     // engineer assignment list (which is empty for them).
@@ -8251,6 +8301,11 @@ window.AR2_ENGINEER = (function(){
       .catch(function(err){
         s.loading = false;
         s.loadError = (err && err.message) || 'Could not load assignment.';
+        // If the stored assignment is no longer accessible (deleted,
+        // reassigned, different user), drop the persistence token so
+        // the next reload lands on the normal assignment list instead
+        // of repeatedly hitting this same error.
+        _clearPersistedState();
         repaint();
       });
   }
@@ -8479,6 +8534,7 @@ window.AR2_ENGINEER = (function(){
   function goToStep(n){
     n = Math.max(1, Math.min(4, n | 0));
     s.currentStep = n;
+    _persistActiveState();
     repaint();
   }
   function isStepComplete(n){
@@ -9906,6 +9962,32 @@ window.AR2_ENGINEER = (function(){
     return false;
   }
 
+  /* Page-boot resume hook. Called by renderEngineerAssignmentList on
+     each render. Returns TRUE when a persisted assignment was found
+     and openAssignment() has been invoked — the caller should bail
+     because openAssignment.repaint will paint the flow. Returns FALSE
+     when there's nothing to resume (caller renders the normal list). */
+  function tryResume(){
+    if (s.assignmentId) return true;        // already open in this session
+    var p = _readPersistedState();
+    if (!p) return false;
+    openAssignment(p.assignmentId);
+    // Seed the step we were on. openAssignment defaults to step 1
+    // (briefing) which would skip past for briefing-skipped engineers
+    // anyway, but for non-skippers landing back at the briefing on
+    // every reload is annoying. Restore the saved step on the next
+    // microtask so the loading paint settles first.
+    if (p.currentStep && p.currentStep >= 1 && p.currentStep <= 4){
+      setTimeout(function(){
+        if (s.assignmentId === p.assignmentId){
+          s.currentStep = p.currentStep;
+          repaint();
+        }
+      }, 0);
+    }
+    return true;
+  }
+
   // ── Public surface ──────────────────────────────────────────────
   return {
     state: function(){ return s; },
@@ -9913,7 +9995,8 @@ window.AR2_ENGINEER = (function(){
     closeAssignment: closeAssignment,
     goToStep: goToStep,
     renderCurrentStep: renderCurrentStep,
-    handleAction: handleAction
+    handleAction: handleAction,
+    tryResume: tryResume
   };
 })();
 
@@ -10457,7 +10540,11 @@ var CHEMS=[
 ];
 
 var STEPS=['map-pools','pool-system','settings','quote','export'];
-var STEP_LBLS=['Map Pools','Pool & System','Pricing & Settings','Quote','Export'];
+// Compact step labels — one word each so the header chrome fits at
+// narrow widths without wrapping. Previously these were longer (e.g.
+// "Pool & System", "Pricing & Settings") and pushed the stepper into a
+// second row on mid-size laptop screens.
+var STEP_LBLS=['Map','Pools','Pricing','Quote','Export'];
 
 /* ── State — DEFAULT_INPUTS from types.ts + bodies of water ── */
 var S={
