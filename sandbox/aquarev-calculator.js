@@ -6990,11 +6990,67 @@ function setAdminActiveTab(tabId){
    Trigger: from the admin review modal's "Download verification PDF"
    button (added below).
    ────────────────────────────────────────────────────────────────── */
-function generateEngineerReport(assignmentId){
+/* In-page preview wrapper for the engineer verification report. The
+   report HTML lives in #ar2-report (rendered by _engineerReport_renderHtml).
+   This overlay clones that content into a scrollable modal so the
+   engineer can read it without firing the browser print dialog. A
+   Download PDF button inside the preview kicks off the real print flow. */
+function openEngineerReportPreview(assignmentId){
+  var existing = document.getElementById('ar-eng-report-preview');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var rep = document.getElementById('ar2-report');
+  if (!rep || !rep.innerHTML.trim()){
+    alert('Could not open preview — report content missing.');
+    return;
+  }
+  var bd = document.createElement('div');
+  bd.id = 'ar-eng-report-preview';
+  bd.className = 'ar-eng-report-preview-backdrop';
+  bd.innerHTML = '<div class="ar-eng-report-preview-panel" role="dialog" aria-modal="true" aria-labelledby="ar-eng-report-preview-title">'
+    + '<div class="ar-eng-report-preview-head">'
+    +   '<div class="ar-eng-report-preview-title" id="ar-eng-report-preview-title">Verification Report Preview</div>'
+    +   '<div class="ar-eng-report-preview-actions">'
+    +     '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-report-preview-download" type="button">Download PDF</button>'
+    +     '<button class="ar-eng-help-close" data-action="ar-eng-report-preview-close" type="button" aria-label="Close">×</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="ar-eng-report-preview-body">' + rep.innerHTML + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+  bd.addEventListener('click', function(e){
+    if (e.target === bd){ closeEngineerReportPreview(); return; }
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-action');
+    if (act === 'ar-eng-report-preview-close')    { closeEngineerReportPreview(); return; }
+    if (act === 'ar-eng-report-preview-download') {
+      closeEngineerReportPreview();
+      // Re-run the generator without previewOnly so the print dialog fires.
+      if (typeof generateEngineerReport === 'function') generateEngineerReport(assignmentId);
+      return;
+    }
+  });
+  var onKey = function(e){ if (e.key === 'Escape') closeEngineerReportPreview(); };
+  document.addEventListener('keydown', onKey);
+  bd._onKey = onKey;
+}
+function closeEngineerReportPreview(){
+  var el = document.getElementById('ar-eng-report-preview');
+  if (el){
+    if (el._onKey) document.removeEventListener('keydown', el._onKey);
+    if (el.parentNode) el.parentNode.removeChild(el);
+  }
+}
+
+function generateEngineerReport(assignmentId, opts){
+  // opts.previewOnly = true → render the report into an in-page overlay
+  //   instead of firing window.print(). Engineers tap "Preview" to read
+  //   their report before deciding to save a PDF.
+  var previewOnly = !!(opts && opts.previewOnly);
   var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
   if (!c || !assignmentId){ alert('Cloud unavailable.'); return; }
   var prevTitle = document.title;
-  document.title = 'Generating verification report…';
+  if (!previewOnly) document.title = 'Generating verification report…';
 
   Promise.all([
     c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
@@ -7035,6 +7091,13 @@ function generateEngineerReport(assignmentId){
     try { pName = (document.querySelector('#ar2-report .rpt-eng-prop-name') || {}).textContent || 'Verification'; } catch(_){ pName = 'Verification'; }
     var fnDate = new Date().toISOString().slice(0,10);
     var fnProp = (pName || 'Verification').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'Verification';
+    // PREVIEW BRANCH — show the rendered report in a scrollable in-page
+    // overlay. No print, no filename munging. The "Download PDF" button
+    // inside the preview kicks off the real print flow.
+    if (previewOnly){
+      openEngineerReportPreview(assignmentId);
+      return;
+    }
     document.title = 'AquaRev_EngVerification_' + fnProp + '_' + fnDate;
     // Move #ar2-report to be a direct child of body so the @media print
     // body>* hide-all rule doesn't kill it (matches the pattern used by
@@ -8099,7 +8162,7 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c) return Promise.resolve({});
     return c.from('engineer_verifications')
-      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,updated_at')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at')
       .eq('assignment_id', assignmentId)
       .then(function(rs){
         if (rs.error) return {};
@@ -8217,7 +8280,7 @@ window.AR2_ENGINEER = (function(){
       var perPoolGallons = Math.round((Number(sj.manualTotalGallons) || 0) / n);
       var pools = [];
       for (var i = 0; i < n; i++){
-        pools.push({ index: i, name: 'Pool ' + (i + 1), gallonsRep: perPoolGallons, isManual: true });
+        pools.push({ index: i, name: 'Pool ' + (i + 1), gallonsRep: perPoolGallons, isManual: true, image: null });
       }
       return pools;
     }
@@ -8229,9 +8292,39 @@ window.AR2_ENGINEER = (function(){
         name: b.label || ('Pool ' + (i + 1)),
         gallonsRep: g,
         type: b.poolType || '',
-        depth: b.depth || ''
+        depth: b.depth || '',
+        image: b.image || null   // assessment reference image (data: URL or remote URL)
       };
     });
+  }
+  /* Engineer-added pools live alongside the assessment-derived ones.
+     They surface as verification rows with is_engineer_added=true and
+     pool_index >= the assessment's body count. Rendering combines both
+     sources so the engineer sees a unified pool list in Step 3. */
+  function combinedPools(){
+    var base = s.pools.slice();
+    Object.keys(s.verifications).forEach(function(k){
+      var v = s.verifications[k];
+      var i = Number(k);
+      if (v.is_engineer_added && !base.find(function(p){ return p.index === i; })){
+        base.push({
+          index: i,
+          name: v.pool_name_override || ('Pool ' + (i + 1)),
+          gallonsRep: 0,
+          isEngineerAdded: true,
+          image: null
+        });
+      }
+    });
+    base.sort(function(a,b){ return a.index - b.index; });
+    return base;
+  }
+  /* Compute the next free pool_index for a new engineer-added pool. */
+  function nextPoolIndex(){
+    var max = -1;
+    s.pools.forEach(function(p){ if (p.index > max) max = p.index; });
+    Object.keys(s.verifications).forEach(function(k){ if (Number(k) > max) max = Number(k); });
+    return max + 1;
   }
 
   // ── Step navigation ─────────────────────────────────────────────
@@ -8255,19 +8348,31 @@ window.AR2_ENGINEER = (function(){
       return true;
     }
     if (n === 3){
-      // Every pool needs:
+      // Pool cards are locked until at least one pump room has media.
+      // Step 3 cannot be complete while pool cards remain locked.
+      if (!anyPumpRoomHasMedia()) return false;
+      // Every pool (assessment-derived OR engineer-added) needs:
       //   • At least one return-line row (pipe count + diameter), AND
       //   • At least one photo OR video uploaded.
-      // Media requirement enforces the "Pool profile is not complete
-      // if there is no media uploaded" rule.
-      if (!s.pools.length) return false;
-      return s.pools.every(function(p){
+      var allPools = combinedPools();
+      if (!allPools.length) return false;
+      return allPools.every(function(p){
         var v = s.verifications[p.index];
         if (!v || !Array.isArray(v.return_lines) || v.return_lines.length === 0) return false;
         return poolHasMedia(p.index);
       });
     }
     return true;
+  }
+  // Pump-room media gate. At least one walkthrough video OR one
+  // supporting photo on any pump room unlocks the pool cards.
+  function anyPumpRoomHasMedia(){
+    if (!s.pumpRooms || !s.pumpRooms.length) return false;
+    for (var i = 0; i < s.pumpRooms.length; i++){
+      var c = countMediaForPumpRoom(s.pumpRooms[i].id);
+      if (c.photo > 0 || c.video > 0) return true;
+    }
+    return false;
   }
   // Helper: does this pool have at least one persisted photo OR video?
   // Used by isStepComplete(3) and per-card "Complete" check.
@@ -8301,6 +8406,8 @@ window.AR2_ENGINEER = (function(){
       has_discrepancy: !!v.has_discrepancy,
       discrepancy_reason: v.discrepancy_reason || null,
       pump_room_id: v.pump_room_id || null,
+      pool_name_override: v.pool_name_override || null,
+      is_engineer_added: !!v.is_engineer_added,
       updated_at: new Date().toISOString()
     };
     c.from('engineer_verifications')
@@ -8617,12 +8724,12 @@ window.AR2_ENGINEER = (function(){
   }
 
   // ── Lightbox for thumbnails ─────────────────────────────────────
-  function openMediaLightbox(storagePath, mediaType){
+  function openMediaLightbox(storagePath, mediaType, opts){
     closeMediaLightbox();
     var bd = document.createElement('div');
     bd.className = 'ar-eng-lightbox-backdrop';
     bd.id = 'ar-eng-lightbox';
-    bd.innerHTML = '<button class="ar-eng-lightbox-close" data-action="ar-eng-lightbox-close" type="button" aria-label="Close">×</button>'
+    bd.innerHTML = '<button class="ar-eng-lightbox-close" data-action="ar-eng-lightbox-close" type="button" aria-label="Close">' + svgIconClose() + '</button>'
       + '<div class="ar-eng-lightbox-content"><div style="padding:30px;color:#7db8cc;font-size:13px">Loading…</div></div>';
     document.body.appendChild(bd);
     // Backdrop-click closes only when the click target IS the backdrop
@@ -8635,7 +8742,12 @@ window.AR2_ENGINEER = (function(){
     var onKey = function(e){ if (e.key === 'Escape') closeMediaLightbox(); };
     document.addEventListener('keydown', onKey);
     bd._onKey = onKey;
-    getSignedUrl(storagePath).then(function(url){
+    // direct-URL mode (reference images from assessments) skips the
+    // signed-URL fetch — the URL is already usable (data: or HTTPS).
+    var urlPromise = (opts && opts.directUrl)
+      ? Promise.resolve(storagePath)
+      : getSignedUrl(storagePath);
+    urlPromise.then(function(url){
       if (!url) return;
       var content = bd.querySelector('.ar-eng-lightbox-content');
       if (!content) return;
@@ -8923,9 +9035,15 @@ window.AR2_ENGINEER = (function(){
         + '</div>';
       return;
     }
-    var cardsHtml = s.pools.map(function(p){ return poolCardHtml(p); }).join('');
+    var allPools = combinedPools();
+    // Pools are LOCKED until at least one pump room has media attached
+    // (walkthrough video or supporting photo). The engineer can still
+    // see them, but inputs are disabled with a clear callout pointing
+    // up to the Pump Rooms section.
+    var poolsUnlocked = anyPumpRoomHasMedia();
+    var cardsHtml = allPools.map(function(p){ return poolCardHtml(p, !poolsUnlocked); }).join('');
     var pumpRoomsSection = pumpRoomsSectionHtml();
-    var doneCount = s.pools.filter(function(p){
+    var doneCount = allPools.filter(function(p){
       var v = s.verifications[p.index];
       var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
       return hasLines && poolHasMedia(p.index);
@@ -8940,13 +9058,21 @@ window.AR2_ENGINEER = (function(){
     var applyToolbar = canApplyToRest
       ? '<div class="ar-eng-pool-toolbar"><button class="ar-eng-tiny" data-action="ar-eng-apply-pool-1" type="button">' + svgIconApplyDown() + ' Apply Pool 1 setup to remaining pools</button></div>'
       : '';
+    var lockBanner = poolsUnlocked
+      ? ''
+      : '<div class="ar-eng-pools-locked">' + svgIconWarn() + ' <b>Pool cards are locked.</b> Add at least one pump room and attach a walkthrough video or supporting photo above before documenting pools — that\'s how the rep ties each pool back to its equipment room.</div>';
+    var addPoolBtn = poolsUnlocked
+      ? '<div class="ar-eng-pool-add-row"><button class="ar-eng-add-pool" data-action="ar-eng-pool-add" type="button">+ Add Pool</button><div class="ar-eng-pool-add-hint">Use this when you find a pool on-site that wasn\'t on the rep\'s assessment.</div></div>'
+      : '';
     mount.innerHTML = ''
       + '<div class="ar-eng-wrap ar-eng-flow">'
-      +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + s.pools.length + ' complete')
+      +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + allPools.length + ' complete')
       +   stepperHtml(3)
       +   pumpRoomsSection
+      +   lockBanner
       +   applyToolbar
       +   '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
+      +   addPoolBtn
       // Hidden file input — shared across pool cards. When the engineer
       // taps + Photo or + Video on a card, the data-pool + data-media-type
       // are stashed on the input before .click() so the change handler
@@ -9064,13 +9190,19 @@ window.AR2_ENGINEER = (function(){
       + '</div>';
   }
 
-  function poolCardHtml(p){
+  function poolCardHtml(p, isLocked){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
     var hasMedia = poolHasMedia(p.index);
-    var complete = hasLines && hasMedia;
+    var complete = hasLines && hasMedia && !isLocked;
     var lines = v.return_lines || [];
     var DIAMETERS = [2, 3, 4, 6, 8];
+    // dis = ' disabled' string we sprinkle on every form control while
+    // the card is locked. Buttons get aria-disabled to be safe.
+    var dis  = isLocked ? ' disabled' : '';
+    var disA = isLocked ? ' aria-disabled="true" tabindex="-1"' : '';
+    // Engineer-supplied name (override) wins over rep-supplied name.
+    var displayName = (v.pool_name_override && v.pool_name_override.trim()) || p.name || ('Pool ' + (p.index + 1));
 
     // Media for this pool (pump-room media excluded — those rows have
     // pool_index === null which strict-equals nothing).
@@ -9078,6 +9210,24 @@ window.AR2_ENGINEER = (function(){
     var counts = countMediaForPool(p.index);
     var photoAtLimit = counts.photo >= 10;
     var videoAtLimit = counts.video >= 4;
+
+    // Assessment reference image (from state_json.bodies[i].image).
+    // Engineer-added pools have no rep image. Click opens the image at
+    // larger scale in the existing media lightbox (data: URL works fine).
+    var imageBlock = '';
+    if (p.image){
+      imageBlock = '<div class="ar-eng-pool-image" data-action="ar-eng-pool-image-zoom" data-pool-image="' + esc(p.index) + '" title="Reference image from the rep\'s assessment">'
+        + '<img src="' + esc(p.image) + '" alt="Pool reference" />'
+        + '<span class="ar-eng-pool-image-tag">Reference</span>'
+        + '</div>';
+    } else if (p.isEngineerAdded){
+      imageBlock = '<div class="ar-eng-pool-image-stub">' + svgIconCamera() + ' Engineer-added pool · no reference image</div>';
+    }
+
+    var engAddedBadge = p.isEngineerAdded ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '';
+    var deleteBtn = p.isEngineerAdded
+      ? '<button class="ar-eng-thumb-x" data-action="ar-eng-pool-remove" data-pool="' + p.index + '" type="button" aria-label="Remove this engineer-added pool">' + svgIconClose() + '</button>'
+      : '';
 
     // Pump-room linkage dropdown — only rendered when at least one
     // pump room exists. Engineers can leave it unlinked (— None —).
@@ -9136,17 +9286,21 @@ window.AR2_ENGINEER = (function(){
       }
     }
 
-    return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + '" data-pool-card="' + p.index + '">'
+    return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + (isLocked ? ' locked' : '') + '" data-pool-card="' + p.index + '">'
       +   '<div class="ar-eng-pool-head">'
-      +     '<div class="ar-eng-pool-name">' + esc(p.name) + '</div>'
-      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : '') + '</div>'
+      +     '<input type="text" class="ar-eng-pool-name-input" data-action="ar-eng-pool-rename" data-pool="' + p.index + '" value="' + esc(displayName) + '" placeholder="' + esc(p.name || 'Pool name') + '" maxlength="60"' + dis + ' />'
+      +     engAddedBadge
+      +     deleteBtn
+      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
       +     (complete ? '<div class="ar-eng-pool-check">' + svgIconCheck() + ' Complete</div>' : '')
       +   '</div>'
 
+      +   imageBlock
+
       +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
       +     '<div class="ar-eng-inline">'
-      +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '" />'
-      +       '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button">Match Estimate</button>'
+      +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
+      +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Match Estimate</button>' : '')
       +     '</div>'
       +     divergenceWarning
       +   '</div>'
@@ -9158,29 +9312,29 @@ window.AR2_ENGINEER = (function(){
               }).join('');
               return '<div class="ar-eng-line">'
                 +   '<div class="ar-eng-line-stepper">'
-                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button">−</button>'
+                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
                 +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
-                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button">+</button>'
+                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
                 +   '</div>'
-                +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '">' + diaOpts + '</select>'
-                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line">' + svgIconClose() + '</button>'
+                +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '"' + dis + '>' + diaOpts + '</select>'
+                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 + '</div>';
             }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
-      +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button">+ Add return line</button>'
+      +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button"' + dis + disA + '>+ Add return line</button>'
       +   '</div>'
 
       +   pumpRoomLinkHtml
 
       +   '<div class="ar-eng-field"><label>Notes <span class="ar-eng-hint">(optional)</span></label>'
-      +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?">' + esc(v.notes || '') + '</textarea>'
+      +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?"' + dis + '>' + esc(v.notes || '') + '</textarea>'
       +   '</div>'
 
       +   '<div class="ar-eng-field">'
       +     '<label>Photos &amp; videos <span class="ar-eng-hint required">required · ' + counts.photo + ' of 10 photos · ' + counts.video + ' of 4 videos</span></label>'
       +     '<div class="ar-eng-thumbs">' + (thumbsHtml || '<div class="ar-eng-empty-mini">No media yet — required to complete this pool</div>') + '</div>'
       +     '<div class="ar-eng-media-actions">'
-      +       '<button class="ar-eng-media-btn' + (photoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit ? ' disabled' : '') + '>' + svgIconCamera() + ' Add photo</button>'
-      +       '<button class="ar-eng-media-btn' + (videoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit ? ' disabled' : '') + '>' + svgIconVideo() + ' Add video</button>'
+      +       '<button class="ar-eng-media-btn' + (photoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconCamera() + ' Add photo</button>'
+      +       '<button class="ar-eng-media-btn' + (videoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconVideo() + ' Add video</button>'
       +     '</div>'
       +   '</div>'
       +   missingHint
@@ -9236,15 +9390,16 @@ window.AR2_ENGINEER = (function(){
           : '<div class="ar-eng-warn">' + svgIconWarn() + ' Some required items are missing. Step back and complete them before sending.</div>')
 
       +     '<div class="ar-eng-pdf-row">'
-      +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-download-pdf" type="button" title="Preview &amp; download your verification PDF">' + svgIconDownload() + ' Preview &amp; download PDF</button>'
-      +       '<div class="ar-eng-pdf-hint">Opens your browser print dialog. Save as PDF for your own records.</div>'
+      +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-preview-pdf" type="button" title="Open an in-page preview of your verification report">' + svgIconHelp() + ' Preview Report</button>'
+      +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-download-pdf" type="button" title="Open the browser print dialog so you can save the PDF locally">' + svgIconDownload() + ' Download PDF</button>'
+      +       '<div class="ar-eng-pdf-hint">Preview reads it in-app · Download opens your browser print dialog so you can save the PDF.</div>'
       +     '</div>'
 
       +     '<div class="ar-eng-actions">'
       +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
       +       ((window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())
             ? '<button class="ar-eng-btn primary" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' Back to Archive</button>'
-            : '<button class="ar-eng-btn primary" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>')
+            : '<button class="ar-eng-btn primary send-green" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>')
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -9416,6 +9571,72 @@ window.AR2_ENGINEER = (function(){
       var linkPool = parseInt(target.getAttribute('data-pool'), 10);
       var linkVal  = target.value || null;
       updateVerification(linkPool, { pump_room_id: linkVal });
+      return true;
+    }
+    if (action === 'ar-eng-pool-rename'){
+      var rPool = parseInt(target.getAttribute('data-pool'), 10);
+      var rName = (target.value || '').trim();
+      // Empty input falls back to the rep-supplied name (override cleared).
+      updateVerification(rPool, { pool_name_override: rName || null });
+      return true;
+    }
+    if (action === 'ar-eng-pool-add'){
+      // Engineer-added custom pool. Picks the next free pool_index,
+      // marks the row is_engineer_added=true, and seeds an empty
+      // return_lines array so the row exists in the DB immediately.
+      var idx = nextPoolIndex();
+      var ordinal = idx + 1;
+      var defaultLabel = 'Pool ' + ordinal + ' (new)';
+      s.verifications[idx] = {
+        pool_index: idx,
+        return_lines: [],
+        is_engineer_added: true,
+        pool_name_override: defaultLabel
+      };
+      scheduleSave(idx);
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-pool-remove'){
+      // Only engineer-added pools can be removed. Confirms first since
+      // it nukes the verification row + any media attached to it.
+      var rmIdx = parseInt(target.getAttribute('data-pool'), 10);
+      var rmV = s.verifications[rmIdx];
+      if (!rmV || !rmV.is_engineer_added) return true;
+      if (!confirm('Remove this engineer-added pool? Any media uploaded to it will also be removed.')) return true;
+      var c = client();
+      if (!c) return true;
+      // Optimistic local cleanup
+      delete s.verifications[rmIdx];
+      var mediaToDelete = s.media.filter(function(m){ return m.pool_index === rmIdx; });
+      var pathsToDelete = mediaToDelete.map(function(m){ return m.storage_path; });
+      s.media = s.media.filter(function(m){ return m.pool_index !== rmIdx; });
+      repaint();
+      Promise.all([
+        c.from('engineer_verifications').delete().eq('assignment_id', s.assignmentId).eq('pool_index', rmIdx),
+        pathsToDelete.length ? c.storage.from('engineer-media').remove(pathsToDelete).catch(function(){}) : Promise.resolve(),
+        c.from('engineer_media').delete().eq('assignment_id', s.assignmentId).eq('pool_index', rmIdx)
+      ]).then(function(){ bumpLastModified(); });
+      return true;
+    }
+    if (action === 'ar-eng-pool-image-zoom'){
+      // Open the rep's reference image in the lightbox. Reference
+      // images are base64 data URLs (or HTTPS URLs) stored on the
+      // body record — handled by openMediaLightbox's URL branch.
+      var pIdx = parseInt(target.getAttribute('data-pool-image'), 10);
+      var pool = s.pools.find(function(x){ return x.index === pIdx; });
+      if (pool && pool.image) openMediaLightbox(pool.image, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-preview-pdf'){
+      // In-page preview: render the report HTML, attach a Close button,
+      // and show it as an overlay. Engineer can read it without firing
+      // the browser print dialog. Same generator, no window.print().
+      try {
+        if (typeof generateEngineerReport === 'function' && s.assignmentId){
+          generateEngineerReport(s.assignmentId, { previewOnly: true });
+        }
+      } catch(err){ alert((err && err.message) || 'Could not open preview.'); }
       return true;
     }
     if (action === 'ar-eng-media-remove'){

@@ -2483,6 +2483,67 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-modal-btn.primary.outline{background:transparent;border:1px solid rgba(0,180,216,.55);color:#48cae4;}
 #ar2 .ar-pf-modal-btn.primary.outline:hover{background:rgba(0,180,216,.14);color:#fff;border-color:rgba(0,180,216,.85);}
 
+/* ──────── Ship #3 — Engineer portal additions ──────── */
+
+/* Defensive: when the engineer mode is active, hide the calculator's
+   three-column main layout AND the Pool Measure mount even if showView
+   has somehow left them visible. Catches a class of "image leaking
+   below the footer" bugs where a body-image preview was rendering. */
+body.pf-engineer-mode #ar2 #ar2-main-layout,
+body.pf-engineer-mode #ap2{display:none!important;}
+
+/* Reference image attached to the pool card. Click opens lightbox. */
+#ar2 .ar-eng-pool-image{position:relative;width:100%;border-radius:8px;overflow:hidden;border:1px solid rgba(0,180,216,.32);background:rgba(7,22,40,.65);cursor:zoom-in;margin:6px 0 12px;}
+#ar2 .ar-eng-pool-image img{display:block;width:100%;max-height:220px;object-fit:cover;}
+#ar2 .ar-eng-pool-image:hover{border-color:rgba(0,180,216,.6);}
+#ar2 .ar-eng-pool-image-tag{position:absolute;top:8px;left:8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#040f1e;background:rgba(72,202,228,.92);padding:3px 8px;border-radius:99px;}
+#ar2 .ar-eng-pool-image-stub{font-size:11.5px;color:#7db8cc;background:rgba(7,22,40,.4);border:1px dashed rgba(125,184,204,.3);border-radius:8px;padding:8px 12px;margin:6px 0 12px;display:inline-flex;align-items:center;gap:6px;}
+#ar2 .ar-eng-pool-image-stub svg{opacity:.7;}
+
+/* Pool name input — editable inline. Engineer override replaces the
+   rep-supplied label without mutating the assessment. */
+#ar2 .ar-eng-pool-name-input{flex:1;background:transparent;border:none;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;padding:4px 8px;border-radius:6px;outline:none;min-width:0;border-bottom:1px solid transparent;transition:background .12s,border-color .12s;}
+#ar2 .ar-eng-pool-name-input:hover,#ar2 .ar-eng-pool-name-input:focus{background:rgba(0,180,216,.06);border-bottom-color:rgba(0,180,216,.4);}
+#ar2 .ar-eng-pool-name-input:disabled{opacity:.55;cursor:not-allowed;}
+#ar2 .ar-eng-pool-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;}
+#ar2 .ar-eng-pool-head .ar-eng-pool-meta{flex-basis:100%;}
+#ar2 .ar-eng-pool-head .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;}
+#ar2 .ar-eng-pool-added-pill{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#4ade80;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.4);padding:2px 8px;border-radius:99px;}
+
+/* Locked-card overlay state — pool cards disable until pump rooms get
+   at least one piece of media. Inputs are :disabled; the card itself
+   gets a soft fade + a yellow tinted border. */
+#ar2 .ar-eng-pool-card.locked{opacity:.78;background:rgba(13,45,74,.32);}
+#ar2 .ar-eng-pools-locked{display:flex;align-items:flex-start;gap:9px;background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.42);color:#cfe2eb;font-size:12.5px;line-height:1.55;padding:11px 14px;border-radius:9px;margin:10px 0 14px;}
+#ar2 .ar-eng-pools-locked b{color:#f0a500;font-weight:700;}
+#ar2 .ar-eng-pools-locked .ar-eng-svg-icon{color:#f0a500;flex-shrink:0;margin-top:2px;}
+
+/* + Add Pool button + hint below the grid. */
+#ar2 .ar-eng-pool-add-row{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap;}
+#ar2 .ar-eng-add-pool{background:transparent;border:1px dashed rgba(0,180,216,.42);color:#48cae4;font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:.4px;padding:10px 18px;border-radius:9px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
+#ar2 .ar-eng-add-pool:hover{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.7);color:#fff;}
+#ar2 .ar-eng-pool-add-hint{font-size:11.5px;color:var(--mu);flex:1 1 220px;}
+
+/* GREEN Send button — primary intent flips from cyan to green on the
+   final review step so the engineer can spot it as the success action.
+   Disabled state keeps the cyan-muted treatment so it doesn't look
+   broken before all requirements are met. */
+#ar2 .ar-eng-btn.primary.send-green{background:linear-gradient(135deg,#16a34a,#22c55e);color:#04210d;border-color:transparent;}
+#ar2 .ar-eng-btn.primary.send-green:hover:not(:disabled){filter:brightness(1.08);}
+#ar2 .ar-eng-btn.primary.send-green:disabled{background:linear-gradient(135deg,rgba(34,197,94,.32),rgba(22,163,74,.32));color:rgba(255,255,255,.72);}
+
+/* In-page report preview overlay. Scrollable; download button inside
+   kicks the print flow without the engineer leaving the portal. */
+.ar-eng-report-preview-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.86);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;}
+.ar-eng-report-preview-panel{width:min(900px,100%);max-height:92vh;background:#fff;color:#111;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 28px 80px rgba(0,0,0,.5);}
+.ar-eng-report-preview-head{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;background:#0a2540;color:#fff;}
+.ar-eng-report-preview-title{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;}
+.ar-eng-report-preview-actions{display:flex;align-items:center;gap:10px;}
+.ar-eng-report-preview-actions .ar-eng-btn{padding:8px 14px;font-size:12px;}
+.ar-eng-report-preview-actions .ar-eng-help-close{background:transparent;border:none;color:#cfe2eb;font-size:22px;line-height:1;cursor:pointer;width:32px;height:32px;border-radius:6px;}
+.ar-eng-report-preview-actions .ar-eng-help-close:hover{background:rgba(255,255,255,.12);color:#fff;}
+.ar-eng-report-preview-body{overflow-y:auto;padding:28px;background:#fff;flex:1;}
+
 /* ───────── Pump Rooms (Ship #2) ─────────
    Section lives at the top of Step 3, above the pool grid. Each card
    captures a pump-room ID + walkthrough video + supporting photos.
