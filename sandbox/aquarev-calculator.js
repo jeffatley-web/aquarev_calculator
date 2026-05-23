@@ -6302,6 +6302,10 @@ function bankSaveReportImpl(replaceIds){
     .then(function(){
       EX.saving=false; EX.saveStatus='saved';
       renderDevices(); renderResults();
+      // If the user saved while on Step 5 (Field Report), repaint the
+      // form so the report transitions from the 'save first' empty
+      // state to the loading skeleton + real data load.
+      if (S.step === 5 && typeof renderForm === 'function') renderForm();
       // Celebrate a successful archive save — origin at the Archive button.
       var originBtn=document.querySelector('[data-action="archive"],[data-save-btn],#ar2-bank-nav');
       try { confettiBurst({ originEl: originBtn, count: 55 }); } catch(e){}
@@ -7209,14 +7213,27 @@ function renderFieldReport(){
       if (S.step === 5 && typeof render === 'function') render();
     });
   }
-  // No record yet (rep is on a fresh-blank assessment that hasn't
-  // been saved). Show a helpful empty state.
+  // No record yet — could be a fresh-blank assessment OR a recalled
+  // session where the record id wasn't stashed (e.g. browser refresh
+  // mid-edit). Either way, the only way to attach engineer data is to
+  // make sure the record is archived. Show a one-click save button so
+  // the user doesn't have to backtrack to Step 4 first.
   if (!ref){
+    var hasData = !!(typeof S !== 'undefined' && S && (S.propertyName || (S.bodies && S.bodies.length && (S.bodies[0].length || S.bodies[0].manualGallons))));
+    var hint = hasData
+      ? 'You have assessment data on this property but it hasn\'t been saved to the Archive yet. Save it now — the Field Report will then surface an engineer\'s on-site verification once you assign one from the Archive row.'
+      : 'The Field Report shows an engineer\'s on-site verification of THIS property. Complete the assessment, save it, then assign an engineer from the Archive list — their submission appears here once they send it for review.';
     return '<div class="ar-fr-wrap">'
       + '<div class="ar-fr-empty">'
       +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
       +   '<div class="ar-fr-empty-title">Save the assessment first</div>'
-      +   '<div class="ar-fr-empty-body">The Field Report shows an engineer\'s on-site verification of THIS property. Archive the assessment, assign an engineer from the Archive list, and their submission will appear here once they send it for review.</div>'
+      +   '<div class="ar-fr-empty-body">' + hint + '</div>'
+      +   (hasData
+          ? '<div style="margin-top:18px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">'
+          +    '<button class="ar-fr-btn primary" data-action="save-report" style="min-width:200px">Save to Archive</button>'
+          +    '<button class="ar-fr-btn ghost" data-action="fr-go-to-archive" style="min-width:200px">Open Archive</button>'
+          +  '</div>'
+          : '')
       + '</div>'
       + '</div>';
   }
@@ -15305,6 +15322,10 @@ function handleClick(e){
     var frAct = frBtn.getAttribute('data-action');
     var wrap = frBtn.closest('.ar-fr-wrap');
     var asgnId = wrap && wrap.getAttribute('data-fr-assignment-id');
+    if (frAct === 'fr-go-to-archive'){
+      if (typeof showView === 'function') showView('bank');
+      return;
+    }
     if (frAct === 'fr-download-pdf' && asgnId){
       try { if (typeof generateEngineerReport === 'function') generateEngineerReport(asgnId); } catch(err){ alert((err && err.message) || 'Could not generate report.'); }
       return;
