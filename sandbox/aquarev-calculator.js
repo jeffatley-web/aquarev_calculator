@@ -7220,6 +7220,34 @@ function renderFieldReport(){
   // the user doesn't have to backtrack to Step 4 first.
   if (!ref){
     var hasData = !!(typeof S !== 'undefined' && S && (S.propertyName || (S.bodies && S.bodies.length && (S.bodies[0].length || S.bodies[0].manualGallons))));
+    // FALLBACK: when S has a propertyName but no id, try to resolve
+    // the record id by querying Supabase for the user's most recent
+    // assessment with that name. Covers the case where the user
+    // saved or recalled in a prior session and the in-memory id was
+    // lost on reload, but the cloud copy still exists.
+    if (hasData && S && S.propertyName && !S._frResolveInFlight){
+      S._frResolveInFlight = true;
+      var cR = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      var meR = (window.AR2_CLOUD && AR2_CLOUD.user)     ? AR2_CLOUD.user()     : null;
+      if (cR && meR){
+        cR.from('assessments')
+          .select('id,created_at')
+          .eq('user_id', meR.id)
+          .ilike('property_name', S.propertyName)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .then(function(rs){
+            S._frResolveInFlight = false;
+            var row = rs && rs.data && rs.data[0];
+            if (row && row.id && S.step === 5){
+              S._currentAssessmentId = row.id;
+              if (typeof render === 'function') render();
+            }
+          }, function(){ S._frResolveInFlight = false; });
+      } else {
+        S._frResolveInFlight = false;
+      }
+    }
     var hint = hasData
       ? 'You have assessment data on this property but it hasn\'t been saved to the Archive yet. Save it now — the Field Report will then surface an engineer\'s on-site verification once you assign one from the Archive row.'
       : 'The Field Report shows an engineer\'s on-site verification of THIS property. Complete the assessment, save it, then assign an engineer from the Archive list — their submission appears here once they send it for review.';
