@@ -9011,11 +9011,13 @@ function renderBank(targetId){
           : '';
 
         // Engineer assignment button for SINGLE assessments (admin only).
+        // The button is icon-only; engineer names render as a separate
+        // green line below the action row (right-justified, same vibe as
+        // the property's date line).
         // Must be computed BEFORE the `actions` string concatenation
-        // below \u2014 `var` hoisting alone doesn't carry the assignment, so
-        // referencing it from the string template before this point
-        // emits the literal "undefined".
+        // below \u2014 `var` hoisting alone doesn't carry the assignment.
         var bankEngBtn = '';
+        var bankEngNames = '';
         if (isAdmin && !isPortfolio){
           var asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
             ? AR2_PF.engineerAssignmentsForAssessment(entry.id)
@@ -9023,7 +9025,6 @@ function renderBank(targetId){
           var bankEngNameMap = {};
           (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
           var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
-          var labelText = '';
           if (asgnList.length === 0){
             titleText = 'Assign an engineer to verify this assessment';
             btnCls += ' unassigned';
@@ -9033,12 +9034,10 @@ function renderBank(targetId){
               var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
               return nm + ' \u00b7 ' + a.status;
             }).join('\n');
-            if (asgnList.length === 1){
-              var fullName = bankEngNameMap[asgnList[0].engineer_user_id] || 'Engineer';
-              labelText = String(fullName).split(/\s+/)[0];
-            } else {
-              labelText = asgnList.length + ' engineers';
-            }
+            // Build the green name line \u2014 comma-joined full names.
+            bankEngNames = '<div class="ar-bank-engineer-names">'
+              + asgnList.map(function(a){ return esc(bankEngNameMap[a.engineer_user_id] || 'Engineer'); }).join(', ')
+              + '</div>';
           }
           var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
           bankEngBtn = '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
@@ -9047,7 +9046,6 @@ function renderBank(targetId){
             +   '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'
             +   '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'
             + '</svg>'
-            + (labelText ? '<span class="ar-bank-act-engineer-lbl">' + esc(labelText) + '</span>' : '')
             + badge
           + '</button>';
         }
@@ -9092,8 +9090,11 @@ function renderBank(targetId){
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.poolGallons?fn(s.poolGallons):'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
           +createdByCell
-          +'<div class="ar-bank-actions">'
-            +actions
+          +'<div class="ar-bank-actions-cell">'
+            +'<div class="ar-bank-actions">'
+              +actions
+            +'</div>'
+            +bankEngNames
           +'</div>'
         +'</div>';
       }).join('');
