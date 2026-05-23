@@ -9050,6 +9050,7 @@ function renderBank(targetId){
           var bankEngNameMap = {};
           (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
           var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
+          var labelText = '';
           if (asgnList.length === 0){
             titleText = 'Assign an engineer to verify this assessment';
             btnCls += ' unassigned';
@@ -9059,6 +9060,15 @@ function renderBank(targetId){
               var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
               return nm + ' · ' + a.status;
             }).join('\n');
+            // Inline label: single → engineer's first name; multiple → "N engineers"
+            // First name keeps the actions row compact; full name + status
+            // still surfaces in the tooltip and the assignment modal.
+            if (asgnList.length === 1){
+              var fullName = bankEngNameMap[asgnList[0].engineer_user_id] || 'Engineer';
+              labelText = String(fullName).split(/\s+/)[0];
+            } else {
+              labelText = asgnList.length + ' engineers';
+            }
           }
           var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
           bankEngBtn = '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
@@ -9067,6 +9077,7 @@ function renderBank(targetId){
             +   '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'  /* brim */
             +   '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'   /* center ridge */
             + '</svg>'
+            + (labelText ? '<span class="ar-bank-act-engineer-lbl">' + esc(labelText) + '</span>' : '')
             + badge
           + '</button>';
         }
