@@ -6366,6 +6366,10 @@ window.loadEngineerVerifiedPoolsForRecord = loadEngineerVerifiedPoolsForRecord;
 function bankRecall(snapshot, recordId){
   // Restore calculator state from snapshot
   Object.assign(S, snapshot.state);
+  // Stash the cloud record id so other features (Field Report,
+  // verified-pool loader) can fetch related data without re-resolving
+  // the id from the snapshot.
+  S._currentAssessmentId = recordId || (snapshot && snapshot.id) || null;
   syncGallons();
   EX.scenario=snapshot.ex.scenario;
   EX.bothScenarios=snapshot.ex.bothScenarios;
@@ -7080,6 +7084,235 @@ function setAdminActiveTab(tabId){
    Trigger: from the admin review modal's "Download verification PDF"
    button (added below).
    ────────────────────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════
+   Field Report — Step 5 (Ship #7a skeleton)
+   ────────────────────────────────────────────────────────────────────
+   Read-only review pane that surfaces the engineer's field-verification
+   data for the current record (assessment, portfolio-property, or
+   portfolio). Visible to admins + the record-owner User role; RLS
+   blocks everything else.
+
+   Skeleton scope (this ship): role-gated stepper entry, async data
+   load with caching, hero band with status / engineer / actions, and
+   the empty-state for records that have no engineer assignment yet.
+   KPIs + pump rooms + pool compare cards + media gallery land in
+   subsequent sub-ships (#7b — #7d).
+   ──────────────────────────────────────────────────────────────────── */
+window.AR2_FIELD_REPORT = (function(){
+  var s = {
+    recordId:    null,
+    recordType:  null,
+    bundle:      null,
+    loading:     false,
+    loadedAt:    null,
+    error:       null
+  };
+  function getCurrentRecordRef(){
+    // Active context priority: portfolio-property (if AR2_PF in
+    // property mode) > assessment id from S.id (recall) > null.
+    if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+      var loaded = AR2_PF.loadedProperty && AR2_PF.loadedProperty();
+      if (loaded && loaded.id) return { id: loaded.id, type: 'property' };
+    }
+    if (typeof S !== 'undefined' && S && S._currentAssessmentId){
+      return { id: S._currentAssessmentId, type: 'assessment' };
+    }
+    return null;
+  }
+  function load(force){
+    var ref = getCurrentRecordRef();
+    if (!ref){
+      s.recordId = null; s.recordType = null; s.bundle = null;
+      s.loading = false; s.error = null;
+      return Promise.resolve(null);
+    }
+    if (!force && s.bundle && s.recordId === ref.id) return Promise.resolve(s.bundle);
+    s.recordId   = ref.id;
+    s.recordType = ref.type;
+    s.loading    = true;
+    s.error      = null;
+    var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+    if (!c){ s.loading = false; s.error = 'Cloud unavailable.'; return Promise.resolve(null); }
+    var col = ref.type === 'property' ? 'property_id'
+            : ref.type === 'portfolio' ? 'portfolio_id'
+            : 'assessment_id';
+    return c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at')
+      .eq(col, ref.id)
+      .order('last_modified_at', { ascending: false })
+      .then(function(rs){
+        if (rs.error) throw rs.error;
+        var asgns = rs.data || [];
+        if (!asgns.length){
+          s.bundle = { assignments: [], verifications: [], media: [], pumpRooms: [], engineerById: {} };
+          s.loading = false; s.loadedAt = Date.now();
+          return s.bundle;
+        }
+        var asgnIds = asgns.map(function(a){ return a.id; });
+        var engIds  = Array.from(new Set(asgns.map(function(a){ return a.engineer_user_id; })));
+        return Promise.all([
+          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
+          c.from('engineer_media').select('id,assignment_id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').in('assignment_id', asgnIds).order('uploaded_at',{ascending:true}),
+          c.from('engineer_pump_rooms').select('id,assignment_id,label,notes,created_at').in('assignment_id', asgnIds).order('created_at',{ascending:true}),
+          engIds.length ? c.from('app_users').select('id,name,phone,role').in('id', engIds) : Promise.resolve({ data: [] })
+        ]).then(function(arr){
+          var engineerById = {}; (arr[3].data || []).forEach(function(e){ engineerById[e.id] = e; });
+          s.bundle = {
+            assignments:   asgns,
+            verifications: arr[0].data || [],
+            media:         arr[1].data || [],
+            pumpRooms:     arr[2].data || [],
+            engineerById:  engineerById
+          };
+          s.loading = false;
+          s.loadedAt = Date.now();
+          return s.bundle;
+        });
+      })
+      .catch(function(err){
+        s.loading = false;
+        s.error = (err && err.message) || 'Could not load field report.';
+        return null;
+      });
+  }
+  function clear(){ s.recordId = null; s.recordType = null; s.bundle = null; s.loading = false; s.error = null; }
+  return { state: function(){ return s; }, load: load, clear: clear };
+})();
+
+/* Step-5 form renderer. Returns the HTML string injected into
+   #ar2-form when S.step === 5. Triggers an async load on first paint;
+   subsequent renders read from the cached bundle. */
+function renderFieldReport(){
+  var st = AR2_FIELD_REPORT.state();
+  var ref = (function(){
+    if (window.AR2_PF && AR2_PF.isInPropertyMode && AR2_PF.isInPropertyMode()){
+      var lp = AR2_PF.loadedProperty && AR2_PF.loadedProperty();
+      if (lp && lp.id) return { id: lp.id, type: 'property' };
+    }
+    if (S && S.id) return { id: S.id, type: 'assessment' };
+    return null;
+  })();
+  // Fire the load on first entry / when the record changes. The load
+  // is async; we paint a skeleton now and repaint once the bundle
+  // lands. _fieldReportDirty short-circuits the repaint loop.
+  if (ref && (!st.bundle || st.recordId !== ref.id) && !st.loading){
+    AR2_FIELD_REPORT.load().then(function(){
+      // Async repaint — only if the user is still on the Report step
+      // (they may have navigated away during the fetch).
+      if (S.step === 5 && typeof render === 'function') render();
+    });
+  }
+  // No record yet (rep is on a fresh-blank assessment that hasn't
+  // been saved). Show a helpful empty state.
+  if (!ref){
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-empty">'
+      +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
+      +   '<div class="ar-fr-empty-title">Save the assessment first</div>'
+      +   '<div class="ar-fr-empty-body">The Field Report shows an engineer\'s on-site verification of THIS property. Archive the assessment, assign an engineer from the Archive list, and their submission will appear here once they send it for review.</div>'
+      + '</div>'
+      + '</div>';
+  }
+  // Loading skeleton.
+  if (st.loading){
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-hero skel"><div class="skel-block w70"></div><div class="skel-block w40"></div></div>'
+      + '<div class="ar-fr-skel-grid"><div class="skel-block"></div><div class="skel-block"></div><div class="skel-block"></div></div>'
+      + '</div>';
+  }
+  // Error.
+  if (st.error){
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-empty error">'
+      +   '<div class="ar-fr-empty-title">Couldn\'t load the field report</div>'
+      +   '<div class="ar-fr-empty-body">' + esc(st.error) + '</div>'
+      + '</div></div>';
+  }
+  // No engineer assigned yet to this record.
+  var b = st.bundle || { assignments: [] };
+  if (!b.assignments.length){
+    var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-empty">'
+      +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
+      +   '<div class="ar-fr-empty-title">No engineer assigned yet</div>'
+      +   '<div class="ar-fr-empty-body">'
+      +     (isAdmin
+        ? 'Assign an engineer to this property from the Archive — tap the hardhat icon on the row. Their field-verification data will appear here once they begin work.'
+        : 'Your AquaRev rep hasn\'t assigned an engineer to this property yet. Check back later, or contact your rep.')
+      +   '</div>'
+      + '</div></div>';
+  }
+  // Pick the most recently modified assignment as the "primary" one
+  // for the hero. Multi-engineer records still render only one hero
+  // block in this skeleton ship; per-engineer breakdown will land in
+  // a later sub-ship.
+  var asgn = b.assignments[0];
+  var eng  = b.engineerById[asgn.engineer_user_id] || {};
+  var statusPill = (function(){
+    var map = {
+      pending:     { cls: 'amber',  label: 'Pending' },
+      in_progress: { cls: 'yellow', label: 'In progress' },
+      submitted:   { cls: 'blue',   label: 'Sent for review' },
+      reviewed:    { cls: 'green',  label: 'Reviewed' },
+      locked:      { cls: 'gray',   label: 'Locked' }
+    };
+    var m = map[asgn.status] || { cls: 'gray', label: asgn.status || 'Unknown' };
+    return '<span class="ar-eng-pill ' + m.cls + '">' + m.label + '</span>';
+  })();
+  var submittedTxt = asgn.submitted_at
+    ? new Date(asgn.submitted_at).toLocaleString('en-US', { dateStyle:'medium', timeStyle:'short' })
+    : '—';
+  var lastEditTxt = asgn.last_modified_at
+    ? new Date(asgn.last_modified_at).toLocaleString('en-US', { dateStyle:'medium', timeStyle:'short' })
+    : '—';
+  var isAdminUser = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+  var actionsHtml = ''
+    + '<div class="ar-fr-actions">'
+    +   '<button class="ar-fr-btn primary" data-action="fr-download-pdf">' + svgFrIconDownload() + ' Download PDF</button>'
+    +   (isAdminUser
+        ? '<button class="ar-fr-btn" data-action="fr-open-engineer-portal">Open in Engineer Portal</button>'
+          + (asgn.status === 'locked'
+            ? '<button class="ar-fr-btn ghost" data-action="fr-unlock">Unlock</button>'
+            : '<button class="ar-fr-btn ghost" data-action="fr-lock">Lock</button>')
+          + (asgn.status !== 'reviewed' && asgn.status !== 'locked'
+            ? '<button class="ar-fr-btn success" data-action="fr-mark-reviewed">Mark Reviewed</button>'
+            : '')
+        : '')
+    + '</div>';
+  return '<div class="ar-fr-wrap" data-fr-assignment-id="' + esc(asgn.id) + '">'
+    + '<div class="ar-fr-hero">'
+    +   '<div class="ar-fr-hero-l">'
+    +     '<div class="ar-fr-eyebrow">Field Report</div>'
+    +     '<div class="ar-fr-title">' + esc(S.propertyName || 'Property') + '</div>'
+    +     '<div class="ar-fr-meta">'
+    +       statusPill
+    +       '<span>Engineer · <b>' + esc(eng.name || '—') + '</b>' + (eng.phone ? ' · ' + esc(eng.phone) : '') + '</span>'
+    +       '<span>Submitted · ' + esc(submittedTxt) + '</span>'
+    +       '<span>Last edit · ' + esc(lastEditTxt) + '</span>'
+    +     '</div>'
+    +     (asgn.assignment_notes ? '<div class="ar-fr-notes"><b>Rep notes:</b> ' + esc(asgn.assignment_notes) + '</div>' : '')
+    +   '</div>'
+    +   '<div class="ar-fr-hero-r">' + actionsHtml + '</div>'
+    + '</div>'
+    // Placeholder bands — built out in sub-ships #7b/c/d.
+    + '<div class="ar-fr-placeholder">'
+    +   '<div class="ar-fr-placeholder-title">Verification Summary</div>'
+    +   '<div class="ar-fr-placeholder-body">Pools documented: <b>' + b.verifications.length + '</b> · Pump rooms: <b>' + b.pumpRooms.length + '</b> · Media files: <b>' + b.media.length + '</b></div>'
+    +   '<div class="ar-fr-placeholder-hint">Detailed pool compare + pump-room walkthrough cards + media gallery will appear here in the next ship.</div>'
+    + '</div>'
+    + '</div>';
+}
+
+/* SVG glyphs used inside the Field Report. Kept small and inline
+   so they inherit currentColor on hover/disabled states. */
+function svgFrIconDoc(){
+  return '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6Z"/><path d="M14 3v5h5"/><line x1="9" y1="13" x2="16" y2="13"/><line x1="9" y1="16.5" x2="16" y2="16.5"/></svg>';
+}
+function svgFrIconDownload(){
+  return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v12.5"/><polyline points="6.5 11 12 16.5 17.5 11"/><path d="M4 20h16"/></svg>';
+}
+
 /* In-page preview wrapper for the engineer verification report.
    Mirrors the calculator's report preview pattern (hide all body
    children except #ar2-report, slap a fixed toolbar on top, restore
@@ -10856,12 +11089,15 @@ var CHEMS=[
   {k:'clarifier', lbl:'Clarifier',      ck:'clarifier_cost',  rk:'clarifier_reduction', chlGal:false, isCo2:false},
 ];
 
-var STEPS=['map-pools','pool-system','settings','quote','export'];
+var STEPS=['map-pools','pool-system','settings','quote','export','field-report'];
 // Compact step labels — one word each so the header chrome fits at
 // narrow widths without wrapping. Previously these were longer (e.g.
 // "Pool & System", "Pricing & Settings") and pushed the stepper into a
 // second row on mid-size laptop screens.
-var STEP_LBLS=['Map','Pools','Pricing','Quote','Export'];
+// Step 5 'Report' = the engineer field-report review pane. Visible
+// only to admins + the record-owner User; hidden via data-fr-hide
+// attribute on the stepper dot/label/connector for other roles.
+var STEP_LBLS=['Map','Pools','Pricing','Quote','Export','Report'];
 
 /* ── State — DEFAULT_INPUTS from types.ts + bodies of water ── */
 var S={
@@ -11347,7 +11583,12 @@ function renderStepper(){
     //   • Portfolio property mode → via body.pf-property-mode + [data-pf-prop-hide]
     // Both markers are stamped on the dot, the label, and the connector line.
     var stepId = STEPS[i];
-    var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide' : '';
+    // Quote step is hidden for clients + portfolio-property mode.
+    // Field Report step is hidden for clients + engineers (admin+user
+    // see it via body.app-fr-eligible CSS gate set in render()).
+    var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide'
+                 : (stepId === 'field-report') ? ' data-client-hide data-fr-hide'
+                 : '';
     h+='<div class="ar-si"'+hideAttr+'>'
       +'<div class="ar-dot '+dc+'">'+dot+'</div>'
       +'<span class="ar-sl '+dc+'">'+STEP_LBLS[i]+'</span>'
@@ -12415,7 +12656,8 @@ function renderForm(){
   if(!el)return;
   // Step routing — order matches STEPS array:
   //   0=Map Pools  1=Pool & System  2=Pricing & Settings  3=Quote  4=Export
-  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStepQuote,renderStep3][S.step];
+  //   5=Field Report (engineer verification review, admin+owner only)
+  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStepQuote,renderStep3,renderFieldReport][S.step];
   el.innerHTML=stepFn?stepFn():'';
   syncRangeStyles();
 }
@@ -12458,6 +12700,13 @@ function render(){
     var isCloudAdmin  = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isAdmin());
     root.classList.toggle('app-client', isCloudClient);
     root.classList.toggle('app-admin',  isCloudAdmin);
+    // Field-report eligibility: admin always; regular User role
+    // gets it for records they own (RLS will filter). Engineers
+    // and clients don't see the step. The class drives the
+    // [data-fr-hide] CSS rule.
+    var roleNow = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user() && AR2_CLOUD.user().role) || '';
+    var isFrEligible = isCloudAdmin || roleNow === 'user';
+    root.classList.toggle('app-fr-eligible', isFrEligible);
     // Client header branding — replace "AQUAREV WATER" wordmark in the top
     // bar with the Client's name (which the admin types as the company name
     // when creating the user). Co-brand below with subtle "powered by"
@@ -14658,6 +14907,36 @@ function handleClick(e){
   }
   // Engineer-profile pill (Archive list). Opens a read-only profile card
   // showing the engineer's name, phone, role, and assignment counts.
+  // Field Report (step 5) action bar handlers — admin/user toolset.
+  var frBtn = e.target.closest('[data-action^="fr-"]');
+  if (frBtn){
+    var frAct = frBtn.getAttribute('data-action');
+    var wrap = frBtn.closest('.ar-fr-wrap');
+    var asgnId = wrap && wrap.getAttribute('data-fr-assignment-id');
+    if (frAct === 'fr-download-pdf' && asgnId){
+      try { if (typeof generateEngineerReport === 'function') generateEngineerReport(asgnId); } catch(err){ alert((err && err.message) || 'Could not generate report.'); }
+      return;
+    }
+    if (frAct === 'fr-open-engineer-portal' && asgnId){
+      if (window.AR2_ENGINEER && AR2_ENGINEER.openAssignment){
+        AR2_ENGINEER.openAssignment(asgnId);
+        if (typeof showView === 'function') showView('bank');
+      }
+      return;
+    }
+    if ((frAct === 'fr-mark-reviewed' || frAct === 'fr-lock' || frAct === 'fr-unlock') && asgnId){
+      var newStatus = frAct === 'fr-lock' ? 'locked' : 'reviewed';
+      var c = window.AR2_CLOUD && AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+      if (!c) return;
+      var patch = { status: newStatus, last_modified_at: new Date().toISOString() };
+      if (newStatus === 'reviewed') patch.reviewed_at = new Date().toISOString();
+      if (newStatus === 'locked')   patch.locked_at   = new Date().toISOString();
+      c.from('engineer_assignments').update(patch).eq('id', asgnId).then(function(){
+        if (window.AR2_FIELD_REPORT){ AR2_FIELD_REPORT.load(true).then(function(){ if (typeof render === 'function') render(); }); }
+      }, function(err){ alert('Update failed: ' + ((err && err.message) || 'network error')); });
+      return;
+    }
+  }
   var engPill = e.target.closest('[data-action="view-engineer-profile"]');
   if (engPill){
     e.stopPropagation();
