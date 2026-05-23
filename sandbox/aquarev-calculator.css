@@ -1,4 +1,3 @@
-
 #ar2,#ar2 *,#ar2 *::before,#ar2 *::after{box-sizing:border-box;margin:0;padding:0}
 #ar2{
   --t:#00b4d8;--aq:#48cae4;--ic:#90e0ef;--go:#f0a500;--gr:#22c55e;
@@ -1688,7 +1687,8 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* ─── Notification bell + drawer (Phase 5) ───────────────────────── */
 #ar2 .ar2-notif-bell{position:relative;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.28);color:#cfe2eb;width:32px;height:32px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;transition:.15s;line-height:1;}
 #ar2 .ar2-notif-bell:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
-#ar2 .ar2-notif-bell-icon{font-size:14px;}
+#ar2 .ar2-notif-bell-icon{display:inline-flex;align-items:center;justify-content:center;line-height:0;color:#cfe2eb;}
+#ar2 .ar2-notif-bell:hover .ar2-notif-bell-icon{color:#e6f4f9;}
 #ar2 .ar2-notif-bell-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:99px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;border:2px solid #040f1e;letter-spacing:0;font-family:'JetBrains Mono',monospace;}
 .ar2-notif-drawer{position:fixed;z-index:999998;width:340px;max-width:calc(100vw - 16px);max-height:70vh;overflow:hidden;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.32);border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.5);font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;}
 .ar2-notif-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(0,180,216,.18);}
@@ -1749,12 +1749,19 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Engineer names line — sits BELOW the action button row on the right
    side of the card, right-justified, green, same typographic scale as
    .ar-bank-date so the row reads as "metadata under controls". */
-#ar2 .ar-bank-actions-cell{display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
-#ar2 .ar-bank-engineer-names{font-size:11px;font-weight:500;color:#4ade80;text-align:right;letter-spacing:.2px;max-width:280px;line-height:1.35;}
+/* Actions cell holds the row of buttons. Engineer-name pills are
+   anchored as an absolutely-positioned column under the hardhat icon
+   via .ar-bank-eng-anchor so the line's left edge aligns with the icon. */
+#ar2 .ar-bank-actions-cell{display:flex;align-items:center;justify-content:flex-end;}
+#ar2 .ar-bank-eng-anchor{position:relative;display:inline-flex;align-items:center;}
+#ar2 .ar-bank-engineer-pills{position:absolute;top:calc(100% + 4px);left:0;display:flex;flex-wrap:wrap;gap:3px;max-width:340px;z-index:2;pointer-events:auto;}
+#ar2 .ar-bank-engineer-pill{font-size:9.5px;font-weight:600;color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);border-radius:99px;padding:2px 7px;line-height:1.3;letter-spacing:.2px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:.15s;}
+#ar2 .ar-bank-engineer-pill:hover{background:rgba(34,197,94,.24);border-color:rgba(34,197,94,.6);color:#fff;}
+#ar2 .ar-bank-engineer-pill:focus-visible{outline:2px solid rgba(34,197,94,.6);outline-offset:1px;}
 #ar2 .ar-bank-act-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:99px;background:#4ade80;color:#040f1e;font-size:10px;font-weight:700;padding:0 4px;display:inline-flex;align-items:center;justify-content:center;border:2px solid #040f1e;font-family:'JetBrains Mono',monospace;letter-spacing:0;line-height:1;}
 #ar2 .ar-bank-act.reassign:hover{background:rgba(240,165,0,.22);}
 /* Each record row */
-#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;align-items:center;padding:16px 0 22px;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
 #ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
 #ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 280px;}
 #ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 280px;}

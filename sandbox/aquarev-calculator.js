@@ -1,4 +1,3 @@
-
 (function(){
 'use strict';
 
@@ -1783,6 +1782,30 @@ window.AR2_PF = (function(){
         }
       });
     }, function(){});
+  }
+
+  /* Bulk loader for the unified Archive list (admin). Loads any
+     engineer_assignments rows scoped to a list of portfolio_ids in a
+     single round-trip — used to light up the hardhat icon on portfolio
+     rows. Does NOT touch the per-property cache; that one is rebuilt
+     by _loadAssignmentsForPortfolio when the admin opens the portfolio. */
+  function _loadAssignmentsForPortfolios(portfolioIds){
+    if (!pfState.engineerAssignmentsByPortfolio) pfState.engineerAssignmentsByPortfolio = {};
+    var c = client();
+    if (!c || !portfolioIds || !portfolioIds.length) return Promise.resolve();
+    return c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+      .in('portfolio_id', portfolioIds)
+      .then(function(rs){
+        // Reset only the slots we're asked about
+        portfolioIds.forEach(function(pid){ pfState.engineerAssignmentsByPortfolio[pid] = []; });
+        (rs.data || []).forEach(function(a){
+          if (a.portfolio_id){
+            if (!pfState.engineerAssignmentsByPortfolio[a.portfolio_id]) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = [];
+            pfState.engineerAssignmentsByPortfolio[a.portfolio_id].push(a);
+          }
+        });
+      }, function(){});
   }
 
   /* Loader for single-assessment scope. Admin-only entry point; called
@@ -3585,6 +3608,7 @@ window.AR2_PF = (function(){
     submitNewProperty: submitNewProperty,
     // Phase 2.5 — engineer assignment surface (multi-engineer support)
     loadAssignmentsForPortfolio:   _loadAssignmentsForPortfolio,
+    loadAssignmentsForPortfolios:  _loadAssignmentsForPortfolios,
     loadAssignmentsForAssessments: _loadAssignmentsForAssessments,
     openAssignEngineerModal:       openAssignEngineerModal,
     closeAssignEngineerModal:      closeAssignEngineerModal,
@@ -8947,13 +8971,16 @@ function renderBank(targetId){
     // renderArchive once the cache is populated.
     var isAdminBank = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
     if (isAdminBank && idx && idx.length && window.AR2_PF){
-      var singleIds = idx.filter(function(e){ return e.archiveType !== 'portfolio'; }).map(function(e){ return e.id; });
+      var singleIds    = idx.filter(function(e){ return e.archiveType !== 'portfolio'; }).map(function(e){ return e.id; });
+      var portfolioIds = idx.filter(function(e){ return e.archiveType === 'portfolio'; }).map(function(e){ return e.id; });
       var pfState_ = AR2_PF._state || {};
-      var needsAssignFetch = singleIds.length && !pfState_.engineerAssignmentsByAssessment;
-      var needsEngFetch    = !pfState_.activeEngineers;
-      if (needsAssignFetch || needsEngFetch){
+      var needsAssignFetch    = singleIds.length    && !pfState_.engineerAssignmentsByAssessment;
+      var needsPortfolioFetch = portfolioIds.length && !pfState_.engineerAssignmentsByPortfolio;
+      var needsEngFetch       = !pfState_.activeEngineers;
+      if (needsAssignFetch || needsPortfolioFetch || needsEngFetch){
         var jobs = [];
-        if (needsAssignFetch) jobs.push(AR2_PF.loadAssignmentsForAssessments(singleIds));
+        if (needsAssignFetch)    jobs.push(AR2_PF.loadAssignmentsForAssessments(singleIds));
+        if (needsPortfolioFetch) jobs.push(AR2_PF.loadAssignmentsForPortfolios(portfolioIds));
         if (needsEngFetch){
           var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
           if (c){
@@ -9021,23 +9048,31 @@ function renderBank(targetId){
           ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">\u2192</button>'
           : '';
 
-        // Engineer assignment button for SINGLE assessments (admin only).
-        // The button is icon-only; engineer names render as a separate
-        // green line below the action row (right-justified, same vibe as
-        // the property's date line).
+        // Engineer assignment button \u2014 admin only. Supported on BOTH
+        // single assessments AND portfolios. Portfolio scope assigns one
+        // engineer to the entire portfolio (every property in it).
+        // The button is icon-only; engineer names render as clickable
+        // green pills directly under the icon (position:absolute anchor)
+        // so the name line's left edge aligns with the hardhat.
         // Must be computed BEFORE the `actions` string concatenation
         // below \u2014 `var` hoisting alone doesn't carry the assignment.
         var bankEngBtn = '';
-        var bankEngNames = '';
-        if (isAdmin && !isPortfolio){
-          var asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
-            ? AR2_PF.engineerAssignmentsForAssessment(entry.id)
-            : [];
+        if (isAdmin){
+          var bankScope = isPortfolio ? 'portfolio' : 'assessment';
+          var asgnList;
+          if (isPortfolio){
+            asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForPortfolio)
+              ? AR2_PF.engineerAssignmentsForPortfolio(entry.id) : [];
+          } else {
+            asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
+              ? AR2_PF.engineerAssignmentsForAssessment(entry.id) : [];
+          }
           var bankEngNameMap = {};
           (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
           var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
+          var subjectText = isPortfolio ? 'this portfolio' : 'this assessment';
           if (asgnList.length === 0){
-            titleText = 'Assign an engineer to verify this assessment';
+            titleText = 'Assign an engineer to ' + subjectText;
             btnCls += ' unassigned';
           } else {
             btnCls += ' assigned';
@@ -9045,20 +9080,31 @@ function renderBank(targetId){
               var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
               return nm + ' \u00b7 ' + a.status;
             }).join('\n');
-            // Build the green name line \u2014 comma-joined full names.
-            bankEngNames = '<div class="ar-bank-engineer-names">'
-              + asgnList.map(function(a){ return esc(bankEngNameMap[a.engineer_user_id] || 'Engineer'); }).join(', ')
-              + '</div>';
           }
           var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
-          bankEngBtn = '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
-            + '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
-            +   '<path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/>'
-            +   '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'
-            +   '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'
-            + '</svg>'
-            + badge
-          + '</button>';
+          // Pills: each engineer becomes a clickable chip that opens their profile.
+          var engPills = '';
+          if (asgnList.length){
+            engPills = '<div class="ar-bank-engineer-pills">'
+              + asgnList.map(function(a){
+                  var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
+                  return '<button type="button" class="ar-bank-engineer-pill" data-action="view-engineer-profile" data-engineer-id="'+esc(a.engineer_user_id)+'" title="View engineer profile">'
+                    + esc(nm)
+                  + '</button>';
+                }).join('')
+              + '</div>';
+          }
+          bankEngBtn = '<span class="ar-bank-eng-anchor">'
+            + '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-scope="'+bankScope+'" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||subjectText)+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
+            +   '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
+            +     '<path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/>'
+            +     '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'
+            +     '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'
+            +   '</svg>'
+            +   badge
+            + '</button>'
+            + engPills
+          + '</span>';
         }
         // Per-row actions branch by type:
         //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
@@ -9070,6 +9116,7 @@ function renderBank(targetId){
         var actions = isPortfolio
           ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
+            +bankEngBtn
             +(isAdmin?'<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Reassign portfolio to another user">→</button>':'')
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
           : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
@@ -9105,7 +9152,6 @@ function renderBank(targetId){
             +'<div class="ar-bank-actions">'
               +actions
             +'</div>'
-            +bankEngNames
           +'</div>'
         +'</div>';
       }).join('');
@@ -13185,12 +13231,23 @@ function handleClick(e){
   if (asgnBank){
     e.stopPropagation();
     if (window.AR2_PF && AR2_PF.openAssignEngineerModal){
+      var bankScope = asgnBank.getAttribute('data-bank-scope') || 'assessment';
+      var fallbackName = bankScope === 'portfolio' ? 'this portfolio' : 'this assessment';
       AR2_PF.openAssignEngineerModal({
-        kind: 'assessment',
+        kind: bankScope,
         id:   asgnBank.getAttribute('data-bank-id'),
-        name: asgnBank.getAttribute('data-bank-name') || 'this assessment'
+        name: asgnBank.getAttribute('data-bank-name') || fallbackName
       });
     }
+    return;
+  }
+  // Engineer-profile pill (Archive list). Opens a read-only profile card
+  // showing the engineer's name, phone, role, and assignment counts.
+  var engPill = e.target.closest('[data-action="view-engineer-profile"]');
+  if (engPill){
+    e.stopPropagation();
+    e.preventDefault();
+    openEngineerProfileModal(engPill.getAttribute('data-engineer-id'));
     return;
   }
   // Notification bell (Phase 5)
@@ -14720,6 +14777,119 @@ function updateUserChip(){
 var _arNotifSub = null;     // realtime channel handle
 var _arNotifCache = [];     // last 20 notifications, newest first
 
+/* Engineer profile modal — opened from the clickable name pill on
+   Archive rows. Renders engineer name, phone, role, status, and a
+   live count of active assignments. Pulls from cached
+   AR2_PF._state.activeEngineers first, falls back to a one-row select
+   on app_users by id when the cache is cold. */
+function openEngineerProfileModal(engineerId){
+  if (!engineerId) return;
+  var existing = document.getElementById('ar-eng-profile-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  // Try cache first.
+  var cached = null;
+  try {
+    var arr = (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers) || [];
+    for (var i=0;i<arr.length;i++){ if (arr[i].id === engineerId){ cached = arr[i]; break; } }
+  } catch(_){}
+  // Count current assignments across all scopes (from caches).
+  var asgnCount = 0, byStatus = { pending:0, in_progress:0, submitted:0, completed:0 };
+  try {
+    var s = (window.AR2_PF && AR2_PF._state) || {};
+    var bags = [s.engineerAssignmentsByProperty, s.engineerAssignmentsByPortfolio, s.engineerAssignmentsByAssessment];
+    bags.forEach(function(bag){
+      if (!bag) return;
+      Object.keys(bag).forEach(function(k){
+        (bag[k]||[]).forEach(function(a){
+          if (a.engineer_user_id === engineerId){
+            asgnCount++;
+            if (byStatus[a.status] != null) byStatus[a.status]++;
+          }
+        });
+      });
+    });
+  } catch(_){}
+  var esc = (window.AR2_UTIL && AR2_UTIL.esc) ? AR2_UTIL.esc : function(x){
+    return String(x==null?'':x).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; });
+  };
+  var bd = document.createElement('div');
+  bd.id = 'ar-eng-profile-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-eng-profile-title" style="max-width:440px">'
+    + '<div class="ar-pf-modal-title" id="ar-eng-profile-title">Engineer profile</div>'
+    + '<div id="ar-eng-profile-body" style="font-size:13px;color:#cfe2eb;line-height:1.55;">'
+    +   (cached
+        ? _renderEngineerProfileBody(cached, asgnCount, byStatus, esc)
+        : '<div style="color:var(--mu);font-size:12px;padding:8px 0">Loading…</div>')
+    + '</div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn primary" data-eng-profile-action="close" type="button">Close</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+  bd.addEventListener('click', function(e){
+    if (e.target === bd) { _closeEngineerProfileModal(); return; }
+    var btn = e.target.closest('[data-eng-profile-action="close"]');
+    if (btn){ e.stopPropagation(); _closeEngineerProfileModal(); }
+  });
+  bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') _closeEngineerProfileModal(); });
+  // Lazy fetch if we didn't have it cached.
+  if (!cached){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient && AR2_CLOUD.getClient()) || null;
+      if (c){
+        c.from('app_users').select('id,name,phone,role,active').eq('id', engineerId).single().then(function(rs){
+          var row = rs && rs.data;
+          var body = document.getElementById('ar-eng-profile-body');
+          if (!body) return;
+          if (row){
+            body.innerHTML = _renderEngineerProfileBody(row, asgnCount, byStatus, esc);
+          } else {
+            body.innerHTML = '<div style="color:#f87171;font-size:12px">Could not load engineer record.</div>';
+          }
+        }, function(){
+          var body = document.getElementById('ar-eng-profile-body');
+          if (body) body.innerHTML = '<div style="color:#f87171;font-size:12px">Network error loading engineer.</div>';
+        });
+      }
+    } catch(_){}
+  }
+}
+function _renderEngineerProfileBody(row, asgnCount, byStatus, esc){
+  var phoneRaw = String(row.phone || '');
+  var phoneDigits = phoneRaw.replace(/[^\d]/g,'');
+  var phonePretty = phoneDigits.length === 10
+    ? '(' + phoneDigits.slice(0,3) + ') ' + phoneDigits.slice(3,6) + '-' + phoneDigits.slice(6)
+    : (phoneRaw || '—');
+  var statusLine = '';
+  if (asgnCount > 0){
+    var parts = [];
+    if (byStatus.pending)     parts.push(byStatus.pending + ' pending');
+    if (byStatus.in_progress) parts.push(byStatus.in_progress + ' in progress');
+    if (byStatus.submitted)   parts.push(byStatus.submitted + ' submitted');
+    if (byStatus.completed)   parts.push(byStatus.completed + ' completed');
+    statusLine = parts.length ? parts.join(' · ') : '';
+  }
+  return ''
+    + '<div style="display:grid;grid-template-columns:88px 1fr;gap:8px 14px;align-items:baseline">'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Name</div>'
+    +   '<div style="color:#fff;font-weight:600">' + esc(row.name || '—') + '</div>'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Phone</div>'
+    +   '<div>' + esc(phonePretty) + '</div>'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Role</div>'
+    +   '<div style="color:#4ade80;text-transform:capitalize">' + esc(row.role || 'engineer') + (row.active === false ? ' · inactive' : '') + '</div>'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Assignments</div>'
+    +   '<div>'
+    +     '<div style="color:#fff;font-weight:600">' + asgnCount + ' total visible</div>'
+    +     (statusLine ? '<div style="color:var(--mu);font-size:11.5px;margin-top:2px">' + statusLine + '</div>' : '')
+    +   '</div>'
+    + '</div>';
+}
+function _closeEngineerProfileModal(){
+  var el = document.getElementById('ar-eng-profile-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
 function updateNotificationBell(){
   var actions = document.getElementById('ar2-bar-actions');
   if (!actions) return;
@@ -14738,7 +14908,12 @@ function updateNotificationBell(){
     bell.className = 'ar2-notif-bell no-print';
     bell.dataset.action = 'notif-bell-open';
     bell.title = 'Notifications';
-    bell.innerHTML = '<span class="ar2-notif-bell-icon">🔔</span><span class="ar2-notif-bell-badge" style="display:none">0</span>';
+    bell.innerHTML = '<span class="ar2-notif-bell-icon" aria-hidden="true">'
+      + '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      +   '<path d="M6 8a6 6 0 0 1 12 0c0 4.5 1.5 6 2.5 7H3.5C4.5 14 6 12.5 6 8Z"/>'
+      +   '<path d="M10.2 18.5a2 2 0 0 0 3.6 0"/>'
+      + '</svg>'
+      + '</span><span class="ar2-notif-bell-badge" style="display:none">0</span>';
     // Insert before the user chip if present, otherwise append
     var chip = document.getElementById('ar2-user-chip');
     if (chip && chip.parentNode === actions) actions.insertBefore(bell, chip);
