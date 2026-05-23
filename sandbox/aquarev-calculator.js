@@ -9026,6 +9026,7 @@ function renderBank(targetId){
             +'<button class="ar-bank-act" data-bank-action="copy-to-portfolio" data-bank-id="'+entry.id+'" title="Copy to portfolio">+☰</button>'
             +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
             +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
+            +bankEngBtn
             +reassignBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>';
         var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'') + (isPortfolio?' is-portfolio':'');
@@ -9035,42 +9036,45 @@ function renderBank(targetId){
         var countLabel = isPortfolio
           ? (s.devices||0) + (s.devices===1?' prop':' props')
           : (s.devices||'\u2014');
-        // Engineer assignment chip for SINGLE assessments (admin only).
-        // Portfolios skip this — they get their chip on the portfolio
-        // detail's property rows instead, where it's per-property
-        // rather than per-portfolio.
-        var bankEngChip = '';
+        // Engineer assignment button for SINGLE assessments (admin only).
+        // Rendered in the actions strip as a small green hardhat icon
+        // button, placed before the reassign button. Tooltip lists the
+        // currently-assigned engineers with their statuses. Badge shows
+        // count when 2+ engineers are assigned. Portfolios use the
+        // per-property chip on the portfolio detail screen instead.
+        var bankEngBtn = '';
         if (isAdmin && !isPortfolio){
           var asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
             ? AR2_PF.engineerAssignmentsForAssessment(entry.id)
             : [];
+          var bankEngNameMap = {};
+          (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
+          var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
           if (asgnList.length === 0){
-            bankEngChip = '<div class="ar-pf-prop-eng-chip outline" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" role="button" tabindex="0" title="Assign an engineer to verify this assessment">+ Assign engineer</div>';
+            titleText = 'Assign an engineer to verify this assessment';
+            btnCls += ' unassigned';
           } else {
-            var pri = { locked:5, reviewed:4, submitted:3, in_progress:2, pending:1 };
-            var top = asgnList.reduce(function(b,a){ return (pri[a.status]||0) > (pri[b]||0) ? a.status : b; }, 'pending');
-            var sc = top === 'in_progress' ? 'yellow'
-                   : top === 'submitted'   ? 'blue'
-                   : top === 'reviewed'    ? 'green'
-                   : top === 'locked'      ? 'gray'
-                   : 'amber';
-            var bankEngNameMap = {};
-            (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
-            var bankLabel;
-            if (asgnList.length === 1){
-              bankLabel = '👷 ' + esc(bankEngNameMap[asgnList[0].engineer_user_id] || 'Engineer');
-            } else {
-              bankLabel = '👷 ' + asgnList.length + ' engineers';
-            }
-            bankEngChip = '<div class="ar-pf-prop-eng-chip ' + sc + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" role="button" tabindex="0">' + bankLabel + '</div>';
+            btnCls += ' assigned';
+            titleText = asgnList.map(function(a){
+              var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
+              return nm + ' · ' + a.status;
+            }).join('\n');
           }
+          var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
+          bankEngBtn = '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||'this assessment')+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
+            + '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
+            +   '<path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/>'                /* hardhat dome */
+            +   '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'  /* brim */
+            +   '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'   /* center ridge */
+            + '</svg>'
+            + badge
+          + '</button>';
         }
         return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'">'
           +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
             +'<div class="ar-bank-prop">'+typeBadge+esc(entry.propertyName)+'</div>'
             +'<div class="ar-bank-date">'+dateStr+'</div>'
-            +bankEngChip
           +'</div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+fc(s.annual,0)+'</div></div>'
