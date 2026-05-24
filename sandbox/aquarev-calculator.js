@@ -7096,20 +7096,46 @@ function showAdminEditLogoModal(uid, uname){
   };
 }
 
-function showAdminResetCodeModal(uid, uname){
+function showAdminResetCodeModal(uid, uname, role, currentPhone){
+  // Role-aware passcode reset. User / Client / Admin sign in with a
+  // 4-char access code; Engineers sign in with their phone number.
+  // The modal adapts its input format + validation per role so an
+  // admin can reset any user's passcode from one place.
+  role = (role || 'user').toLowerCase();
   var existing=document.getElementById('ar2-admrc-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var isEng = role === 'engineer';
+  var titleTxt = isEng ? 'RESET ENGINEER PASSCODE' : 'RESET ACCESS CODE';
+  var roleLbl  = isEng ? 'Engineer' : (role.charAt(0).toUpperCase()+role.slice(1));
+  var helpTxt = isEng
+    ? 'Engineers sign in with their phone number. Enter a new phone (digits only) or generate a placeholder.'
+    : 'User signs in with a 4-character access code. Enter a new code, or generate a random one.';
+  var inputAttrs = isEng
+    ? 'type="tel" inputmode="numeric" maxlength="15" placeholder="Phone number (digits only)" autocomplete="off"'
+    : 'type="text" maxlength="4" placeholder="New 4-char code" autocomplete="off" autocapitalize="characters"';
+  var inputStyle = isEng
+    ? 'letter-spacing:2px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px'
+    : 'text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px';
+  var hintLine = isEng && currentPhone
+    ? '<div style="font-size:11px;color:#7db8cc;margin-bottom:8px">Current phone on file: <b style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace">'+esc(currentPhone)+'</b></div>'
+    : '';
   var m=document.createElement('div');
   m.id='ar2-admrc-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
-    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">RESET ACCESS CODE</div>'
-    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
-    +'<input id="ar2-rc-code" type="text" maxlength="4" placeholder="New 4-char code" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:10px" />'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">'+titleTxt+'</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:6px">For: <b style="color:#fff">'+esc(uname)+'</b> <span style="font-size:10.5px;color:#7db8cc;letter-spacing:1.2px;text-transform:uppercase;margin-left:6px">'+esc(roleLbl)+'</span></div>'
+    +'<div style="font-size:11.5px;color:#7db8cc;margin-bottom:10px;line-height:1.55">'+helpTxt+'</div>'
+    +hintLine
+    +'<input id="ar2-rc-code" '+inputAttrs+' style="'+inputStyle+'" />'
+    +'<div style="display:flex;gap:6px;margin-bottom:10px">'
+      +'<button id="ar2-rc-show" type="button" class="ar2-mb" style="flex:1;font-size:11px">Show / hide</button>'
+      +(isEng ? '' : '<button id="ar2-rc-gen" type="button" class="ar2-mb" style="flex:1;font-size:11px">Generate random</button>')
+    +'</div>'
     +'<div id="ar2-rc-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<button id="ar2-rc-cancel" class="ar2-mb">Cancel</button>'
-      +'<button id="ar2-rc-go" class="ar2-mb primary">Save</button>'
+      +'<button id="ar2-rc-go" class="ar2-mb primary">Save new passcode</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);
@@ -7117,23 +7143,60 @@ function showAdminResetCodeModal(uid, uname){
   document.getElementById('ar2-rc-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var inp=document.getElementById('ar2-rc-code');
-  inp.addEventListener('input',function(){ inp.value=(inp.value||'').toUpperCase(); });
+  // Initially mask the new code (show as password) so it isn't visible
+  // over the admin's shoulder. Show/hide toggle lets them verify.
+  inp.type = isEng ? 'tel' : 'password';
+  if (!isEng){
+    inp.addEventListener('input',function(){ inp.value=(inp.value||'').toUpperCase().replace(/[^A-Z0-9]/g,''); });
+  } else {
+    inp.addEventListener('input',function(){ inp.value=(inp.value||'').replace(/[^0-9+\-\s().]/g,''); });
+  }
+  document.getElementById('ar2-rc-show').onclick = function(){
+    inp.type = (inp.type === 'password') ? (isEng ? 'tel' : 'text') : 'password';
+    inp.focus();
+  };
+  var genBtn = document.getElementById('ar2-rc-gen');
+  if (genBtn){
+    genBtn.onclick = function(){
+      // Generate a random 4-char alphanumeric code avoiding ambiguous chars (0/O/1/I)
+      var alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      var code = '';
+      for (var i = 0; i < 4; i++) code += alphabet.charAt(Math.floor(Math.random()*alphabet.length));
+      inp.value = code;
+      inp.type = isEng ? 'tel' : 'text';
+    };
+  }
   document.getElementById('ar2-rc-go').onclick=function(){
-    var code=(inp.value||'').trim().toUpperCase();
-    var err=document.getElementById('ar2-rc-err');
-    if(code.length<4){ err.textContent='Code must be 4 characters.'; return; }
+    var raw = (inp.value || '').trim();
+    var code = isEng
+      ? raw.replace(/[^0-9]/g, '')
+      : raw.toUpperCase();
+    var err = document.getElementById('ar2-rc-err');
+    if (isEng){
+      if (code.length < 7){ err.textContent='Phone must be at least 7 digits.'; return; }
+    } else {
+      if (code.length < 4){ err.textContent='Code must be at least 4 characters.'; return; }
+    }
     var go=document.getElementById('ar2-rc-go');
     go.disabled=true; go.textContent='Saving…';
     AR2_CLOUD.adminResetUserCode(uid, code).then(function(){
-      close(); populateAdminDashboard();
+      close();
+      // Brief success toast so the admin knows what to relay
+      try {
+        var ok = document.createElement('div');
+        ok.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;padding:14px 22px;border-radius:10px;font-family:"DM Sans",sans-serif;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 8px 30px rgba(0,0,0,.5);';
+        ok.innerHTML = '✓ Passcode reset for <b>'+esc(uname)+'</b>. New '+(isEng?'phone':'code')+': <b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:1.4px">'+esc(code)+'</b>';
+        document.body.appendChild(ok);
+        setTimeout(function(){ if (ok.parentNode) ok.parentNode.removeChild(ok); }, 6000);
+      } catch(_){}
+      populateAdminDashboard();
     }).catch(function(e){
       err.textContent = (e && e.message) ? e.message : 'Failed to reset code.';
-      go.disabled=false; go.textContent='Save';
+      go.disabled=false; go.textContent='Save new passcode';
     });
   };
   setTimeout(function(){ inp.focus(); }, 50);
 }
-
 function showAdminChangeRoleModal(uid, uname, currentRole){
   var existing=document.getElementById('ar2-admro-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
@@ -7253,7 +7316,7 @@ function populateAdminDashboard(){
             + '<td class="num">'+u.login_count+'</td>'
             + '<td class="muted">'+lastLogin+'</td>'
             + '<td class="actions">'
-              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Reset access code">Reset</button>'
+              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+esc(u.role||'')+'" data-uphone="'+esc(u.phone||'')+'" title="Reset access code">Reset</button>'
               + '<button class="ar-admin-row-act" data-action="admin-change-role" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+u.role+'" title="Change role">Role</button>'
               + '<button class="ar-admin-row-act" data-action="admin-edit-email" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uemail="'+esc(hasRealEmail?u.email:'')+'" title="Edit email">Email</button>'
               // Logo button — only Clients use logos. Show for any role so admin
@@ -16839,7 +16902,12 @@ function handleClick(e){
   }
   var resetCodeClick=e.target.closest('[data-action="admin-reset-code"]');
   if(resetCodeClick){
-    showAdminResetCodeModal(resetCodeClick.dataset.uid, resetCodeClick.dataset.uname);
+    showAdminResetCodeModal(
+      resetCodeClick.dataset.uid,
+      resetCodeClick.dataset.uname,
+      resetCodeClick.dataset.urole || '',
+      resetCodeClick.dataset.uphone || ''
+    );
     return;
   }
   var changeRoleClick=e.target.closest('[data-action="admin-change-role"]');
