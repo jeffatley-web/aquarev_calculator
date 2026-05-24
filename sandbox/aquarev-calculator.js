@@ -7324,108 +7324,34 @@ function renderFieldReport(){
   // the user doesn't have to backtrack to Step 4 first.
   if (!ref){
     var hasData = !!(typeof S !== 'undefined' && S && (S.propertyName || (S.bodies && S.bodies.length && (S.bodies[0].length || S.bodies[0].manualGallons))));
-    // FALLBACK: when S has a propertyName but no id, try to resolve
-    // the record id by querying Supabase for the user's most recent
-    // assessment with that name. Covers the case where the user
-    // saved or recalled in a prior session and the in-memory id was
-    // lost on reload, but the cloud copy still exists.
-    if (hasData && S && S.propertyName && !S._frResolveInFlight){
-      S._frResolveInFlight = true;
-      var cR = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
-      var meR = (window.AR2_CLOUD && AR2_CLOUD.user)     ? AR2_CLOUD.user()     : null;
-      if (cR && meR){
-        cR.from('assessments')
-          .select('id,created_at')
-          .eq('user_id', meR.id)
-          .ilike('property_name', S.propertyName)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .then(function(rs){
-            S._frResolveInFlight = false;
-            var row = rs && rs.data && rs.data[0];
-            if (row && row.id && S.step === 5){
-              S._currentAssessmentId = row.id;
-              if (typeof render === 'function') render();
-            }
-          }, function(){ S._frResolveInFlight = false; });
-      } else {
-        S._frResolveInFlight = false;
-      }
-    }
-    var hint = hasData
-      ? 'You have assessment data on this property but it hasn\'t been saved to the Archive yet. Save it now — the Field Report will then surface an engineer\'s on-site verification once you assign one from the Archive row.'
-      : 'The Field Report shows an engineer\'s on-site verification of THIS property. Complete the assessment, save it, then assign an engineer from the Archive list — their submission appears here once they send it for review.';
-    // FINAL FALLBACK — there's no current-record context but the user
-    // may still have engineer submissions in flight on OTHER records.
-    // Fire an async query for any engineer_assignment visible to them
-    // (RLS scopes admin → all, user → their own, engineer → their own)
-    // and render a picker INSIDE the empty state when results land.
-    if (!S._frPickerInFlight){
-      S._frPickerInFlight = true;
-      var pickerClient = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
-      if (pickerClient){
-        pickerClient.from('engineer_assignments')
-          .select('id,assessment_id,portfolio_id,property_id,status,assigned_at,last_modified_at')
-          .order('last_modified_at', { ascending: false })
-          .limit(10)
-          .then(function(rs){
-            S._frPickerInFlight = false;
-            var rows = (rs && rs.data) || [];
-            S._frPickerRows = rows;
-            if (S.step === 5 && typeof render === 'function') render();
-          }, function(){ S._frPickerInFlight = false; });
-      } else {
-        S._frPickerInFlight = false;
-      }
-    }
-    var pickerRows = (S._frPickerRows || []).slice();
-    var pickerHtml = '';
-    if (pickerRows.length){
-      pickerHtml = '<div class="ar-fr-picker">'
-        + '<div class="ar-fr-picker-title">Or jump to an existing engineer submission</div>'
-        + '<div class="ar-fr-picker-list">'
-        +   pickerRows.map(function(r){
-              var statusPill = '<span class="ar-eng-pill '
-                + (r.status === 'submitted' ? 'blue'
-                  : r.status === 'reviewed' ? 'green'
-                  : r.status === 'locked' ? 'gray'
-                  : r.status === 'in_progress' ? 'yellow'
-                  : 'amber') + '">' + esc(r.status || 'pending') + '</span>';
-              var scopeLabel = r.assessment_id ? 'Assessment'
-                              : r.property_id  ? 'Property'
-                              : r.portfolio_id ? 'Portfolio' : 'Assignment';
-              var lastEdit = r.last_modified_at
-                ? new Date(r.last_modified_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
-                : '';
-              return '<button class="ar-fr-picker-row" data-action="fr-pick-assignment"'
-                + ' data-assignment-id="' + esc(r.id) + '"'
-                + ' data-assessment-id="' + esc(r.assessment_id || '') + '"'
-                + ' data-portfolio-id="' + esc(r.portfolio_id || '') + '"'
-                + ' data-property-id="' + esc(r.property_id || '') + '"'
-                + ' type="button">'
-                + '<div class="ar-fr-picker-row-l">'
-                +   '<div class="ar-fr-picker-row-scope">' + esc(scopeLabel) + '</div>'
-                +   '<div class="ar-fr-picker-row-meta">' + (lastEdit ? 'Last edit ' + esc(lastEdit) : '') + '</div>'
-                + '</div>'
-                + '<div class="ar-fr-picker-row-r">' + statusPill + '</div>'
-                + '</button>';
-            }).join('')
-        + '</div>'
-        + '</div>';
+    // Two distinct empty-state branches:
+    //   1) hasData → user typed pool data but never saved. Offer the
+    //      inline Save to Archive button. Once saved, this same step
+    //      auto-renders the engineer slot (which will itself be empty
+    //      until an engineer is assigned, but that's a separate state
+    //      handled below in the "no assignments" branch).
+    //   2) !hasData → fresh blank session, no record open. Direct the
+    //      user to the Archive to recall an existing record (which
+    //      brings ALL the data — assessment + calculator + engineer
+    //      field report — back as one cohesive unit).
+    var title, body, ctas;
+    if (hasData){
+      title = 'Save the assessment first';
+      body  = 'You have assessment data on this property but it hasn\'t been saved to the Archive yet. Save it — the engineer field report becomes part of this record once one is assigned.';
+      ctas  = '<button class="ar-fr-btn primary" data-action="save-report" style="min-width:200px">Save to Archive</button>'
+            + '<button class="ar-fr-btn ghost" data-action="fr-go-to-archive" style="min-width:200px">Open Archive</button>';
+    } else {
+      title = 'Open a record to see its report';
+      body  = 'Field reports live INSIDE the record they belong to — every assessment is a single record that bundles the calculator, the rep notes, and any engineer field verification. Open a saved record from the Archive and Step 6 renders that record\'s engineer report here.';
+      ctas  = '<button class="ar-fr-btn primary" data-action="fr-go-to-archive" style="min-width:200px">Open Archive</button>';
     }
     return '<div class="ar-fr-wrap">'
       + '<div class="ar-fr-empty">'
       +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
-      +   '<div class="ar-fr-empty-title">Save the assessment first</div>'
-      +   '<div class="ar-fr-empty-body">' + hint + '</div>'
-      +   (hasData
-          ? '<div style="margin-top:18px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">'
-          +    '<button class="ar-fr-btn primary" data-action="save-report" style="min-width:200px">Save to Archive</button>'
-          +    '<button class="ar-fr-btn ghost" data-action="fr-go-to-archive" style="min-width:200px">Open Archive</button>'
-          +  '</div>'
-          : '')
+      +   '<div class="ar-fr-empty-title">' + title + '</div>'
+      +   '<div class="ar-fr-empty-body">' + body + '</div>'
+      +   '<div style="margin-top:18px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">' + ctas + '</div>'
       + '</div>'
-      + pickerHtml
       + '</div>';
   }
   // Loading skeleton.
@@ -15654,28 +15580,6 @@ function handleClick(e){
     var asgnId = wrap && wrap.getAttribute('data-fr-assignment-id');
     if (frAct === 'fr-go-to-archive'){
       if (typeof showView === 'function') showView('bank');
-      return;
-    }
-    if (frAct === 'fr-pick-assignment'){
-      // User picked an engineer submission from the fallback list.
-      // Hydrate S._currentAssessmentId so getCurrentRecordRef finds
-      // it on the next render. For portfolio properties we'd need to
-      // call AR2_PF.enterProperty; for now, the picker only surfaces
-      // assessment-scoped rows which the field-report resolver
-      // handles directly.
-      var pickedAss = frBtn.getAttribute('data-assessment-id') || '';
-      var pickedProp = frBtn.getAttribute('data-property-id') || '';
-      if (pickedAss){
-        S._currentAssessmentId = pickedAss;
-        if (window.AR2_FIELD_REPORT) AR2_FIELD_REPORT.clear();
-        if (typeof render === 'function') render();
-      } else if (pickedProp && window.AR2_PF && AR2_PF.enterProperty){
-        AR2_PF.enterProperty(pickedProp).then(function(){
-          if (window.AR2_FIELD_REPORT) AR2_FIELD_REPORT.clear();
-          S.step = 5;
-          if (typeof render === 'function') render();
-        }).catch(function(err){ alert((err && err.message) || 'Could not open property.'); });
-      }
       return;
     }
     if (frAct === 'fr-download-pdf' && asgnId){
