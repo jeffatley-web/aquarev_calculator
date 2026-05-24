@@ -18335,40 +18335,147 @@ function showInstallAppModal(){
   var isAndroid = /Android/i.test(ua);
   var primary = isIos ? 'ios' : isAndroid ? 'android' : 'desktop';
 
-  // Each platform produces an action+instructions pair. "Primary"
-  // platforms render full-size; "other" platforms render compact.
+  // Each platform produces a visual tutorial card with an annotated
+  // SVG diagram. PRIMARY platforms render the visual + step-by-step
+  // instructions; OTHER platforms render a compact one-liner inside
+  // the collapsible details.
+
+  // iOS visual — phone outline with the Share icon highlighted at
+  // the bottom toolbar + a callout "1" pointing at it.
+  function iosVisual(){
+    return '<div class="ar-install-visual ar-install-visual-ios">'
+      +   '<svg viewBox="0 0 240 320" fill="none" aria-hidden="true">'
+      +     '<rect x="10" y="10" width="220" height="300" rx="24" fill="#0a2540" stroke="rgba(0,180,216,.5)" stroke-width="2"/>'
+      +     '<rect x="22" y="34" width="196" height="240" rx="6" fill="#040f1e"/>'
+      +     '<rect x="32" y="46" width="80" height="8" rx="2" fill="rgba(72,202,228,.45)"/>'
+      +     '<rect x="32" y="62" width="140" height="6" rx="2" fill="rgba(255,255,255,.18)"/>'
+      +     '<rect x="32" y="74" width="120" height="6" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="32" y="90" width="176" height="100" rx="6" fill="rgba(0,180,216,.08)" stroke="rgba(0,180,216,.2)"/>'
+      +     '<rect x="32" y="200" width="80" height="6" rx="2" fill="rgba(255,255,255,.16)"/>'
+      +     '<rect x="32" y="212" width="140" height="6" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="22" y="274" width="196" height="38" rx="4" fill="#0a2540" stroke="rgba(0,180,216,.18)"/>'
+      +     '<path d="M44 293l-5-5 5-5" stroke="rgba(255,255,255,.45)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +     '<path d="M66 288l5 5-5 5" stroke="rgba(255,255,255,.45)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +     '<g class="ar-install-target">'
+      +       '<rect x="103" y="280" width="34" height="26" rx="6" fill="rgba(72,202,228,.18)" stroke="#48cae4" stroke-width="2"/>'
+      +       '<path d="M120 285v12" stroke="#48cae4" stroke-width="2" stroke-linecap="round"/>'
+      +       '<polyline points="116 289 120 285 124 289" stroke="#48cae4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +       '<rect x="111" y="291" width="18" height="11" rx="2" fill="none" stroke="#48cae4" stroke-width="2"/>'
+      +     '</g>'
+      +     '<rect x="160" y="285" width="13" height="14" rx="2" fill="rgba(255,255,255,.4)"/>'
+      +     '<rect x="186" y="285" width="13" height="14" rx="2" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="2"/>'
+      +     '<g class="ar-install-callout">'
+      +       '<circle cx="200" cy="240" r="14" fill="#48cae4"/>'
+      +       '<text x="200" y="245" font-size="14" font-weight="700" fill="#040f1e" text-anchor="middle">1</text>'
+      +       '<path d="M186 246 L138 286" stroke="#48cae4" stroke-width="2" stroke-dasharray="3 3" fill="none"/>'
+      +     '</g>'
+      +   '</svg>'
+      + '</div>';
+  }
+
+  // Android visual — phone with the Chrome top-right \u22ee menu
+  // highlighted (where Install app lives).
+  function androidVisual(){
+    return '<div class="ar-install-visual ar-install-visual-android">'
+      +   '<svg viewBox="0 0 240 320" fill="none" aria-hidden="true">'
+      +     '<rect x="10" y="10" width="220" height="300" rx="24" fill="#0a2540" stroke="rgba(0,180,216,.5)" stroke-width="2"/>'
+      +     '<rect x="22" y="20" width="196" height="14" rx="2" fill="rgba(0,0,0,.4)"/>'
+      +     '<rect x="22" y="34" width="196" height="32" fill="#0a2540" stroke="rgba(0,180,216,.18)"/>'
+      +     '<rect x="34" y="42" width="124" height="16" rx="8" fill="#040f1e" stroke="rgba(255,255,255,.18)"/>'
+      +     '<rect x="42" y="48" width="80" height="4" rx="1" fill="rgba(255,255,255,.4)"/>'
+      +     '<g class="ar-install-target">'
+      +       '<rect x="194" y="42" width="20" height="20" rx="4" fill="rgba(72,202,228,.18)" stroke="#48cae4" stroke-width="2"/>'
+      +       '<circle cx="204" cy="47" r="1.4" fill="#48cae4"/>'
+      +       '<circle cx="204" cy="52" r="1.4" fill="#48cae4"/>'
+      +       '<circle cx="204" cy="57" r="1.4" fill="#48cae4"/>'
+      +     '</g>'
+      +     '<rect x="22" y="68" width="196" height="244" fill="#040f1e"/>'
+      +     '<rect x="34" y="80" width="80" height="8" rx="2" fill="rgba(72,202,228,.45)"/>'
+      +     '<rect x="34" y="96" width="140" height="6" rx="2" fill="rgba(255,255,255,.18)"/>'
+      +     '<rect x="34" y="108" width="120" height="6" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="34" y="130" width="176" height="100" rx="6" fill="rgba(0,180,216,.08)" stroke="rgba(0,180,216,.2)"/>'
+      +     '<g class="ar-install-callout">'
+      +       '<circle cx="170" cy="100" r="14" fill="#48cae4"/>'
+      +       '<text x="170" y="105" font-size="14" font-weight="700" fill="#040f1e" text-anchor="middle">1</text>'
+      +       '<path d="M180 90 L198 60" stroke="#48cae4" stroke-width="2" stroke-dasharray="3 3" fill="none"/>'
+      +     '</g>'
+      +   '</svg>'
+      + '</div>';
+  }
+
+  // Desktop visual — browser window with the install icon highlighted
+  // at the right edge of the address bar. This is the icon most users
+  // don't realize exists; big pulsing target makes it obvious.
+  function desktopVisual(){
+    return '<div class="ar-install-visual ar-install-visual-desktop">'
+      +   '<svg viewBox="0 0 380 220" fill="none" aria-hidden="true">'
+      +     '<rect x="10" y="10" width="360" height="200" rx="8" fill="#0a2540" stroke="rgba(0,180,216,.4)"/>'
+      +     '<circle cx="24" cy="24" r="4" fill="#ef4444"/>'
+      +     '<circle cx="38" cy="24" r="4" fill="#f0a500"/>'
+      +     '<circle cx="52" cy="24" r="4" fill="#22c55e"/>'
+      +     '<rect x="68" y="14" width="100" height="22" rx="4" fill="#071628" stroke="rgba(255,255,255,.08)"/>'
+      +     '<rect x="76" y="22" width="60" height="6" rx="2" fill="rgba(255,255,255,.4)"/>'
+      +     '<rect x="14" y="42" width="352" height="32" fill="#071628" stroke="rgba(255,255,255,.06)"/>'
+      +     '<circle cx="26" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
+      +     '<circle cx="46" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
+      +     '<circle cx="66" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
+      +     '<rect x="82" y="48" width="248" height="20" rx="10" fill="#0a2540" stroke="rgba(255,255,255,.18)"/>'
+      +     '<text x="92" y="62" font-size="9" fill="rgba(255,255,255,.6)" font-family="JetBrains Mono, monospace">aquarevwater.us/calculator-sandbox</text>'
+      +     '<g class="ar-install-target">'
+      +       '<rect x="306" y="48" width="20" height="20" rx="4" fill="rgba(72,202,228,.25)" stroke="#48cae4" stroke-width="2"/>'
+      +       '<rect x="310" y="53" width="12" height="9" rx="1" fill="none" stroke="#48cae4" stroke-width="1.6"/>'
+      +       '<path d="M316 56v3.5" stroke="#48cae4" stroke-width="1.6" stroke-linecap="round"/>'
+      +       '<polyline points="314 58 316 60 318 58" stroke="#48cae4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +       '<path d="M310 63h12" stroke="#48cae4" stroke-width="1.6" stroke-linecap="round"/>'
+      +     '</g>'
+      +     '<rect x="340" y="48" width="20" height="20" rx="4" fill="none" stroke="rgba(255,255,255,.18)"/>'
+      +     '<circle cx="350" cy="54" r="1.2" fill="rgba(255,255,255,.4)"/>'
+      +     '<circle cx="350" cy="58" r="1.2" fill="rgba(255,255,255,.4)"/>'
+      +     '<circle cx="350" cy="62" r="1.2" fill="rgba(255,255,255,.4)"/>'
+      +     '<rect x="14" y="74" width="352" height="132" fill="#040f1e"/>'
+      +     '<rect x="28" y="88" width="140" height="10" rx="2" fill="rgba(72,202,228,.45)"/>'
+      +     '<rect x="28" y="106" width="200" height="7" rx="2" fill="rgba(255,255,255,.18)"/>'
+      +     '<rect x="28" y="120" width="170" height="7" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="28" y="142" width="324" height="56" rx="6" fill="rgba(0,180,216,.08)" stroke="rgba(0,180,216,.2)"/>'
+      +     '<g class="ar-install-callout">'
+      +       '<circle cx="316" cy="100" r="14" fill="#48cae4"/>'
+      +       '<text x="316" y="105" font-size="14" font-weight="700" fill="#040f1e" text-anchor="middle">1</text>'
+      +       '<path d="M316 86 L316 72" stroke="#48cae4" stroke-width="2" stroke-dasharray="3 3" fill="none"/>'
+      +     '</g>'
+      +   '</svg>'
+      + '</div>';
+  }
+
   function iosCard(compact){
     var lbl = compact ? '' : 'iPhone / iPad';
     return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
-      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">📱</span></div>'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">\ud83d\udcf1</span></div>'
       + (compact
-        ? '<div class="ar-install-card-sub">iPhone / iPad — tap <b>Share</b> → <b>Add to Home Screen</b>.</div>'
+        ? '<div class="ar-install-card-sub">iPhone / iPad \u2014 tap <b>Share</b> \u2192 <b>Add to Home Screen</b>.</div>'
         : '<div class="ar-install-card-body">'
-          + '<div class="ar-install-card-pulse">'
-          +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="3" x2="12" y2="21"/><polyline points="6 15 12 21 18 15"/></svg>'
-          +   '<div class="ar-install-card-pulse-msg">Tap the <b>Share</b> button at the bottom of your browser</div>'
-          + '</div>'
+          + iosVisual()
           + '<ol class="ar-install-steps">'
-          +   '<li>Tap the <b>Share</b> icon (square with up-arrow) at the bottom of Safari/Chrome.</li>'
-          +   '<li>Scroll down and tap <b>Add to Home Screen</b>.</li>'
-          +   '<li>Tap <b>Add</b> in the top-right.</li>'
+          +   '<li><b>Tap the Share icon</b> at the bottom of your browser (square with up-arrow \u2014 highlighted above).</li>'
+          +   '<li>Scroll down in the share sheet and tap <b>Add to Home Screen</b>.</li>'
+          +   '<li>Tap <b>Add</b> in the top-right corner.</li>'
           + '</ol>')
       + '</div>';
   }
   function androidCard(compact){
     var lbl = compact ? '' : 'Android';
     return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
-      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">🤖</span></div>'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">\ud83e\udd16</span></div>'
       + (compact
-        ? '<div class="ar-install-card-sub">Android — open ⋮ → <b>Install app</b>.</div>'
+        ? '<div class="ar-install-card-sub">Android \u2014 open \u22ee \u2192 <b>Install app</b>.</div>'
         : (canPrompt
           ? '<div class="ar-install-card-body">'
             + '<div class="ar-install-card-msg">Tap below and AquaRev installs to your home screen with a single confirmation.</div>'
             + '<button class="ar-install-do" data-action="ar-pwa-install" type="button">Install AquaRev now</button>'
             + '</div>'
           : '<div class="ar-install-card-body">'
+            + androidVisual()
             + '<ol class="ar-install-steps">'
-            +   '<li>Tap the <b>⋮</b> menu in the top-right of Chrome.</li>'
+            +   '<li><b>Tap the \u22ee menu</b> in the top-right of Chrome (highlighted above).</li>'
             +   '<li>Choose <b>Install app</b> (or <b>Add to Home screen</b>).</li>'
             +   '<li>Confirm in the prompt that appears.</li>'
             + '</ol></div>'))
@@ -18377,20 +18484,30 @@ function showInstallAppModal(){
   function desktopCard(compact){
     var lbl = compact ? '' : 'Desktop (Chrome / Edge)';
     return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
-      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">💻</span></div>'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">\ud83d\udcbb</span></div>'
       + (compact
-        ? '<div class="ar-install-card-sub">Desktop — click the install icon in the address bar.</div>'
+        ? '<div class="ar-install-card-sub">Desktop \u2014 click the install icon in the address bar.</div>'
         : (canPrompt
           ? '<div class="ar-install-card-body">'
-            + '<div class="ar-install-card-msg">Tap below and AquaRev installs as a desktop app.</div>'
+            + '<div class="ar-install-card-msg">Click below and AquaRev installs as a desktop app instantly.</div>'
             + '<button class="ar-install-do" data-action="ar-pwa-install" type="button">Install AquaRev now</button>'
+            + '<div class="ar-install-card-or">Or do it manually:</div>'
+            + desktopVisual()
+            + '<ol class="ar-install-steps">'
+            +   '<li><b>Click the install icon</b> at the right edge of the address bar (computer-with-down-arrow, highlighted above).</li>'
+            +   '<li>Confirm <b>Install</b> in the popup.</li>'
+            +   '<li>AquaRev opens in its own window and is added to Applications / Start menu.</li>'
+            + '</ol>'
             + '</div>'
           : '<div class="ar-install-card-body">'
+            + desktopVisual()
             + '<ol class="ar-install-steps">'
-            +   '<li>Look for the small <b>install icon</b> at the right edge of the address bar (computer-with-arrow).</li>'
-            +   '<li>Click it and confirm <b>Install</b>.</li>'
-            +   '<li>AquaRev opens in its own window and is added to Applications / Start menu.</li>'
-            + '</ol></div>'))
+            +   '<li><b>Look at the address bar</b> at the top of your browser. On the right side, just before the \u22ee menu, you\u2019ll see a small <b>install icon</b> \u2014 computer with a down arrow (highlighted above).</li>'
+            +   '<li><b>Click it</b> and confirm <b>Install</b>.</li>'
+            +   '<li>AquaRev opens in its own window and lands in your Applications / Start menu \u2014 launch it like any other app.</li>'
+            + '</ol>'
+            + '<div class="ar-install-card-note">Don\u2019t see the install icon yet? Your browser may not have fully recognised AquaRev as installable. Reload the page once, then try again. Works best in Chrome / Edge.</div>'
+            + '</div>'))
       + '</div>';
   }
   var blocks = { ios: iosCard, android: androidCard, desktop: desktopCard };
@@ -18403,7 +18520,7 @@ function showInstallAppModal(){
   // QR code — encodes the install URL so a user on desktop can scan
   // it from their phone (or vice versa) to land on the installable
   // page. qrserver.com is free, returns PNG, no auth.
-  var installUrl = 'https://www.aquarevwater.us/calculator-sandbox';
+  var installUrl = 'https://www.aquarevwater.us/calculator-sandbox?install=1';
   var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data='
     + encodeURIComponent(installUrl);
   var qrHtml = '<div class="ar-install-qr">'
@@ -18930,6 +19047,19 @@ function init(){
   } catch(_){}
   injectHelpButton();
   try { updateInstallAppButton(); } catch(_){}
+  // QR-scan landing: if the URL has ?install=1 AND the app isn't
+  // already installed standalone, pop the install modal automatically
+  // so the user knows what to do next on their device.
+  try {
+    var qp = (window.location && window.location.search) || '';
+    var hasInstall = /[?&]install=1\b/.test(qp);
+    var isStandalone = !!(window.AR_PWA && AR_PWA.isStandalone && AR_PWA.isStandalone());
+    if (hasInstall && !isStandalone){
+      setTimeout(function(){
+        try { if (typeof showInstallAppModal === 'function') showInstallAppModal(); } catch(_){}
+      }, 350);
+    }
+  } catch(_){}
   // Cloud-mode bootstrap — try to restore an existing Supabase session before
   // deciding whether to show the gate. If session is valid, skip the modal.
   // The Supabase SDK is loaded via <script src> in the HTML; if it's not yet
