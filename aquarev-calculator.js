@@ -1,4 +1,3 @@
-
 (function(){
 'use strict';
 
@@ -286,7 +285,12 @@ function showCalcPasswordModal(onUnlock){
     +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">'+subtitle+'</div>'
     // 4-char access code: maxlength=4 + tracking-widened input keeps the
     // tight pin-style feel even though we accept alphanumerics now (HDC1).
-    +'<input id="ar2-calc-pw-input" type="password" maxlength="4" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="••••" />'
+    // maxlength relaxed so engineer accounts (phone-as-code) can fit the
+    // full E.164 string. Regular 4-char codes still work — server-side
+    // bcrypt match accepts any length ≥4. Letter-spacing adjusts to the
+    // typed length dynamically (handler below) so 4-char codes still
+    // visually align in the pin-style input.
+    +'<input id="ar2-calc-pw-input" type="password" maxlength="20" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="Code" />'
     // Email field — only revealed for Client codes after the server prompts
     // for it (HTTP 422 needs_email). Hidden by default for Users/Admins so
     // their flow stays one-field.
@@ -305,7 +309,7 @@ function showCalcPasswordModal(onUnlock){
     +'</label>'
     +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
     +(cloudMode
-      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.5">Locked out or forgot your code? Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b></div>'
+      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.55">Locked out or forgot your code?<br>Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b> or email <a href="mailto:water@aquarevwater.com" style="color:#48cae4;text-decoration:none"><b>water@aquarevwater.com</b></a></div>'
       : '')
   +'</div>';
   document.body.appendChild(m);
@@ -363,8 +367,19 @@ function showCalcPasswordModal(onUnlock){
   // Two-step flow for Clients: first call sends just the code; if the
   // server responds with `email_required`, we reveal the email field and
   // the next click sends both code + email.
+  //
+  // For Engineer accounts the access code is the DIGITS-ONLY phone
+  // (no +1 prefix). Any input with 7+ digits is stripped to digits
+  // before being sent. 4-char codes pass through unchanged because they
+  // don't have enough digits to trigger the phone-mode branch.
   function submitCloud(){
-    var code=(input.value||'').trim().toUpperCase();
+    var raw = (input.value || '').trim();
+    if(!raw){ err.textContent='Please enter your access code'; return; }
+    var digitCount = (raw.match(/\d/g) || []).length;
+    var looksLikePhone = digitCount >= 7;
+    var code = looksLikePhone
+      ? raw.replace(/[^\d]/g, '')
+      : raw.toUpperCase();
     if(!code){ err.textContent='Please enter your access code'; return; }
     var email = (emailInp && emailRow && emailRow.style.display !== 'none')
       ? (emailInp.value || '').trim()
@@ -700,6 +715,10 @@ var Cloud = (function(){
       // user on this device starts from a blank gate.
       localStorage.removeItem('ar2:cloud-remembered-code');
       localStorage.removeItem('ar2:cloud-remembered-email');
+      // Drop the engineer portal's resume token so the next user on
+      // this device doesn't get bounced into the previous engineer's
+      // assignment.
+      localStorage.removeItem('ar2:engineer:active-assignment');
     } catch(_){}
     if(localStore){ window.storage = localStore; localStore = null; }
   }
@@ -814,7 +833,11 @@ var Cloud = (function(){
   // (hard-deleted records never appear here — Supabase returns only live rows).
   function statsAdminKpis(){
     var c = getClient();
-    if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+    // Renamed for clarity but kept as statsAdminKpis for back-compat.
+    // Available to any signed-in user; RLS naturally scopes the
+    // returned data to what the caller can see (admins see all,
+    // regular users see only their own records).
+    if(!c || !user) return Promise.reject(new Error('not_signed_in'));
     var since7 = new Date(Date.now() - 7*86400000).toISOString();
     // Assessments table stores the full session under `snapshot` jsonb
     // (snapshot.state.bodies, snapshot.state.manualPoolCount, etc.).
@@ -901,18 +924,20 @@ var Cloud = (function(){
     });
   }
 
-  // 90-day daily series, bucketed by EST day, grouped by user.
+  // 30-day daily series, bucketed by EST day, grouped by user.
   // Returns { users:[name...], days:[YYYY-MM-DD...], series:{name:[count per day]} }
-  function stats90DailyByUser(){
+  // Originally 90 days; reduced to 30 for a tighter activity view.
+  function stats30DailyByUser(){
     var c = getClient();
     if(!c || !user) return Promise.reject(new Error('not_signed_in'));
-    var since = new Date(Date.now() - 90*86400000).toISOString();
+    var DAYS = 30;
+    var since = new Date(Date.now() - DAYS*86400000).toISOString();
     var isAdmin = user.role === 'admin';
     var sel = 'id,user_id,created_at' + (isAdmin ? ',app_users!assessments_user_id_fkey(name)' : '');
     return c.from('assessments').select(sel).gte('created_at', since).eq('app_id', APP_ID).order('created_at').then(function(r){
       if(r.error) throw r.error;
       var rows = r.data || [];
-      // Build day axis (90 days ending today, EST)
+      // Build day axis (DAYS days ending today, EST)
       var EST_OFFSET_MIN = -300; // -5h. Approx — does not honour DST; close enough for daily buckets.
       function ymdEst(iso){
         var d = new Date(iso);
@@ -922,7 +947,7 @@ var Cloud = (function(){
       }
       var days = [];
       var todayEst = new Date(Date.now() + (EST_OFFSET_MIN - new Date().getTimezoneOffset())*60000);
-      for(var i=89; i>=0; i--){
+      for(var i=DAYS-1; i>=0; i--){
         var dd = new Date(todayEst.getTime() - i*86400000);
         days.push(dd.getUTCFullYear() + '-' + String(dd.getUTCMonth()+1).padStart(2,'0') + '-' + String(dd.getUTCDate()).padStart(2,'0'));
       }
@@ -1049,21 +1074,42 @@ var Cloud = (function(){
     listUsers: listUsers,
     statsLast30Days: statsLast30Days,
     statsAdminKpis:  statsAdminKpis,
-    stats90DailyByUser: stats90DailyByUser,
+    stats30DailyByUser: stats30DailyByUser,
     adminUserStats: adminUserStats,
     isClient: function(){ return !!user && user.role === 'client'; },
-    adminCreateUser: function(name, code, role, logoDataUrl){
+    // Engineer is a new role added Phase 1 of the Engineer Portal build.
+    // Engineers see a scoped portal (no calculator, no archive) and
+    // verify pool-line counts + diameters + media for assigned properties.
+    isEngineer: function(){ return !!user && user.role === 'engineer'; },
+    // Adds optional phone parameter for engineer accounts. Backend
+    // admin_create_user accepts (name, code, role, logo_data, phone, email).
+    // For non-engineer roles, phone is ignored server-side. Email is
+    // optional; when omitted the row gets an aqr-…@aquarev.local
+    // placeholder (matches legacy behavior).
+    adminCreateUser: function(name, code, role, logoDataUrl, phone, email){
       var c = getClient();
       if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
       return c.rpc('admin_create_user', {
         p_name: name,
         p_code: code,
         p_role: role,
-        p_logo_data: logoDataUrl || null
+        p_logo_data: logoDataUrl || null,
+        p_phone: phone || null,
+        p_email: email || null
       }).then(function(r){
         if(r.error) throw r.error;
         return r.data;
       });
+    },
+    // Admin-only email update. Pass null/'' to clear (reverts to a
+    // fresh aqr-…@aquarev.local placeholder).
+    adminSetUserEmail: function(userId, email){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_set_user_email', {
+        p_user_id: userId,
+        p_email:   email || null
+      }).then(function(r){ if(r.error) throw r.error; return r.data; });
     },
     adminSetUserLogo: function(userId, logoDataUrl){
       var c = getClient();
@@ -1461,7 +1507,7 @@ window.AR2_PF = (function(){
     slot.error = null;
     pfState.properties[portfolioId] = slot;
     return c.from('portfolio_properties')
-      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at')
       .eq('portfolio_id', portfolioId)
       .order('order_index', { ascending: true })
       .order('created_at',  { ascending: true })
@@ -1578,7 +1624,7 @@ window.AR2_PF = (function(){
         property_name: trimmed,
         order_index: nextOrderIndex(portfolioId)
       })
-      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,excluded_from_rollup,created_at,updated_at')
+      .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at')
       .single()
       .then(function(rs){
         if (rs.error) throw new Error(rs.error.message);
@@ -1692,6 +1738,499 @@ window.AR2_PF = (function(){
       });
       dragSrcId = null;
     });
+  }
+
+  /* ── Engineer assignment helpers (Phase 2.5) ───────────────────────
+     Admin-only flow to assign an engineer to a portfolio property. The
+     UI surface is a per-row chip on the portfolio overview that flips
+     between "+ Assign engineer" (when no assignment exists) and
+     "👷 Engineer Name" (when assigned). Click either opens the modal.
+     Engineer + assignment maps are cached on pfState so re-renders
+     don't N+1 the database. */
+
+  function _loadActiveEngineers(){
+    // Returns an array of {id, name, phone} for active engineer accounts.
+    // Cached on pfState to avoid refetching every modal open.
+    if (pfState.activeEngineers) return Promise.resolve(pfState.activeEngineers);
+    var c = client();
+    if (!c) return Promise.resolve([]);
+    return c.from('app_users')
+      .select('id,name,phone')
+      .eq('role', 'engineer')
+      .eq('active', true)
+      .order('name', { ascending: true })
+      .then(function(rs){
+        var rows = (rs.data || []);
+        pfState.activeEngineers = rows;
+        return rows;
+      }, function(){ return []; });
+  }
+
+  function _loadAssignmentsForPortfolio(portfolioId){
+    // Builds three indexes — each VALUE is an array of assignment rows
+    // since multiple engineers can be assigned to the same scope.
+    //   pfState.engineerAssignmentsByProperty[propertyId]   = [assignment, ...]
+    //   pfState.engineerAssignmentsByPortfolio[portfolioId] = [assignment, ...]
+    if (!pfState.engineerAssignmentsByProperty)  pfState.engineerAssignmentsByProperty  = {};
+    if (!pfState.engineerAssignmentsByPortfolio) pfState.engineerAssignmentsByPortfolio = {};
+    var c = client();
+    if (!c) return Promise.resolve();
+    var slot = pfState.properties[portfolioId];
+    if (!slot || !slot.rows) return Promise.resolve();
+    var propIds = slot.rows.map(function(r){ return r.id; });
+    var q;
+    if (!propIds.length){
+      q = c.from('engineer_assignments')
+        .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+        .eq('portfolio_id', portfolioId);
+    } else {
+      q = c.from('engineer_assignments')
+        .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+        .or('property_id.in.(' + propIds.join(',') + '),portfolio_id.eq.' + portfolioId);
+    }
+    return q.then(function(rs){
+      // Reset slots we own so a refetch doesn't double-stack.
+      propIds.forEach(function(pid){ pfState.engineerAssignmentsByProperty[pid] = []; });
+      pfState.engineerAssignmentsByPortfolio[portfolioId] = [];
+      (rs.data || []).forEach(function(a){
+        if (a.property_id){
+          if (!pfState.engineerAssignmentsByProperty[a.property_id]) pfState.engineerAssignmentsByProperty[a.property_id] = [];
+          pfState.engineerAssignmentsByProperty[a.property_id].push(a);
+        }
+        if (a.portfolio_id){
+          if (!pfState.engineerAssignmentsByPortfolio[a.portfolio_id]) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = [];
+          pfState.engineerAssignmentsByPortfolio[a.portfolio_id].push(a);
+        }
+      });
+    }, function(){});
+  }
+
+  /* Bulk loader for the unified Archive list (admin). Loads any
+     engineer_assignments rows scoped to a list of portfolio_ids in a
+     single round-trip — used to light up the hardhat icon on portfolio
+     rows. Does NOT touch the per-property cache; that one is rebuilt
+     by _loadAssignmentsForPortfolio when the admin opens the portfolio. */
+  function _loadAssignmentsForPortfolios(portfolioIds){
+    if (!pfState.engineerAssignmentsByPortfolio) pfState.engineerAssignmentsByPortfolio = {};
+    var c = client();
+    if (!c || !portfolioIds || !portfolioIds.length) return Promise.resolve();
+    return c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+      .in('portfolio_id', portfolioIds)
+      .then(function(rs){
+        // Reset only the slots we're asked about
+        portfolioIds.forEach(function(pid){ pfState.engineerAssignmentsByPortfolio[pid] = []; });
+        (rs.data || []).forEach(function(a){
+          if (a.portfolio_id){
+            if (!pfState.engineerAssignmentsByPortfolio[a.portfolio_id]) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = [];
+            pfState.engineerAssignmentsByPortfolio[a.portfolio_id].push(a);
+          }
+        });
+      }, function(){});
+  }
+
+  /* Loader for single-assessment scope. Admin-only entry point; called
+     from renderBank when the admin sees the unified archive list.
+     pfState.engineerAssignmentsByAssessment[assessmentId] = [...] */
+  function _loadAssignmentsForAssessments(assessmentIds){
+    if (!pfState.engineerAssignmentsByAssessment) pfState.engineerAssignmentsByAssessment = {};
+    var c = client();
+    if (!c || !assessmentIds || !assessmentIds.length) return Promise.resolve();
+    return c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at')
+      .in('assessment_id', assessmentIds)
+      .then(function(rs){
+        // Reset only the slots we're asked about
+        assessmentIds.forEach(function(aid){ pfState.engineerAssignmentsByAssessment[aid] = []; });
+        (rs.data || []).forEach(function(a){
+          if (a.assessment_id){
+            if (!pfState.engineerAssignmentsByAssessment[a.assessment_id]) pfState.engineerAssignmentsByAssessment[a.assessment_id] = [];
+            pfState.engineerAssignmentsByAssessment[a.assessment_id].push(a);
+          }
+        });
+      }, function(){});
+  }
+
+  function openAssignEngineerModal(scope){
+    // scope = { kind: 'property'|'portfolio'|'assessment', id, name }
+    var existing = document.getElementById('ar-eng-assign-modal');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    var bd = document.createElement('div');
+    bd.id = 'ar-eng-assign-modal';
+    bd.className = 'ar-pf-modal-backdrop';
+    bd.dataset.scopeKind = scope.kind;
+    bd.dataset.scopeId   = scope.id;
+    bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-eng-assign-title" style="max-width:560px">'
+      + '<div class="ar-pf-modal-title" id="ar-eng-assign-title">Engineer Assignments</div>'
+      + '<div style="font-size:13px;color:#cfe2eb;line-height:1.5;margin-bottom:14px">'
+      +   'For <b style="color:#fff">' + esc(scope.name || 'this record') + '</b>. Multiple engineers can be assigned to the same record — each gets their own portal access and audit trail.'
+      + '</div>'
+
+      + '<div class="ar-pf-modal-lbl">Currently assigned</div>'
+      + '<div id="ar-eng-assign-list" style="margin-bottom:14px;min-height:34px"><div style="color:var(--mu);font-size:11.5px;padding:8px">Loading…</div></div>'
+
+      + '<div class="ar-pf-modal-lbl" style="margin-top:6px">Add another engineer</div>'
+      + '<select class="ar-pf-modal-input" id="ar-eng-assign-select"><option value="">— Loading engineers… —</option></select>'
+      + '<label class="ar-pf-modal-lbl" style="margin-top:12px" for="ar-eng-assign-notes">Notes for this engineer <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--mu)">(optional)</span></label>'
+      + '<textarea class="ar-pf-modal-input" id="ar-eng-assign-notes" rows="2" placeholder="e.g. Access via service entrance, contact Maria at front desk for key…"></textarea>'
+
+      + '<div class="ar-pf-modal-err" id="ar-eng-assign-err"></div>'
+      + '<div class="ar-pf-modal-actions">'
+      +   '<button class="ar-pf-modal-btn" data-eng-assign-action="cancel" type="button">Close</button>'
+      +   '<button class="ar-pf-modal-btn primary" data-eng-assign-action="add" type="button">+ Add Engineer</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(bd);
+
+    _renderAssignmentList();
+    _loadActiveEngineers().then(function(engineers){
+      _refreshEngineerDropdown(engineers);
+    });
+    // For portfolio scope, the aggregate display needs both the
+    // portfolio's property roster AND any property-scoped assignments
+    // already in the system. Kick off both fetches in parallel and
+    // re-render once they land.
+    if (scope.kind === 'portfolio'){
+      var pfId = scope.id;
+      Promise.all([
+        loadProperties(pfId),
+        _loadAssignmentsForPortfolio(pfId)
+      ]).then(function(){
+        // Refresh both the assigned-list and the engineer-already-assigned
+        // dropdown filter so admins don't double-add.
+        _renderAssignmentList();
+        _refreshEngineerDropdown(pfState.activeEngineers || []);
+      });
+    }
+
+    // Event handlers
+    bd.addEventListener('click', function(e){
+      if (e.target === bd) { closeAssignEngineerModal(); return; }
+      var rmBtn = e.target.closest('[data-eng-assign-action="remove-row"]');
+      if (rmBtn){
+        e.stopPropagation();
+        removeEngineerAssignmentRow(
+          rmBtn.getAttribute('data-assignment-id'),
+          rmBtn.getAttribute('data-assignment-ids') || ''
+        );
+        return;
+      }
+      var btn = e.target.closest('[data-eng-assign-action]');
+      if (!btn) return;
+      e.stopPropagation();
+      var act = btn.getAttribute('data-eng-assign-action');
+      if (act === 'cancel') return closeAssignEngineerModal();
+      if (act === 'add')    return submitAddEngineer();
+    });
+    bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAssignEngineerModal(); });
+  }
+  function closeAssignEngineerModal(){
+    var el = document.getElementById('ar-eng-assign-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function _getScopeAssignments(){
+    var bd = document.getElementById('ar-eng-assign-modal');
+    if (!bd) return [];
+    var kind = bd.dataset.scopeKind;
+    var id   = bd.dataset.scopeId;
+    if (kind === 'property')   return (pfState.engineerAssignmentsByProperty   || {})[id] || [];
+    if (kind === 'assessment') return (pfState.engineerAssignmentsByAssessment || {})[id] || [];
+    if (kind === 'portfolio'){
+      // Ship #4 fan-out: portfolio assignments are now stored per
+      // property. Aggregate the per-property assignments down to one
+      // synthetic row per distinct engineer for display. Each synthetic
+      // row carries the full set of property-assignment ids in
+      // _propertyAssignmentIds so remove can clean every row at once.
+      var props = (pfState.properties[id] && pfState.properties[id].rows) || [];
+      var byEng = {};
+      props.forEach(function(p){
+        var list = (pfState.engineerAssignmentsByProperty || {})[p.id] || [];
+        list.forEach(function(a){
+          var slot = byEng[a.engineer_user_id];
+          if (!slot){
+            slot = {
+              id:                  a.id,                  // representative row id
+              engineer_user_id:    a.engineer_user_id,
+              assignment_notes:    a.assignment_notes,
+              status:              a.status,
+              _propertyAssignmentIds: [],
+              _propertyCount:      0
+            };
+            byEng[a.engineer_user_id] = slot;
+          }
+          slot._propertyAssignmentIds.push(a.id);
+          slot._propertyCount++;
+          // Status priority: locked > submitted > in_progress > pending > reviewed.
+          // We surface the LEAST progress so admins know if any property
+          // still needs engineer attention.
+          var statusOrder = { pending:0, in_progress:1, submitted:2, reviewed:3, locked:4 };
+          if (statusOrder[a.status] != null && statusOrder[a.status] < (statusOrder[slot.status] || 99)){
+            slot.status = a.status;
+          }
+        });
+      });
+      // Legacy: also include any old portfolio-scoped rows (from before
+      // fan-out shipped) so they still surface for cleanup. New rows
+      // never use portfolio_id.
+      var legacy = (pfState.engineerAssignmentsByPortfolio || {})[id] || [];
+      legacy.forEach(function(a){
+        var slot = byEng[a.engineer_user_id];
+        if (!slot){
+          byEng[a.engineer_user_id] = {
+            id: a.id,
+            engineer_user_id: a.engineer_user_id,
+            assignment_notes: a.assignment_notes,
+            status: a.status,
+            _propertyAssignmentIds: [a.id],
+            _propertyCount: 0,
+            _legacyPortfolioId: a.id
+          };
+        } else {
+          slot._propertyAssignmentIds.push(a.id);
+          slot._legacyPortfolioId = a.id;
+        }
+      });
+      return Object.keys(byEng).map(function(k){ return byEng[k]; });
+    }
+    return [];
+  }
+
+  function _statusLabel(s){
+    if (s === 'pending')     return 'Pending';
+    if (s === 'in_progress') return 'In progress';
+    if (s === 'submitted')   return 'Sent for review';
+    if (s === 'reviewed')    return 'Reviewed';
+    if (s === 'locked')      return 'Locked';
+    return s || '—';
+  }
+
+  function _renderAssignmentList(){
+    var listEl = document.getElementById('ar-eng-assign-list');
+    if (!listEl) return;
+    var assignments = _getScopeAssignments();
+    var engs = pfState.activeEngineers || [];
+    var engNameById = {};
+    engs.forEach(function(e){ engNameById[e.id] = e.name; });
+    if (!assignments.length){
+      listEl.innerHTML = '<div style="padding:10px 12px;background:rgba(0,0,0,.16);border:1px dashed rgba(0,180,216,.18);border-radius:8px;color:var(--mu);font-size:12px">No engineers assigned yet — add one below.</div>';
+      return;
+    }
+    listEl.innerHTML = assignments.map(function(a){
+      var name = engNameById[a.engineer_user_id] || 'Engineer';
+      // For portfolio scope, the row aggregates N property-assignments.
+      // Show the count alongside status so admins know how broadly the
+      // engineer is assigned. data-property-ids carries the full id
+      // list for the remove flow.
+      var fanCount = (a._propertyAssignmentIds && a._propertyAssignmentIds.length) || 0;
+      var fanSuffix = fanCount > 1 ? ' · ' + fanCount + ' properties' : '';
+      var idsAttr = a._propertyAssignmentIds && a._propertyAssignmentIds.length
+        ? ' data-assignment-ids="' + esc(a._propertyAssignmentIds.join(',')) + '"'
+        : '';
+      return '<div class="ar-eng-assign-row">'
+        +   '<div class="ar-eng-assign-row-main">'
+        +     '<div class="ar-eng-assign-row-name">👷 ' + esc(name) + '</div>'
+        +     '<div class="ar-eng-assign-row-meta">' + esc(_statusLabel(a.status)) + fanSuffix + (a.assignment_notes ? ' · ' + esc(a.assignment_notes) : '') + '</div>'
+        +   '</div>'
+        +   '<button class="ar-eng-assign-row-x" data-eng-assign-action="remove-row" data-assignment-id="' + esc(a.id) + '"' + idsAttr + ' type="button" aria-label="Remove">×</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  function _refreshEngineerDropdown(engineers){
+    var sel = document.getElementById('ar-eng-assign-select');
+    if (!sel) return;
+    if (!engineers || !engineers.length){
+      sel.innerHTML = '<option value="">— No active engineers — create one in User Management —</option>';
+      return;
+    }
+    // Hide engineers already on this record from the dropdown so admins
+    // don't accidentally double-assign.
+    var assignedIds = {};
+    _getScopeAssignments().forEach(function(a){ assignedIds[a.engineer_user_id] = true; });
+    var available = engineers.filter(function(e){ return !assignedIds[e.id]; });
+    if (!available.length){
+      sel.innerHTML = '<option value="">— All active engineers are already assigned —</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">— Select an engineer —</option>' + available.map(function(e){
+      var label = esc(e.name) + (e.phone ? ' · ' + esc(e.phone) : '');
+      return '<option value="' + esc(e.id) + '">' + label + '</option>';
+    }).join('');
+  }
+
+  /* Add a new engineer assignment to the current scope. Each Add creates
+     one or more engineer_assignments rows depending on scope:
+       • assessment / property → single row
+       • portfolio             → FAN-OUT — one row per property in the
+                                  portfolio (Ship #4). Treating each
+                                  property as its own record matches the
+                                  one-record model: assessment + calc +
+                                  engineer field report all bundled per
+                                  property. Engineer's All Assignments
+                                  list then surfaces each property as a
+                                  separate row, ready for individual
+                                  verification.
+     Modal stays open after each add so admins can chain. */
+  function submitAddEngineer(){
+    var bd = document.getElementById('ar-eng-assign-modal');
+    if (!bd) return;
+    var scopeKind = bd.dataset.scopeKind;
+    var scopeId   = bd.dataset.scopeId;
+    var sel   = document.getElementById('ar-eng-assign-select');
+    var notes = document.getElementById('ar-eng-assign-notes');
+    var err   = document.getElementById('ar-eng-assign-err');
+    var engineerUserId = sel && sel.value;
+    if (!engineerUserId){ if (err) err.textContent = 'Pick an engineer to add.'; if (sel) try { sel.focus(); } catch(_){} return; }
+    var c = client();
+    if (!c){ if (err) err.textContent = 'Cloud unavailable.'; return; }
+    var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+    if (!u){ if (err) err.textContent = 'Not signed in.'; return; }
+    if (err) err.textContent = '';
+    var btns = bd.querySelectorAll('[data-eng-assign-action]');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+
+    function _onSuccess(rows){
+      // Audit + notify (best-effort). For portfolio fan-out we still
+      // send ONE notification per assignment so the engineer sees each
+      // property in their list — they're individual records.
+      rows.forEach(function(newRow){
+        if (newRow && window.AR_AUDIT){
+          AR_AUDIT.log('engineer_assignments', newRow.id, {
+            engineer_user_id: engineerUserId,
+            assignment_notes: newRow.assignment_notes
+          }, 'admin add engineer');
+        }
+        if (window.AR_NOTIFY && engineerUserId){
+          AR_NOTIFY.push(engineerUserId, 'assignment_created', 'You have a new assignment — open AquaRev to start.', null, newRow && newRow.id);
+        }
+        _insertAssignmentIntoCache(newRow);
+      });
+      _renderAssignmentList();
+      _refreshEngineerDropdown(pfState.activeEngineers || []);
+      if (notes) notes.value = '';
+      for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
+      if (typeof renderArchive === 'function') renderArchive();
+    }
+    function _onError(e){
+      for (var j2 = 0; j2 < btns.length; j2++) btns[j2].disabled = false;
+      if (err) err.textContent = (e && e.message) || 'Assignment failed.';
+    }
+
+    // ──── ASSESSMENT / PROPERTY — single row ────
+    if (scopeKind === 'assessment' || scopeKind === 'property'){
+      var payload = {
+        engineer_user_id:    engineerUserId,
+        assignment_notes:    (notes && notes.value || '') || null,
+        assigned_by_user_id: u.id,
+        status:              'pending',
+        assigned_at:         new Date().toISOString(),
+        last_modified_at:    new Date().toISOString()
+      };
+      if (scopeKind === 'property')   payload.property_id   = scopeId;
+      if (scopeKind === 'assessment') payload.assessment_id = scopeId;
+      c.from('engineer_assignments').insert(payload).select('*').single()
+        .then(function(rs){
+          if (rs && rs.error) throw new Error(rs.error.message);
+          _onSuccess([rs.data]);
+        }, _onError);
+      return;
+    }
+
+    // ──── PORTFOLIO — fan-out into per-property rows ────
+    if (scopeKind === 'portfolio'){
+      loadProperties(scopeId).then(function(props){
+        if (!props || !props.length){
+          throw new Error('No properties in this portfolio yet — add one before assigning an engineer.');
+        }
+        // Skip properties this engineer is already assigned to (idempotent re-click).
+        var existingByEngineer = {};
+        (pfState.engineerAssignmentsByProperty || {});
+        props.forEach(function(p){
+          var existing = (pfState.engineerAssignmentsByProperty && pfState.engineerAssignmentsByProperty[p.id]) || [];
+          existing.forEach(function(a){
+            if (a.engineer_user_id === engineerUserId) existingByEngineer[p.id] = true;
+          });
+        });
+        var toInsert = props.filter(function(p){ return !existingByEngineer[p.id]; }).map(function(p){
+          return {
+            engineer_user_id:    engineerUserId,
+            property_id:         p.id,
+            assignment_notes:    (notes && notes.value || '') || null,
+            assigned_by_user_id: u.id,
+            status:              'pending',
+            assigned_at:         new Date().toISOString(),
+            last_modified_at:    new Date().toISOString()
+          };
+        });
+        if (!toInsert.length){
+          throw new Error('This engineer is already assigned to every property in the portfolio.');
+        }
+        return c.from('engineer_assignments').insert(toInsert).select('*').then(function(rs){
+          if (rs && rs.error) throw new Error(rs.error.message);
+          _onSuccess(rs.data || []);
+        });
+      }).catch(_onError);
+      return;
+    }
+  }
+
+  /* Remove an engineer's assignment(s) for the current scope. For
+     scope=portfolio (Ship #4 fan-out), the synthetic row carries an
+     array of property-assignment ids — all get deleted. For
+     property / assessment scope, just the single id. Other engineers
+     stay untouched. */
+  function removeEngineerAssignmentRow(assignmentId, idsCsv){
+    if (!assignmentId && !idsCsv) return;
+    var ids = idsCsv ? idsCsv.split(',').filter(Boolean) : [assignmentId];
+    var msg = ids.length > 1
+      ? 'Remove this engineer from all ' + ids.length + ' properties in this portfolio? Other engineers stay.'
+      : 'Remove this engineer? They\'ll lose access to the record. Other assigned engineers stay.';
+    if (!confirm(msg)) return;
+    var c = client();
+    if (!c) return;
+    c.from('engineer_assignments').delete().in('id', ids).then(function(rs){
+      if (rs && rs.error){
+        var err = document.getElementById('ar-eng-assign-err');
+        if (err) err.textContent = rs.error.message;
+        return;
+      }
+      ids.forEach(function(id){ _removeAssignmentFromCache(id); });
+      _renderAssignmentList();
+      _refreshEngineerDropdown(pfState.activeEngineers || []);
+      if (typeof renderArchive === 'function') renderArchive();
+    });
+  }
+
+  function _insertAssignmentIntoCache(a){
+    if (!a) return;
+    if (a.property_id){
+      if (!pfState.engineerAssignmentsByProperty) pfState.engineerAssignmentsByProperty = {};
+      if (!pfState.engineerAssignmentsByProperty[a.property_id]) pfState.engineerAssignmentsByProperty[a.property_id] = [];
+      pfState.engineerAssignmentsByProperty[a.property_id].push(a);
+    }
+    if (a.portfolio_id){
+      if (!pfState.engineerAssignmentsByPortfolio) pfState.engineerAssignmentsByPortfolio = {};
+      if (!pfState.engineerAssignmentsByPortfolio[a.portfolio_id]) pfState.engineerAssignmentsByPortfolio[a.portfolio_id] = [];
+      pfState.engineerAssignmentsByPortfolio[a.portfolio_id].push(a);
+    }
+    if (a.assessment_id){
+      if (!pfState.engineerAssignmentsByAssessment) pfState.engineerAssignmentsByAssessment = {};
+      if (!pfState.engineerAssignmentsByAssessment[a.assessment_id]) pfState.engineerAssignmentsByAssessment[a.assessment_id] = [];
+      pfState.engineerAssignmentsByAssessment[a.assessment_id].push(a);
+    }
+  }
+  function _removeAssignmentFromCache(assignmentId){
+    function strip(map){
+      if (!map) return;
+      Object.keys(map).forEach(function(k){
+        map[k] = (map[k] || []).filter(function(a){ return a.id !== assignmentId; });
+      });
+    }
+    strip(pfState.engineerAssignmentsByProperty);
+    strip(pfState.engineerAssignmentsByPortfolio);
+    strip(pfState.engineerAssignmentsByAssessment);
   }
 
   /* Delete a single property from a portfolio. Hard-delete (no soft-delete
@@ -2015,6 +2554,15 @@ window.AR2_PF = (function(){
         + '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add the first property</button>'
         + '</div>';
     } else {
+      // Admin-only: pull cached engineer assignments (loaded by the
+      // kickoff fetch in renderPortfolioOverview below). Map of
+      // engineer_user_id → name so the chip can show the engineer's
+      // display name without a per-row fetch.
+      var isAdminForChips = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+      var engMap = pfState.engineerAssignmentsByProperty || {};
+      var engNameById = {};
+      (pfState.activeEngineers || []).forEach(function(e){ engNameById[e.id] = e.name; });
+
       var rows = slot.rows.map(function(prop, idx){
         var k    = prop.computed_kpis || {};
         var nDev = Number(k.total_dev)  || 0;
@@ -2028,11 +2576,47 @@ window.AR2_PF = (function(){
         var country = prop.country ? esc(prop.country) : '';
         var subline = country ? country : (prop.formatted_address ? esc(prop.formatted_address) : '');
         var incomplete = nDev === 0;
+        // Engineer assignment chip — visible to admins only. Multi-engineer
+        // support: 0 engineers → outline "+ Assign engineer"; 1 → name +
+        // status; 2+ → "N engineers" with the "newest" status color.
+        // Status priority for the chip color when multiple engineers are
+        // present: locked > reviewed > submitted > in_progress > pending.
+        var engChip = '';
+        if (isAdminForChips){
+          var asgns = engMap[prop.id] || [];
+          if (asgns.length === 0){
+            engChip = '<div class="ar-pf-prop-eng-chip outline" data-pf-action="assign-engineer" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" role="button" tabindex="0" title="Assign an engineer to verify this property">+ Assign engineer</div>';
+          } else {
+            // Pick the "most advanced" status for chip color
+            var priority = { locked:5, reviewed:4, submitted:3, in_progress:2, pending:1 };
+            var topStatus = asgns.reduce(function(best, a){
+              return (priority[a.status]||0) > (priority[best]||0) ? a.status : best;
+            }, 'pending');
+            var statusCls = topStatus === 'in_progress' ? 'yellow'
+                          : topStatus === 'submitted'   ? 'blue'
+                          : topStatus === 'reviewed'    ? 'green'
+                          : topStatus === 'locked'      ? 'gray'
+                          : 'amber';
+            var label;
+            if (asgns.length === 1){
+              var engName1 = engNameById[asgns[0].engineer_user_id] || 'Engineer';
+              label = '👷 ' + esc(engName1);
+            } else {
+              label = '👷 ' + asgns.length + ' engineers';
+            }
+            var titleAttr = asgns.map(function(a){
+              var nm = engNameById[a.engineer_user_id] || 'Engineer';
+              return nm + ' · ' + a.status;
+            }).join(', ');
+            engChip = '<div class="ar-pf-prop-eng-chip ' + statusCls + '" data-pf-action="assign-engineer" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" role="button" tabindex="0" title="' + esc(titleAttr) + '">' + label + '</div>';
+          }
+        }
         return '<div class="ar-pf-prop-row" data-pf-property="' + prop.id + '" role="button" tabindex="0" draggable="true">'
           +   '<div class="ar-pf-prop-idx"><span class="ar-pf-prop-grip" aria-hidden="true">⋮⋮</span>' + (idx + 1) + '</div>'
           +   '<div class="ar-pf-prop-id">'
           +     '<div class="ar-pf-prop-name">' + esc(prop.property_name || 'Untitled property') + '</div>'
           +     '<div class="ar-pf-prop-sub">' + (subline || '<span style="opacity:.55">No location set</span>') + '</div>'
+          +     engChip
           +   '</div>'
           +   '<div class="ar-pf-prop-kpi"><div class="v">' + (nPools ? String(nPools) : '—') + '</div><div class="l">Pools</div></div>'
           +   '<div class="ar-pf-prop-kpi"><div class="v">' + (nDev ? String(nDev) : '—') + '</div><div class="l">Devices</div></div>'
@@ -2073,6 +2657,16 @@ window.AR2_PF = (function(){
     }
     if (!rollupSlot || (!rollupSlot.data && !rollupSlot.loading && !rollupSlot.error)){
       getRollup(pid).then(function(){
+        var live = document.getElementById('ar2-bank-overview-mount');
+        if (live) renderPortfolioOverview(live);
+      });
+    }
+    // Admin-only: load engineer assignment data so the per-row chip can
+    // render. Only fetched when the property rows are loaded (depends on
+    // their ids) AND when the cache hasn't been populated yet.
+    var isAdminKickoff = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    if (isAdminKickoff && slot && slot.rows && !pfState.engineerAssignmentsByProperty){
+      Promise.all([_loadActiveEngineers(), _loadAssignmentsForPortfolio(pid)]).then(function(){
         var live = document.getElementById('ar2-bank-overview-mount');
         if (live) renderPortfolioOverview(live);
       });
@@ -2798,6 +3392,13 @@ window.AR2_PF = (function(){
       // Show calculator (hide archive), then re-render with new S.
       if (typeof showView === 'function') showView('form');
       if (typeof render === 'function') render();
+      if (typeof scrollAppTop === 'function') scrollAppTop();
+      // Side-load engineer verification status for this property so the
+      // body cards can surface the green "Verified" pill where the
+      // engineer has fully documented a pool.
+      if (typeof window.loadEngineerVerifiedPoolsForRecord === 'function'){
+        window.loadEngineerVerifiedPoolsForRecord(propertyId, 'property');
+      }
       // Restore Map Pools state (polygons, boundary, centre, property name).
       // Done AFTER render() so the persistent #ap2 mount has finished its
       // own paint cycle and is ready to accept the snapshot.
@@ -3178,6 +3779,21 @@ window.AR2_PF = (function(){
     openAddPropertyModal: openAddPropertyModal,
     closeAddPropertyModal: closeAddPropertyModal,
     submitNewProperty: submitNewProperty,
+    // Phase 2.5 — engineer assignment surface (multi-engineer support)
+    loadAssignmentsForPortfolio:   _loadAssignmentsForPortfolio,
+    loadAssignmentsForPortfolios:  _loadAssignmentsForPortfolios,
+    loadAssignmentsForAssessments: _loadAssignmentsForAssessments,
+    openAssignEngineerModal:       openAssignEngineerModal,
+    closeAssignEngineerModal:      closeAssignEngineerModal,
+    engineerAssignmentsForProperty: function(pid){
+      return (pfState.engineerAssignmentsByProperty || {})[pid] || [];
+    },
+    engineerAssignmentsForPortfolio: function(pid){
+      return (pfState.engineerAssignmentsByPortfolio || {})[pid] || [];
+    },
+    engineerAssignmentsForAssessment: function(aid){
+      return (pfState.engineerAssignmentsByAssessment || {})[aid] || [];
+    },
     // Phase 1c — property mode
     inPropertyMode: inPropertyMode,
     loadedProperty: loadedProperty,
@@ -5764,10 +6380,28 @@ function bankSaveReportImpl(replaceIds){
   // Safety timeout — reset saving state if Promise never resolves
   setTimeout(function(){if(EX.saving){EX.saving=false;EX.saveStatus='error';renderDevices();}},10000);
   var R=calcROI();
-  // UUID required when saving to the cloud (assessments.id is uuid). Falls
-  // back to the legacy short id only if crypto.randomUUID is unavailable.
-  var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
-         : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
+  // When updating an existing archive entry (replaceIds=[oldId]), REUSE
+  // the existing id so the upsert lands on the SAME row instead of
+  // creating a new one and deleting the old. Without this, the
+  // engineer_assignments_assessment_fkey CASCADE wipes every
+  // engineer_assignment / verification / media / pump_room tied to the
+  // old id the moment we delete it. Engineers' field work was being
+  // silently destroyed every time a rep clicked "Update Existing" save.
+  var reusingId = !!(replaceIds && replaceIds.length === 1);
+  var id;
+  if (reusingId){
+    id = replaceIds[0];
+  } else {
+    // UUID required when saving to the cloud (assessments.id is uuid). Falls
+    // back to the legacy short id only if crypto.randomUUID is unavailable.
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+       : (Date.now().toString(36) + Math.random().toString(36).slice(2,6));
+  }
+  // Stash on session state so step 5 (Field Report) can resolve the
+  // current record id without re-reading the snapshot from storage.
+  // Persists across step navigation until the user starts a new
+  // assessment (resetApp clears S).
+  S._currentAssessmentId = id;
   var snapshot={
     id:id,
     propertyName:S.propertyName||'Unnamed Property',
@@ -5820,8 +6454,14 @@ function bankSaveReportImpl(replaceIds){
 
   window.storage.set(BANK_PFX+id, JSON.stringify(snapshot))
     .then(function(){
-      // If updating, delete the old snapshot blobs first
-      if(replaceIds&&replaceIds.length){
+      // If updating with a NEW id (legacy path: e.g. duplicate-then-save
+      // creating multiple entries we now consolidate into one), delete
+      // every old blob. When reusingId is true, the same id was just
+      // upserted in place — no delete needed and skipping the delete is
+      // critical because the assessments CASCADE would otherwise drop
+      // every engineer_assignment / verification / media / pump_room
+      // chained off the old record.
+      if(!reusingId && replaceIds && replaceIds.length){
         return Promise.all(replaceIds.map(function(rid){
           return window.storage.delete(BANK_PFX+rid).catch(function(){});
         }));
@@ -5829,9 +6469,15 @@ function bankSaveReportImpl(replaceIds){
     })
     .then(function(){ return bankGetIndex(); })
     .then(function(idx){
-      // Remove old index entries if updating
-      if(replaceIds&&replaceIds.length){
+      // Remove the matching index entry only when we're NOT reusing its
+      // id (a new id means there's a stale entry to retire). Reusing the
+      // id means we just refreshed the entry in place.
+      if(!reusingId && replaceIds && replaceIds.length){
         idx=idx.filter(function(e){return replaceIds.indexOf(e.id)===-1;});
+      } else if (reusingId){
+        // Same id — kick the stale copy out so the unshift below puts
+        // the freshly-saved entry at the top with current timestamps.
+        idx = idx.filter(function(e){ return e.id !== id; });
       }
       idx.unshift(entry);
       return window.storage.set(BANK_IDX, JSON.stringify(idx));
@@ -5839,6 +6485,10 @@ function bankSaveReportImpl(replaceIds){
     .then(function(){
       EX.saving=false; EX.saveStatus='saved';
       renderDevices(); renderResults();
+      // If the user saved while on Step 5 (Field Report), repaint the
+      // form so the report transitions from the 'save first' empty
+      // state to the loading skeleton + real data load.
+      if (S.step === 5 && typeof renderForm === 'function') renderForm();
       // Celebrate a successful archive save — origin at the Archive button.
       var originBtn=document.querySelector('[data-action="archive"],[data-save-btn],#ar2-bank-nav');
       try { confettiBurst({ originEl: originBtn, count: 55 }); } catch(e){}
@@ -5861,9 +6511,58 @@ function bankDeleteReport(id){
   }).then(function(){renderBank();}).catch(function(){renderBank();});
 }
 
-function bankRecall(snapshot){
+/* Loads engineer verifications + pump rooms for the record currently
+   being viewed by the rep, and populates S._engineerVerifiedPools so
+   the body-card renderer can display a green "Verified" pill on pools
+   the engineer has fully documented (return lines + at least one
+   media file). Best-effort — silent on RLS denial / network failure. */
+function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
+  S._engineerVerifiedPools = {};
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !recordId) return Promise.resolve();
+  var col = recordType === 'property' ? 'property_id'
+          : recordType === 'portfolio' ? 'portfolio_id'
+          : 'assessment_id';
+  return c.from('engineer_assignments').select('id').eq(col, recordId).then(function(r1){
+    var assignIds = (r1.data || []).map(function(a){ return a.id; });
+    if (!assignIds.length) return null;
+    return Promise.all([
+      c.from('engineer_verifications').select('assignment_id,pool_index,return_lines,confirmed_gallons,pump_room_id,pool_type').in('assignment_id', assignIds),
+      c.from('engineer_media').select('pool_index').in('assignment_id', assignIds).not('pool_index','is',null),
+      c.from('engineer_pump_rooms').select('id,label').in('assignment_id', assignIds)
+    ]).then(function(arr){
+      var verifs = arr[0].data || [];
+      var media  = arr[1].data || [];
+      var rooms  = arr[2].data || [];
+      var roomsById = {}; rooms.forEach(function(r){ roomsById[r.id] = r.label; });
+      var mediaCountByPool = {};
+      media.forEach(function(m){ mediaCountByPool[m.pool_index] = (mediaCountByPool[m.pool_index]||0) + 1; });
+      verifs.forEach(function(v){
+        var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
+        var hasMedia = (mediaCountByPool[v.pool_index] || 0) > 0;
+        if (hasLines && hasMedia){
+          S._engineerVerifiedPools[v.pool_index] = {
+            assignment_id:    v.assignment_id,
+            confirmed_gallons: v.confirmed_gallons,
+            pool_type:         v.pool_type,
+            pump_room_label:   v.pump_room_id ? (roomsById[v.pump_room_id] || '') : ''
+          };
+        }
+      });
+    });
+  }).then(function(){
+    if (typeof render === 'function') render();
+  }, function(){ /* silent — verified icon stays absent */ });
+}
+window.loadEngineerVerifiedPoolsForRecord = loadEngineerVerifiedPoolsForRecord;
+
+function bankRecall(snapshot, recordId){
   // Restore calculator state from snapshot
   Object.assign(S, snapshot.state);
+  // Stash the cloud record id so other features (Field Report,
+  // verified-pool loader) can fetch related data without re-resolving
+  // the id from the snapshot.
+  S._currentAssessmentId = recordId || (snapshot && snapshot.id) || null;
   syncGallons();
   EX.scenario=snapshot.ex.scenario;
   EX.bothScenarios=snapshot.ex.bothScenarios;
@@ -5911,6 +6610,13 @@ function bankRecall(snapshot){
   // previously "Pricing & Settings" (step 1) → now step 2.
   S.step=2;
   showView('form');
+  if (typeof scrollAppTop === 'function') scrollAppTop();
+  // Side-load engineer verification status (best-effort) so the body-card
+  // headers can show a green "Verified" pill on pools the engineer has
+  // fully documented. Fires after showView so the calculator is painted.
+  if (recordId && typeof loadEngineerVerifiedPoolsForRecord === 'function'){
+    loadEngineerVerifiedPoolsForRecord(recordId, 'assessment');
+  }
 }
 
 function bankDownloadPdf(snapshot, layout){
@@ -5943,7 +6649,7 @@ function bankAction(id, action){
       if(!r){alert('Report not found. It may have been deleted.');renderBank();return;}
       var s=typeof r==='string'?r:r.value;
       var snap=JSON.parse(s);
-      if(action==='recall') bankRecall(snap);
+      if(action==='recall') bankRecall(snap, id);
       else if(action==='duplicate') bankDuplicate(snap);
       else if(action==='portrait') bankDownloadPdf(snap,'portrait');
       else if(action==='landscape') bankDownloadPdf(snap,'landscape');
@@ -6006,6 +6712,57 @@ function showReassignModal(assessmentId){
    Add user / Reset code / Change role / Toggle active. All call into
    AR2_CLOUD admin RPCs which are admin-gated server-side. UI is local
    to the calculator — no separate page. */
+/* Admin: edit a user's display email. Opens from the per-row "Email"
+   action button. Leaving the field blank clears the address back to a
+   fresh aqr-…@aquarev.local placeholder so the column never goes NULL. */
+function showAdminEditEmailModal(uid, uname, currentEmail){
+  var existing=document.getElementById('ar2-uemail-modal');
+  if(existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var m=document.createElement('div');
+  m.id='ar2-uemail-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:26px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">EDIT EMAIL</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
+    +'<div style="margin-bottom:10px"><label>Email <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(blank to remove)</span></label>'
+      +'<input id="ar2-uemail-input" type="email" placeholder="name@company.com" autocomplete="off" />'
+    +'</div>'
+    +'<div id="ar2-uemail-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<button id="ar2-uemail-cancel" class="ar2-mb">Cancel</button>'
+      +'<button id="ar2-uemail-go" class="ar2-mb primary">Save</button>'
+    +'</div>'
+  +'</div>';
+  document.body.appendChild(m);
+  var inp=document.getElementById('ar2-uemail-input');
+  inp.value = currentEmail || '';
+  setTimeout(function(){ try { inp.focus(); inp.select && inp.select(); } catch(_){} }, 30);
+  function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-uemail-cancel').onclick=close;
+  m.addEventListener('click', function(e){ if(e.target===m) close(); });
+  document.getElementById('ar2-uemail-go').onclick=function(){
+    var err=document.getElementById('ar2-uemail-err');
+    var val=(inp.value||'').trim();
+    if (val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)){
+      err.textContent='Email looks invalid — leave blank to remove, or enter a valid address.';
+      return;
+    }
+    err.textContent='';
+    var btn=document.getElementById('ar2-uemail-go');
+    btn.disabled=true; btn.textContent='Saving…';
+    AR2_CLOUD.adminSetUserEmail(uid, val || null).then(function(){
+      close();
+      // Reload the User Activity table so the column reflects the change.
+      var dashEl=document.getElementById('ar-admin-dash');
+      if(dashEl) dashEl.dataset.loaded='';
+      populateAdminDashboard();
+    }).catch(function(e){
+      err.textContent = (e && e.message) ? e.message : 'Could not save email.';
+      btn.disabled=false; btn.textContent='Save';
+    });
+  };
+}
+
 function showAdminAddUserModal(){
   var existing=document.getElementById('ar2-admuser-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
@@ -6017,15 +6774,36 @@ function showAdminAddUserModal(){
     +'<div style="margin-bottom:12px"><label>Name</label>'
       +'<input id="ar2-au-name" type="text" placeholder="e.g. Sarah Johnson · or company name for Clients" autocomplete="off" />'
     +'</div>'
-    +'<div style="margin-bottom:12px"><label>Access Code (4 chars)</label>'
-      +'<input id="ar2-au-code" type="text" maxlength="4" placeholder="SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+    // Email is optional. If provided it shows in the User Activity
+    // table; if blank, the row displays a muted em-dash like before.
+    // Stored in app_users.email; auth.users.email keeps the internal
+    // aqr-...@aquarev.local placeholder either way.
+    +'<div style="margin-bottom:12px"><label>Email <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(optional)</span></label>'
+      +'<input id="ar2-au-email" type="email" placeholder="name@company.com" autocomplete="off" />'
+    +'</div>'
+    // Access code: for user/admin/client roles this stays a 4-char code as
+    // before; for engineer the field accepts the normalized E.164 phone
+    // (set by the phone-row handler below). maxlength removed in favor of
+    // a per-role validator at submit time.
+    +'<div style="margin-bottom:12px"><label id="ar2-au-code-label">Access Code (4 chars)</label>'
+      +'<input id="ar2-au-code" type="text" placeholder="SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+      +'<div id="ar2-au-code-hint" style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4;display:none">Engineer accounts use the phone number as the access code. The field is auto-filled when you enter the phone below.</div>'
     +'</div>'
     +'<div style="margin-bottom:14px"><label>Role</label>'
       +'<select id="ar2-au-role">'
         +'<option value="user">User — own records, standard features</option>'
         +'<option value="admin">Admin — sees all records + this dashboard</option>'
         +'<option value="client">Client — limited features (no quotes/exports)</option>'
+        +'<option value="engineer">Engineer — field verification portal only</option>'
       +'</select>'
+    +'</div>'
+    // Phone row — only meaningful for Engineer accounts. Hidden by JS for
+    // other roles. On Engineer, phone is normalized to E.164 and mirrored
+    // into the access-code field (phone-as-password per v1 product call).
+    +'<div id="ar2-au-phone-row" style="margin-bottom:14px;display:none">'
+      +'<label>Engineer phone <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(used for login + admin contact)</span></label>'
+      +'<input id="ar2-au-phone" type="tel" placeholder="(832) 979-6758" autocomplete="off" />'
+      +'<div id="ar2-au-phone-normalized" style="font-size:10.5px;color:#7db8cc;margin-top:4px;font-family:\'JetBrains Mono\',monospace"></div>'
     +'</div>'
     // Logo upload — only meaningful when Role=Client. Hidden by JS for other roles.
     +'<div id="ar2-au-logo-row" style="margin-bottom:14px;display:none">'
@@ -6044,14 +6822,65 @@ function showAdminAddUserModal(){
   document.getElementById('ar2-au-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var codeInp=document.getElementById('ar2-au-code');
-  codeInp.addEventListener('input',function(){ codeInp.value=(codeInp.value||'').toUpperCase(); });
+  codeInp.addEventListener('input',function(){
+    // Engineer codes are phone numbers — preserve their case-insensitive
+    // digit-only nature. Other roles get the existing uppercase 4-char code.
+    if (roleSel.value !== 'engineer'){
+      codeInp.value = (codeInp.value || '').toUpperCase();
+    }
+  });
 
-  // Show / hide the logo upload row based on role selection
+  // Show / hide the logo upload row + phone row based on role selection.
+  // Also flip the access-code label + hint between "4 chars" (default) and
+  // "phone number" (engineer) so admins don't second-guess.
   var roleSel = document.getElementById('ar2-au-role');
   var logoRow = document.getElementById('ar2-au-logo-row');
-  function syncLogoRow(){ logoRow.style.display = (roleSel.value === 'client') ? '' : 'none'; }
-  roleSel.addEventListener('change', syncLogoRow);
-  syncLogoRow();
+  var phoneRow = document.getElementById('ar2-au-phone-row');
+  var codeLabel = document.getElementById('ar2-au-code-label');
+  var codeHint = document.getElementById('ar2-au-code-hint');
+  var phoneInp = document.getElementById('ar2-au-phone');
+  var phoneNormalized = document.getElementById('ar2-au-phone-normalized');
+
+  function syncRoleFields(){
+    var r = roleSel.value;
+    logoRow.style.display  = (r === 'client')   ? '' : 'none';
+    phoneRow.style.display = (r === 'engineer') ? '' : 'none';
+    if (r === 'engineer'){
+      codeLabel.textContent = 'Access code (auto-filled from phone)';
+      codeHint.style.display = '';
+      codeInp.setAttribute('maxlength', '20');
+      codeInp.setAttribute('readonly', 'readonly');
+      codeInp.style.opacity = '.6';
+      codeInp.style.letterSpacing = '2px';
+    } else {
+      codeLabel.textContent = 'Access Code (4 chars)';
+      codeHint.style.display = 'none';
+      codeInp.setAttribute('maxlength', '4');
+      codeInp.removeAttribute('readonly');
+      codeInp.style.opacity = '';
+      codeInp.style.letterSpacing = '6px';
+      // If switching away from engineer, clear the phone-derived code so
+      // admin doesn't accidentally submit a long code as a 4-char one.
+      if (codeInp.value && codeInp.value.length > 4){ codeInp.value = ''; }
+    }
+  }
+  roleSel.addEventListener('change', syncRoleFields);
+  syncRoleFields();
+
+  // Phone handler.
+  // Access code = digits only (no country-code prefix). This is what the
+  // engineer will type at login — same digits, any format. The phone
+  // column on app_users stores the same digit-only string for consistency
+  // with the login matcher; admins still see a readable E.164 hint below
+  // the field for clarity.
+  phoneInp.addEventListener('input', function(){
+    var digits = (phoneInp.value || '').replace(/[^\d]/g, '');
+    var pretty = normalizePhoneE164(phoneInp.value);   // for the helper hint only
+    phoneNormalized.textContent = digits
+      ? 'Access code: ' + digits + (pretty ? '  (E.164: ' + pretty + ')' : '')
+      : '';
+    codeInp.value = digits;
+  });
 
   // Capture chosen logo file as base64 dataURL on input change.
   var logoInp = document.getElementById('ar2-au-logo');
@@ -6076,16 +6905,40 @@ function showAdminAddUserModal(){
 
   document.getElementById('ar2-au-go').onclick=function(){
     var name=(document.getElementById('ar2-au-name').value||'').trim();
-    var code=(document.getElementById('ar2-au-code').value||'').trim().toUpperCase();
+    var emailRaw=(document.getElementById('ar2-au-email').value||'').trim();
+    var email = emailRaw || null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+      document.getElementById('ar2-au-err').textContent = 'Email looks invalid — leave blank or enter a valid address.';
+      document.getElementById('ar2-au-email').focus();
+      return;
+    }
     var role=roleSel.value;
     var err=document.getElementById('ar2-au-err');
+    // For engineers, the code is the DIGITS-ONLY phone (no country-code
+    // prefix). The same digits are what they'll type at login; the gate
+    // normalizes input by stripping non-digits before matching.
+    var code, phone = null;
+    if (role === 'engineer'){
+      var digits = (phoneInp.value || '').replace(/[^\d]/g, '');
+      if (!digits || digits.length < 7){
+        err.textContent = 'Enter a valid phone number (any common format).';
+        phoneInp.focus(); return;
+      }
+      code  = digits;
+      phone = digits;   // store the same digit-string in app_users.phone
+    } else {
+      code = (document.getElementById('ar2-au-code').value || '').trim().toUpperCase();
+    }
     if(!name){ err.textContent='Name is required.'; return; }
-    if(code.length<4){ err.textContent='Access code must be 4 characters.'; return; }
+    if(role !== 'engineer' && code.length < 4){
+      err.textContent = 'Access code must be at least 4 characters.';
+      return;
+    }
     err.textContent='';
     var go=document.getElementById('ar2-au-go');
     go.disabled=true; go.textContent='Creating…';
     var logoArg = (role === 'client' && pendingLogoDataUrl) ? pendingLogoDataUrl : null;
-    AR2_CLOUD.adminCreateUser(name, code, role, logoArg).then(function(){
+    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone, email).then(function(){
       close();
       // Force the dashboard to refresh stats
       var dashEl=document.getElementById('ar-admin-dash');
@@ -6243,20 +7096,46 @@ function showAdminEditLogoModal(uid, uname){
   };
 }
 
-function showAdminResetCodeModal(uid, uname){
+function showAdminResetCodeModal(uid, uname, role, currentPhone){
+  // Role-aware passcode reset. User / Client / Admin sign in with a
+  // 4-char access code; Engineers sign in with their phone number.
+  // The modal adapts its input format + validation per role so an
+  // admin can reset any user's passcode from one place.
+  role = (role || 'user').toLowerCase();
   var existing=document.getElementById('ar2-admrc-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
+  var isEng = role === 'engineer';
+  var titleTxt = isEng ? 'RESET ENGINEER PASSCODE' : 'RESET ACCESS CODE';
+  var roleLbl  = isEng ? 'Engineer' : (role.charAt(0).toUpperCase()+role.slice(1));
+  var helpTxt = isEng
+    ? 'Engineers sign in with their phone number. Enter a new phone (digits only) or generate a placeholder.'
+    : 'User signs in with a 4-character access code. Enter a new code, or generate a random one.';
+  var inputAttrs = isEng
+    ? 'type="tel" inputmode="numeric" maxlength="15" placeholder="Phone number (digits only)" autocomplete="off"'
+    : 'type="text" maxlength="4" placeholder="New 4-char code" autocomplete="off" autocapitalize="characters"';
+  var inputStyle = isEng
+    ? 'letter-spacing:2px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px'
+    : 'text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px';
+  var hintLine = isEng && currentPhone
+    ? '<div style="font-size:11px;color:#7db8cc;margin-bottom:8px">Current phone on file: <b style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace">'+esc(currentPhone)+'</b></div>'
+    : '';
   var m=document.createElement('div');
   m.id='ar2-admrc-modal';
   m.style.cssText='position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
-    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">RESET ACCESS CODE</div>'
-    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
-    +'<input id="ar2-rc-code" type="text" maxlength="4" placeholder="New 4-char code" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:10px" />'
+  m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
+    +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">'+titleTxt+'</div>'
+    +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:6px">For: <b style="color:#fff">'+esc(uname)+'</b> <span style="font-size:10.5px;color:#7db8cc;letter-spacing:1.2px;text-transform:uppercase;margin-left:6px">'+esc(roleLbl)+'</span></div>'
+    +'<div style="font-size:11.5px;color:#7db8cc;margin-bottom:10px;line-height:1.55">'+helpTxt+'</div>'
+    +hintLine
+    +'<input id="ar2-rc-code" '+inputAttrs+' style="'+inputStyle+'" />'
+    +'<div style="display:flex;gap:6px;margin-bottom:10px">'
+      +'<button id="ar2-rc-show" type="button" class="ar2-mb" style="flex:1;font-size:11px">Show / hide</button>'
+      +(isEng ? '' : '<button id="ar2-rc-gen" type="button" class="ar2-mb" style="flex:1;font-size:11px">Generate random</button>')
+    +'</div>'
     +'<div id="ar2-rc-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<button id="ar2-rc-cancel" class="ar2-mb">Cancel</button>'
-      +'<button id="ar2-rc-go" class="ar2-mb primary">Save</button>'
+      +'<button id="ar2-rc-go" class="ar2-mb primary">Save new passcode</button>'
     +'</div>'
   +'</div>';
   document.body.appendChild(m);
@@ -6264,23 +7143,60 @@ function showAdminResetCodeModal(uid, uname){
   document.getElementById('ar2-rc-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var inp=document.getElementById('ar2-rc-code');
-  inp.addEventListener('input',function(){ inp.value=(inp.value||'').toUpperCase(); });
+  // Initially mask the new code (show as password) so it isn't visible
+  // over the admin's shoulder. Show/hide toggle lets them verify.
+  inp.type = isEng ? 'tel' : 'password';
+  if (!isEng){
+    inp.addEventListener('input',function(){ inp.value=(inp.value||'').toUpperCase().replace(/[^A-Z0-9]/g,''); });
+  } else {
+    inp.addEventListener('input',function(){ inp.value=(inp.value||'').replace(/[^0-9+\-\s().]/g,''); });
+  }
+  document.getElementById('ar2-rc-show').onclick = function(){
+    inp.type = (inp.type === 'password') ? (isEng ? 'tel' : 'text') : 'password';
+    inp.focus();
+  };
+  var genBtn = document.getElementById('ar2-rc-gen');
+  if (genBtn){
+    genBtn.onclick = function(){
+      // Generate a random 4-char alphanumeric code avoiding ambiguous chars (0/O/1/I)
+      var alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      var code = '';
+      for (var i = 0; i < 4; i++) code += alphabet.charAt(Math.floor(Math.random()*alphabet.length));
+      inp.value = code;
+      inp.type = isEng ? 'tel' : 'text';
+    };
+  }
   document.getElementById('ar2-rc-go').onclick=function(){
-    var code=(inp.value||'').trim().toUpperCase();
-    var err=document.getElementById('ar2-rc-err');
-    if(code.length<4){ err.textContent='Code must be 4 characters.'; return; }
+    var raw = (inp.value || '').trim();
+    var code = isEng
+      ? raw.replace(/[^0-9]/g, '')
+      : raw.toUpperCase();
+    var err = document.getElementById('ar2-rc-err');
+    if (isEng){
+      if (code.length < 7){ err.textContent='Phone must be at least 7 digits.'; return; }
+    } else {
+      if (code.length < 4){ err.textContent='Code must be at least 4 characters.'; return; }
+    }
     var go=document.getElementById('ar2-rc-go');
     go.disabled=true; go.textContent='Saving…';
     AR2_CLOUD.adminResetUserCode(uid, code).then(function(){
-      close(); populateAdminDashboard();
+      close();
+      // Brief success toast so the admin knows what to relay
+      try {
+        var ok = document.createElement('div');
+        ok.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;padding:14px 22px;border-radius:10px;font-family:"DM Sans",sans-serif;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 8px 30px rgba(0,0,0,.5);';
+        ok.innerHTML = '✓ Passcode reset for <b>'+esc(uname)+'</b>. New '+(isEng?'phone':'code')+': <b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:1.4px">'+esc(code)+'</b>';
+        document.body.appendChild(ok);
+        setTimeout(function(){ if (ok.parentNode) ok.parentNode.removeChild(ok); }, 6000);
+      } catch(_){}
+      populateAdminDashboard();
     }).catch(function(e){
       err.textContent = (e && e.message) ? e.message : 'Failed to reset code.';
-      go.disabled=false; go.textContent='Save';
+      go.disabled=false; go.textContent='Save new passcode';
     });
   };
   setTimeout(function(){ inp.focus(); }, 50);
 }
-
 function showAdminChangeRoleModal(uid, uname, currentRole){
   var existing=document.getElementById('ar2-admro-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
@@ -6292,7 +7208,7 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">CHANGE ROLE</div>'
     +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:14px">For: <b style="color:#fff">'+esc(uname)+'</b></div>'
     +'<select id="ar2-ro-sel" style="margin-bottom:14px">'
-      +opt('user','User')+opt('admin','Admin')+opt('client','Client')
+      +opt('user','User')+opt('admin','Admin')+opt('client','Client')+opt('engineer','Engineer')
     +'</select>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<button id="ar2-ro-cancel" class="ar2-mb">Cancel</button>'
@@ -6317,7 +7233,23 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
    daily-by-user. The chart is drawn as a simple multi-line SVG (one polyline
    per user) using EST-bucketed daily counts. */
 function populateAdminDashboard(){
-  if(!(window.AR2_CLOUD && AR2_CLOUD.isAdmin())) return;
+  // Admins see everything. Regular users see the Overview + Engineer
+  // Submissions tabs (Users tab hidden via CSS). RLS scopes the data.
+  // Defensive retry: if cloud isn't ready yet (page just loaded and
+  // restoreSession is still in flight), schedule one more attempt
+  // 350ms out — covers the race where renderBank fired before the
+  // session token had been hydrated.
+  if(!(window.AR2_CLOUD && AR2_CLOUD.isReady && AR2_CLOUD.isReady())){
+    if (!populateAdminDashboard._retryScheduled){
+      populateAdminDashboard._retryScheduled = true;
+      setTimeout(function(){
+        populateAdminDashboard._retryScheduled = false;
+        try { populateAdminDashboard(); } catch(_){}
+      }, 350);
+    }
+    return;
+  }
+  var isAdminCaller = !!(AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
   // 6-card KPI grid — assessments + portfolios + properties + pools + value
   // + last-7-day record count. Excludes hard-deleted records automatically.
   if (AR2_CLOUD.statsAdminKpis){
@@ -6336,9 +7268,13 @@ function populateAdminDashboard(){
       try { console.error('[admin KPI] statsAdminKpis failed:', err); } catch(_){}
     });
   }
-  // User-stats table — replaces the old chip list. Shows per-user lifetime
-  // login count + 30-day record count + 30-day login count.
-  AR2_CLOUD.adminUserStats().then(function(rows){
+  // User-stats table — admin-only. Regular users don't see other users'
+  // login or record activity.
+  if (!isAdminCaller){
+    var ust = document.getElementById('ar-admin-userstats');
+    if (ust) ust.innerHTML = '';
+  }
+  if (isAdminCaller && AR2_CLOUD.adminUserStats) AR2_CLOUD.adminUserStats().then(function(rows){
     var tableEl = document.getElementById('ar-admin-userstats');
     if(!tableEl) return;
     if(!rows.length){
@@ -6357,7 +7293,10 @@ function populateAdminDashboard(){
         + '<th class="actions">Actions</th>'
       + '</tr></thead><tbody>'
       + rows.map(function(u){
-          var roleClass = u.role === 'admin' ? 'role-admin' : (u.role === 'client' ? 'role-client' : 'role-user');
+          var roleClass = u.role === 'admin' ? 'role-admin'
+                        : u.role === 'client' ? 'role-client'
+                        : u.role === 'engineer' ? 'role-engineer'
+                        : 'role-user';
           var lastLogin = u.last_login_at
             ? new Date(u.last_login_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
             : '—';
@@ -6377,8 +7316,9 @@ function populateAdminDashboard(){
             + '<td class="num">'+u.login_count+'</td>'
             + '<td class="muted">'+lastLogin+'</td>'
             + '<td class="actions">'
-              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Reset access code">Reset</button>'
+              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+esc(u.role||'')+'" data-uphone="'+esc(u.phone||'')+'" title="Reset access code">Reset</button>'
               + '<button class="ar-admin-row-act" data-action="admin-change-role" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+u.role+'" title="Change role">Role</button>'
+              + '<button class="ar-admin-row-act" data-action="admin-edit-email" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uemail="'+esc(hasRealEmail?u.email:'')+'" title="Edit email">Email</button>'
               // Logo button — only Clients use logos. Show for any role so admin
               // can upload one when promoting a user, but most useful on Clients.
               + (u.role === 'client'
@@ -6396,7 +7336,7 @@ function populateAdminDashboard(){
         }).join('')
       + '</tbody></table>';
   }).catch(function(){});
-  AR2_CLOUD.stats90DailyByUser().then(function(d){
+  AR2_CLOUD.stats30DailyByUser().then(function(d){
     var mount=document.getElementById('ar-admin-chart-mount');
     var legendEl=document.getElementById('ar-admin-chart-legend');
     if(!mount) return;
@@ -6408,6 +7348,1554 @@ function populateAdminDashboard(){
       }).join('');
     }
   }).catch(function(){});
+
+  // Phase 3 — populate the Engineer Submissions tab. Loads concurrently
+  // with the other dashboard sections so the admin sees data the moment
+  // they switch tabs.
+  populateAdminEngineerSubmissions();
+}
+
+/* Switches the admin dashboard's active tab. Updates the active pill
+   styling on the tab strip, shows/hides matching panes, and remembers
+   the selection in localStorage so the next admin session lands on the
+   same tab. */
+function setAdminActiveTab(tabId){
+  if (tabId !== 'overview' && tabId !== 'users' && tabId !== 'engineer-submissions') tabId = 'overview';
+  // Force non-admins off the Users tab if a stale localStorage value
+  // points there — they can't see that pane anyway.
+  if (tabId === 'users' && window.AR2_CLOUD && AR2_CLOUD.isAdmin && !AR2_CLOUD.isAdmin()){
+    tabId = 'overview';
+  }
+  try { localStorage.setItem('ar2:admin-active-tab', tabId); } catch(_){}
+  var tabs = document.querySelectorAll('[data-action="admin-tab-switch"]');
+  for (var i = 0; i < tabs.length; i++){
+    tabs[i].classList.toggle('active', tabs[i].getAttribute('data-admin-tab') === tabId);
+  }
+  var panes = document.querySelectorAll('[data-admin-tab-pane]');
+  for (var p = 0; p < panes.length; p++){
+    panes[p].style.display = (panes[p].getAttribute('data-admin-tab-pane') === tabId) ? '' : 'none';
+  }
+  // Defensive re-populate when switching into Overview. The initial
+  // populate fires on renderBank, but if the dashboard had been
+  // collapsed at that moment OR if the tab order put us on Users /
+  // Engineer Submissions first, the KPI tiles can stay on em-dashes
+  // until something nudges them. A fresh populate here is cheap (one
+  // batched query) and guarantees the tiles are fresh on every visit.
+  if (tabId === 'overview' && typeof populateAdminDashboard === 'function'){
+    populateAdminDashboard();
+  }
+}
+
+/* Loads engineer assignments + joins engineer names + linked
+   property/portfolio/assessment names into the Engineer Submissions
+   tab's table. Cached on window.AR2_ADMIN_ENG so tab-switch re-renders
+   don't refetch (refetch is admin-triggered via the refresh button).
+   ─────────────────────────────────────────────────────────────────── */
+/* ── Engineer Verification PDF (Phase 6) ──────────────────────────────
+   Generates a printable engineer-verification report for a given
+   assignment. Reuses the existing .rpt-* chrome (header/footer/NSF
+   badge / fonts) so the output feels like part of the AquaRev report
+   family. Excludes pricing entirely — engineer side has no pricing
+   visibility by design.
+
+   Layout:
+     • Cover page — engineer name + phone, property/portfolio name,
+       submitted date, NSF/IAPMO badge.
+     • Per-pool pages — confirmed gallons, return-line table, notes,
+       discrepancy callout if flagged, media thumbnail grid.
+
+   Trigger: from the admin review modal's "Download verification PDF"
+   button (added below).
+   ────────────────────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════
+   Field Report — Step 5 (Ship #7a skeleton)
+   ────────────────────────────────────────────────────────────────────
+   Read-only review pane that surfaces the engineer's field-verification
+   data for the current record (assessment, portfolio-property, or
+   portfolio). Visible to admins + the record-owner User role; RLS
+   blocks everything else.
+
+   Skeleton scope (this ship): role-gated stepper entry, async data
+   load with caching, hero band with status / engineer / actions, and
+   the empty-state for records that have no engineer assignment yet.
+   KPIs + pump rooms + pool compare cards + media gallery land in
+   subsequent sub-ships (#7b — #7d).
+   ──────────────────────────────────────────────────────────────────── */
+window.AR2_FIELD_REPORT = (function(){
+  var s = {
+    recordId:    null,
+    recordType:  null,
+    bundle:      null,
+    loading:     false,
+    loadedAt:    null,
+    error:       null
+  };
+  function getCurrentRecordRef(){
+    // Active context priority: portfolio-property (if AR2_PF in
+    // property mode) > assessment id from S.id (recall) > null.
+    if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+      var loaded = AR2_PF.loadedProperty && AR2_PF.loadedProperty();
+      if (loaded && loaded.id) return { id: loaded.id, type: 'property' };
+    }
+    if (typeof S !== 'undefined' && S && S._currentAssessmentId){
+      return { id: S._currentAssessmentId, type: 'assessment' };
+    }
+    return null;
+  }
+  function load(force){
+    var ref = getCurrentRecordRef();
+    if (!ref){
+      s.recordId = null; s.recordType = null; s.bundle = null;
+      s.loading = false; s.error = null;
+      return Promise.resolve(null);
+    }
+    if (!force && s.bundle && s.recordId === ref.id) return Promise.resolve(s.bundle);
+    s.recordId   = ref.id;
+    s.recordType = ref.type;
+    s.loading    = true;
+    s.error      = null;
+    var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+    if (!c){ s.loading = false; s.error = 'Cloud unavailable.'; return Promise.resolve(null); }
+    var col = ref.type === 'property' ? 'property_id'
+            : ref.type === 'portfolio' ? 'portfolio_id'
+            : 'assessment_id';
+    return c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,engineer_property_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at')
+      .eq(col, ref.id)
+      .order('last_modified_at', { ascending: false })
+      .then(function(rs){
+        if (rs.error) throw rs.error;
+        var asgns = rs.data || [];
+        if (!asgns.length){
+          s.bundle = { assignments: [], verifications: [], media: [], pumpRooms: [], engineerById: {} };
+          s.loading = false; s.loadedAt = Date.now();
+          return s.bundle;
+        }
+        var asgnIds = asgns.map(function(a){ return a.id; });
+        var engIds  = Array.from(new Set(asgns.map(function(a){ return a.engineer_user_id; })));
+        return Promise.all([
+          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
+          c.from('engineer_media').select('id,assignment_id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').in('assignment_id', asgnIds).order('uploaded_at',{ascending:true}),
+          c.from('engineer_pump_rooms').select('id,assignment_id,label,notes,created_at').in('assignment_id', asgnIds).order('created_at',{ascending:true}),
+          engIds.length ? c.from('app_users').select('id,name,phone,role').in('id', engIds) : Promise.resolve({ data: [] })
+        ]).then(function(arr){
+          var engineerById = {}; (arr[3].data || []).forEach(function(e){ engineerById[e.id] = e; });
+          s.bundle = {
+            assignments:   asgns,
+            verifications: arr[0].data || [],
+            media:         arr[1].data || [],
+            pumpRooms:     arr[2].data || [],
+            engineerById:  engineerById
+          };
+          s.loading = false;
+          s.loadedAt = Date.now();
+          return s.bundle;
+        });
+      })
+      .catch(function(err){
+        s.loading = false;
+        s.error = (err && err.message) || 'Could not load field report.';
+        return null;
+      });
+  }
+  function clear(){ s.recordId = null; s.recordType = null; s.bundle = null; s.loading = false; s.error = null; }
+  return { state: function(){ return s; }, load: load, clear: clear };
+})();
+
+/* Step-5 form renderer. Returns the HTML string injected into
+   #ar2-form when S.step === 5. Triggers an async load on first paint;
+   subsequent renders read from the cached bundle. */
+function renderFieldReport(){
+  var st = AR2_FIELD_REPORT.state();
+  var ref = (function(){
+    // Mirror AR2_FIELD_REPORT.getCurrentRecordRef() exactly — these two
+    // resolvers MUST agree, otherwise we kick off a load() that finds a
+    // record but the renderer can't see one and shows the empty state.
+    // Property mode wins, then the assessment id stashed by bankRecall
+    // (S._currentAssessmentId, NOT S.id which is never set).
+    if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
+      var lp = AR2_PF.loadedProperty && AR2_PF.loadedProperty();
+      if (lp && lp.id) return { id: lp.id, type: 'property' };
+    }
+    if (typeof S !== 'undefined' && S && S._currentAssessmentId){
+      return { id: S._currentAssessmentId, type: 'assessment' };
+    }
+    return null;
+  })();
+  // Fire the load on first entry / when the record changes. The load
+  // is async; we paint a skeleton now and repaint once the bundle
+  // lands. _fieldReportDirty short-circuits the repaint loop.
+  if (ref && (!st.bundle || st.recordId !== ref.id) && !st.loading){
+    AR2_FIELD_REPORT.load().then(function(){
+      // Async repaint — only if the user is still on the Report step
+      // (they may have navigated away during the fetch).
+      if (S.step === 5 && typeof render === 'function') render();
+    });
+  }
+  // No record yet — could be a fresh-blank assessment OR a recalled
+  // session where the record id wasn't stashed (e.g. browser refresh
+  // mid-edit). Either way, the only way to attach engineer data is to
+  // make sure the record is archived. Show a one-click save button so
+  // the user doesn't have to backtrack to Step 4 first.
+  if (!ref){
+    var hasData = !!(typeof S !== 'undefined' && S && (S.propertyName || (S.bodies && S.bodies.length && (S.bodies[0].length || S.bodies[0].manualGallons))));
+    // Two distinct empty-state branches:
+    //   1) hasData → user typed pool data but never saved. Offer the
+    //      inline Save to Archive button. Once saved, this same step
+    //      auto-renders the engineer slot (which will itself be empty
+    //      until an engineer is assigned, but that's a separate state
+    //      handled below in the "no assignments" branch).
+    //   2) !hasData → fresh blank session, no record open. Direct the
+    //      user to the Archive to recall an existing record (which
+    //      brings ALL the data — assessment + calculator + engineer
+    //      field report — back as one cohesive unit).
+    var title, body, ctas;
+    if (hasData){
+      title = 'Save the assessment first';
+      body  = 'You have assessment data on this property but it hasn\'t been saved to the Archive yet. Save it — the engineer field report becomes part of this record once one is assigned.';
+      ctas  = '<button class="ar-fr-btn primary" data-action="save-report" style="min-width:200px">Save to Archive</button>'
+            + '<button class="ar-fr-btn ghost" data-action="fr-go-to-archive" style="min-width:200px">Open Archive</button>';
+    } else {
+      title = 'Open a record to see its report';
+      body  = 'Field reports live INSIDE the record they belong to — every assessment is a single record that bundles the calculator, the rep notes, and any engineer field verification. Open a saved record from the Archive and Step 6 renders that record\'s engineer report here.';
+      ctas  = '<button class="ar-fr-btn primary" data-action="fr-go-to-archive" style="min-width:200px">Open Archive</button>';
+    }
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-empty">'
+      +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
+      +   '<div class="ar-fr-empty-title">' + title + '</div>'
+      +   '<div class="ar-fr-empty-body">' + body + '</div>'
+      +   '<div style="margin-top:18px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap">' + ctas + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+  // Loading skeleton.
+  if (st.loading){
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-hero skel"><div class="skel-block w70"></div><div class="skel-block w40"></div></div>'
+      + '<div class="ar-fr-skel-grid"><div class="skel-block"></div><div class="skel-block"></div><div class="skel-block"></div></div>'
+      + '</div>';
+  }
+  // Error.
+  if (st.error){
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-empty error">'
+      +   '<div class="ar-fr-empty-title">Couldn\'t load the field report</div>'
+      +   '<div class="ar-fr-empty-body">' + esc(st.error) + '</div>'
+      + '</div></div>';
+  }
+  // No engineer assigned yet to this record.
+  var b = st.bundle || { assignments: [] };
+  if (!b.assignments.length){
+    var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    return '<div class="ar-fr-wrap">'
+      + '<div class="ar-fr-empty">'
+      +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
+      +   '<div class="ar-fr-empty-title">No engineer assigned yet</div>'
+      +   '<div class="ar-fr-empty-body">'
+      +     (isAdmin
+        ? 'Assign an engineer to this property from the Archive — tap the hardhat icon on the row. Their field-verification data will appear here once they begin work.'
+        : 'Your AquaRev rep hasn\'t assigned an engineer to this property yet. Check back later, or contact your rep.')
+      +   '</div>'
+      + '</div></div>';
+  }
+  // Pick the most recently modified assignment as the "primary" one
+  // for the hero. Multi-engineer records still render only one hero
+  // block in this skeleton ship; per-engineer breakdown will land in
+  // a later sub-ship.
+  var asgn = b.assignments[0];
+  var eng  = b.engineerById[asgn.engineer_user_id] || {};
+  var statusPill = (function(){
+    var map = {
+      pending:     { cls: 'amber',  label: 'Pending' },
+      in_progress: { cls: 'yellow', label: 'In progress' },
+      submitted:   { cls: 'blue',   label: 'Sent for review' },
+      reviewed:    { cls: 'green',  label: 'Reviewed' },
+      locked:      { cls: 'gray',   label: 'Locked' }
+    };
+    var m = map[asgn.status] || { cls: 'gray', label: asgn.status || 'Unknown' };
+    return '<span class="ar-eng-pill ' + m.cls + '">' + m.label + '</span>';
+  })();
+  var submittedTxt = asgn.submitted_at
+    ? new Date(asgn.submitted_at).toLocaleString('en-US', { dateStyle:'medium', timeStyle:'short' })
+    : '—';
+  var lastEditTxt = asgn.last_modified_at
+    ? new Date(asgn.last_modified_at).toLocaleString('en-US', { dateStyle:'medium', timeStyle:'short' })
+    : '—';
+  var isAdminUser = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+  var actionsHtml = ''
+    + '<div class="ar-fr-actions">'
+    +   '<button class="ar-fr-btn ghost" data-nav="back">← Back to Export</button>'
+    +   '<button class="ar-fr-btn primary" data-action="fr-download-pdf">' + svgFrIconDownload() + ' Download PDF</button>'
+    +   (isAdminUser
+        ? '<button class="ar-fr-btn" data-action="fr-open-engineer-portal">Open in Engineer Portal</button>'
+          + (asgn.status === 'locked'
+            ? '<button class="ar-fr-btn ghost" data-action="fr-unlock">Unlock</button>'
+            : '<button class="ar-fr-btn ghost" data-action="fr-lock">Lock</button>')
+          + (asgn.status !== 'reviewed' && asgn.status !== 'locked'
+            ? '<button class="ar-fr-btn success" data-action="fr-mark-reviewed">Mark Reviewed</button>'
+            : '')
+        : '')
+    + '</div>';
+  return '<div class="ar-fr-wrap" data-fr-assignment-id="' + esc(asgn.id) + '">'
+    + '<div class="ar-fr-hero">'
+    +   '<div class="ar-fr-hero-l">'
+    +     '<div class="ar-fr-eyebrow">Field Report</div>'
+    +     '<div class="ar-fr-title">' + esc(S.propertyName || 'Property') + '</div>'
+    +     '<div class="ar-fr-meta">'
+    +       statusPill
+    +       '<span>Engineer · <b>' + esc(eng.name || '—') + '</b>' + (eng.phone ? ' · ' + esc(eng.phone) : '') + '</span>'
+    +       '<span>Submitted · ' + esc(submittedTxt) + '</span>'
+    +       '<span>Last edit · ' + esc(lastEditTxt) + '</span>'
+    +     '</div>'
+    +     (asgn.assignment_notes ? '<div class="ar-fr-notes"><b>Rep notes:</b> ' + esc(asgn.assignment_notes) + '</div>' : '')
+    +   '</div>'
+    +   '<div class="ar-fr-hero-r">' + actionsHtml + '</div>'
+    + '</div>'
+    + _frRenderKpis(b)
+    + _frRenderPumpRoomsStrip(b)
+    + _frRenderPoolCompare(b)
+    + _frRenderEngineerPropertyNotes(b)
+    + '</div>';
+}
+
+/* General notes / comments from the engineer (engineer_property_notes
+   on the assignment). Renders only when at least one assignment has a
+   note. Read-only here — engineer edits via Step 3 of the portal. */
+function _frRenderEngineerPropertyNotes(bundle){
+  var asgns = (bundle && bundle.assignments) || [];
+  // Collect notes from all assignments — usually one, but multi-engineer
+  // records would surface each separately.
+  var withNotes = asgns.filter(function(a){
+    return a.engineer_property_notes && String(a.engineer_property_notes).trim();
+  });
+  if (!withNotes.length) return '';
+  var engineerById = (bundle && bundle.engineerById) || {};
+  return '<div class="ar-fr-prop-notes">'
+    + '<div class="ar-fr-prop-notes-hd">General notes / comments</div>'
+    + withNotes.map(function(a){
+        var eng = engineerById[a.engineer_user_id] || {};
+        return '<div class="ar-fr-prop-notes-block">'
+          + (eng.name ? '<div class="ar-fr-prop-notes-eng">' + esc(eng.name) + '</div>' : '')
+          + '<div class="ar-fr-prop-notes-body">' + esc(a.engineer_property_notes).replace(/\n/g, '<br>') + '</div>'
+        + '</div>';
+      }).join('')
+    + '</div>';
+}
+
+/* Per-pool compare band — one card per pool, Estimate vs Engineer.
+   Pool roster comes from S.bodies (rep source of truth) plus any
+   engineer-added pools (verifications with is_engineer_added=true
+   and pool_index >= S.bodies.length). Each row in the compare grid
+   shows the rep value, the engineer value, and a match/mismatch dot. */
+function _frRenderPoolCompare(bundle){
+  var verifs    = bundle.verifications || [];
+  var media     = bundle.media         || [];
+  var pumpRooms = bundle.pumpRooms     || [];
+  var roomLabel = {}; pumpRooms.forEach(function(r){ roomLabel[r.id] = r.label; });
+  // Build the pool roster — rep bodies + engineer-added pools.
+  var roster = [];
+  if (typeof S !== 'undefined' && S){
+    if (S.manualVolume){
+      var n = Math.max(1, Number(S.manualPoolCount) || 1);
+      var perPoolGal = Math.round((Number(S.manualTotalGallons) || 0) / n);
+      for (var i = 0; i < n; i++){
+        roster.push({ index: i, repName: 'Pool ' + (i+1), repGal: perPoolGal, repType: '', repLines: [], repImage: null });
+      }
+    } else if (Array.isArray(S.bodies)){
+      S.bodies.forEach(function(b, i){
+        var repLines = [];
+        ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'].forEach(function(k){
+          var c = Number(b[k]) || 0;
+          if (c > 0) repLines.push({ count: c, diameter: parseInt(k.split('_')[1], 10) });
+        });
+        var repTypeMapped = b.poolType === 'saltwater' ? 'saltwater' : (b.poolType === 'chlorine' ? 'fresh' : '');
+        roster.push({
+          index:    i,
+          repName:  b.label || ('Pool ' + (i+1)),
+          repGal:   (typeof bodyGallons === 'function') ? Math.round(bodyGallons(b)) : 0,
+          repType:  repTypeMapped,
+          repDepth: b.depth || '',
+          repLines: repLines,
+          repImage: b.image || null
+        });
+      });
+    }
+  }
+  // Engineer-added pools (no rep body backing them).
+  verifs.forEach(function(v){
+    if (!v.is_engineer_added) return;
+    if (roster.find(function(p){ return p.index === v.pool_index; })) return;
+    roster.push({ index: v.pool_index, repName: 'Pool ' + (v.pool_index+1), repGal: 0, repType: '', repLines: [], repImage: null, engineerAdded: true });
+  });
+  roster.sort(function(a,b){ return a.index - b.index; });
+
+  if (!roster.length){
+    return '<div class="ar-fr-section"><div class="ar-fr-section-hd"><div class="ar-fr-section-title">Pool Comparison</div></div><div class="ar-fr-empty-mini">No pools on this record yet.</div></div>';
+  }
+  var cards = roster.map(function(p){ return _frRenderPoolCard(p, verifs, media, roomLabel); }).join('');
+  return '<div class="ar-fr-section">'
+    + '<div class="ar-fr-section-hd">'
+    +   '<div class="ar-fr-section-title">Pool Comparison <span class="ar-fr-section-count">' + roster.length + '</span></div>'
+    +   '<div class="ar-fr-section-sub">Side-by-side Estimate vs Engineer for every pool on this record. Check marks indicate matches; amber dots flag drift. Click any photo or video to enlarge.</div>'
+    + '</div>'
+    + '<div class="ar-fr-pool-grid">' + cards + '</div>'
+    + '</div>';
+}
+
+function _frRenderPoolCard(p, verifs, media, roomLabel){
+  var v = verifs.find(function(x){ return x.pool_index === p.index; }) || {};
+  var hasV = !!v.id || !!v.confirmed_gallons || (v.return_lines && v.return_lines.length) || v.pool_type || v.pool_name_override;
+  var poolMedia = media.filter(function(m){ return m.pool_index === p.index; });
+  var photos = poolMedia.filter(function(m){ return m.media_type === 'photo'; });
+  var videos = poolMedia.filter(function(m){ return m.media_type === 'video'; });
+  var displayName = v.pool_name_override || p.repName;
+  var roomName    = v.pump_room_id ? (roomLabel[v.pump_room_id] || '—') : '—';
+
+  function typeLabel(t){
+    if (t === 'fresh' || t === 'chlorine') return 'Fresh / Chlorine';
+    if (t === 'saltwater') return 'Saltwater';
+    return '—';
+  }
+  function linesToText(lines){
+    if (!lines || !lines.length) return '—';
+    return lines.map(function(l){ return (l.count||1) + '×' + (l.diameter||'?') + '"'; }).join('  ');
+  }
+  function linesEqual(a, b){
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    // Order-independent compare: sort by diameter then count.
+    function norm(arr){
+      return arr.map(function(l){ return { c: Number(l.count)||1, d: Number(l.diameter)||0 }; })
+        .sort(function(x,y){ return x.d - y.d || x.c - y.c; });
+    }
+    var na = norm(a), nb = norm(b);
+    for (var i = 0; i < na.length; i++){ if (na[i].c !== nb[i].c || na[i].d !== nb[i].d) return false; }
+    return true;
+  }
+  // Diff dots:
+  //   ✓ green = match · ⚠ amber = drift / not specified · — gray = N/A
+  function dot(state){
+    if (state === 'ok')   return '<span class="ar-fr-dot ok" title="Match">' + _svgFrCheck() + '</span>';
+    if (state === 'warn') return '<span class="ar-fr-dot warn" title="Differs from estimate">' + _svgFrAlert() + '</span>';
+    return '<span class="ar-fr-dot na" title="Not verified">·</span>';
+  }
+  // Gallons match (within 5%)
+  var galState = 'na';
+  if (p.repGal > 0 && v.confirmed_gallons){
+    var pct = Math.abs(v.confirmed_gallons - p.repGal) / p.repGal;
+    galState = pct <= 0.05 ? 'ok' : 'warn';
+  } else if (v.confirmed_gallons && !p.repGal){
+    galState = 'warn';
+  }
+  // Type match
+  var typeState = 'na';
+  if (v.pool_type){
+    if (!p.repType) typeState = 'warn';
+    else if ((v.pool_type === 'fresh' && (p.repType === 'fresh' || p.repType === 'chlorine')) || v.pool_type === p.repType) typeState = 'ok';
+    else typeState = 'warn';
+  }
+  // Lines match
+  var engLines = v.return_lines || [];
+  var linesState = 'na';
+  if (engLines.length){
+    linesState = linesEqual(p.repLines, engLines) ? 'ok' : 'warn';
+  }
+  // Card-level status
+  var statusPill = '';
+  var verifyComplete = engLines.length > 0 && (photos.length + videos.length > 0);
+  if (verifyComplete) statusPill = '<span class="ar-fr-pool-pill ok">' + _svgFrCheck() + ' Verified</span>';
+  else if (hasV)      statusPill = '<span class="ar-fr-pool-pill warn">In progress</span>';
+  else                statusPill = '<span class="ar-fr-pool-pill na">Not started</span>';
+
+  var addedPill = p.engineerAdded ? '<span class="ar-fr-pool-pill added">Engineer-added</span>' : '';
+
+  // Reference image — clickable to enlarge in lightbox (direct-URL).
+  var refImgHtml = p.repImage
+    ? '<div class="ar-fr-pool-img" data-action="ar-eng-media-lightbox" data-storage-path="' + esc(p.repImage) + '" data-media-type="photo" data-direct-url="1" title="Open reference image">'
+      +   '<img src="' + esc(p.repImage) + '" alt="Reference" />'
+      +   '<span class="ar-fr-pool-img-tag">Reference</span>'
+      + '</div>'
+    : '<div class="ar-fr-pool-img-stub">' + _svgFrCamera() + '<span>No reference image</span></div>';
+
+  // Media gallery thumbs — lazy signed-URL load via existing data-thumb-load hook.
+  var thumbsHtml = poolMedia.length
+    ? '<div class="ar-fr-pool-thumbs">'
+      + poolMedia.map(function(m){
+          var typeIcon = m.media_type === 'video'
+            ? '<span class="ar-fr-thumb-type">' + _svgFrPlaySmall() + '</span>'
+            : '';
+          return '<button class="ar-fr-thumb" data-action="ar-eng-media-lightbox" data-storage-path="' + esc(m.storage_path) + '" data-media-type="' + esc(m.media_type) + '" title="Enlarge">'
+            + '<div class="ar-fr-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
+            + typeIcon
+            + '</button>';
+        }).join('')
+      + '</div>'
+    : '<div class="ar-fr-pool-thumbs-empty">No return-line media uploaded yet.</div>';
+
+  return '<div class="ar-fr-pool-card' + (verifyComplete ? ' verified' : '') + '" data-pool-index="' + p.index + '">'
+    + '<div class="ar-fr-pool-hd">'
+    +   '<div class="ar-fr-pool-name">' + esc(displayName) + '</div>'
+    +   '<div class="ar-fr-pool-pills">' + statusPill + addedPill + '</div>'
+    + '</div>'
+    + '<div class="ar-fr-pool-body">'
+    +   refImgHtml
+    +   '<div class="ar-fr-pool-compare">'
+    +     '<div class="ar-fr-cmp-row head"><div></div><div>Estimate</div><div>Engineer</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Gallons</div><div>' + (p.repGal ? fn(p.repGal) : '—') + '</div><div>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) : '—') + dot(galState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Water type</div><div>' + esc(typeLabel(p.repType)) + '</div><div>' + esc(typeLabel(v.pool_type)) + dot(typeState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(linesToText(engLines)) + dot(linesState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Pump room</div><div>—</div><div>' + esc(roomName) + '</div></div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="ar-fr-pool-media">'
+    +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
+    +   thumbsHtml
+    + '</div>'
+    + (v.has_discrepancy && v.discrepancy_reason
+        ? '<div class="ar-fr-pool-callout warn">' + _svgFrAlert() + ' <b>Discrepancy noted:</b> ' + esc(v.discrepancy_reason) + '</div>'
+        : '')
+    + (v.notes
+        ? '<div class="ar-fr-pool-callout">' + _svgFrNote() + ' <b>Engineer notes:</b> ' + esc(v.notes) + '</div>'
+        : '')
+    + '</div>';
+}
+function _svgFrCheck(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12.5 10 18 20 6"/></svg>'; }
+function _svgFrAlert(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 22 19.5H2L12 3.2Z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17.4" r="0.9" fill="currentColor"/></svg>'; }
+function _svgFrNote(){ return '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="16" x2="13" y2="16"/></svg>'; }
+function _svgFrPlaySmall(){ return '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>'; }
+
+/* KPI grid — 6 tiles summarizing the engineer's submission at a
+   glance. Counts derive entirely from the loaded bundle, so this
+   re-renders cleanly when the bundle changes (after Lock / Mark
+   Reviewed / refetch).
+   Tiles:
+     1. Pools documented — verification rows authored
+     2. Pump rooms      — engineer_pump_rooms count
+     3. Photos          — engineer_media WHERE media_type='photo'
+     4. Videos          — engineer_media WHERE media_type='video'
+     5. Estimate gallons — sum of rep gallonsRep across pools (from S.bodies / manualTotalGallons)
+     6. Confirmed gallons — sum of v.confirmed_gallons across verifications */
+function _frRenderKpis(bundle){
+  var verifs   = bundle.verifications || [];
+  var media    = bundle.media         || [];
+  var pumpRooms= bundle.pumpRooms     || [];
+  var photos = media.filter(function(m){ return m.media_type === 'photo'; }).length;
+  var videos = media.filter(function(m){ return m.media_type === 'video'; }).length;
+  // Estimate total — pull from the current S state since it's already
+  // hydrated on this view (the calculator just paints into the same
+  // shared state object).
+  var estGal = 0;
+  try {
+    if (S && S.manualVolume){ estGal = Number(S.manualTotalGallons) || 0; }
+    else if (S && Array.isArray(S.bodies)){
+      S.bodies.forEach(function(b){
+        if (typeof bodyGallons === 'function') estGal += bodyGallons(b) || 0;
+      });
+    }
+  } catch(_){}
+  var confirmedGal = 0;
+  verifs.forEach(function(v){ if (v.confirmed_gallons) confirmedGal += Number(v.confirmed_gallons); });
+  // Confirmed-vs-Estimate delta — when both are non-zero, tag the
+  // engineer tile with a color hint so the admin can see drift at a
+  // glance. Green: within 5% · Amber: 5–15% off · Red: >15% off.
+  var confirmedHint = 'gray';
+  if (estGal > 0 && confirmedGal > 0){
+    var pct = Math.abs(confirmedGal - estGal) / estGal;
+    confirmedHint = pct <= 0.05 ? 'green' : (pct <= 0.15 ? 'amber' : 'red');
+  }
+  function tile(lbl, val, sub, tone){
+    return '<div class="ar-fr-kpi' + (tone ? ' tone-' + tone : '') + '">'
+      + '<div class="ar-fr-kpi-lbl">' + lbl + '</div>'
+      + '<div class="ar-fr-kpi-val">' + val + '</div>'
+      + (sub ? '<div class="ar-fr-kpi-sub">' + sub + '</div>' : '')
+      + '</div>';
+  }
+  return '<div class="ar-fr-kpis">'
+    + tile('Pools documented', String(verifs.length), null, null)
+    + tile('Pump rooms',       String(pumpRooms.length), null, null)
+    + tile('Photos',           String(photos), null, null)
+    + tile('Videos',           String(videos), null, null)
+    + tile('Estimate gal',     estGal ? fn(Math.round(estGal)) : '—', null, null)
+    + tile('Engineer gal',     confirmedGal ? fn(Math.round(confirmedGal)) : '—',
+        (estGal > 0 && confirmedGal > 0
+          ? ((confirmedGal === estGal) ? 'Exact match'
+             : (Math.round(Math.abs(confirmedGal - estGal) / estGal * 100)) + '% ' + (confirmedGal > estGal ? 'over' : 'under') + ' estimate')
+          : null),
+        confirmedHint)
+    + '</div>';
+}
+
+/* Pump-rooms strip — one card per engineer-captured pump room,
+   horizontally scrollable. Each card surfaces:
+     • Walkthrough video tile (plays in the existing media lightbox)
+     • Supporting photo count
+     • Pools-served count (from verifications WHERE pump_room_id = r.id)
+     • Room label
+   When no pump rooms were captured, renders a compact empty hint
+   instead of an empty strip. */
+function _frRenderPumpRoomsStrip(bundle){
+  var rooms = bundle.pumpRooms || [];
+  var media = bundle.media     || [];
+  var verifs= bundle.verifications || [];
+  if (!rooms.length){
+    return '<div class="ar-fr-section">'
+      + '<div class="ar-fr-section-hd"><div class="ar-fr-section-title">Pump Rooms</div></div>'
+      + '<div class="ar-fr-empty-mini">No pump rooms captured on this assignment.</div>'
+      + '</div>';
+  }
+  // Pools-served counts (pool_index → not needed; we just count
+  // verifications referencing each pump_room_id).
+  var poolsPerRoom = {};
+  verifs.forEach(function(v){ if (v.pump_room_id) poolsPerRoom[v.pump_room_id] = (poolsPerRoom[v.pump_room_id] || 0) + 1; });
+  var cards = rooms.map(function(r){
+    var roomMedia = media.filter(function(m){ return m.pump_room_id === r.id; });
+    var walkthrough = roomMedia.find(function(m){ return m.media_type === 'video'; });
+    var photoCount  = roomMedia.filter(function(m){ return m.media_type === 'photo'; }).length;
+    var poolsServed = poolsPerRoom[r.id] || 0;
+    var videoTile = walkthrough
+      ? '<button class="ar-fr-pr-video" data-action="ar-eng-media-lightbox" data-storage-path="' + esc(walkthrough.storage_path) + '" data-media-type="video" title="Play walkthrough video">'
+        + '<div class="ar-fr-pr-video-icon">' + _svgFrPlay() + '</div>'
+        + '<div class="ar-fr-pr-video-lbl">Walkthrough video</div>'
+        + '</button>'
+      : '<div class="ar-fr-pr-video empty"><div class="ar-fr-pr-video-icon">' + _svgFrCamera() + '</div><div class="ar-fr-pr-video-lbl">No walkthrough uploaded</div></div>';
+    return '<div class="ar-fr-pr-card">'
+      + '<div class="ar-fr-pr-head">'
+      +   '<div class="ar-fr-pr-label">' + esc(r.label) + '</div>'
+      +   '<div class="ar-fr-pr-stat">' + poolsServed + ' pool' + (poolsServed === 1 ? '' : 's') + ' served</div>'
+      + '</div>'
+      + videoTile
+      + '<div class="ar-fr-pr-foot">'
+      +   '<span>' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + '</span>'
+      +   (r.notes ? '<span class="ar-fr-pr-has-notes" title="' + esc(r.notes) + '">Notes</span>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="ar-fr-section">'
+    + '<div class="ar-fr-section-hd"><div class="ar-fr-section-title">Pump Rooms <span class="ar-fr-section-count">' + rooms.length + '</span></div>'
+    +   '<div class="ar-fr-section-sub">Each room\'s walkthrough video opens at full size in the media viewer. Linked pool count reflects engineer\'s pool ↔ pump-room mapping.</div>'
+    + '</div>'
+    + '<div class="ar-fr-pr-strip">' + cards + '</div>'
+    + '</div>';
+}
+
+function _svgFrPlay(){
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+}
+function _svgFrCamera(){
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+}
+
+/* SVG glyphs used inside the Field Report. Kept small and inline
+   so they inherit currentColor on hover/disabled states. */
+function svgFrIconDoc(){
+  return '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6Z"/><path d="M14 3v5h5"/><line x1="9" y1="13" x2="16" y2="13"/><line x1="9" y1="16.5" x2="16" y2="16.5"/></svg>';
+}
+function svgFrIconDownload(){
+  return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v12.5"/><polyline points="6.5 11 12 16.5 17.5 11"/><path d="M4 20h16"/></svg>';
+}
+
+/* In-page preview wrapper for the engineer verification report.
+   Mirrors the calculator's report preview pattern (hide all body
+   children except #ar2-report, slap a fixed toolbar on top, restore
+   everything on Back). Result: the preview is a 1:1 visual replica
+   of the PDF that gets printed — same .rpt-head, .rpt-body, .rpt-foot
+   chrome the production report uses. */
+function openEngineerReportPreview(assignmentId){
+  var rep = document.getElementById('ar2-report');
+  if (!rep || !rep.innerHTML.trim()){
+    alert('Could not open preview — report content missing.');
+    return;
+  }
+  // Force portrait letter @page rule so the on-screen layout matches
+  // the printed sheet width-for-width.
+  var orientEl = document.getElementById('ar2-orient');
+  if (!orientEl){ orientEl = document.createElement('style'); orientEl.id = 'ar2-orient'; document.head.appendChild(orientEl); }
+  orientEl.textContent = '@media print{@page{size:portrait;margin:0mm;}}';
+
+  // Hide every body child except #ar2-report so the preview takes the
+  // full viewport. Stash original inline styles to restore on close.
+  var hiddenEls = [];
+  var bodyKids = document.body.children;
+  for (var bi = 0; bi < bodyKids.length; bi++){
+    if (bodyKids[bi].id !== 'ar2-report' && bodyKids[bi].id !== 'ar2-orient'){
+      hiddenEls.push({ el: bodyKids[bi], prev: bodyKids[bi].style.cssText });
+      bodyKids[bi].style.cssText += 'display:none!important;';
+    }
+  }
+  var rElParent = rep.parentNode;
+  var rElNext   = rep.nextSibling;
+  if (rep.parentNode !== document.body) document.body.appendChild(rep);
+  rep.style.cssText = 'display:block;';
+  // Flag the report root so the preview-only CSS rules widen the
+  // .rpt page to fill the viewport (instead of the default 860px
+  // narrow column). Removed on close.
+  rep.classList.add('is-preview');
+  var origDocTitle = document.title;
+
+  // Floating toolbar: Back + Download PDF. Matches the calculator's
+  // portfolio-report preview toolbar styling.
+  var tb = document.createElement('div');
+  tb.id = 'ar2-eng-preview-toolbar';
+  tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  tb.innerHTML = '<button id="ar2-eng-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Close Preview</button>'
+    + '<div style="color:#fff;font-size:13px;font-weight:600;letter-spacing:.5px">Engineer Verification — Preview</div>'
+    + '<button id="ar2-eng-prev-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">Download PDF</button>';
+  document.body.appendChild(tb);
+  rep.style.paddingTop = '56px';
+
+  var restored = false;
+  function restoreApp(){
+    if (restored) return; restored = true;
+    document.title = origDocTitle;
+    if (tb.parentNode) tb.parentNode.removeChild(tb);
+    rep.style.cssText = 'display:none;';
+    rep.classList.remove('is-preview');
+    rep.style.paddingTop = '';
+    if (rElNext) rElParent.insertBefore(rep, rElNext);
+    else         rElParent.appendChild(rep);
+    for (var ri = 0; ri < hiddenEls.length; ri++){
+      hiddenEls[ri].el.style.cssText = hiddenEls[ri].prev;
+    }
+    window.scrollTo(0, 0);
+    if (orientEl && orientEl.parentNode) orientEl.parentNode.removeChild(orientEl);
+    document.removeEventListener('keydown', onKey);
+  }
+  document.getElementById('ar2-eng-prev-back').onclick = restoreApp;
+  document.getElementById('ar2-eng-prev-dl').onclick = function(){
+    // Keep the report in place; toolbar must go because it's no-print
+    // anyway, but removing the wrapper avoids print-flow surprises.
+    if (tb.parentNode) tb.parentNode.removeChild(tb);
+    rep.style.paddingTop = '';
+    var fnDate = new Date().toISOString().slice(0,10);
+    var pName = '';
+    try { pName = (document.querySelector('#ar2-report .rpt-eng-prop-name') || {}).textContent || 'Verification'; } catch(_){ pName = 'Verification'; }
+    document.title = 'AquaRev_EngVerification_' + (pName || 'Verification').replace(/[^A-Za-z0-9]+/g,'_') + '_' + fnDate;
+    window.addEventListener('afterprint', function onAfter(){
+      window.removeEventListener('afterprint', onAfter);
+      setTimeout(restoreApp, 100);
+    });
+    window.print();
+    setTimeout(function(){ if (!restored) restoreApp(); }, 3000);
+  };
+  var onKey = function(e){ if (e.key === 'Escape') restoreApp(); };
+  document.addEventListener('keydown', onKey);
+}
+function closeEngineerReportPreview(){
+  var tb = document.getElementById('ar2-eng-preview-toolbar');
+  if (tb && tb.parentNode) tb.parentNode.removeChild(tb);
+}
+
+function generateEngineerReport(assignmentId, opts){
+  // opts.previewOnly = true → render the report into an in-page overlay
+  //   instead of firing window.print(). Engineers tap "Preview" to read
+  //   their report before deciding to save a PDF.
+  var previewOnly = !!(opts && opts.previewOnly);
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !assignmentId){ alert('Cloud unavailable.'); return; }
+  var prevTitle = document.title;
+  if (!previewOnly) document.title = 'Generating verification report…';
+
+  Promise.all([
+    c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_media').select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true}),
+    c.from('engineer_pump_rooms').select('id,label,notes,created_at').eq('assignment_id', assignmentId).order('created_at',{ascending:true})
+  ]).then(function(arr){
+    var asgn = arr[0].data;
+    if (!asgn) throw new Error('Assignment not found.');
+    return Promise.all([
+      _engineerReport_loadRecord(asgn),
+      c.from('app_users').select('id,name,phone').eq('id', asgn.engineer_user_id).single().then(function(rs){ return rs.data; }, function(){ return null; })
+    ]).then(function(linked){
+      return {
+        asgn: asgn,
+        verifs:    arr[1].data || [],
+        media:     arr[2].data || [],
+        pumpRooms: arr[3].data || [],
+        record: linked[0],
+        engineer: linked[1]
+      };
+    });
+  }).then(function(bundle){
+    // Pre-resolve signed URLs for every photo so they render in the PDF.
+    // Videos are listed as filename + length only — most browsers do not
+    // capture video into print-to-PDF anyway.
+    var photoMedia = bundle.media.filter(function(m){ return m.media_type === 'photo'; });
+    if (!photoMedia.length) return bundle;
+    return Promise.all(photoMedia.map(function(m){
+      return c.storage.from('engineer-media').createSignedUrl(m.storage_path, 3600).then(function(rs){
+        m._signedUrl = (rs && rs.data && (rs.data.signedUrl || rs.data.signedURL)) || '';
+        return m;
+      }, function(){ m._signedUrl = ''; return m; });
+    })).then(function(){ return bundle; });
+  }).then(function(bundle){
+    _engineerReport_renderHtml(bundle);
+    return _engineerReport_preloadImages();
+  }).then(function(){
+    var pName = '';
+    try { pName = (document.querySelector('#ar2-report .rpt-eng-prop-name') || {}).textContent || 'Verification'; } catch(_){ pName = 'Verification'; }
+    var fnDate = new Date().toISOString().slice(0,10);
+    var fnProp = (pName || 'Verification').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'Verification';
+    // PREVIEW BRANCH — show the rendered report in a scrollable in-page
+    // overlay. No print, no filename munging. The "Download PDF" button
+    // inside the preview kicks off the real print flow.
+    if (previewOnly){
+      openEngineerReportPreview(assignmentId);
+      return;
+    }
+    document.title = 'AquaRev_EngVerification_' + fnProp + '_' + fnDate;
+    // Move #ar2-report to be a direct child of body so the @media print
+    // body>* hide-all rule doesn't kill it (matches the pattern used by
+    // the main report flow). Track original position so we can restore.
+    var rep = document.getElementById('ar2-report');
+    var rePrev = rep && rep.parentNode;
+    var reNext = rep && rep.nextSibling;
+    if (rep && rePrev !== document.body) document.body.appendChild(rep);
+    window.print();
+    setTimeout(function(){
+      document.title = prevTitle;
+      var r = document.getElementById('ar2-report');
+      if (r){
+        // Restore to original parent + clear content.
+        if (rePrev && rePrev !== document.body){
+          if (reNext) rePrev.insertBefore(r, reNext);
+          else rePrev.appendChild(r);
+        }
+        r.innerHTML = '';
+      }
+    }, 800);
+  }).catch(function(err){
+    document.title = prevTitle;
+    alert('Couldn\'t build report: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+
+function _engineerReport_loadRecord(asgn){
+  var c = AR2_CLOUD.getClient();
+  if (asgn.property_id){
+    return c.from('portfolio_properties').select('id,property_name,formatted_address,country,state_json,portfolio_id').eq('id', asgn.property_id).single()
+      .then(function(rs){ return rs.data || {}; });
+  }
+  if (asgn.assessment_id){
+    return c.from('assessments').select('id,property_name,snapshot,summary').eq('id', asgn.assessment_id).single()
+      .then(function(rs){
+        var d = rs.data || {};
+        var snap = d.snapshot || {};
+        return {
+          id: d.id,
+          property_name: d.property_name,
+          formatted_address: (snap.state && snap.state.formattedAddress) || '',
+          state_json: snap.state || {}
+        };
+      });
+  }
+  if (asgn.portfolio_id){
+    return c.from('portfolios').select('id,name').eq('id', asgn.portfolio_id).single()
+      .then(function(rs){ var d = rs.data || {}; return { id:d.id, property_name:d.name, formatted_address:'', state_json:{} }; });
+  }
+  return Promise.resolve({});
+}
+
+function _engineerReport_renderHtml(bundle){
+  var rep = document.getElementById('ar2-report');
+  if (!rep) return;
+  var asgn = bundle.asgn;
+  var rec  = bundle.record || {};
+  var eng  = bundle.engineer || {};
+  var verifs    = bundle.verifs    || [];
+  var media     = bundle.media     || [];
+  var pumpRooms = bundle.pumpRooms || [];
+  var today  = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  var submitted = asgn.submitted_at
+    ? new Date(asgn.submitted_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})
+    : 'In progress';
+
+  // Pump-room index maps for quick lookups while building per-pool rows.
+  var pumpRoomById = {}; pumpRooms.forEach(function(r){ pumpRoomById[r.id] = r; });
+  // pool_index → pump_room linkage from verifications
+  var poolPumpRoom = {};
+  verifs.forEach(function(v){ if (v.pump_room_id) poolPumpRoom[v.pool_index] = v.pump_room_id; });
+  // Pools served per pump_room (used by the cover summary)
+  var poolsPerRoom = {};
+  Object.keys(poolPumpRoom).forEach(function(k){
+    var rid = poolPumpRoom[k];
+    poolsPerRoom[rid] = (poolsPerRoom[rid] || 0) + 1;
+  });
+
+  // Derive pool list from state_json so pools with no verification still
+  // show in the report as "Not yet documented". Engineer-added pools
+  // (is_engineer_added=true with pool_index >= original count) get folded
+  // in from the verifications too.
+  var pools = [];
+  var sj = rec.state_json || {};
+  if (sj.manualVolume){
+    var nManual = Math.max(1, Number(sj.manualPoolCount) || 1);
+    for (var iM = 0; iM < nManual; iM++) pools.push({ index: iM, name: 'Pool ' + (iM+1), gallonsRep: Math.round((Number(sj.manualTotalGallons)||0)/nManual) });
+  } else if (Array.isArray(sj.bodies)){
+    sj.bodies.forEach(function(b, i){
+      pools.push({
+        index: i,
+        name: b.label || ('Pool ' + (i+1)),
+        gallonsRep: typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0,
+        depth: b.depth || '',
+        repPoolType: b.poolType || ''
+      });
+    });
+  } else {
+    verifs.forEach(function(v){ pools.push({ index: v.pool_index, name: 'Pool ' + (v.pool_index+1), gallonsRep: 0 }); });
+  }
+  if (!pools.length){ pools = [{ index: 0, name: 'Pool 1', gallonsRep: 0 }]; }
+  // Engineer-added pools — pool_index beyond the rep roster
+  verifs.forEach(function(v){
+    if (v.is_engineer_added && !pools.find(function(p){ return p.index === v.pool_index; })){
+      pools.push({
+        index: v.pool_index,
+        name: v.pool_name_override || ('Pool ' + (v.pool_index + 1)),
+        gallonsRep: 0,
+        engineerAdded: true
+      });
+    }
+  });
+  pools.sort(function(a,b){ return a.index - b.index; });
+
+  function poolTypeLabel(t){
+    if (t === 'fresh' || t === 'chlorine') return 'Fresh Water / Chlorine';
+    if (t === 'saltwater') return 'Saltwater';
+    return '—';
+  }
+
+  var poolPagesHtml = pools.map(function(p){
+    var v = verifs.find(function(x){ return x.pool_index === p.index; });
+    var lines = (v && v.return_lines) || [];
+    var poolMedia = media.filter(function(m){ return m.pool_index === p.index; });
+    var photos = poolMedia.filter(function(m){ return m.media_type === 'photo'; });
+    var videos = poolMedia.filter(function(m){ return m.media_type === 'video'; });
+    var displayName = (v && v.pool_name_override) || p.name;
+    var pumpRoom = poolPumpRoom[p.index] ? pumpRoomById[poolPumpRoom[p.index]] : null;
+    var engType = (v && v.pool_type) || p.repPoolType || '';
+
+    var linesTable = lines.length
+      ? '<table class="rpt-tbl"><thead><tr><th>Count</th><th>Diameter</th></tr></thead><tbody>'
+        + lines.map(function(l){ return '<tr><td>' + (l.count||1) + '</td><td>' + (l.diameter||'?') + '" return</td></tr>'; }).join('')
+        + '</tbody></table>'
+      : '<div class="rpt-row" style="color:#888">No return lines documented.</div>';
+
+    var photoGrid = photos.length
+      ? '<div class="rpt-eng-photos">'
+        + photos.map(function(m){
+            return '<div class="rpt-eng-photo">'
+              + (m._signedUrl ? '<img src="' + esc(m._signedUrl) + '" alt="" crossorigin="anonymous" />' : '<div class="rpt-eng-photo-missing">Photo unavailable</div>')
+              + (m.caption ? '<div class="rpt-eng-photo-cap">' + esc(m.caption) + '</div>' : '')
+              + '</div>';
+          }).join('')
+        + '</div>'
+      : '';
+    var videosList = videos.length
+      ? '<div class="rpt-eng-videos"><b>Videos:</b> ' + videos.map(function(m){ return esc(m.filename_original || 'video'); }).join(' · ') + '</div>'
+      : '';
+
+    var divergence = '';
+    if (v && v.has_discrepancy && v.discrepancy_reason){
+      divergence = '<div class="rpt-eng-discrepancy"><b>Discrepancy noted by engineer:</b> ' + esc(v.discrepancy_reason) + '</div>';
+    }
+
+    return '<div class="rpt">'
+      + '<div class="rpt-head">'
+      +   '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Engineer Verification</div></div>'
+      +   '<div class="rpt-head-right"><div class="rpt-prop-name rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
+      + '</div>'
+      + '<div class="rpt-body">'
+      +   '<div class="rpt-sec">'
+      +     '<div class="rpt-stitle">' + esc(displayName) + (p.engineerAdded ? ' · Engineer-added' : '') + '</div>'
+      +     '<div class="rpt-row"><span class="k">Water type</span><span class="v">' + esc(poolTypeLabel(engType)) + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Estimate gallons</span><span class="v">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal' : '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Engineer-confirmed gallons</span><span class="v">' + (v && v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : 'Not confirmed') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
+      +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines</div>'
+      +     linesTable
+      +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
+      +     divergence
+      +   '</div>'
+      +   (photos.length ? '<div class="rpt-sec"><div class="rpt-stitle">Photos (' + photos.length + ')</div>' + photoGrid + '</div>' : '')
+      +   (videos.length ? '<div class="rpt-sec">' + videosList + '</div>' : '')
+      + '</div>'
+      + '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + ' · ' + esc(displayName) + '</span></div>'
+      + '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
+      + '</div>';
+  }).join('');
+
+  // Pump-Rooms summary block on the cover page. Each room lists label,
+  // walkthrough video filename (if uploaded), supporting photo count,
+  // and how many pools it serves.
+  var pumpRoomsHtml = '';
+  if (pumpRooms.length){
+    pumpRoomsHtml = '<div class="rpt-sec">'
+      + '<div class="rpt-stitle">Pump Rooms (' + pumpRooms.length + ')</div>'
+      + '<table class="rpt-tbl">'
+      +   '<thead><tr><th>ID</th><th>Walkthrough</th><th>Photos</th><th>Pools served</th></tr></thead>'
+      +   '<tbody>'
+      +     pumpRooms.map(function(r){
+            var roomMedia = media.filter(function(m){ return m.pump_room_id === r.id; });
+            var walkthrough = roomMedia.find(function(m){ return m.media_type === 'video'; });
+            var roomPhotos  = roomMedia.filter(function(m){ return m.media_type === 'photo'; });
+            return '<tr>'
+              + '<td>' + esc(r.label) + '</td>'
+              + '<td>' + (walkthrough ? esc(walkthrough.filename_original || 'video') : '<span style="color:#888">Not uploaded</span>') + '</td>'
+              + '<td>' + roomPhotos.length + '</td>'
+              + '<td>' + (poolsPerRoom[r.id] || 0) + '</td>'
+            + '</tr>';
+          }).join('')
+      +   '</tbody>'
+      + '</table>'
+      + '</div>';
+  }
+
+  // Cover page — switched to .rpt-head-left/right + .rpt-logo + .rpt-prop-name
+  // classes so colors and typography MATCH the standard AquaRev report.
+  var coverHtml = ''
+    + '<div class="rpt">'
+    +   '<div class="rpt-head">'
+    +     '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Engineer Verification</div></div>'
+    +     '<div class="rpt-head-right"><div class="rpt-prop-name rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
+    +   '</div>'
+    +   '<div class="rpt-body">'
+    +     '<div class="rpt-sec">'
+    +       '<div class="rpt-stitle">Property</div>'
+    +       '<div class="rpt-row"><span class="k">Name</span><span class="v">' + esc(rec.property_name || '—') + '</span></div>'
+    +       (rec.formatted_address ? '<div class="rpt-row"><span class="k">Address</span><span class="v">' + esc(rec.formatted_address) + '</span></div>' : '')
+    +     '</div>'
+    +     '<div class="rpt-sec">'
+    +       '<div class="rpt-stitle">Engineer</div>'
+    +       '<div class="rpt-row"><span class="k">Name</span><span class="v">' + esc(eng.name || '—') + '</span></div>'
+    +       (eng.phone ? '<div class="rpt-row"><span class="k">Phone</span><span class="v">' + esc(eng.phone) + '</span></div>' : '')
+    +     '</div>'
+    +     '<div class="rpt-sec">'
+    +       '<div class="rpt-stitle">Verification Summary</div>'
+    +       '<div class="rpt-row"><span class="k">Pools documented</span><span class="v">' + verifs.length + ' of ' + pools.length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Pump rooms captured</span><span class="v">' + pumpRooms.length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Photos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='photo';}).length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Videos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='video';}).length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Submitted</span><span class="v">' + esc(submitted) + '</span></div>'
+    +     '</div>'
+    +     pumpRoomsHtml
+    +     '<div class="rpt-disc">This document captures pool-level field verification data collected by the assigned engineer. It excludes commercial terms; final pricing is communicated separately by the AquaRev sales team.</div>'
+    +   '</div>'
+    +   '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + '</span></div>'
+    +   '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
+    + '</div>';
+
+  // Per-pump-room summary pages. One page per pump room with the
+  // walkthrough video filename, supporting photos, and the full list
+  // of pools served (with confirmed gallons + return-line chips so
+  // the rep can cross-reference at a glance).
+  var pumpRoomPagesHtml = pumpRooms.map(function(r){
+    var roomMedia = media.filter(function(m){ return m.pump_room_id === r.id; });
+    var walkthrough = roomMedia.find(function(m){ return m.media_type === 'video'; });
+    var roomPhotos  = roomMedia.filter(function(m){ return m.media_type === 'photo'; });
+    var roomPhotosHtml = roomPhotos.length
+      ? '<div class="rpt-eng-photos">'
+        + roomPhotos.map(function(m){
+            return '<div class="rpt-eng-photo">'
+              + (m._signedUrl ? '<img src="' + esc(m._signedUrl) + '" alt="" crossorigin="anonymous" />' : '<div class="rpt-eng-photo-missing">Photo unavailable</div>')
+              + '</div>';
+          }).join('')
+        + '</div>'
+      : '';
+    // Pools served — walk verifications looking for pump_room_id match.
+    // Order matches the engineer's pool roster.
+    var poolsServedRows = pools
+      .map(function(p){
+        var v = verifs.find(function(x){ return x.pool_index === p.index; });
+        if (!v || v.pump_room_id !== r.id) return null;
+        var poolDisplayName = (v && v.pool_name_override) || p.name;
+        var poolLines = (v.return_lines || []).map(function(l){
+          return '<span class="rpt-eng-line-chip">' + (l.count||1) + '&times;' + (l.diameter||'?') + '&quot;</span>';
+        }).join('');
+        if (!poolLines) poolLines = '<span style="color:#888">—</span>';
+        return '<tr>'
+          + '<td><b>' + esc(poolDisplayName) + '</b></td>'
+          + '<td>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : '—') + '</td>'
+          + '<td>' + poolLines + '</td>'
+          + '</tr>';
+      })
+      .filter(Boolean)
+      .join('');
+    var poolsServedHtml = poolsServedRows
+      ? '<table class="rpt-tbl"><thead><tr><th>Pool</th><th>Gallons</th><th>Return lines</th></tr></thead><tbody>' + poolsServedRows + '</tbody></table>'
+      : '<div class="rpt-row" style="color:#888">No pools linked to this pump room yet.</div>';
+    var poolsServedCount = poolsPerRoom[r.id] || 0;
+
+    return '<div class="rpt">'
+      + '<div class="rpt-head">'
+      +   '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Pump Room Summary</div></div>'
+      +   '<div class="rpt-head-right"><div class="rpt-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
+      + '</div>'
+      + '<div class="rpt-body">'
+      +   '<div class="rpt-sec">'
+      +     '<div class="rpt-stitle">' + esc(r.label) + '</div>'
+      +     '<div class="rpt-row"><span class="k">Walkthrough video</span><span class="v">' + (walkthrough ? esc(walkthrough.filename_original || 'video') : '<span style="color:#888">Not uploaded</span>') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Supporting photos</span><span class="v">' + roomPhotos.length + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Pools served</span><span class="v">' + poolsServedCount + (poolsServedCount === 1 ? ' pool' : ' pools') + '</span></div>'
+      +     (r.notes ? '<div class="rpt-stitle" style="margin-top:14px">Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(r.notes) + '</div>' : '')
+      +   '</div>'
+      +   '<div class="rpt-sec">'
+      +     '<div class="rpt-stitle">Pools served by this pump room</div>'
+      +     poolsServedHtml
+      +   '</div>'
+      +   (roomPhotos.length ? '<div class="rpt-sec"><div class="rpt-stitle">Supporting Photos</div>' + roomPhotosHtml + '</div>' : '')
+      + '</div>'
+      + '<div class="rpt-cta-bar"><span class="cta-label">AquaRev Engineer Verification</span><span>' + esc(rec.property_name || '') + ' · ' + esc(r.label) + '</span></div>'
+      + '<div class="rpt-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer field verification · NSF/ANSI 50 · NSF-372 Lead-Free</div></div>'
+      + '</div>';
+  }).join('');
+
+  rep.innerHTML = coverHtml + pumpRoomPagesHtml + poolPagesHtml;
+}
+
+function _engineerReport_preloadImages(){
+  var imgs = document.querySelectorAll('#ar2-report img');
+  if (!imgs.length) return Promise.resolve();
+  return Promise.all(Array.prototype.map.call(imgs, function(img){
+    if (img.complete && img.naturalHeight) return Promise.resolve();
+    return new Promise(function(resolve){
+      var done = false;
+      function settle(){ if (!done){ done = true; resolve(); } }
+      img.addEventListener('load', settle, { once: true });
+      img.addEventListener('error', settle, { once: true });
+      // Safety timeout: don't hang the print if an image won't resolve
+      setTimeout(settle, 4500);
+    });
+  }));
+}
+
+function populateAdminEngineerSubmissions(){
+  if (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())) return;
+  var mount = document.getElementById('ar-admin-eng-submissions');
+  if (!mount) return;
+  var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  if (!c){ mount.innerHTML = '<div class="ar-admin-empty">Cloud unavailable.</div>'; return; }
+  // Fetch assignments + engineer names + linked record names in parallel.
+  Promise.all([
+    c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,engineer_property_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at').order('last_modified_at',{ascending:false}),
+    c.from('app_users').select('id,name,phone').eq('role','engineer'),
+    c.from('portfolio_properties').select('id,property_name,portfolio_id'),
+    c.from('portfolios').select('id,name'),
+    c.from('assessments').select('id,property_name')
+  ]).then(function(arr){
+    var asgnRows = (arr[0].data || []);
+    var engById  = {}; (arr[1].data || []).forEach(function(e){ engById[e.id] = e; });
+    var propById = {}; (arr[2].data || []).forEach(function(p){ propById[p.id] = p; });
+    var pfById   = {}; (arr[3].data || []).forEach(function(p){ pfById[p.id]   = p; });
+    var assById  = {}; (arr[4].data || []).forEach(function(a){ assById[a.id]  = a; });
+    window.AR2_ADMIN_ENG = { assignments: asgnRows, engById: engById, propById: propById, pfById: pfById, assById: assById };
+    renderAdminEngineerSubmissions();
+  }).catch(function(err){
+    mount.innerHTML = '<div class="ar-admin-empty" style="color:#fca5a5">Couldn\'t load submissions: ' + esc((err && err.message) || 'unknown error') + '</div>';
+  });
+}
+
+/* Renders the Engineer Submissions list using cached data. Re-callable
+   whenever the filter changes; doesn't refetch the data. */
+function renderAdminEngineerSubmissions(){
+  var mount = document.getElementById('ar-admin-eng-submissions');
+  if (!mount) return;
+  var bundle = window.AR2_ADMIN_ENG;
+  if (!bundle){ mount.innerHTML = '<div class="ar-admin-empty">No submissions yet.</div>'; return; }
+  var filter = '';
+  var searchQ = '';
+  try { filter  = localStorage.getItem('ar2:admin-eng-filter') || ''; } catch(_){}
+  try { searchQ = (window.AR2_ADMIN_ENG_SEARCH || '').toLowerCase(); } catch(_){}
+  var rows = bundle.assignments;
+  if (filter)  rows = rows.filter(function(r){ return r.status === filter; });
+  if (searchQ){
+    rows = rows.filter(function(r){
+      // Search matches property/portfolio/assessment name + engineer name
+      var hay = [];
+      if (r.property_id  && bundle.propById[r.property_id])  hay.push(bundle.propById[r.property_id].property_name || '');
+      if (r.portfolio_id && bundle.pfById[r.portfolio_id])   hay.push(bundle.pfById[r.portfolio_id].name || '');
+      if (r.assessment_id && bundle.assById[r.assessment_id]) hay.push(bundle.assById[r.assessment_id].property_name || '');
+      if (bundle.engById[r.engineer_user_id]) hay.push(bundle.engById[r.engineer_user_id].name || '');
+      if (r.assignment_notes) hay.push(r.assignment_notes);
+      return hay.join(' ').toLowerCase().indexOf(searchQ) !== -1;
+    });
+  }
+
+  function statusPill(s){
+    if (s === 'pending')     return '<span class="ar-eng-pill amber">Pending</span>';
+    if (s === 'in_progress') return '<span class="ar-eng-pill yellow">In progress</span>';
+    if (s === 'submitted')   return '<span class="ar-eng-pill blue">Sent for review</span>';
+    if (s === 'reviewed')    return '<span class="ar-eng-pill green">Reviewed</span>';
+    if (s === 'locked')      return '<span class="ar-eng-pill gray">Locked</span>';
+    return '<span class="ar-eng-pill gray">' + esc(s) + '</span>';
+  }
+  function scopeName(r){
+    if (r.property_id){
+      var p = bundle.propById[r.property_id];
+      var pf = p && p.portfolio_id ? bundle.pfById[p.portfolio_id] : null;
+      return (p ? esc(p.property_name) : '(deleted property)') + (pf ? ' <span style="color:var(--mu);font-size:11px">· ' + esc(pf.name) + '</span>' : '');
+    }
+    if (r.portfolio_id){
+      var p2 = bundle.pfById[r.portfolio_id];
+      return p2 ? '<b>' + esc(p2.name) + '</b> <span style="color:var(--mu);font-size:11px">· entire portfolio</span>' : '(deleted portfolio)';
+    }
+    if (r.assessment_id){
+      var a = bundle.assById[r.assessment_id];
+      return a ? esc(a.property_name) + ' <span style="color:var(--mu);font-size:11px">· standalone assessment</span>' : '(deleted assessment)';
+    }
+    return '(unknown scope)';
+  }
+
+  // Filter chips
+  var statuses = ['','pending','in_progress','submitted','reviewed','locked'];
+  var labels   = ['All','Pending','In progress','Sent for review','Reviewed','Locked'];
+  var filterHtml = '<div class="ar-admin-eng-filters">';
+  statuses.forEach(function(st, i){
+    var active = (st === filter) ? ' active' : '';
+    filterHtml += '<button class="ar-admin-eng-filter' + active + '" data-action="admin-eng-filter" data-filter="' + st + '" type="button">' + labels[i] + '</button>';
+  });
+  filterHtml += '<div class="ar-admin-eng-search-wrap">'
+    +   '<input type="search" class="ar-admin-eng-search" placeholder="Search property, engineer, notes…" value="' + esc(searchQ) + '" data-action="admin-eng-search" />'
+    + '</div>';
+  filterHtml += '<span class="ar-admin-eng-count">' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</span>';
+  filterHtml += '<button class="ar-admin-eng-refresh" data-action="admin-eng-refresh" type="button" title="Refresh">↻</button>';
+  filterHtml += '</div>';
+
+  if (!rows.length){
+    mount.innerHTML = filterHtml + '<div class="ar-admin-empty">No engineer submissions match this filter.</div>';
+    return;
+  }
+
+  var rowsHtml = rows.map(function(r){
+    var eng = bundle.engById[r.engineer_user_id];
+    var engLabel = eng ? esc(eng.name) + (eng.phone ? ' · ' + esc(eng.phone) : '') : '(engineer removed)';
+    var lastEdit = r.last_modified_at ? new Date(r.last_modified_at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+    var submitted = r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+    return ''
+      +'<tr class="ar-admin-eng-row" data-action="admin-review-submission" data-assignment-id="' + esc(r.id) + '" role="button" tabindex="0">'
+      +'<td>' + scopeName(r) + '</td>'
+      +'<td>' + engLabel + '</td>'
+      +'<td>' + statusPill(r.status) + '</td>'
+      +'<td>' + submitted + '</td>'
+      +'<td>' + lastEdit + '</td>'
+      +'</tr>';
+  }).join('');
+
+  mount.innerHTML = filterHtml
+    + '<table class="ar-admin-eng-tbl">'
+    +   '<thead><tr>'
+    +     '<th>Property / Portfolio</th>'
+    +     '<th>Engineer</th>'
+    +     '<th>Status</th>'
+    +     '<th>Sent</th>'
+    +     '<th>Last activity</th>'
+    +   '</tr></thead>'
+    +   '<tbody>' + rowsHtml + '</tbody>'
+    + '</table>';
+}
+
+/* Opens a review modal for a single engineer assignment. For Phase 3
+   MVP this is read-only: admin sees the property, the engineer's
+   verifications, and Mark Reviewed / Lock Now / Reopen actions. A
+   later phase adds side-by-side rep-vs-engineer comparison + per-field
+   Accept/Keep/Flag. */
+function openAdminReviewModal(assignmentId){
+  var bundle = window.AR2_ADMIN_ENG;
+  if (!bundle) return;
+  var asgn = bundle.assignments.find(function(a){ return a.id === assignmentId; });
+  if (!asgn) return;
+  var eng = bundle.engById[asgn.engineer_user_id];
+  var scopeName = '';
+  if (asgn.property_id){ var p = bundle.propById[asgn.property_id]; scopeName = p ? p.property_name : '(deleted)'; }
+  else if (asgn.portfolio_id){ var pf = bundle.pfById[asgn.portfolio_id]; scopeName = pf ? pf.name : '(deleted)'; }
+  else if (asgn.assessment_id){ var as = bundle.assById[asgn.assessment_id]; scopeName = as ? as.property_name : '(deleted)'; }
+
+  var existing = document.getElementById('ar-admin-review-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var bd = document.createElement('div');
+  bd.id = 'ar-admin-review-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.dataset.assignmentId = assignmentId;
+  // Build a status pill for the title row. Maps DB status → display.
+  var statusMap = {
+    pending:     'Pending',
+    in_progress: 'In progress',
+    submitted:   'Sent for review',
+    reviewed:    'Reviewed',
+    locked:      'Locked'
+  };
+  var statusCls = asgn.status || 'pending';
+  var statusLabel = statusMap[statusCls] || statusCls;
+  var sentTxt = asgn.submitted_at
+    ? new Date(asgn.submitted_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})
+    : null;
+  var reviewedTxt = asgn.reviewed_at
+    ? new Date(asgn.reviewed_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})
+    : null;
+
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" style="max-width:760px;max-height:90vh;overflow-y:auto;padding:24px 26px 20px">'
+
+    // ── Header: eyebrow + property name on the left, status pill on the right ──
+    + '<div class="ar-admin-review-head">'
+    +   '<div class="ar-admin-review-head-l">'
+    +     '<div class="ar-admin-review-eyebrow">Engineer Submission Review</div>'
+    +     '<div class="ar-admin-review-title">' + esc(scopeName) + '</div>'
+    +   '</div>'
+    +   '<span class="ar-admin-review-status ' + esc(statusCls) + '">' + esc(statusLabel) + '</span>'
+    + '</div>'
+
+    // ── Metadata strip: engineer, phone, submitted, reviewed ──
+    + '<div class="ar-admin-review-meta">'
+    +   '<div class="ar-admin-review-meta-item">'
+    +     '<span class="ar-admin-review-meta-lbl">Engineer</span>'
+    +     '<span class="ar-admin-review-meta-val">' + esc(eng ? eng.name : '(removed)') + '</span>'
+    +   '</div>'
+    +   (eng && eng.phone
+        ? '<div class="ar-admin-review-meta-item">'
+          + '<span class="ar-admin-review-meta-lbl">Phone</span>'
+          + '<span class="ar-admin-review-meta-val mono">' + esc(eng.phone) + '</span>'
+          + '</div>'
+        : '')
+    +   (sentTxt
+        ? '<div class="ar-admin-review-meta-item">'
+          + '<span class="ar-admin-review-meta-lbl">Sent</span>'
+          + '<span class="ar-admin-review-meta-val">' + esc(sentTxt) + '</span>'
+          + '</div>'
+        : '')
+    +   (reviewedTxt
+        ? '<div class="ar-admin-review-meta-item">'
+          + '<span class="ar-admin-review-meta-lbl">Reviewed</span>'
+          + '<span class="ar-admin-review-meta-val">' + esc(reviewedTxt) + '</span>'
+          + '</div>'
+        : '')
+    + '</div>'
+
+    + '<div id="ar-admin-review-body"><div class="ar-admin-review-empty">Loading verifications…</div></div>'
+    + '<div class="ar-pf-modal-err" id="ar-admin-review-err"></div>'
+
+    + '<div class="ar-pf-modal-actions" style="margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,180,216,.18)">'
+    +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
+    +   '<button class="ar-pf-modal-btn" data-action="admin-review-download-pdf" type="button" title="Generate engineer verification PDF">↓ PDF</button>'
+    +   '<button class="ar-pf-modal-btn primary outline" data-action="admin-review-open-portal" type="button" title="Open the engineer\'s 4-step portal for this record">Review in Portal</button>'
+    +   (asgn.status === 'locked'
+        ? '<button class="ar-pf-modal-btn" data-action="admin-review-unlock" type="button">Unlock</button>'
+        : '<button class="ar-pf-modal-btn danger" data-action="admin-review-lock" type="button">Lock Now</button>')
+    +   (asgn.status !== 'reviewed' && asgn.status !== 'locked'
+        ? '<button class="ar-pf-modal-btn primary" data-action="admin-review-mark-reviewed" type="button">Mark Reviewed</button>'
+        : '')
+    + '</div>'
+  + '</div>';
+  document.body.appendChild(bd);
+  bd.addEventListener('click', function(e){
+    if (e.target === bd){ closeAdminReviewModal(); return; }
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-action');
+    if (act === 'admin-review-pool-toggle'){
+      // Expand / collapse the notes+discrepancy row beneath a pool row.
+      var pIdx = btn.getAttribute('data-pool-row');
+      var ex = bd.querySelector('[data-pool-expand="' + pIdx + '"]');
+      var ch = btn.querySelector('.ar-admin-review-chev');
+      if (ex){
+        var willShow = ex.style.display === 'none';
+        ex.style.display = willShow ? 'block' : 'none';
+        if (ch) ch.textContent = willShow ? '▾' : '▸';
+      }
+      return;
+    }
+    if (act === 'admin-review-close')         { closeAdminReviewModal(); return; }
+    if (act === 'admin-review-lock')          { adminReviewSetStatus('locked');   return; }
+    if (act === 'admin-review-unlock')        { adminReviewSetStatus('reviewed'); return; }
+    if (act === 'admin-review-mark-reviewed') { adminReviewSetStatus('reviewed'); return; }
+    if (act === 'admin-review-download-pdf')  { generateEngineerReport(assignmentId); return; }
+    if (act === 'admin-review-open-portal'){
+      // Closes this modal and opens the engineer's 4-step portal for
+      // this assignment. The portal renders without pf-engineer-mode
+      // (calculator chrome stays visible) and the header shows a
+      // "Reviewing as Admin" banner. Back button returns the admin to
+      // the archive list.
+      closeAdminReviewModal();
+      if (window.AR2_ENGINEER && AR2_ENGINEER.openAssignment){
+        AR2_ENGINEER.openAssignment(assignmentId);
+      }
+      return;
+    }
+  });
+  bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAdminReviewModal(); });
+
+  // Load verifications + media counts
+  var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  if (!c) return;
+  Promise.all([
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId),
+    c.from('engineer_pump_rooms').select('id,label').eq('assignment_id', assignmentId)
+  ]).then(function(arr){
+    var verifs = arr[0].data || [];
+    var media  = arr[1].data || [];
+    var pumpRooms = arr[2].data || [];
+    var roomLabelById = {}; pumpRooms.forEach(function(r){ roomLabelById[r.id] = r.label; });
+    var mediaByPool = {};
+    media.forEach(function(m){
+      if (!mediaByPool[m.pool_index]) mediaByPool[m.pool_index] = { photo: 0, video: 0 };
+      if (m.media_type === 'photo') mediaByPool[m.pool_index].photo++;
+      if (m.media_type === 'video') mediaByPool[m.pool_index].video++;
+    });
+    var body = document.getElementById('ar-admin-review-body');
+    if (!body) return;
+    if (!verifs.length){
+      body.innerHTML = '<div class="ar-admin-review-empty">No pool data recorded yet. Engineer hasn\'t saved anything on Step 3.</div>';
+      return;
+    }
+    // Compact one-row-per-pool table layout. Optimized for 20+ pools —
+    // each pool collapses to a single tight line with all the data the
+    // admin needs at a glance. Notes / discrepancy reasons live in an
+    // expandable row revealed by clicking the pool name.
+    function poolTypeChip(t){
+      if (t === 'fresh' || t === 'chlorine')
+        return '<span class="ar-admin-review-type-pill fresh">Fresh</span>';
+      if (t === 'saltwater')
+        return '<span class="ar-admin-review-type-pill salt">Salt</span>';
+      return '<span class="ar-admin-review-type-pill unk">—</span>';
+    }
+    // ── KPI band: at-a-glance verification counts ──
+    var totalPhotos = 0, totalVideos = 0;
+    media.forEach(function(m){
+      if (m.media_type === 'photo') totalPhotos++;
+      if (m.media_type === 'video') totalVideos++;
+    });
+    var kpiBand = '<div class="ar-admin-review-kpis">'
+      + '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pools</div><div class="ar-admin-review-kpi-val">' + verifs.length + '</div></div>'
+      + '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRooms.length + '</div></div>'
+      + '<div class="ar-admin-review-kpi' + (totalPhotos===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + totalPhotos + '</div></div>'
+      + '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + totalVideos + '</div></div>'
+      + '</div>';
+    // Pump-room summary block
+    var pumpRoomSummary = pumpRooms.length
+      ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
+        + pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label) + '</span>'; }).join('')
+        + '</div>'
+      : '';
+    var headRow = '<div class="ar-admin-review-thead">'
+      + '<span class="col-pool">Pool</span>'
+      + '<span class="col-type">Type</span>'
+      + '<span class="col-gal">Gallons</span>'
+      + '<span class="col-lines">Return lines</span>'
+      + '<span class="col-media" title="Photos / Videos">P / V</span>'
+      + '<span class="col-room">Pump room</span>'
+      + '<span class="col-flag" title="Discrepancy / notes / engineer-added"></span>'
+      + '</div>';
+    var rowsHtml = verifs.map(function(v){
+      var idx = Number(v.pool_index);
+      var name = v.pool_name_override || ('Pool ' + (idx + 1));
+      var linesHtml = (v.return_lines || []).map(function(ln){
+        return '<span class="ar-admin-line-chip">' + (ln.count || 1) + '×' + (ln.diameter || '?') + '"</span>';
+      }).join('');
+      if (!linesHtml) linesHtml = '<span style="color:#7db8cc">—</span>';
+      var mc = mediaByPool[idx] || { photo: 0, video: 0 };
+      var mediaCell = (mc.photo + mc.video) === 0
+        ? '<span style="color:#f0a500">0/0</span>'
+        : '<span title="' + mc.photo + ' photo'+(mc.photo===1?'':'s')+', ' + mc.video + ' video'+(mc.video===1?'':'s')+'">' + mc.photo + '/' + mc.video + '</span>';
+      var roomLabel = v.pump_room_id ? (roomLabelById[v.pump_room_id] || '—') : '—';
+      var flags = [];
+      if (v.is_engineer_added)       flags.push('<span class="ar-admin-review-flag added" title="Engineer-added pool">+</span>');
+      if (v.has_discrepancy)         flags.push('<span class="ar-admin-review-flag disc" title="Discrepancy flagged by engineer">!</span>');
+      if (v.notes || v.discrepancy_reason) flags.push('<span class="ar-admin-review-flag note" title="Has engineer notes">…</span>');
+      var hasExpand = !!(v.notes || v.discrepancy_reason);
+      var rowAttrs = hasExpand ? ' data-action="admin-review-pool-toggle" data-pool-row="' + idx + '" style="cursor:pointer"' : '';
+      var rowHtml = '<div class="ar-admin-review-trow"' + rowAttrs + '>'
+        + '<span class="col-pool" data-lbl="Pool"><b>' + esc(name) + '</b>' + (hasExpand ? '<span class="ar-admin-review-chev">▸</span>' : '') + '</span>'
+        + '<span class="col-type" data-lbl="Type">' + poolTypeChip(v.pool_type) + '</span>'
+        + '<span class="col-gal" data-lbl="Gallons">' + (v.confirmed_gallons != null ? fn(v.confirmed_gallons) : '<span style="color:#7db8cc">—</span>') + '</span>'
+        + '<span class="col-lines" data-lbl="Lines">' + linesHtml + '</span>'
+        + '<span class="col-media" data-lbl="Media">' + mediaCell + '</span>'
+        + '<span class="col-room" data-lbl="Pump room">' + esc(roomLabel) + '</span>'
+        + '<span class="col-flag">' + flags.join('') + '</span>'
+        + '</div>';
+      var expandHtml = hasExpand
+        ? '<div class="ar-admin-review-expand" data-pool-expand="' + idx + '" style="display:none">'
+        +   (v.notes ? '<div class="ar-admin-review-expand-row"><span>Notes</span><div>' + esc(v.notes) + '</div></div>' : '')
+        +   (v.discrepancy_reason ? '<div class="ar-admin-review-expand-row disc"><span>Discrepancy</span><div>' + esc(v.discrepancy_reason) + '</div></div>' : '')
+        + '</div>'
+        : '';
+      return rowHtml + expandHtml;
+    }).join('');
+    // Property-wide engineer notes (engineer_property_notes) live on the
+    // assignment row — fetch and render below the table when present.
+    var propNotesHtml = '';
+    if (asgn.engineer_property_notes && String(asgn.engineer_property_notes).trim()){
+      propNotesHtml = '<div class="ar-admin-review-prop-notes">'
+        + '<div class="ar-admin-review-prop-notes-hd">General notes / comments</div>'
+        + '<div class="ar-admin-review-prop-notes-body">' + esc(asgn.engineer_property_notes) + '</div>'
+        + '</div>';
+    }
+    body.innerHTML = kpiBand + pumpRoomSummary
+      + '<div class="ar-admin-review-table">' + headRow + rowsHtml + '</div>'
+      + propNotesHtml;
+  }, function(err){
+    var body = document.getElementById('ar-admin-review-body');
+    if (body) body.innerHTML = '<div class="ar-admin-review-err">Couldn\'t load verifications: ' + esc((err && err.message) || 'unknown') + '</div>';
+  });
+}
+function closeAdminReviewModal(){
+  var el = document.getElementById('ar-admin-review-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+/* Updates an assignment's status (Lock / Unlock / Mark Reviewed) then
+   refreshes the submissions cache + modal contents. Status transitions
+   are gentle — we don't gate which → which because admin has full
+   authority over the record. */
+function adminReviewSetStatus(newStatus){
+  var bd = document.getElementById('ar-admin-review-modal');
+  if (!bd) return;
+  var assignmentId = bd.dataset.assignmentId;
+  var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+  if (!c) return;
+  var u = AR2_CLOUD.user && AR2_CLOUD.user();
+  // Capture pre-update state for the audit log + notification message.
+  var bundle = window.AR2_ADMIN_ENG;
+  var prior  = bundle && bundle.assignments.find(function(a){ return a.id === assignmentId; });
+  var oldStatus = prior && prior.status;
+  var engineerUserId = prior && prior.engineer_user_id;
+  var patch = { status: newStatus, last_modified_at: new Date().toISOString() };
+  if (newStatus === 'locked'){
+    patch.locked_at = new Date().toISOString();
+    patch.locked_by_user_id = u && u.id;
+  } else if (newStatus === 'reviewed'){
+    patch.reviewed_at = new Date().toISOString();
+    // Unlock action: clear locked fields when transitioning OUT of locked.
+    patch.locked_at = null;
+    patch.locked_by_user_id = null;
+  }
+  var btns = bd.querySelectorAll('[data-action]');
+  for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+  c.from('engineer_assignments').update(patch).eq('id', assignmentId).then(function(rs){
+    if (rs && rs.error){
+      var err = document.getElementById('ar-admin-review-err');
+      if (err) err.textContent = rs.error.message;
+      for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
+      return;
+    }
+    // Audit + notify the engineer of the status change. Both best-effort.
+    if (window.AR_AUDIT) AR_AUDIT.log('engineer_assignments', assignmentId, {
+      status: { from: oldStatus, to: newStatus }
+    }, 'admin status change');
+    if (window.AR_NOTIFY && engineerUserId){
+      var msg = newStatus === 'reviewed' ? 'Your verification has been reviewed.'
+              : newStatus === 'locked'   ? 'Admin locked your verification — no further edits.'
+              : 'Your verification status changed to ' + newStatus + '.';
+      AR_NOTIFY.push(engineerUserId, 'assignment_status', msg, null, assignmentId);
+    }
+    closeAdminReviewModal();
+    // Refresh the submissions cache so the row's status pill flips.
+    populateAdminEngineerSubmissions();
+    // Also clear the portfolio overview's assignment cache so chips
+    // refresh next time the rep/admin opens that portfolio.
+    if (window.AR2_PF && AR2_PF._state){
+      AR2_PF._state.engineerAssignmentsByProperty = null;
+      AR2_PF._state.engineerAssignmentsByPortfolio = null;
+    }
+  });
 }
 
 var ADMIN_CHART_COLORS = ['#00b4d8','#f0a500','#22c55e','#a855f7','#ec4899','#ef4444','#3b82f6','#eab308'];
@@ -6524,6 +9012,13 @@ function showDuplicateConfirmModal(propName, onConfirm){
 function renderArchive(){
   var el = document.getElementById('ar2-bank');
   if (!el) return;
+  // Engineer role short-circuits ALL archive views. Engineers see only
+  // their assigned-properties landing page; no Calculator, no Portfolios,
+  // no normal archive list. Phase 2 will swap this shell for the full
+  // 4-step verification flow.
+  if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()){
+    return renderEngineerPortalShell(el);
+  }
   if (!window.AR2_PF || !AR2_PF.isEnabled()) {
     // Feature disabled (Client / no-PF): production behavior, single assessments only.
     return renderBank();
@@ -6546,6 +9041,3227 @@ function renderArchive(){
   renderBank();
 }
 
+/* ── Engineer Portal — entry point ─────────────────────────────────────
+   Dispatches between two states:
+     1. Assignment list  (no assignment open) — Phase 1 shell
+     2. Active 4-step flow (assignment open) — Phase 2 verification
+   Active state lives on AR2_ENGINEER.state(); shell reads it on each
+   render and routes accordingly. Calling renderEngineerPortalShell()
+   while a flow is open re-paints the current step (used by auto-save
+   to refresh save-timestamps, etc.).
+   ─────────────────────────────────────────────────────────────────── */
+function renderEngineerPortalShell(mountEl){
+  // pf-engineer-mode applies ONLY when the signed-in user actually has
+  // role=engineer. When an admin opens an engineer's assignment via the
+  // submission-review "Review in portal" button, all calculator chrome
+  // (Archive, New, Help, Notifications, user chip) stays visible so the
+  // admin can jump back to the rest of the app at any time.
+  var isEng = !!(window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer());
+  if (isEng){
+    document.body.classList.add('pf-engineer-mode');
+    var subEl = document.querySelector('#ar2 .ar-bs');
+    if (subEl){
+      if (subEl.dataset.origText == null) subEl.dataset.origText = subEl.textContent;
+      subEl.textContent = 'Engineering Review';
+    }
+  } else {
+    document.body.classList.remove('pf-engineer-mode');
+    var subEl2 = document.querySelector('#ar2 .ar-bs');
+    if (subEl2 && subEl2.dataset.origText != null){
+      subEl2.textContent = subEl2.dataset.origText;
+    }
+  }
+  // If an assignment is currently open, route into the 4-step flow.
+  if (window.AR2_ENGINEER && AR2_ENGINEER.state && AR2_ENGINEER.state().assignmentId){
+    var r = AR2_ENGINEER.renderCurrentStep(mountEl);
+    if (typeof scrollAppTop === 'function') scrollAppTop();
+    return r;
+  }
+  // Admins should never see the engineer's assignment list (it's empty
+  // for them by RLS and confusing). Send them back to the archive instead.
+  if (!isEng){
+    if (typeof showView === 'function') showView('bank');
+    return;
+  }
+  var result = renderEngineerAssignmentList(mountEl);
+  // Land the engineer at the top of the page on every entry — sign-in,
+  // back-from-assignment, fresh PWA launch. Otherwise they sometimes
+  // arrive mid-scroll from the calculator view that was just hidden.
+  if (typeof scrollAppTop === 'function') scrollAppTop();
+  return result;
+}
+
+/* Assignment list — Phase 1's original shell, extracted so the dispatch
+   above stays small. Renders header + install card + assignment rows or
+   empty state. Single-assignment auto-route per decision #5 fires only
+   when the engineer has already skipped the briefing (otherwise they
+   land on Step 1 explicitly).
+   ─────────────────────────────────────────────────────────────────── */
+function renderEngineerAssignmentList(mountEl){
+  if (!mountEl) return;
+  // Auto-resume — when the page reloads (deploy refresh, manual reload),
+  // restore the engineer to whichever assignment + step they were on.
+  // This is what makes engineering records "survive the refresh" from
+  // the user's perspective. Server data was never lost; we just put them
+  // back in the right spot.
+  if (window.AR2_ENGINEER && AR2_ENGINEER.tryResume){
+    if (AR2_ENGINEER.tryResume()) return;  // openAssignment took over; bail out
+  }
+  var u = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user()) || {};
+  var nameDisplay = esc(u.name || 'Engineer');
+  // PWA install affordance — only shown when the app is NOT already
+  // running as a standalone PWA. Three variants:
+  //   • Android Chrome / desktop Chromium: deferred install prompt
+  //     fired → big aqua "Install app" CTA.
+  //   • iOS Safari / iOS Chrome: WebKit doesn't expose programmatic
+  //     install, so we show step-by-step instructions with the actual
+  //     iOS Share-icon glyph inline. Dismissal persisted in localStorage.
+  //   • Already standalone: nothing rendered (engineer is already in
+  //     the installed PWA).
+  var installHtml = '';
+  if (window.AR_PWA && !AR_PWA.isStandalone()){
+    // Phone-with-arrow icon used as the leading thumbnail on the card.
+    var phoneIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="6" y="2" width="12" height="20" rx="2.5"/>'
+      + '<path d="M11 18h2"/>'
+      + '<path d="M12 6v6"/>'
+      + '<polyline points="9 9 12 6 15 9"/>'
+      + '</svg>';
+    if (AR_PWA.installable){
+      installHtml = '<div class="ar-eng-install">'
+        + '<div class="ar-eng-install-ico">' + phoneIcon + '</div>'
+        + '<div class="ar-eng-install-body">'
+        +   '<div class="ar-eng-install-eyebrow">Recommended</div>'
+        +   '<div class="ar-eng-install-title">Install AquaRev as an app</div>'
+        +   '<div class="ar-eng-install-msg">One-tap launch from your home screen. No browser bars, faster startup, behaves like a native app.</div>'
+        + '</div>'
+        + '<div class="ar-eng-install-actions">'
+        +   '<button class="ar-eng-install-btn" data-action="ar-pwa-install" type="button">Install app</button>'
+        + '</div>'
+        + '</div>';
+    } else if (AR_PWA.isIos()){
+      var dismissed = false;
+      try { dismissed = localStorage.getItem('ar_pwa_ios_hint_dismissed') === '1'; } catch(_){}
+      if (!dismissed){
+        // The iOS Share icon — square with an up arrow exiting the top.
+        var shareGlyph = '<span class="ar-eng-share-glyph">'
+          + '<svg viewBox="0 0 16 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          +   '<path d="M8 2v10"/><polyline points="5 5 8 2 11 5"/>'
+          +   '<path d="M3 8v6a2 2 0 002 2h6a2 2 0 002-2V8"/>'
+          + '</svg>'
+        + '</span>';
+        installHtml = '<div class="ar-eng-install ios">'
+          + '<div class="ar-eng-install-ico">' + phoneIcon + '</div>'
+          + '<div class="ar-eng-install-body">'
+          +   '<div class="ar-eng-install-eyebrow">Install on iPhone</div>'
+          +   '<div class="ar-eng-install-title">Add AquaRev to your home screen</div>'
+          +   '<div class="ar-eng-install-msg">Tap the Share icon ' + shareGlyph + ' at the bottom of your browser, then choose <b>Add to Home Screen</b>. Launch it like a normal app — no more typing the URL.</div>'
+          + '</div>'
+          + '<div class="ar-eng-install-actions">'
+          +   '<button class="ar-eng-install-btn outline" data-action="ar-pwa-ios-hint-dismiss" type="button">Got it</button>'
+          + '</div>'
+          + '</div>';
+      }
+    }
+  }
+
+  // Shell paints immediately with a loading row so the engineer sees the
+  // page chrome render fast even if the assignments fetch is slow.
+  mountEl.innerHTML = ''
+    + '<div class="ar-eng-wrap">'
+    +   '<div class="ar-eng-header">'
+    +     '<div class="ar-eng-eyebrow">Engineer Portal</div>'
+    +     '<div class="ar-eng-title">Hi, ' + nameDisplay + '</div>'
+    +     '<div class="ar-eng-sub">Your verification assignments. Tap one to start or continue.</div>'
+    +   '</div>'
+    +   installHtml
+    +   '<div class="ar-eng-list" id="ar-eng-assignment-list">'
+    +     '<div class="ar-eng-empty" style="opacity:.7">Loading your assignments…</div>'
+    +   '</div>'
+    +   '<div class="ar-eng-footer">'
+    +     '<button class="ar-eng-signout-btn" data-action="user-menu" type="button">Sign out</button>'
+    +   '</div>'
+    + '</div>';
+
+  // Fetch the engineer's assignments. RLS already scopes — server returns
+  // only rows where engineer_user_id = auth.uid().
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c) return;
+  c.from('engineer_assignments')
+    .select('id,status,assignment_notes,assigned_at,last_modified_at,property_id,portfolio_id,assessment_id')
+    .order('last_modified_at', { ascending: false })
+    .then(function(rs){
+      var listEl = document.getElementById('ar-eng-assignment-list');
+      if (!listEl) return;
+      if (rs.error){
+        listEl.innerHTML = '<div class="ar-eng-empty" style="color:#fca5a5">Couldn\'t load assignments: ' + esc(rs.error.message || 'unknown error') + '</div>';
+        return;
+      }
+      var rows = rs.data || [];
+      if (!rows.length){
+        listEl.innerHTML = ''
+          + '<div class="ar-eng-empty">'
+          +   '<div class="ar-eng-empty-icon"><svg viewBox="0 0 32 32" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="24" height="22" rx="3"/><line x1="4" y1="12" x2="28" y2="12"/><line x1="11" y1="4" x2="11" y2="9"/><line x1="21" y1="4" x2="21" y2="9"/></svg></div>'
+          +   '<div class="ar-eng-empty-title">No assignments yet</div>'
+          +   '<div class="ar-eng-empty-body">Your AquaRev rep will send you a property to verify when they\'re ready. Check back later.</div>'
+          + '</div>';
+        return;
+      }
+      // Per decision #5: single-assignment auto-route. If the engineer
+      // has exactly one assignment, open it directly so they don't have
+      // to click through a list of one. The flow itself decides whether
+      // to land on Step 1 (briefing not yet skipped) or Step 2.
+      if (rows.length === 1 && window.AR2_ENGINEER){
+        AR2_ENGINEER.openAssignment(rows[0].id);
+        return;
+      }
+      // Batch-resolve names for property / portfolio / assessment ids
+      // referenced by the rows so each card shows real names instead of
+      // generic 'Property assignment' labels. RLS lets engineers read
+      // these rows (assessments_engineer_select / portfolio_properties
+      // _engineer_select / portfolios_engineer_select policies).
+      var propIds = [], pfIds = [], assIds = [];
+      rows.forEach(function(r){
+        if (r.property_id)   propIds.push(r.property_id);
+        if (r.portfolio_id)  pfIds.push(r.portfolio_id);
+        if (r.assessment_id) assIds.push(r.assessment_id);
+      });
+      function uniq(arr){ var s={}; arr.forEach(function(x){ if(x) s[x]=true; }); return Object.keys(s); }
+      var lookups = [
+        uniq(propIds).length ? c.from('portfolio_properties').select('id,property_name,portfolio_id').in('id', uniq(propIds)) : Promise.resolve({data:[]}),
+        uniq(pfIds).length   ? c.from('portfolios').select('id,name').in('id', uniq(pfIds))                                  : Promise.resolve({data:[]}),
+        uniq(assIds).length  ? c.from('assessments').select('id,property_name').in('id', uniq(assIds))                       : Promise.resolve({data:[]})
+      ];
+      // After the property lookup we also need to resolve the parent
+      // portfolio names referenced by property.portfolio_id (so the
+      // row can render the "Resort A → Pool 3" context).
+      Promise.all(lookups).then(function(arr){
+        var propById = {}; (arr[0].data || []).forEach(function(p){ propById[p.id] = p; });
+        var pfById   = {}; (arr[1].data || []).forEach(function(p){ pfById[p.id]   = p; });
+        var assById  = {}; (arr[2].data || []).forEach(function(p){ assById[p.id]  = p; });
+        // Pull in any portfolio names the property rows point at.
+        var extraPfIds = [];
+        (arr[0].data || []).forEach(function(p){ if (p.portfolio_id && !pfById[p.portfolio_id]) extraPfIds.push(p.portfolio_id); });
+        var extraPfP = extraPfIds.length
+          ? c.from('portfolios').select('id,name').in('id', uniq(extraPfIds)).then(function(r2){
+              (r2.data || []).forEach(function(p){ pfById[p.id] = p; });
+            }, function(){})
+          : Promise.resolve();
+        return extraPfP.then(function(){
+          listEl.innerHTML = rows.map(function(r){
+            var statusPill = '';
+            if      (r.status === 'pending')     statusPill = '<span class="ar-eng-pill amber">Pending</span>';
+            else if (r.status === 'in_progress') statusPill = '<span class="ar-eng-pill yellow">In progress</span>';
+            else if (r.status === 'submitted')   statusPill = '<span class="ar-eng-pill blue">Sent for review</span>';
+            else if (r.status === 'reviewed')    statusPill = '<span class="ar-eng-pill green">Reviewed</span>';
+            else if (r.status === 'locked')      statusPill = '<span class="ar-eng-pill gray">Locked</span>';
+            var lastEdit = r.last_modified_at
+              ? new Date(r.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+              : '';
+            // Resolve a friendly name + sub-context for this row:
+            //   • Property in a portfolio → "Pool 3" + sub "Portfolio: Resort Bay"
+            //   • Standalone property     → property name
+            //   • Standalone portfolio    → portfolio name (legacy, pre-fan-out)
+            //   • Assessment              → assessment property name
+            var primary = 'Assignment';
+            var subContext = '';
+            if (r.property_id){
+              var p = propById[r.property_id];
+              primary = p ? (p.property_name || 'Property') : 'Property (removed)';
+              if (p && p.portfolio_id){
+                var pf = pfById[p.portfolio_id];
+                subContext = 'Portfolio: ' + (pf ? pf.name : 'Unknown');
+              }
+            } else if (r.portfolio_id){
+              var pfStandalone = pfById[r.portfolio_id];
+              primary = pfStandalone ? pfStandalone.name : 'Portfolio (removed)';
+              subContext = 'Entire portfolio';
+            } else if (r.assessment_id){
+              var ass = assById[r.assessment_id];
+              primary = ass ? (ass.property_name || 'Assessment') : 'Assessment (removed)';
+              subContext = 'Standalone assessment';
+            }
+            var subLine = subContext + (subContext && lastEdit ? ' · ' : '')
+              + (lastEdit ? 'Last activity ' + esc(lastEdit) : '')
+              + (r.assignment_notes ? ' · ' + esc(r.assignment_notes) : '');
+            return ''
+              + '<div class="ar-eng-row" data-engineer-assignment="' + esc(r.id) + '">'
+              +   '<div class="ar-eng-row-main">'
+              +     '<div class="ar-eng-row-name">' + esc(primary) + '</div>'
+              +     '<div class="ar-eng-row-sub">' + subLine + '</div>'
+              +   '</div>'
+              +   '<div class="ar-eng-row-status">' + statusPill + '</div>'
+              + '</div>';
+          }).join('');
+        });
+      });
+    }, function(err){
+      var listEl = document.getElementById('ar-eng-assignment-list');
+      if (listEl) listEl.innerHTML = '<div class="ar-eng-empty" style="color:#fca5a5">Couldn\'t load assignments: ' + esc((err && err.message) || 'network error') + '</div>';
+    });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   AR2_ENGINEER — Engineer Portal verification flow (Phase 2)
+   ────────────────────────────────────────────────────────────────────
+   Self-contained module that handles the 4-step verification flow once
+   an engineer has opened an assignment:
+     Step 1 · Briefing       (orientation video + skip toggle)
+     Step 2 · Property review (confirm access, gallons)
+     Step 3 · Pool profiles  (per-pool return-line + notes; media in
+                              a follow-up ship)
+     Step 4 · Review & submit (preview + Send to AquaRev for review)
+
+   State lives in a module-private object. Render functions read it,
+   action handlers mutate it + persist via Supabase. Auto-save is
+   debounced (600ms) and updates engineer_verifications.
+   ──────────────────────────────────────────────────────────────────── */
+window.AR2_ENGINEER = (function(){
+
+  // ── Module state ────────────────────────────────────────────────
+  var s = {
+    assignmentId: null,
+    assignment:   null,     // engineer_assignments row
+    scopeKind:    null,     // 'property' | 'portfolio' | 'assessment'
+    record:       null,     // The linked record (with state_json)
+    pools:        [],       // Derived from record.state_json.bodies
+    verifications: {},      // Keyed by pool_index
+    media:        [],       // engineer_media rows (pool + pump-room scoped)
+    pumpRooms:    [],       // engineer_pump_rooms rows for this assignment
+    pumpRoomDraft: null,    // {label:''} when Add modal is open
+    currentStep:  1,
+    saving:       false,
+    saveTimer:    null,
+    lastSavedAt:  null,
+    loading:      false,
+    loadError:    null,
+    propertyConfirmation: {
+      hasAccess:        null,   // true | false
+      accessBlockedReason: '',
+      gallonsMatchesRep: null,  // true | false
+      gallonsOverride:  ''
+    }
+  };
+
+  // ── Inline SVG icon helpers ─────────────────────────────────────
+  // Replaces all engineer-facing emojis (📷 🎥 ⚠ ✓ ↔ ↗ ↻ × ← → ○ ↳)
+  // with stroke-based SVG badges so they render consistently across
+  // OSes (iOS/Android emoji fonts differ wildly) and inherit color
+  // from the surrounding button for hover/disabled states.
+  function svgIconCamera(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/>'
+      + '<circle cx="12" cy="13" r="3.5"/>'
+      + '</svg>';
+  }
+  function svgIconVideo(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="2.5" y="6.5" width="13" height="11" rx="1.6"/>'
+      + '<path d="M15.5 10.2 21 7.5v9l-5.5-2.7Z"/>'
+      + '</svg>';
+  }
+  function svgIconCheck(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="4 12.5 10 18 20 6"/>'
+      + '</svg>';
+  }
+  function svgIconWarn(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M12 3.2 22 19.5H2L12 3.2Z"/>'
+      + '<line x1="12" y1="10" x2="12" y2="14.5"/>'
+      + '<circle cx="12" cy="17.4" r="0.9" fill="currentColor"/>'
+      + '</svg>';
+  }
+  function svgIconClose(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+      + '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>'
+      + '</svg>';
+  }
+  function svgIconArrowLeft(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="14 5 7 12 14 19"/><line x1="7" y1="12" x2="20" y2="12"/>'
+      + '</svg>';
+  }
+  function svgIconArrowRight(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="10 5 17 12 10 19"/><line x1="4" y1="12" x2="17" y2="12"/>'
+      + '</svg>';
+  }
+  function svgIconReplay(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M3 12a9 9 0 1 0 3.2-6.9"/><polyline points="3 4 3 10 9 10"/>'
+      + '</svg>';
+  }
+  function svgIconHelp(){
+    // Matches the calculator header help icon style (circular ?).
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="9.5"/>'
+      + '<path d="M9.2 9.5a3 3 0 0 1 5.8 1c0 1.8-2.2 2.4-2.8 3.4-.2.4-.2.8-.2 1.2"/>'
+      + '<circle cx="12" cy="18" r="0.9" fill="currentColor" stroke="none"/>'
+      + '</svg>';
+  }
+  function svgIconDownload(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M12 3.5v12.5"/><polyline points="6.5 11 12 16.5 17.5 11"/><path d="M4 20h16"/>'
+      + '</svg>';
+  }
+  function svgIconSend(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M3 12 21 3 14 21l-3-8Z"/><path d="M11 13 21 3"/>'
+      + '</svg>';
+  }
+  function svgIconEmpty(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="3.5" y="5" width="17" height="14" rx="2.2"/><line x1="3.5" y1="9.5" x2="20.5" y2="9.5"/>'
+      + '</svg>';
+  }
+  function svgArrowOut(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px;margin-left:2px">'
+      + '<path d="M14 4h6v6"/><line x1="20" y1="4" x2="10" y2="14"/><path d="M4 8v12h12"/>'
+      + '</svg>';
+  }
+  function svgIconPencil(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M14.5 4.5l5 5L9 20H4v-5L14.5 4.5z"/><path d="M13 6l5 5"/>'
+      + '</svg>';
+  }
+  function svgIconApplyDown(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="5 5 5 13 16 13"/><polyline points="12 9 16 13 12 17"/>'
+      + '</svg>';
+  }
+  function svgIconClock(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>'
+      + '</svg>';
+  }
+
+  function client(){
+    return (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  }
+  function currentUser(){
+    return (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+  }
+  function mountEl(){
+    return document.getElementById('ar2-bank');
+  }
+  function repaint(){
+    var m = mountEl();
+    if (m && typeof renderEngineerPortalShell === 'function') renderEngineerPortalShell(m);
+  }
+
+  // ── Cross-reload state persistence ────────────────────────────────
+  // The deploy auto-refresher (webflow-embed-pf.html) reloads the page
+  // on every new sandbox version. Without this, engineers mid-flow get
+  // bounced back to their assignment list on every deploy. We stash
+  // the active assignmentId + currentStep in localStorage so the next
+  // boot can restore exactly where they were. Server-persisted data
+  // (verifications, media, pump rooms) is unaffected — this only
+  // restores the UI position.
+  var ENG_STATE_KEY = 'ar2:engineer:active-assignment';
+  function _persistActiveState(){
+    if (!s.assignmentId){ try { localStorage.removeItem(ENG_STATE_KEY); } catch(_){} return; }
+    try {
+      localStorage.setItem(ENG_STATE_KEY, JSON.stringify({
+        assignmentId: s.assignmentId,
+        currentStep:  s.currentStep,
+        savedAt:      Date.now()
+      }));
+    } catch(_){}
+  }
+  function _readPersistedState(){
+    try {
+      var raw = localStorage.getItem(ENG_STATE_KEY);
+      if (!raw) return null;
+      var p = JSON.parse(raw);
+      // Cap restore validity at 30 days so a stale token from a long-ago
+      // session can't pin a different engineer's user to the wrong record.
+      if (!p || !p.assignmentId) return null;
+      if (p.savedAt && (Date.now() - p.savedAt) > 30 * 24 * 60 * 60 * 1000){
+        try { localStorage.removeItem(ENG_STATE_KEY); } catch(_){}
+        return null;
+      }
+      return p;
+    } catch(_){ return null; }
+  }
+  function _clearPersistedState(){ try { localStorage.removeItem(ENG_STATE_KEY); } catch(_){} }
+
+  // ── Open / close ────────────────────────────────────────────────
+  function openAssignment(assignmentId){
+    if (!assignmentId) return;
+    s.assignmentId = assignmentId;
+    s.assignment = null;
+    s.record = null;
+    s.pools = [];
+    s.verifications = {};
+    s.media = [];
+    s.pumpRooms = [];
+    s.pumpRoomDraft = null;
+    s.loading = true;
+    s.loadError = null;
+    // Implicit access confirmation: the act of opening the assignment
+    // from the portal already proves the engineer is on-site / on-record
+    // for this property. Drop the explicit "Confirm Access" gate on
+    // Step 2 — the engineer keeps the option to FLAG blocked access if
+    // something is wrong, but no longer has to click "I have access"
+    // every time they open a property.
+    s.propertyConfirmation.hasAccess = true;
+    s.propertyConfirmation.accessBlockedReason = '';
+    _persistActiveState();
+    // Show step 1 immediately so the engineer sees the briefing while we
+    // fetch the assignment details in the background. If the engineer has
+    // already skipped briefing (briefing_skipped on app_users), we jump
+    // straight to step 2 once the load completes.
+    s.currentStep = 1;
+    repaint();
+    // Scroll to the top so the engineer lands on the page header /
+    // briefing card, not wherever the previous list view was scrolled.
+    if (typeof scrollAppTop === 'function') scrollAppTop();
+    fetchAssignmentBundle();
+  }
+  function closeAssignment(){
+    if (s.saveTimer){ clearTimeout(s.saveTimer); s.saveTimer = null; }
+    s.assignmentId = null;
+    s.assignment = null;
+    s.record = null;
+    s.pools = [];
+    s.verifications = {};
+    s.media = [];
+    s.pumpRooms = [];
+    s.pumpRoomDraft = null;
+    s.currentStep = 1;
+    s.loading = false;
+    s.loadError = null;
+    _clearPersistedState();
+    // Admins who opened the portal via "Review in portal" should return
+    // to the archive (where their normal admin chrome lives), not the
+    // engineer assignment list (which is empty for them).
+    var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    if (isAdminViewing){
+      document.body.classList.remove('pf-engineer-mode');
+      if (typeof showView === 'function') { showView('bank'); return; }
+    }
+    repaint();
+    // Land at top of the assignment list on every return.
+    if (typeof scrollAppTop === 'function') scrollAppTop();
+  }
+
+  /* Load the assignment row + linked record + any prior verifications.
+     One round-trip per resource — small enough at engineer scale not to
+     warrant batching. Errors surface in the UI via s.loadError. */
+  function fetchAssignmentBundle(){
+    var c = client();
+    if (!c){ s.loading = false; s.loadError = 'Cloud unavailable.'; repaint(); return; }
+    c.from('engineer_assignments')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,engineer_property_notes,status,locked_at,assigned_at,last_modified_at,submitted_at,reviewed_at')
+      .eq('id', s.assignmentId)
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        s.assignment = rs.data;
+        s.scopeKind = rs.data.property_id ? 'property'
+                    : rs.data.portfolio_id ? 'portfolio'
+                    : 'assessment';
+        return fetchScopeRecord(rs.data);
+      })
+      .then(function(record){
+        s.record = record;
+        s.pools = derivePoolList(record);
+        return fetchVerifications(s.assignmentId);
+      })
+      .then(function(verifs){
+        s.verifications = verifs;
+        // Pre-fill verifications from the assessment's per-body device
+        // counts so engineers see return lines + water type populated on
+        // first open. Backfills onto EXISTING verification rows that
+        // are missing data (e.g., assignments opened before the seed
+        // feature shipped). In-memory only — gets persisted by the
+        // next save or by the submit() flush.
+        s.pools.forEach(function(p){
+          var existing = s.verifications[p.index];
+          if (existing){
+            // Backfill missing fields only. Don't touch values the
+            // engineer has already set.
+            var changed = false;
+            if (!existing.pool_type && p.defaultPoolType){
+              existing.pool_type = p.defaultPoolType;
+              changed = true;
+            }
+            if ((!existing.return_lines || !existing.return_lines.length)
+                && p.defaultReturnLines && p.defaultReturnLines.length){
+              existing.return_lines = p.defaultReturnLines.map(function(l){
+                return { count: l.count, diameter: l.diameter };
+              });
+              changed = true;
+            }
+            if (changed) existing._seededFromAssessment = true;
+            return;
+          }
+          var seeded = {
+            pool_index:   p.index,
+            return_lines: (p.defaultReturnLines || []).map(function(l){ return { count:l.count, diameter:l.diameter }; }),
+            pool_type:    p.defaultPoolType || null,
+            _seededFromAssessment: true
+          };
+          // Only seed if there's actually something to seed (skips empty pools).
+          if (seeded.return_lines.length || seeded.pool_type) s.verifications[p.index] = seeded;
+        });
+        return fetchMedia(s.assignmentId);
+      })
+      .then(function(media){
+        s.media = media;
+        return fetchPumpRooms(s.assignmentId);
+      })
+      .then(function(rooms){
+        s.pumpRooms = rooms;
+        s.loading = false;
+        // Skip the briefing step on subsequent visits if the engineer has
+        // marked it dismissed. Per decision #8, that flag is DB-persisted
+        // on app_users.briefing_skipped so it follows them across devices.
+        var u = currentUser();
+        if (u && u.briefing_skipped && s.currentStep === 1){
+          s.currentStep = 2;
+        }
+        // Also bump status from pending → in_progress on first open if
+        // the engineer touches anything. Initial open alone doesn't, so
+        // a curious engineer who just looks doesn't flip the status.
+        repaint();
+      })
+      .catch(function(err){
+        s.loading = false;
+        s.loadError = (err && err.message) || 'Could not load assignment.';
+        // If the stored assignment is no longer accessible (deleted,
+        // reassigned, different user), drop the persistence token so
+        // the next reload lands on the normal assignment list instead
+        // of repeatedly hitting this same error.
+        _clearPersistedState();
+        repaint();
+      });
+  }
+
+  function fetchScopeRecord(assignment){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud unavailable'));
+    if (assignment.property_id){
+      return c.from('portfolio_properties')
+        .select('id,property_name,formatted_address,country,state_json,ex_json,computed_kpis')
+        .eq('id', assignment.property_id)
+        .single()
+        .then(function(rs){ if (rs.error) throw new Error(rs.error.message); return rs.data; });
+    }
+    if (assignment.assessment_id){
+      return c.from('assessments')
+        .select('id,property_name,snapshot,summary')
+        .eq('id', assignment.assessment_id)
+        .single()
+        .then(function(rs){
+          if (rs.error) throw new Error(rs.error.message);
+          // Normalize assessment shape to match property_id shape so the
+          // step renderers don't branch — fold snapshot.state into state_json.
+          var snap = rs.data.snapshot || {};
+          return {
+            id: rs.data.id,
+            property_name: rs.data.property_name,
+            formatted_address: (snap.state && snap.state.formattedAddress) || '',
+            country: '',
+            state_json: snap.state || {},
+            ex_json: snap.ex || {},
+            computed_kpis: rs.data.summary || {}
+          };
+        });
+    }
+    // portfolio_id — Phase 2 v1 shows portfolio-level metadata only.
+    // Per-property iteration within a portfolio is a Phase 2 follow-up.
+    return c.from('portfolios')
+      .select('id,name,client_contact_name')
+      .eq('id', assignment.portfolio_id)
+      .single()
+      .then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        return {
+          id: rs.data.id,
+          property_name: rs.data.name,
+          formatted_address: '',
+          country: '',
+          state_json: { bodies: [], manualVolume: false, manualPoolCount: 0 },
+          ex_json: {},
+          computed_kpis: {}
+        };
+      });
+  }
+
+  function fetchVerifications(assignmentId){
+    var c = client();
+    if (!c) return Promise.resolve({});
+    return c.from('engineer_verifications')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at')
+      .eq('assignment_id', assignmentId)
+      .then(function(rs){
+        if (rs.error) return {};
+        var map = {};
+        (rs.data || []).forEach(function(v){ map[v.pool_index] = v; });
+        return map;
+      }, function(){ return {}; });
+  }
+  function fetchMedia(assignmentId){
+    var c = client();
+    if (!c) return Promise.resolve([]);
+    return c.from('engineer_media')
+      .select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,caption,uploaded_at')
+      .eq('assignment_id', assignmentId)
+      .order('uploaded_at', { ascending: true })
+      .then(function(rs){ return (rs.data || []); }, function(){ return []; });
+  }
+  function fetchPumpRooms(assignmentId){
+    var c = client();
+    if (!c) return Promise.resolve([]);
+    return c.from('engineer_pump_rooms')
+      .select('id,label,notes,created_at')
+      .eq('assignment_id', assignmentId)
+      .order('created_at', { ascending: true })
+      .then(function(rs){ return (rs.data || []); }, function(){ return []; });
+  }
+  // Create a new pump room. label is required + unique per assignment.
+  // Resolves with the new pump room row. Engineer-only; admins typically
+  // don't create pump rooms (they review the engineer's submissions).
+  function createPumpRoom(label){
+    var c = client();
+    var u = currentUser();
+    if (!c || !u || !s.assignmentId) return Promise.reject(new Error('not ready'));
+    var clean = (label || '').trim();
+    if (!clean) return Promise.reject(new Error('Pump room ID is required.'));
+    return c.from('engineer_pump_rooms').insert({
+      assignment_id:      s.assignmentId,
+      label:              clean,
+      created_by_user_id: u.id
+    }).select('id,label,notes,created_at').single().then(function(rs){
+      if (rs.error){
+        // Duplicate label or other DB error — surface clean message.
+        var msg = rs.error.message || '';
+        if (msg.indexOf('duplicate') !== -1 || msg.indexOf('unique') !== -1){
+          throw new Error('A pump room called "' + clean + '" already exists.');
+        }
+        throw new Error(msg || 'Could not save pump room.');
+      }
+      s.pumpRooms.push(rs.data);
+      bumpLastModified();
+      return rs.data;
+    });
+  }
+  // Update an existing pump room's label. Same uniqueness rules as create.
+  function renamePumpRoom(pumpRoomId, label){
+    var c = client();
+    if (!c || !pumpRoomId) return Promise.reject(new Error('not ready'));
+    var clean = (label || '').trim();
+    if (!clean) return Promise.reject(new Error('Pump room ID is required.'));
+    return c.from('engineer_pump_rooms')
+      .update({ label: clean })
+      .eq('id', pumpRoomId)
+      .select('id,label,notes,created_at').single().then(function(rs){
+        if (rs.error){
+          var msg = rs.error.message || '';
+          if (msg.indexOf('duplicate') !== -1 || msg.indexOf('unique') !== -1){
+            throw new Error('A pump room called "' + clean + '" already exists.');
+          }
+          throw new Error(msg || 'Could not rename pump room.');
+        }
+        var i;
+        for (i = 0; i < s.pumpRooms.length; i++){
+          if (s.pumpRooms[i].id === pumpRoomId){ s.pumpRooms[i] = rs.data; break; }
+        }
+        bumpLastModified();
+        return rs.data;
+      });
+  }
+  function deletePumpRoom(pumpRoomId){
+    var c = client();
+    if (!c || !pumpRoomId) return Promise.reject(new Error('not ready'));
+    // Optimistic local removal so the UI feels snappy.
+    s.pumpRooms = s.pumpRooms.filter(function(r){ return r.id !== pumpRoomId; });
+    // Also drop any walkthrough media from local state — the cascade FK
+    // takes care of the DB rows + storage path is cleaned next sweep.
+    s.media = s.media.filter(function(m){ return m.pump_room_id !== pumpRoomId; });
+    // And clear pump_room_id on any pool verification that referenced it.
+    Object.keys(s.verifications).forEach(function(k){
+      if (s.verifications[k].pump_room_id === pumpRoomId){
+        s.verifications[k].pump_room_id = null;
+      }
+    });
+    repaint();
+    return c.from('engineer_pump_rooms').delete().eq('id', pumpRoomId).then(function(){
+      bumpLastModified();
+    });
+  }
+  // Helper: bump the assignment's last_modified_at so retention windows
+  // and rep dashboards reflect the engineer's latest activity.
+  function bumpLastModified(){
+    var c = client();
+    if (!c || !s.assignmentId) return;
+    s.lastSavedAt = new Date();
+    c.from('engineer_assignments').update({ last_modified_at: new Date().toISOString() }).eq('id', s.assignmentId);
+  }
+
+  /* Derive the pool list from the linked record's state_json.bodies.
+     Each pool's metadata seeds the verification card — engineer sees the
+     rep's saved gallons + dimensions and confirms or overrides. */
+  function derivePoolList(record){
+    if (!record || !record.state_json) return [];
+    var sj = record.state_json;
+    if (sj.manualVolume){
+      var n = Math.max(1, Number(sj.manualPoolCount) || 1);
+      var perPoolGallons = Math.round((Number(sj.manualTotalGallons) || 0) / n);
+      var pools = [];
+      for (var i = 0; i < n; i++){
+        pools.push({ index: i, name: 'Pool ' + (i + 1), gallonsRep: perPoolGallons, isManual: true, image: null });
+      }
+      return pools;
+    }
+    if (!Array.isArray(sj.bodies)) return [];
+    return sj.bodies.map(function(b, i){
+      var g = typeof bodyGallons === 'function' ? Math.round(bodyGallons(b)) : 0;
+      // Pre-populate return-line rows from the rep's per-body device
+      // counts (pipe_2in / 3in / 4in / 6in / 8in / 10in). Engineer
+      // sees these filled in immediately and edits / confirms /
+      // removes as needed. Pre-populating saves them retyping data
+      // already on the assessment.
+      var defaultLines = [];
+      ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'].forEach(function(k){
+        var count = Number(b[k]) || 0;
+        if (count > 0){
+          defaultLines.push({ count: count, diameter: parseInt(k.split('_')[1], 10) });
+        }
+      });
+      // Map rep poolType (chlorine / saltwater) onto engineer pool_type
+      // (fresh / saltwater). chlorine → fresh; saltwater stays.
+      var defaultPoolType = b.poolType === 'saltwater' ? 'saltwater'
+                          : b.poolType === 'chlorine'  ? 'fresh'
+                          : '';
+      return {
+        index: i,
+        name: b.label || ('Pool ' + (i + 1)),
+        gallonsRep: g,
+        type: b.poolType || '',
+        depth: b.depth || '',
+        image: b.image || null,
+        defaultReturnLines: defaultLines,
+        defaultPoolType: defaultPoolType
+      };
+    });
+  }
+  /* Engineer-added pools live alongside the assessment-derived ones.
+     They surface as verification rows with is_engineer_added=true and
+     pool_index >= the assessment's body count. Rendering combines both
+     sources so the engineer sees a unified pool list in Step 3. */
+  function combinedPools(){
+    var base = s.pools.slice();
+    Object.keys(s.verifications).forEach(function(k){
+      var v = s.verifications[k];
+      var i = Number(k);
+      if (v.is_engineer_added && !base.find(function(p){ return p.index === i; })){
+        base.push({
+          index: i,
+          name: v.pool_name_override || ('Pool ' + (i + 1)),
+          gallonsRep: 0,
+          isEngineerAdded: true,
+          image: null
+        });
+      }
+    });
+    base.sort(function(a,b){ return a.index - b.index; });
+    return base;
+  }
+  /* Compute the next free pool_index for a new engineer-added pool. */
+  function nextPoolIndex(){
+    var max = -1;
+    s.pools.forEach(function(p){ if (p.index > max) max = p.index; });
+    Object.keys(s.verifications).forEach(function(k){ if (Number(k) > max) max = Number(k); });
+    return max + 1;
+  }
+
+  // ── Step navigation ─────────────────────────────────────────────
+  function goToStep(n){
+    n = Math.max(1, Math.min(4, n | 0));
+    s.currentStep = n;
+    _persistActiveState();
+    repaint();
+    // Land the engineer at the top of the calculator chrome on every
+    // step transition so they're never half-scrolled down the previous
+    // step's form. Same scrollAppTop helper the rest of the calculator
+    // uses on its own step advances.
+    if (typeof scrollAppTop === 'function') scrollAppTop();
+  }
+  function isStepComplete(n){
+    if (n === 1) return true;  // Briefing is always considered complete (skippable)
+    if (n === 2){
+      // Property step gates were removed (Phase 7.1):
+      //   • Access confirmation is implicit on portal entry — see
+      //     openAssignment() — engineers only interact with Step 2 to
+      //     FLAG access issues, not to confirm normal access.
+      //   • Total-volume confirmation happens per-pool in Steps 3 & 4,
+      //     so the property-level gallons check is redundant.
+      // Either of those steps may still be FLAGGED (blocked access,
+      // discrepancy reason) — those flags don't gate progress, they
+      // just surface in the rep's review.
+      return true;
+    }
+    if (n === 3){
+      // Pool cards are locked until at least one pump room has media.
+      // Step 3 cannot be complete while pool cards remain locked.
+      if (!anyPumpRoomHasMedia()) return false;
+      // Every pool (assessment-derived OR engineer-added) needs:
+      //   • At least one return-line row (pipe count + diameter), AND
+      //   • At least one photo OR video uploaded.
+      var allPools = combinedPools();
+      if (!allPools.length) return false;
+      return allPools.every(function(p){
+        var v = s.verifications[p.index];
+        if (!v || !Array.isArray(v.return_lines) || v.return_lines.length === 0) return false;
+        return poolHasMedia(p.index);
+      });
+    }
+    return true;
+  }
+  // Pump-room media gate. At least one walkthrough video OR one
+  // supporting photo on any pump room unlocks the pool cards.
+  function anyPumpRoomHasMedia(){
+    if (!s.pumpRooms || !s.pumpRooms.length) return false;
+    for (var i = 0; i < s.pumpRooms.length; i++){
+      var c = countMediaForPumpRoom(s.pumpRooms[i].id);
+      if (c.photo > 0 || c.video > 0) return true;
+    }
+    return false;
+  }
+  // Helper: does this pool have at least one persisted photo OR video?
+  // Used by isStepComplete(3) and per-card "Complete" check.
+  function poolHasMedia(poolIndex){
+    for (var i = 0; i < s.media.length; i++){
+      var m = s.media[i];
+      if (m.pool_index !== poolIndex) continue;
+      if (m._uploading) continue;     // don't count in-flight placeholders
+      if (m.media_type === 'photo' || m.media_type === 'video') return true;
+    }
+    return false;
+  }
+
+  // ── Save logic (debounced) ──────────────────────────────────────
+  /* Propagate the engineer\'s pool-level changes back to the parent
+     assessment / portfolio_property via the SECURITY DEFINER RPC
+     engineer_apply_pool_to_record. Best-effort — failure is logged but
+     doesn\'t block the verification save. Only fires for pools that
+     overlap the rep\'s body roster; engineer-added pools beyond the
+     roster get appended into bodies[] too.
+
+     Patch shape mirrors the body record:
+       label             (from pool_name_override)
+       poolType          ('chlorine' for engineer pool_type 'fresh',
+                          'saltwater' for 'saltwater')
+       manualGallons     (from confirmed_gallons; surfaces in rep UI)
+       inputMode         (forces manualGallons mode on rep view)
+       pipe_2in..pipe_10in (from return_lines)
+  */
+  function _propagatePoolToParent(poolIndex, v){
+    var c = client();
+    if (!c || !s.assignmentId) return;
+    // Build the patch from the engineer's verification state.
+    var patch = {};
+    if (v.pool_name_override) patch.label = v.pool_name_override;
+    if (v.pool_type === 'fresh')     patch.poolType = 'chlorine';
+    else if (v.pool_type === 'saltwater') patch.poolType = 'saltwater';
+    if (v.confirmed_gallons){
+      patch.manualGallons = String(v.confirmed_gallons);
+      patch.inputMode = 'gallons';
+    }
+    // Translate return_lines back to pipe_2in/3in/4in/6in/8in/10in counts
+    if (Array.isArray(v.return_lines) && v.return_lines.length){
+      // Zero the canonical six first so removed lines clear properly.
+      patch.pipe_2in = 0; patch.pipe_3in = 0; patch.pipe_4in = 0;
+      patch.pipe_6in = 0; patch.pipe_8in = 0; patch.pipe_10in = 0;
+      v.return_lines.forEach(function(line){
+        var d = Number(line.diameter) || 0;
+        var n = Number(line.count) || 0;
+        if (n <= 0) return;
+        if (d === 2)  patch.pipe_2in  += n;
+        else if (d === 3)  patch.pipe_3in  += n;
+        else if (d === 4)  patch.pipe_4in  += n;
+        else if (d === 6)  patch.pipe_6in  += n;
+        else if (d === 8)  patch.pipe_8in  += n;
+        else if (d === 10) patch.pipe_10in += n;
+      });
+    }
+    // No-op if there's nothing meaningful to write.
+    if (Object.keys(patch).length === 0) return;
+    c.rpc('engineer_apply_pool_to_record', {
+      p_assignment_id: s.assignmentId,
+      p_pool_index:    poolIndex,
+      p_patch:         patch
+    }).then(function(rs){
+      if (rs && rs.error){
+        try { console.warn('[engineer propagate] RPC error', rs.error); } catch(_){}
+      }
+    }, function(err){
+      try { console.warn('[engineer propagate] network error', err); } catch(_){}
+    });
+  }
+
+  // Per-pool save timers — previously a single s.saveTimer was shared
+  // across every pool, so rapid edits jumping between pools clobbered
+  // each other's debounce: only the last touched pool ever fired its
+  // persist call, and changes typed into the earlier pool sat in
+  // s.verifications without ever reaching the DB. Maintaining one
+  // timer per pool fixes that — each pool's debounce window is
+  // independent and every dirty pool persists.
+  function scheduleSave(poolIndex){
+    if (!s._poolSaveTimers) s._poolSaveTimers = {};
+    if (s._poolSaveTimers[poolIndex]) clearTimeout(s._poolSaveTimers[poolIndex]);
+    s._poolSaveTimers[poolIndex] = setTimeout(function(){
+      delete s._poolSaveTimers[poolIndex];
+      persistVerification(poolIndex);
+    }, 600);
+    s.saving = true;
+  }
+
+  /* Debounced save for the property-wide General Notes textarea
+     (Step 3 bottom). Persists to engineer_assignments.engineer_property_notes.
+     One timer — only one field on the page. Updates the local
+     s.assignment cache after a successful write so refocus doesn't
+     show stale content. */
+  function savePropertyNotesDebounced(value){
+    s._propNotesLocal = value;
+    s.saving = true;
+    if (s._propNotesTimer) clearTimeout(s._propNotesTimer);
+    s._propNotesTimer = setTimeout(function(){
+      s._propNotesTimer = null;
+      var c = client();
+      if (!c || !s.assignmentId) { s.saving = false; return; }
+      c.from('engineer_assignments')
+        .update({ engineer_property_notes: value || null,
+                  last_modified_at: new Date().toISOString() })
+        .eq('id', s.assignmentId)
+        .then(function(rs){
+          s.saving = false;
+          if (rs && rs.error){
+            s.lastSaveError = rs.error.message || 'save failed';
+            try { console.error('[engineer property notes] save error', rs.error); } catch(_){}
+          } else {
+            if (s.assignment) s.assignment.engineer_property_notes = value || null;
+            s.lastSaveError = null;
+            s.lastSavedAt = Date.now();
+          }
+          if (typeof _refreshSavedIndicator === 'function') _refreshSavedIndicator();
+        }, function(err){
+          s.saving = false;
+          s.lastSaveError = (err && err.message) || 'network error';
+          try { console.error('[engineer property notes] network error', err); } catch(_){}
+          if (typeof _refreshSavedIndicator === 'function') _refreshSavedIndicator();
+        });
+    }, 700);
+  }
+  // True when a text input / textarea inside the engineer flow has
+  // focus. Used to skip full repaints so engineers can type without
+  // losing focus + scroll position every keystroke.
+  function _engineerFlowInputFocused(){
+    var el = document.activeElement;
+    if (!el || !el.tagName) return false;
+    var tag = el.tagName;
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+    // Only count fields inside the engineer flow tree.
+    return !!(el.closest && el.closest('#ar2-bank'));
+  }
+  // Targeted DOM refresh for the "Saved Xs ago" indicator inside the
+  // header — used in place of a full repaint when an input is focused.
+  function _refreshSavedIndicator(){
+    var el = document.querySelector('#ar2-bank .ar-eng-saved');
+    if (!el) return;
+    if (s.lastSaveError){
+      el.textContent = '⚠ Save failed: ' + s.lastSaveError;
+      el.style.color = '#fca5a5';
+      return;
+    }
+    el.style.color = '';
+    if (s.saving){ el.textContent = 'Saving…'; return; }
+    if (s.lastSavedAt){
+      var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
+      el.textContent = 'Saved ' + (secs < 5 ? 'just now' : secs + 's ago');
+    }
+  }
+  // Conditional repaint: skip when an engineer-flow input is focused
+  // (typing in progress) and just refresh the saved-at indicator
+  // instead. Caller passes a typed-input flag explicitly when known
+  // so the heuristic doesn't have to inspect the DOM.
+  function _safeRepaint(typedInputContext){
+    if (typedInputContext || _engineerFlowInputFocused()){
+      _refreshSavedIndicator();
+      return;
+    }
+    repaint();
+  }
+
+  function persistVerification(poolIndex){
+    var c = client();
+    if (!c) return;
+    var v = s.verifications[poolIndex];
+    if (!v) return;
+    var payload = {
+      assignment_id: s.assignmentId,
+      pool_index:    poolIndex,
+      confirmed_gallons: v.confirmed_gallons != null ? Number(v.confirmed_gallons) : null,
+      return_lines: v.return_lines || [],
+      notes: v.notes || null,
+      has_discrepancy: !!v.has_discrepancy,
+      discrepancy_reason: v.discrepancy_reason || null,
+      pump_room_id: v.pump_room_id || null,
+      pool_name_override: v.pool_name_override || null,
+      is_engineer_added: !!v.is_engineer_added,
+      pool_type: v.pool_type || null,
+      updated_at: new Date().toISOString()
+    };
+    c.from('engineer_verifications')
+      .upsert(payload, { onConflict: 'assignment_id,pool_index' })
+      .select('id,updated_at')
+      .single()
+      .then(function(rs){
+        if (rs.error){
+          s.saving = false;
+          // Surface save failures visibly so a silent RLS / schema
+          // problem doesn't make the engineer think their work was
+          // saved when it wasn't.
+          s.lastSaveError = rs.error.message || 'Save failed';
+          try { console.error('[engineer save] verification upsert failed', rs.error); } catch(_){}
+          _safeRepaint();
+          return;
+        }
+        s.lastSaveError = null;
+        if (rs.data){
+          s.verifications[poolIndex].id = rs.data.id;
+          s.verifications[poolIndex].updated_at = rs.data.updated_at;
+        }
+        s.saving = false;
+        s.lastSavedAt = new Date();
+        // Propagate the engineer's pool-level changes BACK to the parent
+        // assessment / portfolio_property so the rep / admin see the
+        // updated specs on the assessment record. Without this, the
+        // engineer's confirmed gallons / pool name / water type / return
+        // lines live only in engineer_verifications and the assessment's
+        // state_json still shows the rep's original estimates.
+        try { _propagatePoolToParent(poolIndex, v); } catch(_){}
+        // Bump assignment status pending → in_progress on first save
+        if (s.assignment && s.assignment.status === 'pending'){
+          c.from('engineer_assignments')
+            .update({ status: 'in_progress', last_modified_at: new Date().toISOString() })
+            .eq('id', s.assignmentId)
+            .then(function(){ s.assignment.status = 'in_progress'; });
+        }
+        _safeRepaint();
+      }, function(err){
+        s.saving = false;
+        s.lastSaveError = (err && err.message) || 'Network error';
+        try { console.error('[engineer save] verification network error', err); } catch(_){}
+        _safeRepaint();
+      });
+  }
+
+  function updateVerification(poolIndex, patch, opts){
+    var v = s.verifications[poolIndex] || { pool_index: poolIndex, return_lines: [] };
+    for (var k in patch){ if (patch.hasOwnProperty(k)) v[k] = patch[k]; }
+    s.verifications[poolIndex] = v;
+    scheduleSave(poolIndex);
+    // Skip the repaint when the caller is a text-input handler (which
+    // would clobber the active input and scroll the page back to the
+    // top on every keystroke). The state mutation already happened —
+    // the live DOM still shows what the engineer typed. The next
+    // user-driven repaint (button click, navigation) refreshes the
+    // dependent UI bits (Complete pill, divergence warning, etc.).
+    if (opts && opts.silent){
+      _refreshSavedIndicator();
+      return;
+    }
+    _safeRepaint();
+  }
+
+  // ── Submit ──────────────────────────────────────────────────────
+  function submit(){
+    var c = client();
+    if (!c) return;
+    s.saving = true;
+    repaint();
+    var oldStatus = s.assignment && s.assignment.status;
+    // Flush any pre-seeded verifications that the engineer never edited
+    // but accepted by adding media / advancing through the flow. Without
+    // this, the DB would have empty return_lines for pools where the
+    // engineer relied entirely on assessment defaults.
+    var seedFlushPromises = [];
+    Object.keys(s.verifications).forEach(function(k){
+      var v = s.verifications[k];
+      if (!v || !v._seededFromAssessment) return;
+      if (!Array.isArray(v.return_lines) || v.return_lines.length === 0) return;
+      var payload = {
+        assignment_id: s.assignmentId,
+        pool_index:    Number(k),
+        confirmed_gallons: v.confirmed_gallons != null ? Number(v.confirmed_gallons) : null,
+        return_lines:      v.return_lines || [],
+        notes:             v.notes || null,
+        has_discrepancy:   !!v.has_discrepancy,
+        discrepancy_reason: v.discrepancy_reason || null,
+        pump_room_id:      v.pump_room_id || null,
+        pool_name_override: v.pool_name_override || null,
+        is_engineer_added: !!v.is_engineer_added,
+        pool_type:         v.pool_type || null,
+        updated_at:        new Date().toISOString()
+      };
+      seedFlushPromises.push(
+        c.from('engineer_verifications').upsert(payload, { onConflict: 'assignment_id,pool_index' }).select('id').single()
+          .then(function(rs){
+            if (rs && rs.data){
+              v.id = rs.data.id;
+              v._seededFromAssessment = false;
+            }
+          }, function(){})
+      );
+    });
+    Promise.all(seedFlushPromises).then(_submitStatusFlip);
+    function _submitStatusFlip(){
+    c.from('engineer_assignments')
+      .update({ status: 'submitted', submitted_at: new Date().toISOString(), last_modified_at: new Date().toISOString() })
+      .eq('id', s.assignmentId)
+      .then(function(rs){
+        s.saving = false;
+        if (rs.error){ alert('Send failed: ' + rs.error.message); repaint(); return; }
+        s.assignment.status = 'submitted';
+        s.assignment.submitted_at = new Date().toISOString();
+        // Audit + fan-out notifications. Both are best-effort.
+        if (window.AR_AUDIT) AR_AUDIT.log('engineer_assignments', s.assignmentId, {
+          status: { from: oldStatus, to: 'submitted' }
+        }, 'engineer submit');
+        if (window.AR_NOTIFY){
+          AR_NOTIFY.engineerSubmitted(s.assignmentId).then(function(res){
+            if (res && res.error){
+              // Surface notification failure so the engineer doesn't
+              // think the rep got pinged when they didn't. The
+              // submission itself succeeded — only the notification
+              // fan-out failed.
+              try {
+                var msg = (res.error.message || res.error.code || 'unknown');
+                console.warn('[engineer submit] notifications skipped:', msg);
+                var bdN = document.querySelector('#ar2-bank .ar-eng-flow-header');
+                if (bdN){
+                  var warnEl = document.createElement('div');
+                  warnEl.className = 'ar-eng-admin-banner';
+                  warnEl.style.cssText = 'background:rgba(240,165,0,.1);border-color:rgba(240,165,0,.42);';
+                  warnEl.innerHTML = '<b style="color:#f0a500">⚠ Sent, but admin notification failed.</b> Reason: <code>' + esc(msg) + '</code>';
+                  bdN.appendChild(warnEl);
+                }
+              } catch(_){}
+            }
+          });
+        }
+        // Confetti! The engineer just finished a full property review —
+        // fire from the Send button if we can find it, otherwise center
+        // burst. confettiBurst is a no-op if it errors so the success
+        // path is never blocked by a sparkle bug.
+        try {
+          if (typeof confettiBurst === 'function'){
+            var btn = document.querySelector('[data-action="ar-eng-submit"]');
+            confettiBurst({ count: 70, originEl: btn || null });
+          }
+        } catch(_){}
+        repaint();
+      }, function(err){
+        s.saving = false;
+        alert('Send failed: ' + ((err && err.message) || 'network error'));
+        repaint();
+      });
+    }  // _submitStatusFlip
+  }
+
+  // ── Media upload / management ───────────────────────────────────
+  //
+  // Phase 2 — media uploads. Photos are compressed client-side before
+  // upload (canvas resize to 1920px max, JPEG q0.8). Videos upload
+  // as-is for v1; client-side video compression would require WebCodecs
+  // or an external lib and is deferred. Storage path convention:
+  //   assignment_<assignment_uuid>/p<poolIdx>_<timestamp>_<filename>
+  // The first folder segment matches the RLS policy on storage.objects,
+  // so engineers can only upload into their own assignment's path.
+
+  // Signed URL cache so thumbnails don't re-sign on every render
+  var _signedUrlCache = {};
+
+  /* Compress an image File to a target max dimension + JPEG quality.
+     Resolves to a Blob suitable for upload. Skips compression entirely
+     for files already small (<300KB) — re-encoding tiny images adds
+     latency without saving bytes. */
+  function compressImage(file, maxDim, quality){
+    return new Promise(function(resolve, reject){
+      if (!file || file.type.indexOf('image/') !== 0) return reject(new Error('not an image'));
+      if (file.size < 300 * 1024) return resolve(file);
+      var img = new Image();
+      var objUrl = URL.createObjectURL(file);
+      img.onload = function(){
+        try {
+          var w = img.naturalWidth || img.width;
+          var h = img.naturalHeight || img.height;
+          if (Math.max(w, h) > maxDim){
+            var scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(function(blob){
+            URL.revokeObjectURL(objUrl);
+            if (blob) resolve(blob);
+            else reject(new Error('compression failed'));
+          }, 'image/jpeg', quality || 0.8);
+        } catch(err){
+          URL.revokeObjectURL(objUrl);
+          reject(err);
+        }
+      };
+      img.onerror = function(){
+        URL.revokeObjectURL(objUrl);
+        reject(new Error('image load failed'));
+      };
+      img.src = objUrl;
+    });
+  }
+
+  /* Upload a file to Storage + insert an engineer_media row. Enforces
+     the per-pool limits (10 photos, 4 videos) before kicking off the
+     upload — the DB allows more so admins can override via raw SQL,
+     but the client UI hard-caps. */
+  // target = pool index (number) OR object { kind:'pumpRoom', id }
+  function uploadMedia(target, file){
+    var c = client();
+    var u = currentUser();
+    if (!c || !u || !file) return Promise.reject(new Error('not ready'));
+    var mediaType = file.type.indexOf('image/') === 0 ? 'photo'
+                  : file.type.indexOf('video/') === 0 ? 'video'
+                  : null;
+    if (!mediaType) return Promise.reject(new Error('Only photos and videos are supported.'));
+
+    // Normalize the target. Numbers are still treated as pool indexes
+    // (back-compat). The pump-room form passes an explicit object.
+    var isPumpRoom = !!(target && target.kind === 'pumpRoom');
+    var poolIndex  = isPumpRoom ? null : (typeof target === 'object' ? target.poolIndex : target);
+    var pumpRoomId = isPumpRoom ? target.id : null;
+
+    if (!isPumpRoom){
+      // Per-pool counter check (decision #14: 10 photos · 4 videos per pool)
+      var counts = countMediaForPool(poolIndex);
+      if (mediaType === 'photo' && counts.photo >= 10) return Promise.reject(new Error('This pool is at the 10-photo limit. Remove a photo before adding a new one.'));
+      if (mediaType === 'video' && counts.video >= 4)  return Promise.reject(new Error('This pool is at the 4-video limit. Remove a video before adding a new one.'));
+    } else {
+      // Pump rooms get one walkthrough video (replaces on re-upload) and
+      // up to 4 supporting photos. Keep video limit at 1 by removing any
+      // previous video for the same pump room before adding a new one.
+      var prCounts = countMediaForPumpRoom(pumpRoomId);
+      if (mediaType === 'video' && prCounts.video >= 1){
+        return Promise.reject(new Error('Each pump room holds one walkthrough video. Remove the existing one first.'));
+      }
+      if (mediaType === 'photo' && prCounts.photo >= 6){
+        return Promise.reject(new Error('Pump room photo limit is 6. Remove a photo before adding a new one.'));
+      }
+    }
+
+    // Mark UI as uploading so the card shows a spinner stub
+    var transientId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    var transientRow = {
+      id: transientId,
+      pool_index: poolIndex,
+      pump_room_id: pumpRoomId,
+      media_type: mediaType,
+      _uploading: true,
+      filename_original: file.name
+    };
+    s.media.push(transientRow);
+    repaint();
+
+    // Compress photos before upload; videos upload as-is
+    var prep = mediaType === 'photo'
+      ? compressImage(file, 1920, 0.8).catch(function(){ return file; })
+      : Promise.resolve(file);
+
+    return prep.then(function(blob){
+      var ext = mediaType === 'photo'
+        ? 'jpg'
+        : (file.name.split('.').pop() || 'mp4').toLowerCase();
+      var slug = isPumpRoom
+        ? 'pr_' + pumpRoomId.slice(0, 8)
+        : 'p' + poolIndex;
+      var storagePath = 'assignment_' + s.assignmentId + '/' + slug + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,6) + '.' + ext;
+      return c.storage.from('engineer-media').upload(storagePath, blob, {
+        contentType: mediaType === 'photo' ? 'image/jpeg' : file.type,
+        cacheControl: '3600',
+        upsert: false
+      }).then(function(rs){
+        if (rs.error) throw rs.error;
+        var insertRow = {
+          assignment_id:        s.assignmentId,
+          storage_path:         storagePath,
+          media_type:           mediaType,
+          filename_original:    file.name,
+          size_bytes:           blob.size || file.size,
+          uploaded_by_user_id:  u.id
+        };
+        if (isPumpRoom) insertRow.pump_room_id = pumpRoomId;
+        else            insertRow.pool_index   = poolIndex;
+        return c.from('engineer_media').insert(insertRow)
+          .select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').single();
+      }).then(function(rs2){
+        if (rs2.error) throw rs2.error;
+        // Replace the transient placeholder with the real row
+        s.media = s.media.filter(function(m){ return m.id !== transientId; });
+        s.media.push(rs2.data);
+        // Bump assignment last_modified_at so the dormant-record retention
+        // timer resets — engineers actively documenting won't lose media
+        // to the 1-year cleanup.
+        c.from('engineer_assignments').update({ last_modified_at: new Date().toISOString() }).eq('id', s.assignmentId);
+        s.lastSavedAt = new Date();
+        repaint();
+      });
+    }).catch(function(err){
+      // Drop the transient placeholder + surface the error
+      s.media = s.media.filter(function(m){ return m.id !== transientId; });
+      repaint();
+      throw err;
+    });
+  }
+
+  // Pump-room media counts. Mirrors countMediaForPool — videos and
+  // photos counted separately because pump-room caps differ from pool.
+  function countMediaForPumpRoom(pumpRoomId){
+    var photo = 0, video = 0;
+    s.media.forEach(function(m){
+      if (m.pump_room_id !== pumpRoomId) return;
+      if (m._uploading) return;
+      if (m.media_type === 'photo') photo++;
+      if (m.media_type === 'video') video++;
+    });
+    return { photo: photo, video: video };
+  }
+
+  /* Remove a media item from Storage + DB. The Storage delete is
+     attempted first; even if it fails (e.g. already gone), we still
+     delete the DB row so the UI doesn't show ghosts. */
+  function removeMedia(mediaId){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud unavailable'));
+    var m = s.media.find(function(x){ return x.id === mediaId; });
+    if (!m) return Promise.resolve();
+    // Optimistic: remove from local state immediately
+    s.media = s.media.filter(function(x){ return x.id !== mediaId; });
+    repaint();
+    // Storage delete, then DB delete. Bucket-name singular helper API.
+    return Promise.all([
+      c.storage.from('engineer-media').remove([m.storage_path]).catch(function(){}),
+      c.from('engineer_media').delete().eq('id', mediaId)
+    ]);
+  }
+
+  function countMediaForPool(poolIndex){
+    var photo = 0, video = 0;
+    s.media.forEach(function(m){
+      if (m.pool_index !== poolIndex) return;
+      if (m._uploading) return; // don't count placeholders against the limit
+      if (m.media_type === 'photo') photo++;
+      if (m.media_type === 'video') video++;
+    });
+    return { photo: photo, video: video };
+  }
+
+  /* Signed URL for a Storage path. Caches results for 50 minutes (under
+     the 60-min Supabase Storage default expiry) so re-renders don't
+     re-sign. Callers can invalidate by clearing _signedUrlCache. */
+  function getSignedUrl(storagePath){
+    var cached = _signedUrlCache[storagePath];
+    if (cached && cached.expires > Date.now()) return Promise.resolve(cached.url);
+    var c = client();
+    if (!c) return Promise.resolve('');
+    return c.storage.from('engineer-media').createSignedUrl(storagePath, 3600).then(function(rs){
+      if (rs.error || !rs.data) return '';
+      var url = rs.data.signedUrl || rs.data.signedURL || '';
+      _signedUrlCache[storagePath] = { url: url, expires: Date.now() + 50 * 60 * 1000 };
+      return url;
+    });
+  }
+
+  /* Apply Pool 1's verification data to all other pools that haven't
+     been verified yet. Time-saver for properties with identical pool
+     decks. Per decision #9. */
+  function applyPool1ToRest(){
+    var src = s.verifications[0];
+    if (!src || !Array.isArray(src.return_lines) || src.return_lines.length === 0){
+      alert('Set up Pool 1 first — confirmed gallons and at least one return line — before applying to the rest.');
+      return;
+    }
+    var copied = 0;
+    s.pools.forEach(function(p){
+      if (p.index === 0) return;
+      var existing = s.verifications[p.index];
+      if (existing && existing.return_lines && existing.return_lines.length > 0) return; // don't stomp
+      var patch = {
+        return_lines: JSON.parse(JSON.stringify(src.return_lines)),
+        notes: src.notes || null,
+        confirmed_gallons: p.gallonsRep || null   // use this pool's rep value, not pool 1's
+      };
+      updateVerification(p.index, patch);
+      copied++;
+    });
+    if (copied > 0){
+      alert('Applied Pool 1 setup to ' + copied + ' empty pool' + (copied === 1 ? '' : 's') + '.');
+    } else {
+      alert('No empty pools to apply to — all other pools already have return lines.');
+    }
+  }
+
+  // ── Lightbox for thumbnails ─────────────────────────────────────
+  function openMediaLightbox(storagePath, mediaType, opts){
+    closeMediaLightbox();
+    var bd = document.createElement('div');
+    bd.className = 'ar-eng-lightbox-backdrop';
+    bd.id = 'ar-eng-lightbox';
+    bd.innerHTML = '<button class="ar-eng-lightbox-close" data-action="ar-eng-lightbox-close" type="button" aria-label="Close">' + svgIconClose() + '</button>'
+      + '<div class="ar-eng-lightbox-content"><div style="padding:30px;color:#7db8cc;font-size:13px">Loading…</div></div>';
+    document.body.appendChild(bd);
+    // Backdrop-click closes only when the click target IS the backdrop
+    // (not bubbling from the image/video content). Keeps the lightbox
+    // usable — clicking the image to play/pause a video doesn't dismiss.
+    // The X button click also closes; we attach the handler here because
+    // the lightbox sits on document.body, OUTSIDE #ar2, so the global
+    // ar-eng-* click router never sees it.
+    bd.addEventListener('click', function(e){
+      if (e.target === bd){ closeMediaLightbox(); return; }
+      var closer = e.target.closest('[data-action="ar-eng-lightbox-close"]');
+      if (closer){ closeMediaLightbox(); return; }
+    });
+    // Escape closes.
+    var onKey = function(e){ if (e.key === 'Escape') closeMediaLightbox(); };
+    document.addEventListener('keydown', onKey);
+    bd._onKey = onKey;
+    // direct-URL mode (reference images from assessments) skips the
+    // signed-URL fetch — the URL is already usable (data: or HTTPS).
+    var urlPromise = (opts && opts.directUrl)
+      ? Promise.resolve(storagePath)
+      : getSignedUrl(storagePath);
+    urlPromise.then(function(url){
+      if (!url) return;
+      var content = bd.querySelector('.ar-eng-lightbox-content');
+      if (!content) return;
+      if (mediaType === 'video'){
+        content.innerHTML = '<video src="' + esc(url) + '" controls playsinline autoplay></video>';
+      } else {
+        content.innerHTML = '<img src="' + esc(url) + '" alt="" />';
+      }
+    });
+  }
+  function closeMediaLightbox(){
+    var el = document.getElementById('ar-eng-lightbox');
+    if (el){
+      if (el._onKey) document.removeEventListener('keydown', el._onKey);
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }
+  }
+
+  // ── Briefing skip toggle ────────────────────────────────────────
+  function setBriefingSkipped(skip){
+    var c = client();
+    var u = currentUser();
+    if (!c || !u) return;
+    c.from('app_users').update({ briefing_skipped: !!skip }).eq('id', u.id)
+      .then(function(){
+        // Update local user object so subsequent renders honor the flag
+        if (u) u.briefing_skipped = !!skip;
+      });
+  }
+
+  // ── Render dispatch ─────────────────────────────────────────────
+  function renderCurrentStep(mount){
+    if (!mount) mount = mountEl();
+    if (!mount) return;
+    if (s.loadError){
+      mount.innerHTML = '<div class="ar-eng-wrap"><div class="ar-eng-empty" style="color:#fca5a5">' + esc(s.loadError) + '<br><br><button class="ar-eng-signout-btn" data-action="ar-eng-close-assignment" type="button">Back to assignments</button></div></div>';
+      return;
+    }
+    if (s.loading){
+      mount.innerHTML = '<div class="ar-eng-wrap"><div class="ar-eng-empty" style="opacity:.7">Loading assignment…</div></div>';
+      return;
+    }
+    if (s.currentStep === 1) return renderBriefingStep(mount);
+    if (s.currentStep === 2) return renderPropertyStep(mount);
+    if (s.currentStep === 3) return renderPoolsStep(mount);
+    if (s.currentStep === 4) return renderReviewStep(mount);
+  }
+
+  function stepperHtml(current){
+    var labels = ['Briefing','Property','Pools','Review'];
+    var html = '<div class="ar-eng-stepper">';
+    for (var i = 1; i <= 4; i++){
+      var stateCls = i < current ? 'done' : (i === current ? 'current' : 'pending');
+      html += '<button class="ar-eng-step ' + stateCls + '" data-action="ar-eng-goto-step" data-step="' + i + '" type="button">'
+            +   '<span class="ar-eng-step-num">' + (i < current ? svgIconCheck() : i) + '</span>'
+            +   '<span class="ar-eng-step-lbl">' + labels[i-1] + '</span>'
+            + '</button>';
+      if (i < 4) html += '<span class="ar-eng-step-bar ' + (i < current ? 'done' : '') + '"></span>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function headerHtml(subtitle){
+    var locked = s.assignment && s.assignment.status === 'locked';
+    var lockBanner = locked
+      ? '<div class="ar-eng-lock-banner">This assignment was locked by AquaRev. Contact your rep to reopen for edits.</div>'
+      : '';
+    var savedNote = '';
+    if (s.lastSaveError){
+      savedNote = '<span class="ar-eng-saved" style="color:#fca5a5">' + svgIconWarn() + ' Save failed: ' + esc(s.lastSaveError) + '</span>';
+    } else if (s.saving){
+      savedNote = '<span class="ar-eng-saved">Saving…</span>';
+    } else if (s.lastSavedAt){
+      var secs = Math.round((Date.now() - s.lastSavedAt.getTime()) / 1000);
+      savedNote = '<span class="ar-eng-saved">Saved ' + (secs < 5 ? 'just now' : secs + 's ago') + '</span>';
+    }
+    var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    var backLabel = isAdminViewing ? 'Back to Archive' : 'All assignments';
+    // Admin Review Mode chip — compact aqua pill + info button.
+    // Replaces the old wordy 2-line banner. Full explanation lives in
+    // a popover (showEngInfoModal) opened by the info icon.
+    var adminBanner = isAdminViewing
+      ? '<div class="ar-eng-admin-chip">'
+        +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z"/></svg>'
+        +   '<span>Admin Review Mode</span>'
+        +   '<button class="ar-eng-admin-chip-info" data-action="ar-eng-admin-mode-info" type="button" aria-label="What does this mean?" title="What does this mean?">'
+        +     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="7.5" r=".7" fill="currentColor"/></svg>'
+        +   '</button>'
+        + '</div>'
+      : '';
+    return '<div class="ar-eng-flow-header">'
+      +   '<div class="ar-eng-header-top">'
+      +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' ' + backLabel + '</button>'
+      +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
+      +   '</div>'
+      +   adminBanner
+      +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
+      +   (subtitle ? '<div class="ar-eng-prop-sub">' + esc(subtitle) + '</div>' : '')
+      +   savedNote
+      + '</div>' + lockBanner;
+  }
+
+  /* Help drawer — single source of truth for engineer guidance per step.
+     Opens from the ? button in the flow header. Content adapts to the
+     current step. Always-available "Watch briefing again" button replays
+     the orientation video. */
+  function openHelpDrawer(){
+    var existing = document.getElementById('ar-eng-help-drawer');
+    if (existing){ if (existing.parentNode) existing.parentNode.removeChild(existing); return; }
+    var step = s.currentStep;
+    var stepContent = {
+      1: ''
+        + '<div class="ar-eng-help-section">Step 1 — Briefing</div>'
+        + '<p>A 60–90 second orientation video. Watch once, then check <b>"Don\'t show this again"</b> to skip it on future logins.</p>'
+        + '<p>If you ever want to rewatch it, tap the button below.</p>'
+        + '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconReplay() + ' Watch the briefing again</button>'
+        + '<div class="ar-eng-help-section" style="margin-top:24px">Install on your phone</div>'
+        + '<p>Add AquaRev to your home screen so you can launch it like a regular app.</p>'
+        + '<p><b>iPhone (Safari or Chrome):</b> tap the Share icon at the bottom of the browser, then choose <b>Add to Home Screen</b>.</p>'
+        + '<p><b>Android (Chrome):</b> a blue "Install" banner appears at the bottom — or tap the ⋮ menu and choose <b>Install app</b>.</p>'
+        + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments + signed-in session are remembered on the icon. No browser bars, no URL typing.</p>',
+      2: ''
+        + '<div class="ar-eng-help-section">Step 2 — Property review</div>'
+        + '<p><b>Access is auto-confirmed</b> the moment you open this assignment from the portal — so you don\'t need to tap anything to start.</p>'
+        + '<p>If something blocks you on-site (locked equipment room, missing keys), tap <b>Report blocked access</b> and add a quick note. Your rep gets it immediately.</p>'
+        + '<p>Total volume is verified per-pool in Step 3 and rolled up in Step 4 — no separate check on this page.</p>',
+      3: ''
+        + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
+        + '<p><b>Start with the Pump Rooms section at the top.</b> Tap <b>+ Add Pump Room</b> for every equipment room you walked through, give each one a short ID (e.g. <i>PR-1</i>, <i>North equipment</i>), and record a quick walkthrough video. You\'ll link pools to their rooms below.</p>'
+        + '<p><b>For each pool, you need three things to mark it complete:</b></p>'
+        + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Match Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
+        + '<p style="margin-left:14px"><b>2. Add return lines</b> — one row per pipe configuration. Use +/− for line count, the dropdown for diameter. Add multiple rows if pipe sizes vary.</p>'
+        + '<p style="margin-left:14px"><b>3. Photograph the return lines</b> — required for every pool. Get one clear close-up of each pipe size showing the diameter, plus a wider shot of the full return wall. A short video panning across the lines is great for clustered piping. Cameras open automatically on mobile; photos are compressed before upload.</p>'
+        + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it.</p>'
+        + '<p><b>Pipe diameters at a glance:</b></p>'
+        + pipeDiameterReferenceSvg()
+        + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across. Set one next to the pipe for scale in your photo.</p>'
+        + '<p>If the deck has multiple identical pools, tap <b>Apply Pool 1 to remaining pools</b> — saves typing.</p>',
+      4: ''
+        + '<div class="ar-eng-help-section">Step 4 — Review and send</div>'
+        + '<p>Skim the summary. Any pool missing required items (return lines, media) is flagged in amber — tap <b>Back to pools</b> to fix.</p>'
+        + '<p>Tap <b>Send to AquaRev for review</b> when you\'re done. Your rep gets a notification instantly.</p>'
+        + '<p><b>You can keep editing after sending</b> — re-open any record from your assignment list to upload more photos or correct mistakes. Resending just notifies your rep that there\'s a fresh update.</p>'
+        + '<p>You can also <b>download a PDF</b> of your verification report from this step for your own records.</p>'
+    };
+    var bd = document.createElement('div');
+    bd.id = 'ar-eng-help-drawer';
+    bd.className = 'ar-eng-help-drawer-backdrop';
+    bd.innerHTML = '<div class="ar-eng-help-drawer-panel" role="dialog" aria-modal="true">'
+      + '<div class="ar-eng-help-drawer-head">'
+      +   '<div class="ar-eng-help-drawer-title">Help &amp; Tips</div>'
+      +   '<button class="ar-eng-help-close" data-action="ar-eng-help-close" type="button" aria-label="Close">' + svgIconClose() + '</button>'
+      + '</div>'
+      + '<div class="ar-eng-help-drawer-body">' + (stepContent[step] || '<p>No tips for this step.</p>') + '</div>'
+      + '</div>';
+    document.body.appendChild(bd);
+    bd.addEventListener('click', function(e){
+      if (e.target === bd){ closeHelpDrawer(); return; }
+      var act = e.target.closest('[data-action]');
+      if (!act) return;
+      var actName = act.getAttribute('data-action');
+      if (actName === 'ar-eng-help-close'){ closeHelpDrawer(); return; }
+      // Drawer is mounted on document.body, OUTSIDE #ar2, so the root
+      // click router never sees these clicks. Route ar-eng-* manually so
+      // the "Watch the briefing again" button (and any future drawer
+      // actions) work. Always close the drawer first so the engineer
+      // sees the destination step they navigated to.
+      if (actName.indexOf('ar-eng-') === 0){
+        closeHelpDrawer();
+        try { handleAction(actName, act); } catch(_){}
+      }
+    });
+    var onKey = function(e){ if (e.key === 'Escape') closeHelpDrawer(); };
+    document.addEventListener('keydown', onKey);
+    bd._onKey = onKey;
+  }
+  function closeHelpDrawer(){
+    var el = document.getElementById('ar-eng-help-drawer');
+    if (el){
+      if (el._onKey) document.removeEventListener('keydown', el._onKey);
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }
+  }
+
+  /* Small centred info modal — same visual language as the platform
+     showHelpModal (Bebas-Neue aqua title, blurred backdrop, gradient
+     card). Used for short contextual tips like "What to shoot for each
+     pool" so we no longer fall back to the browser-native alert(). */
+  function showEngInfoModal(title, bodyHtml){
+    var existing = document.getElementById('ar-eng-info-modal');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var m = document.createElement('div');
+    m.id = 'ar-eng-info-modal';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+    m.innerHTML = '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:28px 32px;max-width:520px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">'
+      +     '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase">' + esc(title || '') + '</div>'
+      +     '<button data-action="ar-eng-info-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
+      +   '</div>'
+      +   '<div style="font-size:13px;color:#cfe2eb;line-height:1.7">' + bodyHtml + '</div>'
+      +   '<div style="margin-top:18px;display:flex;justify-content:flex-end">'
+      +     '<button data-action="ar-eng-info-close" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;border-radius:8px;padding:9px 22px;font-family:inherit;font-size:12.5px;font-weight:700;letter-spacing:.5px;cursor:pointer">Got it</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(m);
+    function close(){
+      if (m.parentNode) m.parentNode.removeChild(m);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e){ if (e.key === 'Escape') close(); }
+    m.addEventListener('click', function(e){
+      if (e.target === m){ close(); return; }
+      var act = e.target.closest && e.target.closest('[data-action="ar-eng-info-close"]');
+      if (act){ close(); }
+    });
+    document.addEventListener('keydown', onKey);
+  }
+
+  /* ───────────────────────────────────────────────────────────────
+     Custom camera overlay (pf-20260525q)
+     ───────────────────────────────────────────────────────────────
+     The OS-native camera path (input[type=file capture]) shows a
+     black preview on iPhone 16 Pro Max in both Safari and Chrome —
+     iOS WebKit launches the camera UI but never attaches the live
+     stream. Same bug surfaces in iOS PWA standalone mode and across
+     iOS 17+. Apple-side issue with no client-side workaround.
+
+     Custom camera bypasses the bug entirely: we drive the camera via
+     getUserMedia(), own the <video> element, and snapshot to canvas
+     → JPEG blob → uploadMedia(). The browser's standard camera
+     permission prompt grants access; once granted, the live preview
+     is reliable.
+
+     Falls back to the file-picker flow when:
+       • getUserMedia is unsupported (very old browsers)
+       • Camera permission is denied — the overlay shows a clear
+         message and a "Pick from library" button
+       • User explicitly taps "Pick from library" on the overlay
+     ─────────────────────────────────────────────────────────────── */
+
+  function _supportsGetUserMedia(){
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      && (window.isSecureContext !== false));
+  }
+
+  // Open a transient, single-shot file picker as the fallback path.
+  // Lazy-creates the hidden input so it's never affected by repaints.
+  function _engineerOpenFilePicker(mediaType){
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = mediaType === 'video' ? 'video/*' : 'image/*';
+    input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px;pointer-events:none';
+    // Android: hint to launch the rear camera. iOS: omit so the
+    // standard picker offers Photo Library / Take Photo / Choose File.
+    var ua = (window.navigator && window.navigator.userAgent) || '';
+    if (/Android/i.test(ua)) input.setAttribute('capture', 'environment');
+    document.body.appendChild(input);
+    input.addEventListener('change', function(){
+      var f = input.files && input.files[0];
+      var ctx = s._mediaPickContext;
+      if (f && ctx){
+        uploadMedia(ctx.target, f).catch(function(err){
+          alert((err && err.message) || 'Upload failed.');
+        });
+      }
+      s._mediaPickContext = null;
+      if (input.parentNode) input.parentNode.removeChild(input);
+    }, { once: true });
+    // Click on next frame so the input is in the DOM
+    setTimeout(function(){ input.click(); }, 0);
+  }
+
+  function openEngCameraOverlay(onCapture, onPickFallback){
+    // Strip any prior overlay so re-entries don't stack.
+    var prior = document.getElementById('ar-eng-cam');
+    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
+
+    var bd = document.createElement('div');
+    bd.id = 'ar-eng-cam';
+    bd.className = 'ar-eng-cam';
+    bd.innerHTML = ''
+      + '<div class="ar-eng-cam-stage" id="ar-eng-cam-stage">'
+      +   '<video id="ar-eng-cam-video" playsinline autoplay muted></video>'
+      +   '<div class="ar-eng-cam-msg" id="ar-eng-cam-msg" style="display:none"></div>'
+      +   '<div class="ar-eng-cam-top">'
+      +     '<button class="ar-eng-cam-close" id="ar-eng-cam-close" aria-label="Close" type="button">×</button>'
+      +     '<button class="ar-eng-cam-flip" id="ar-eng-cam-flip" aria-label="Flip camera" title="Flip camera" type="button">'
+      +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.5"/><path d="M8 9l-1.5 1.5"/></svg>'
+      +     '</button>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="ar-eng-cam-bottom" id="ar-eng-cam-bottom">'
+      +   '<div class="ar-eng-cam-side"><button class="ar-eng-cam-pick" id="ar-eng-cam-pick" type="button">Library</button></div>'
+      +   '<button class="ar-eng-cam-shutter" id="ar-eng-cam-shutter" aria-label="Take photo" type="button"></button>'
+      +   '<div class="ar-eng-cam-side"></div>'
+      + '</div>';
+    document.body.appendChild(bd);
+
+    var stream = null;
+    var currentFacing = 'environment';
+    var lastBlob = null;
+    var video  = bd.querySelector('#ar-eng-cam-video');
+    var msgEl  = bd.querySelector('#ar-eng-cam-msg');
+    var closeBtn = bd.querySelector('#ar-eng-cam-close');
+    var flipBtn  = bd.querySelector('#ar-eng-cam-flip');
+    var pickBtn  = bd.querySelector('#ar-eng-cam-pick');
+    var shutter  = bd.querySelector('#ar-eng-cam-shutter');
+    var bottom   = bd.querySelector('#ar-eng-cam-bottom');
+
+    function closeOverlay(){
+      stopStream();
+      if (bd.parentNode) bd.parentNode.removeChild(bd);
+    }
+    function stopStream(){
+      try { if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); } catch(_){}
+      stream = null;
+    }
+    function showMessage(title, sub, withFallback){
+      msgEl.style.display = '';
+      msgEl.innerHTML = '<b>' + esc(title) + '</b>'
+        + '<div class="ar-eng-cam-msg-sub">' + esc(sub) + '</div>'
+        + (withFallback ? '<button class="ar-eng-cam-fallback" type="button">Pick from library instead</button>' : '');
+      if (withFallback){
+        var fb = msgEl.querySelector('.ar-eng-cam-fallback');
+        if (fb) fb.onclick = function(){
+          closeOverlay();
+          if (typeof onPickFallback === 'function') onPickFallback();
+        };
+      }
+    }
+    function hideMessage(){ msgEl.style.display = 'none'; msgEl.innerHTML = ''; }
+
+    function startCamera(facing){
+      hideMessage();
+      stopStream();
+      var constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: facing },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      };
+      navigator.mediaDevices.getUserMedia(constraints).then(function(s2){
+        stream = s2;
+        video.srcObject = s2;
+        video.classList.toggle('front', facing === 'user');
+        // Some iOS versions block .play() until after a user gesture;
+        // this whole flow IS inside a click handler, so .play() resolves.
+        try { video.play(); } catch(_){}
+      }).catch(function(err){
+        var name = (err && err.name) || '';
+        var msg = (err && err.message) || 'Camera unavailable.';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError'){
+          showMessage('Camera permission denied',
+            'Tap Library to pick a photo from your camera roll, or grant camera access in your browser settings and reopen this page.',
+            true);
+        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError'){
+          showMessage('No camera detected',
+            'No camera was found on this device.',
+            true);
+        } else if (name === 'NotReadableError' || name === 'TrackStartError'){
+          showMessage('Camera is busy',
+            'Another app or tab is using the camera. Close it and try again.',
+            true);
+        } else {
+          showMessage('Couldn’t start camera', msg, true);
+        }
+      });
+    }
+
+    function captureFrame(){
+      if (!stream) return;
+      var w = video.videoWidth || 1920;
+      var h = video.videoHeight || 1080;
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx2d = canvas.getContext('2d');
+      // Mirror selfie frames so the saved image matches what the user
+      // saw on screen.
+      if (currentFacing === 'user'){
+        ctx2d.translate(w, 0); ctx2d.scale(-1, 1);
+      }
+      ctx2d.drawImage(video, 0, 0, w, h);
+      canvas.toBlob(function(blob){
+        if (!blob){ alert('Capture failed. Please try again.'); return; }
+        lastBlob = blob;
+        enterReview(canvas.toDataURL('image/jpeg', 0.92));
+      }, 'image/jpeg', 0.92);
+    }
+
+    function enterReview(dataUrl){
+      bd.classList.add('is-review');
+      // Replace video with still preview
+      video.style.display = 'none';
+      stopStream();
+      var img = bd.querySelector('#ar-eng-cam-review-img');
+      if (!img){
+        img = document.createElement('img');
+        img.id = 'ar-eng-cam-review-img';
+        bd.querySelector('#ar-eng-cam-stage').appendChild(img);
+      }
+      img.src = dataUrl;
+      // Swap bottom bar to retake / use buttons
+      bottom.innerHTML = '<div class="ar-eng-cam-review-actions">'
+        + '<button class="ar-eng-cam-retake" id="ar-eng-cam-retake" type="button">Retake</button>'
+        + '<button class="ar-eng-cam-use" id="ar-eng-cam-use" type="button">Use photo</button>'
+        + '</div>';
+      bd.querySelector('#ar-eng-cam-retake').onclick = function(){
+        bd.classList.remove('is-review');
+        var imgEl = bd.querySelector('#ar-eng-cam-review-img');
+        if (imgEl && imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
+        video.style.display = '';
+        // Restore the action bar
+        bottom.innerHTML = ''
+          + '<div class="ar-eng-cam-side"><button class="ar-eng-cam-pick" id="ar-eng-cam-pick" type="button">Library</button></div>'
+          + '<button class="ar-eng-cam-shutter" id="ar-eng-cam-shutter" aria-label="Take photo" type="button"></button>'
+          + '<div class="ar-eng-cam-side"></div>';
+        bd.querySelector('#ar-eng-cam-shutter').onclick = captureFrame;
+        bd.querySelector('#ar-eng-cam-pick').onclick = pickFromLibrary;
+        startCamera(currentFacing);
+      };
+      bd.querySelector('#ar-eng-cam-use').onclick = function(){
+        var useBtn = bd.querySelector('#ar-eng-cam-use');
+        if (useBtn){ useBtn.disabled = true; useBtn.textContent = 'Saving…'; }
+        var blob = lastBlob;
+        closeOverlay();
+        if (typeof onCapture === 'function') onCapture(blob);
+      };
+    }
+
+    function pickFromLibrary(){
+      closeOverlay();
+      if (typeof onPickFallback === 'function') onPickFallback();
+    }
+
+    closeBtn.onclick = closeOverlay;
+    flipBtn.onclick  = function(){
+      currentFacing = (currentFacing === 'environment') ? 'user' : 'environment';
+      startCamera(currentFacing);
+    };
+    shutter.onclick  = captureFrame;
+    pickBtn.onclick  = pickFromLibrary;
+
+    // Esc closes
+    var onKey = function(e){ if (e.key === 'Escape') closeOverlay(); };
+    document.addEventListener('keydown', onKey);
+    bd.addEventListener('remove', function(){
+      document.removeEventListener('keydown', onKey);
+    });
+
+    // Kick off
+    startCamera(currentFacing);
+  }
+
+  /* Tiny inline SVG showing the five canonical pipe diameters at scale
+     (relative). Used inside the help drawer and as a tooltip on the
+     return-line diameter selector. */
+  function pipeDiameterReferenceSvg(){
+    // Diameters are NOT to actual scale (would be too large); they're
+    // proportional to each other so visual comparison is meaningful.
+    // 2" → 16px, 3" → 22, 4" → 28, 6" → 38, 8" → 48
+    var dims = [
+      { label: '2"', d: 16 },
+      { label: '3"', d: 22 },
+      { label: '4"', d: 28 },
+      { label: '6"', d: 38 },
+      { label: '8"', d: 48 }
+    ];
+    var svg = '<div class="ar-eng-pipe-ref">';
+    dims.forEach(function(p){
+      svg += '<div class="ar-eng-pipe-ref-col">'
+        +   '<div class="ar-eng-pipe-ref-circle" style="width:' + p.d + 'px;height:' + p.d + 'px"></div>'
+        +   '<div class="ar-eng-pipe-ref-lbl">' + p.label + '</div>'
+        + '</div>';
+    });
+    svg += '</div>';
+    return svg;
+  }
+
+  function renderBriefingStep(mount){
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 1 of 4 · Welcome briefing')
+      +   stepperHtml(1)
+      +   '<div class="ar-eng-card">'
+      +     '<div class="ar-eng-eyebrow">Briefing</div>'
+      +     '<div class="ar-eng-h1">Welcome to AquaRev field verification</div>'
+      +     '<div class="ar-eng-lede">Below is a quick video briefing on the information and images we are asking for to get best results.</div>'
+      +     '<div class="ar-eng-video">'
+      +       '<iframe src="https://www.youtube-nocookie.com/embed/zWqMcZFWpyE" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
+      +     '</div>'
+      +     '<ul class="ar-eng-bullets">'
+      +       '<li><b>Confirm property access</b> on Step 2 before you start collecting data on site.</li>'
+      +       '<li><b>Verify each pool</b> on Step 3 — gallons, return lines, diameters, and any notes.</li>'
+      +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
+      +     '</ul>'
+
+      // ── Specifications briefing supplement ─────────────────────
+      // Visual reference drawn from the AquaRev Specifications Guide
+      // PDF. Gives the engineer a quick orientation to (1) where
+      // devices install in the pump room, (2) what return-pipe shots
+      // we need, and (3) the device size range so they know to
+      // capture pipe diameters carefully. Images open full-size in
+      // the existing media lightbox; full PDF link below.
+      +     '<div class="ar-eng-brief-sup">'
+      +       '<div class="ar-eng-brief-sup-hd">Specifications reference</div>'
+      +       '<div class="ar-eng-brief-sup-sub">AquaRev devices install as the last conditioning stage — in-line on the return pipe between the filter and the body of water. The photos and pipe sizes you capture on site determine correct device sizing and the best installation location.</div>'
+      +       '<div class="ar-eng-brief-imgs">'
+      +         '<button class="ar-eng-brief-fig" type="button" data-action="ar-eng-brief-zoom" data-img="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f4d1ee8f81cc5957ead786_AquaRev_Pump_Room%203.png" aria-label="Open pump-room reference">'
+      +           '<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f4d1ee8f81cc5957ead786_AquaRev_Pump_Room%203.png" alt="AquaRev device installed on return line in a pump room" loading="lazy" />'
+      +           '<div class="ar-eng-brief-fig-cap"><b>Pump room walkthrough</b>Follow supply lines through the treatment system and back to the pool. 30 sec – 2 min video.</div>'
+      +         '</button>'
+      +         '<button class="ar-eng-brief-fig" type="button" data-action="ar-eng-brief-zoom" data-img="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6d8dcbbe12cfca65b_Pipe%20Size%204.png" aria-label="Open pipe sizing reference 1">'
+      +           '<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6d8dcbbe12cfca65b_Pipe%20Size%204.png" alt="Return pipe size — close-up with tape measure" loading="lazy" />'
+      +           '<div class="ar-eng-brief-fig-cap"><b>Return pipe — close-up</b>Capture the pipe diameter on labeling, or hold a tape measure across the width.</div>'
+      +         '</button>'
+      +         '<button class="ar-eng-brief-fig" type="button" data-action="ar-eng-brief-zoom" data-img="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6c517fb01f8c84557_Pipe%20Size%203.png" aria-label="Open pipe sizing reference 2">'
+      +           '<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6c517fb01f8c84557_Pipe%20Size%203.png" alt="Return pipe size — wider angle showing configuration" loading="lazy" />'
+      +           '<div class="ar-eng-brief-fig-cap"><b>Return pipe — wide angle</b>Capture configuration and installation context. Add a sticky note if the pipe isn\'t labeled.</div>'
+      +         '</button>'
+      +       '</div>'
+      +       '<div class="ar-eng-brief-sizes">'
+      +         '<div class="ar-eng-brief-sizes-hd">Device size range — what to capture</div>'
+      +         '<table class="ar-eng-brief-sizes-tbl">'
+      +           '<thead><tr><th>Pipe</th><th>Chamber Ø</th><th>Collar Ø</th><th>Total length</th></tr></thead>'
+      +           '<tbody>'
+      +             '<tr><td>2"</td><td>5"</td><td>3.6"</td><td>20.25"</td></tr>'
+      +             '<tr><td>3"</td><td>7.25"</td><td>5.06"</td><td>24"</td></tr>'
+      +             '<tr><td>4"</td><td>9.34"</td><td>6.19"</td><td>28.19"</td></tr>'
+      +             '<tr><td>6"</td><td>13.75"</td><td>9"</td><td>40"</td></tr>'
+      +           '</tbody>'
+      +         '</table>'
+      +         '<div class="ar-eng-brief-sizes-foot">Devices need 20" – 40" of straight pipe to install. Note any tight runs in your walkthrough video.</div>'
+      +       '</div>'
+      +       '<div class="ar-eng-brief-strip">'
+      +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener">'
+      +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="12" y1="13" x2="12" y2="19"/><polyline points="9 16 12 19 15 16"/></svg>'
+      +           '<span>Download full Specifications Guide<span class="ar-eng-brief-link-sub">PDF · device sizing, placement, photo / video checklist</span></span>'
+      +         '</a>'
+      +         '<div class="ar-eng-brief-contact">'
+      +           '<b>Questions on site?</b>'
+      +           '<a href="tel:+18329796758">(832) 979-6758</a>'
+      +           '<a href="mailto:water@AquaRevWater.us">water@AquaRevWater.us</a>'
+      +         '</div>'
+      +       '</div>'
+      +     '</div>'
+
+      // ── Install AquaRev card (briefing step) ────────────────────
+      // Engineers who arrive here in a browser tab benefit from a
+      // visual cue that this works as an installed app. QR code is
+      // the easiest path on a desk-bound rep handing the page to an
+      // engineer's phone, or for an engineer with the page on
+      // desktop scanning their own phone. Hidden when already in
+      // standalone PWA mode.
+      +     (window.AR_PWA && !AR_PWA.isStandalone()
+          ? '<div class="ar-eng-brief-install">'
+            + '<div class="ar-eng-brief-install-l">'
+            +   '<div class="ar-eng-brief-install-eyebrow">Install on your phone</div>'
+            +   '<div class="ar-eng-brief-install-title">Add AquaRev to your home screen</div>'
+            +   '<div class="ar-eng-brief-install-sub">One-tap launch, no browser bars, faster startup. Scan the QR code with your phone\'s camera to open the install page there, or tap the button below to install on this device.</div>'
+            +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">Install on this device</button>'
+            + '</div>'
+            + '<div class="ar-eng-brief-install-qr">'
+            +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent('https://www.aquarevwater.us/calculator-sandbox?install=1') + '" alt="Scan to install AquaRev" />'
+            +   '<div class="ar-eng-brief-install-qr-cap">Scan with your phone</div>'
+            + '</div>'
+            + '</div>'
+          : '')
+
+      +     '<label class="ar-eng-skip-row">'
+      +       '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
+      +       '<span>Don\'t show this briefing on future visits</span>'
+      +     '</label>'
+      +     '<div class="ar-eng-actions">'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review ' + svgIconArrowRight() + '</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function renderPropertyStep(mount){
+    var rec = s.record || {};
+    var pc = s.propertyConfirmation;
+    var sj = rec.state_json || {};
+    var totalGallons = 0;
+    if (sj.manualVolume){
+      totalGallons = Number(sj.manualTotalGallons) || 0;
+    } else if (Array.isArray(sj.bodies)){
+      totalGallons = sj.bodies.reduce(function(sum, b){ return sum + (typeof bodyGallons === 'function' ? bodyGallons(b) : 0); }, 0);
+    }
+    var addr = rec.formatted_address || '(no address on file)';
+    var nameDisplay = esc(rec.property_name || 'Assignment');
+    var mapsUrl = addr && rec.formatted_address
+      ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(rec.formatted_address)
+      : '';
+
+    // Status pill — mirrors the admin Submission Review modal.
+    var asgnStatus = (s.assignment && s.assignment.status) || 'pending';
+    var statusMap = {
+      pending:     'Pending',
+      in_progress: 'In progress',
+      submitted:   'Sent for review',
+      reviewed:    'Reviewed',
+      locked:      'Locked'
+    };
+    var statusLabel = statusMap[asgnStatus] || asgnStatus;
+    var assignedTxt = (s.assignment && s.assignment.assigned_at)
+      ? new Date(s.assignment.assigned_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+      : null;
+    var submittedTxt = (s.assignment && s.assignment.submitted_at)
+      ? new Date(s.assignment.submitted_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+      : null;
+
+    // KPI counts — running totals of what the engineer has captured.
+    var photoCount = (s.media || []).filter(function(m){ return m.media_type === 'photo'; }).length;
+    var videoCount = (s.media || []).filter(function(m){ return m.media_type === 'video'; }).length;
+    var pumpRoomCount = (s.pumpRooms || []).length;
+
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 2 of 4 · Property review')
+      +   stepperHtml(2)
+      +   '<div class="ar-eng-card">'
+
+      // ── Header: eyebrow + property name on the left, status pill right
+      //    (mirrors the admin Submission Review modal layout).
+      +     '<div class="ar-admin-review-head" style="margin-bottom:14px;padding-bottom:14px">'
+      +       '<div class="ar-admin-review-head-l">'
+      +         '<div class="ar-admin-review-eyebrow">Property review</div>'
+      +         '<div class="ar-admin-review-title" style="font-size:20px">' + nameDisplay + '</div>'
+      +       '</div>'
+      +       '<span class="ar-admin-review-status ' + esc(asgnStatus) + '">' + esc(statusLabel) + '</span>'
+      +     '</div>'
+
+      // ── Metadata strip — Address (with Maps link), Pools on file,
+      //    Total volume (Estimate), Assigned / Sent dates.
+      +     '<div class="ar-admin-review-meta" style="margin-bottom:14px;padding-bottom:14px">'
+      +       '<div class="ar-admin-review-meta-item" style="flex:1 1 100%">'
+      +         '<span class="ar-admin-review-meta-lbl">Address</span>'
+      +         '<span class="ar-admin-review-meta-val">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener" style="margin-left:6px">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span>'
+      +       '</div>'
+      +       '<div class="ar-admin-review-meta-item">'
+      +         '<span class="ar-admin-review-meta-lbl">Total volume</span>'
+      +         '<span class="ar-admin-review-meta-val mono">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span>'
+      +       '</div>'
+      +       (assignedTxt
+          ? '<div class="ar-admin-review-meta-item">'
+            + '<span class="ar-admin-review-meta-lbl">Assigned</span>'
+            + '<span class="ar-admin-review-meta-val">' + esc(assignedTxt) + '</span>'
+            + '</div>'
+          : '')
+      +       (submittedTxt
+          ? '<div class="ar-admin-review-meta-item">'
+            + '<span class="ar-admin-review-meta-lbl">Last submission</span>'
+            + '<span class="ar-admin-review-meta-val">' + esc(submittedTxt) + '</span>'
+            + '</div>'
+          : '')
+      +     '</div>'
+
+      // ── KPI band — running progress at a glance. Photos cell turns
+      //    amber on 0 (matches the admin review's "no media" warning).
+      +     '<div class="ar-admin-review-kpis">'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pools</div><div class="ar-admin-review-kpi-val">' + (s.pools.length || 0) + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      +     '</div>'
+
+      // ── Pump-room chips (when any have been added on Step 3 — useful
+      //    on return visits when the engineer revisits Step 2 to verify
+      //    everything before the final submit).
+      +     (pumpRoomCount
+          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
+            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
+            + '</div>'
+          : '')
+
+      // ── Rep notes block (preserved from the original) ──────────
+      +     (s.assignment && s.assignment.assignment_notes
+          ? '<div class="ar-eng-notes" style="margin:0 0 14px"><b>Rep notes</b><div>' + esc(s.assignment.assignment_notes) + '</div></div>'
+          : '')
+
+      // ── Access flag — implicit on portal entry, so we don't ask the
+      // engineer to re-confirm. The toggle only surfaces if the engineer
+      // actively says access is blocked, in which case the reason
+      // textarea opens for them to leave a note for the rep.
+      +     '<div class="ar-eng-section-title" style="margin-top:8px">Property access</div>'
+      +     (pc.hasAccess === false
+          ? '<div class="ar-eng-access-blocked-card">'
+          +    '<div class="ar-eng-access-blocked-hd">' + svgIconWarn() + ' Access reported as blocked</div>'
+          +    '<div class="ar-eng-field"><label>What\'s blocking access?</label><textarea data-action="ar-eng-update-access-reason" rows="2" placeholder="e.g. Security key not available · Equipment room locked">' + esc(pc.accessBlockedReason || '') + '</textarea></div>'
+          +    '<div style="display:flex;gap:8px;margin-top:8px">'
+          +      '<button class="ar-eng-tiny" data-action="ar-eng-set-access" data-access="yes" type="button">' + svgIconCheck() + ' Access restored</button>'
+          +    '</div>'
+          + '</div>'
+          : '<div class="ar-eng-access-ok-row">'
+          +    '<div class="ar-eng-access-ok-msg">' + svgIconCheck() + ' Access confirmed by opening this assignment.</div>'
+          +    '<button class="ar-eng-tiny danger" data-action="ar-eng-set-access" data-access="no" type="button">' + svgIconWarn() + ' Report blocked access</button>'
+          + '</div>')
+
+      +     '<div class="ar-eng-actions">'
+      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconArrowLeft() + ' Back</button>'
+      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="3" type="button">Continue to pools ' + svgIconArrowRight() + '</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function renderPoolsStep(mount){
+    if (!s.pools.length){
+      mount.innerHTML = ''
+        + '<div class="ar-eng-wrap ar-eng-flow">'
+        +   headerHtml('Step 3 of 4 · Pool profiles')
+        +   stepperHtml(3)
+        +   '<div class="ar-eng-card"><div class="ar-eng-empty">No pools on this assignment yet. Contact your AquaRev rep if you expected to see pools here.</div></div>'
+        + '</div>';
+      return;
+    }
+    var allPools = combinedPools();
+    // Pools are LOCKED until at least one pump room has media attached
+    // (walkthrough video or supporting photo). The engineer can still
+    // see them, but inputs are disabled with a clear callout pointing
+    // up to the Pump Rooms section.
+    var poolsUnlocked = anyPumpRoomHasMedia();
+    var cardsHtml = allPools.map(function(p){ return poolCardHtml(p, !poolsUnlocked); }).join('');
+    var pumpRoomsSection = pumpRoomsSectionHtml();
+    var doneCount = allPools.filter(function(p){
+      var v = s.verifications[p.index];
+      var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      return hasLines && poolHasMedia(p.index);
+    }).length;
+    // Apply Pool 1 to Rest is only meaningful when there are 2+ pools AND
+    // Pool 1 has been documented at least partially. Hidden otherwise to
+    // avoid a confusing button on properties with one pool.
+    var canApplyToRest = s.pools.length > 1
+      && s.verifications[0]
+      && Array.isArray(s.verifications[0].return_lines)
+      && s.verifications[0].return_lines.length > 0;
+    var applyToolbar = canApplyToRest
+      ? '<div class="ar-eng-pool-toolbar"><button class="ar-eng-tiny" data-action="ar-eng-apply-pool-1" type="button">' + svgIconApplyDown() + ' Apply Pool 1 setup to remaining pools</button></div>'
+      : '';
+    var lockBanner = poolsUnlocked
+      ? ''
+      : '<div class="ar-eng-pools-locked">' + svgIconWarn() + ' <b>Pool cards are locked.</b> Add at least one pump room and attach a walkthrough video or supporting photo above before documenting pools — that\'s how the rep ties each pool back to its equipment room.</div>';
+    var addPoolBtn = poolsUnlocked
+      ? '<div class="ar-eng-pool-add-row"><button class="ar-eng-add-pool" data-action="ar-eng-pool-add" type="button">+ Add Pool</button><div class="ar-eng-pool-add-hint">Use this when you find a pool on-site that wasn\'t on the rep\'s assessment.</div></div>'
+      : '';
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + allPools.length + ' complete')
+      +   stepperHtml(3)
+      +   pumpRoomsSection
+      // Hard visual break between the Pump-Rooms section above and the
+      // Pools section below. The eyebrow + lede pair mirrors the
+      // Pump-Rooms section so the structure is symmetric and the
+      // engineer's ask shifts unmistakably from rooms → pools.
+      +   '<div class="ar-eng-pools-section">'
+      +     '<div class="ar-eng-section-hd">'
+      +       '<div class="ar-eng-section-eyebrow">Pools</div>'
+      +       '<div class="ar-eng-section-sub">Verify each pool below — gallons, water type, return lines, and at least one return-line photo. Link each pool to the pump room that serves it.</div>'
+      +     '</div>'
+      +     lockBanner
+      +     applyToolbar
+      +     '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
+      +     addPoolBtn
+      +   '</div>'
+
+      // Property-wide notes. Lives on engineer_assignments.engineer_property_notes
+      // (separate from assignment_notes, which is the rep's note TO the
+      // engineer). Anything pool-specific belongs in the per-pool Notes
+      // field — this is for property-level observations: site access
+      // quirks, contractor coordination, unusual treatment setups, etc.
+      +   '<div class="ar-eng-prop-notes-section">'
+      +     '<div class="ar-eng-section-hd">'
+      +       '<div class="ar-eng-section-eyebrow">General notes / comments</div>'
+      +       '<div class="ar-eng-section-sub">Anything about this property as a whole that doesn\'t belong on a single pool — site access, contractor coordination, treatment quirks, etc. Optional.</div>'
+      +     '</div>'
+      +     '<textarea class="ar-eng-prop-notes-input" data-action="ar-eng-prop-notes" rows="4" placeholder="e.g. Pump room shares wall with mechanical room — schedule with facility lead. Two of the salt cells were offline at time of visit." maxlength="2000">' + esc((s.assignment && s.assignment.engineer_property_notes) || '') + '</textarea>'
+      +   '</div>'
+
+      // Hidden file input — shared across pool cards. When the engineer
+      // taps + Photo or + Video on a card, the data-pool + data-media-type
+      // are stashed on the input before .click() so the change handler
+      // knows where to attach the uploaded file.
+      +   '<input type="file" id="ar-eng-media-input" style="position:absolute;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px" data-action="ar-eng-media-picked" />'
+      +   '<div class="ar-eng-actions">'
+      +     '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="2" type="button">' + svgIconArrowLeft() + ' Back</button>'
+      +     '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="4" type="button"' + (isStepComplete(3) ? '' : ' disabled') + '>Continue to review ' + svgIconArrowRight() + '</button>'
+      +   '</div>'
+      + '</div>';
+    // Post-render — lazy-load signed URLs for every thumbnail. The
+    // thumb-load attribute carries the storage path; we fetch the
+    // signed URL (cached) and inject it as background-image on the
+    // .ar-eng-thumb-img element.
+    var thumbs = mount.querySelectorAll('[data-thumb-load]');
+    for (var ti = 0; ti < thumbs.length; ti++){
+      (function(el){
+        var p = el.getAttribute('data-thumb-load');
+        getSignedUrl(p).then(function(url){
+          if (url) el.style.backgroundImage = 'url("' + url + '")';
+        });
+      })(thumbs[ti]);
+    }
+  }
+
+  /* Pump Rooms section — rendered above the pool grid in Step 3.
+     Engineers add one pump/equipment room per area, each owning a
+     walkthrough video + optional supporting photos. Pump rooms become
+     selectable in the per-pool dropdown so the rep can see which
+     equipment room serves each pool. */
+  function pumpRoomsSectionHtml(){
+    var rooms = s.pumpRooms || [];
+    var cards = rooms.map(function(r){ return pumpRoomCardHtml(r); }).join('');
+    var draftHtml = '';
+    if (s.pumpRoomDraft){
+      draftHtml = ''
+        + '<div class="ar-eng-pump-room-draft">'
+        +   '<input type="text" class="ar-eng-pump-room-input" data-action="ar-eng-pump-room-draft-input" placeholder="Pump Room ID (e.g. PR-1, North equipment)" value="' + esc(s.pumpRoomDraft.label || '') + '" maxlength="80" autofocus />'
+        +   '<button class="ar-eng-tiny" data-action="ar-eng-pump-room-save" type="button">' + svgIconCheck() + ' Save</button>'
+        +   '<button class="ar-eng-tiny ghost" data-action="ar-eng-pump-room-cancel" type="button">Cancel</button>'
+        + '</div>';
+    }
+    var addBtn = s.pumpRoomDraft
+      ? ''
+      : '<button class="ar-eng-add-pump-room" data-action="ar-eng-pump-room-add" type="button">+ Add Pump Room</button>';
+    return ''
+      + '<div class="ar-eng-pump-rooms-section">'
+      +   '<div class="ar-eng-section-hd">'
+      +     '<div class="ar-eng-section-eyebrow">Pump Rooms</div>'
+      +     '<div class="ar-eng-section-sub">One per equipment room you walked through. Capture an ID and a quick walkthrough video, then link each pool to its room below.</div>'
+      +   '</div>'
+      +   (cards
+          ? '<div class="ar-eng-pump-room-grid">' + cards + '</div>'
+          : (s.pumpRoomDraft ? '' : '<div class="ar-eng-pump-room-empty">No pump rooms yet — tap <b>Add Pump Room</b> when you reach the equipment area.</div>'))
+      +   draftHtml
+      +   addBtn
+      + '</div>';
+  }
+
+  function pumpRoomCardHtml(r){
+    var media   = s.media.filter(function(m){ return m.pump_room_id === r.id; });
+    var video   = media.find(function(m){ return m.media_type === 'video' && !m._uploading; });
+    var videoUp = media.find(function(m){ return m.media_type === 'video' &&  m._uploading; });
+    var photos  = media.filter(function(m){ return m.media_type === 'photo'; });
+    var counts  = countMediaForPumpRoom(r.id);
+    var photoAtLimit = counts.photo >= 6;
+    var poolsServed = 0;
+    Object.keys(s.verifications).forEach(function(k){
+      if (s.verifications[k].pump_room_id === r.id) poolsServed++;
+    });
+
+    var videoBlock;
+    if (videoUp){
+      videoBlock = '<div class="ar-eng-pump-room-video uploading">'
+        + svgIconVideo() + '<span class="ar-eng-thumb-spin"></span>'
+        + '<div class="ar-eng-pump-room-video-msg">Uploading walkthrough…</div>'
+        + '</div>';
+    } else if (video){
+      videoBlock = '<div class="ar-eng-pump-room-video has-video" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(video.id) + '" data-storage-path="' + esc(video.storage_path) + '" data-media-type="video" title="Play walkthrough video">'
+        + '<div class="ar-eng-pump-room-video-icon">' + svgIconVideo() + '</div>'
+        + '<div class="ar-eng-pump-room-video-msg">Walkthrough ready · tap to view</div>'
+        + '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(video.id) + '" type="button" aria-label="Remove video">' + svgIconClose() + '</button>'
+        + '</div>';
+    } else {
+      videoBlock = '<button class="ar-eng-pump-room-video empty" data-action="ar-eng-media-add" data-pump-room="' + esc(r.id) + '" data-media-type="video" type="button">'
+        + '<div class="ar-eng-pump-room-video-icon">' + svgIconVideo() + '</div>'
+        + '<div class="ar-eng-pump-room-video-msg">Record walkthrough video</div>'
+        + '</button>';
+    }
+
+    var photoThumbs = photos.map(function(m){
+      if (m._uploading){
+        return '<div class="ar-eng-thumb uploading" title="Uploading">' + svgIconCamera() + '<span class="ar-eng-thumb-spin"></span></div>';
+      }
+      return '<div class="ar-eng-thumb" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(m.id) + '" data-storage-path="' + esc(m.storage_path) + '" data-media-type="photo">'
+        +   '<div class="ar-eng-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
+        +   '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(m.id) + '" type="button" aria-label="Remove">' + svgIconClose() + '</button>'
+        + '</div>';
+    }).join('');
+
+    return '<div class="ar-eng-pump-room-card" data-pump-room-card="' + esc(r.id) + '">'
+      + '<div class="ar-eng-pump-room-head">'
+      +   '<input type="text" class="ar-eng-pump-room-label" data-action="ar-eng-pump-room-rename" data-pump-room="' + esc(r.id) + '" value="' + esc(r.label) + '" maxlength="80" />'
+      +   '<button class="ar-eng-thumb-x" data-action="ar-eng-pump-room-delete" data-pump-room="' + esc(r.id) + '" type="button" aria-label="Delete pump room">' + svgIconClose() + '</button>'
+      + '</div>'
+      + videoBlock
+      + '<div class="ar-eng-pump-room-photos">'
+      +   '<label class="ar-eng-pump-room-photos-lbl">Supporting photos <span class="ar-eng-hint">' + counts.photo + ' of 6 · optional</span></label>'
+      +   '<div class="ar-eng-thumbs">' + (photoThumbs || '<div class="ar-eng-empty-mini">No photos yet</div>') + '</div>'
+      +   '<button class="ar-eng-media-btn' + (photoAtLimit ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pump-room="' + esc(r.id) + '" data-media-type="photo" type="button"' + (photoAtLimit ? ' disabled' : '') + '>' + svgIconCamera() + ' Add photo</button>'
+      + '</div>'
+      + '<div class="ar-eng-pump-room-foot">'
+      +   '<span class="ar-eng-pump-room-stat">' + poolsServed + ' pool' + (poolsServed === 1 ? '' : 's') + ' linked</span>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function poolCardHtml(p, isLocked){
+    var v = s.verifications[p.index] || { return_lines: [] };
+    var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
+    var hasMedia = poolHasMedia(p.index);
+    var complete = hasLines && hasMedia && !isLocked;
+    var lines = v.return_lines || [];
+    var DIAMETERS = [2, 3, 4, 6, 8];
+    // dis = ' disabled' string we sprinkle on every form control while
+    // the card is locked. Buttons get aria-disabled to be safe.
+    var dis  = isLocked ? ' disabled' : '';
+    var disA = isLocked ? ' aria-disabled="true" tabindex="-1"' : '';
+    // Engineer-supplied name (override) wins over rep-supplied name.
+    var displayName = (v.pool_name_override && v.pool_name_override.trim()) || p.name || ('Pool ' + (p.index + 1));
+
+    // Media for this pool (pump-room media excluded — those rows have
+    // pool_index === null which strict-equals nothing).
+    var poolMedia = s.media.filter(function(m){ return m.pool_index === p.index; });
+    var counts = countMediaForPool(p.index);
+    var photoAtLimit = counts.photo >= 10;
+    var videoAtLimit = counts.video >= 4;
+
+    // Assessment reference image (from state_json.bodies[i].image).
+    // Engineer-added pools have no rep image. Click opens the image at
+    // larger scale in the existing media lightbox (data: URL works fine).
+    var imageBlock = '';
+    if (p.image){
+      imageBlock = '<div class="ar-eng-pool-image" data-action="ar-eng-pool-image-zoom" data-pool-image="' + esc(p.index) + '" title="Reference image from the rep\'s assessment">'
+        + '<img src="' + esc(p.image) + '" alt="Pool reference" />'
+        + '<span class="ar-eng-pool-image-tag">Reference</span>'
+        + '</div>';
+    } else if (p.isEngineerAdded){
+      imageBlock = '<div class="ar-eng-pool-image-stub">' + svgIconCamera() + ' Engineer-added pool · no reference image</div>';
+    }
+
+    var engAddedBadge = p.isEngineerAdded ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '';
+    var deleteBtn = p.isEngineerAdded
+      ? '<button class="ar-eng-thumb-x" data-action="ar-eng-pool-remove" data-pool="' + p.index + '" type="button" aria-label="Remove this engineer-added pool">' + svgIconClose() + '</button>'
+      : '';
+
+    // Pump-room linkage dropdown — only rendered when at least one
+    // pump room exists. Engineers can leave it unlinked (— None —).
+    var pumpRoomLinkHtml = '';
+    if (s.pumpRooms && s.pumpRooms.length){
+      var selectedId = v.pump_room_id || '';
+      var opts = '<option value="">— Not linked —</option>'
+        + s.pumpRooms.map(function(r){
+            return '<option value="' + esc(r.id) + '"' + (r.id === selectedId ? ' selected' : '') + '>' + esc(r.label) + '</option>';
+          }).join('');
+      pumpRoomLinkHtml = '<div class="ar-eng-field"><label>Pump room <span class="ar-eng-hint">link this pool to its equipment room</span></label>'
+        + '<select class="ar-eng-pump-room-select" data-action="ar-eng-pump-room-link" data-pool="' + p.index + '">' + opts + '</select>'
+        + '</div>';
+    }
+
+    var thumbsHtml = poolMedia.map(function(m){
+      if (m._uploading){
+        return '<div class="ar-eng-thumb uploading" title="Uploading ' + esc(m.filename_original || '') + '…">' + (m.media_type === 'video' ? svgIconVideo() : svgIconCamera()) + '<span class="ar-eng-thumb-spin"></span></div>';
+      }
+      var typeIcon = m.media_type === 'video' ? svgIconVideo() : '';
+      return '<div class="ar-eng-thumb" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(m.id) + '" data-storage-path="' + esc(m.storage_path) + '" data-media-type="' + esc(m.media_type) + '">'
+        +   '<div class="ar-eng-thumb-img" data-thumb-load="' + esc(m.storage_path) + '"></div>'
+        +   (typeIcon ? '<span class="ar-eng-thumb-type">' + typeIcon + '</span>' : '')
+        +   '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(m.id) + '" type="button" aria-label="Remove">' + svgIconClose() + '</button>'
+        + '</div>';
+    }).join('');
+
+    // Discrepancy badge — soft inline notice when engineer's confirmed
+    // gallons differ from the Estimate by more than 5%. The "explain it"
+    // textarea was removed per UX feedback — engineers can leave that
+    // commentary in the per-pool Notes field below, no need for a
+    // dedicated input here that duplicates the same answer.
+    var divergenceWarning = '';
+    if (p.gallonsRep > 0 && v.confirmed_gallons != null && v.confirmed_gallons > 0){
+      var diff = Math.abs(v.confirmed_gallons - p.gallonsRep);
+      var pct  = diff / p.gallonsRep;
+      if (pct > 0.05){
+        divergenceWarning = '<div class="ar-eng-discrepancy">'
+          + '<div class="ar-eng-discrepancy-title">' + svgIconWarn() + ' ' + Math.round(pct * 100) + '% off Estimate</div>'
+          + '<div class="ar-eng-discrepancy-body">Use the Notes field below if context helps the reviewer.</div>'
+        + '</div>';
+      }
+    }
+
+    // Incomplete-requirements hint — show which item is still missing so
+    // the engineer doesn't have to guess. Hidden once complete=true.
+    var missingHint = '';
+    if (!complete){
+      var missing = [];
+      if (!hasLines) missing.push('add at least one return line');
+      if (!hasMedia) missing.push('capture at least one photo or video of the return lines');
+      if (missing.length){
+        missingHint = '<div class="ar-eng-pool-missing">'
+          + svgIconWarn() + ' To complete this pool: ' + missing.join(' &amp; ') + '.'
+          + '</div>';
+      }
+    }
+
+    return '<div class="ar-eng-pool-card' + (complete ? ' complete' : '') + (isLocked ? ' locked' : '') + '" data-pool-card="' + p.index + '">'
+      +   '<div class="ar-eng-pool-head">'
+      +     '<label class="ar-eng-pool-name-edit" title="Tap to rename this pool">'
+      +       '<input type="text" class="ar-eng-pool-name-input" data-action="ar-eng-pool-rename" data-pool="' + p.index + '" value="' + esc(displayName) + '" placeholder="' + esc(p.name || 'Pool name') + '" maxlength="60"' + dis + ' />'
+      +       '<span class="ar-eng-pool-name-edit-icon" aria-hidden="true">' + svgIconPencil() + '</span>'
+      +     '</label>'
+      +     engAddedBadge
+      +     deleteBtn
+      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
+      // Always render the status pill so the head row reserves space and
+      // the engineer can see at a glance which pools still need work.
+      +     (complete
+              ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Complete</div>'
+              : '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
+      +   '</div>'
+
+      +   imageBlock
+
+      // — Gallons first —
+      +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
+      +     '<div class="ar-eng-inline">'
+      +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
+      +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Match Estimate</button>' : '')
+      +     '</div>'
+      +     divergenceWarning
+      +   '</div>'
+
+      // — Water type (moved below gallons) —
+      +   '<div class="ar-eng-field"><label>Water type' + (v._seededFromAssessment && v.pool_type ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm</span>' : '') + '</label>'
+      +     '<select class="ar-eng-pool-type-select" data-action="ar-eng-pool-type" data-pool="' + p.index + '"' + dis + '>'
+      +       '<option value=""' + (!v.pool_type ? ' selected' : '') + '>— Select water type —</option>'
+      +       '<option value="fresh"' + (v.pool_type === 'fresh' ? ' selected' : '') + '>Fresh Water / Chlorine</option>'
+      +       '<option value="saltwater"' + (v.pool_type === 'saltwater' ? ' selected' : '') + '>Saltwater</option>'
+      +     '</select>'
+      +   '</div>'
+
+      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count + diameter per line)</span>') + '</label>'
+      +     '<div class="ar-eng-lines">' + (lines.length ? lines.map(function(line, li){
+              var diaOpts = DIAMETERS.map(function(d){
+                return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
+              }).join('');
+              return '<div class="ar-eng-line">'
+                +   '<div class="ar-eng-line-stepper">'
+                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
+                +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
+                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
+                +   '</div>'
+                +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '"' + dis + '>' + diaOpts + '</select>'
+                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
+                + '</div>';
+            }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
+      +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button"' + dis + disA + '>+ Add return line</button>'
+      +   '</div>'
+
+      +   pumpRoomLinkHtml
+
+      +   '<div class="ar-eng-field"><label>Notes <span class="ar-eng-hint">(optional)</span></label>'
+      +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?"' + dis + '>' + esc(v.notes || '') + '</textarea>'
+      +   '</div>'
+
+      // — Return-line media — compact single-row layout. The verbose
+      // callout collapses to a tooltip on the help (?) chip; the
+      // required-state is expressed by the orange "Required" pill
+      // beside the label and a single small caption. Buttons + thumbs
+      // share one row when there's space.
+      +   '<div class="ar-eng-field ar-eng-return-media-field">'
+      +     '<div class="ar-eng-return-media-hd">'
+      +       '<label>Return-line media</label>'
+      +       (hasMedia
+              ? '<span class="ar-eng-pill green sm">' + svgIconCheck() + ' Captured</span>'
+              : '<span class="ar-eng-pill amber sm">Required</span>')
+      +       '<span class="ar-eng-media-tally">' + counts.photo + '/10 photos · ' + counts.video + '/4 videos</span>'
+      +       '<button class="ar-eng-mini-help" data-action="ar-eng-return-media-tip" type="button" aria-label="What to shoot" title="One clear close-up per pipe size showing diameter, plus a wider shot of the full return wall. Pan video helps for clustered piping.">?</button>'
+      +     '</div>'
+      +     (thumbsHtml ? '<div class="ar-eng-thumbs">' + thumbsHtml + '</div>' : '')
+      +     '<div class="ar-eng-media-actions">'
+      +       '<button class="ar-eng-media-btn' + (photoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="photo" type="button"' + (photoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconCamera() + ' Photo</button>'
+      +       '<button class="ar-eng-media-btn' + (videoAtLimit||isLocked ? ' disabled' : '') + '" data-action="ar-eng-media-add" data-pool="' + p.index + '" data-media-type="video" type="button"' + (videoAtLimit||isLocked ? ' disabled' : '') + '>' + svgIconVideo() + ' Video</button>'
+      +     '</div>'
+      +   '</div>'
+      +   missingHint
+      + '</div>';
+  }
+
+  function renderReviewStep(mount){
+    var locked = s.assignment && s.assignment.status === 'locked';
+    var submitted = s.assignment && (s.assignment.status === 'submitted' || s.assignment.status === 'reviewed');
+    var status = (s.assignment && s.assignment.status) || 'pending';
+    var statusLabelMap = {
+      pending:     'Pending',
+      in_progress: 'In progress',
+      submitted:   'Sent for review',
+      reviewed:    'Reviewed',
+      locked:      'Locked'
+    };
+    var statusLabel = statusLabelMap[status] || status;
+
+    // Per-pool readiness — drives both the KPI count and the
+    // clickable checklist below.
+    var poolReadiness = s.pools.map(function(p){
+      var v = s.verifications[p.index];
+      var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
+      var hasMedia = poolHasMedia(p.index);
+      var missing = [];
+      if (!hasLines) missing.push('Return lines');
+      if (!hasMedia) missing.push('Photo or video');
+      return {
+        index: p.index,
+        name: (v && v.pool_name_override) || p.name,
+        ready: hasLines && hasMedia,
+        missing: missing
+      };
+    });
+    var doneCount = poolReadiness.filter(function(p){ return p.ready; }).length;
+    var allReady = doneCount === s.pools.length && s.pools.length > 0;
+
+    // Media counts for the KPI band
+    var photoCount = 0, videoCount = 0;
+    s.media.forEach(function(m){
+      if (m._uploading) return;
+      if (m.media_type === 'photo') photoCount++;
+      if (m.media_type === 'video') videoCount++;
+    });
+    var pumpRoomCount = (s.pumpRooms || []).length;
+
+    var submittedTxt = submitted && s.assignment && s.assignment.submitted_at
+      ? new Date(s.assignment.submitted_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})
+      : null;
+
+    var sentBanner = submitted && !locked
+      ? '<div class="ar-eng-sent-banner">'
+        + svgIconCheck() + ' <b>Sent for review' + (submittedTxt ? ' on ' + esc(submittedTxt) : '') + '.</b> Your rep was notified — feel free to edit pool cards or upload more media. Tap <b>Send updated review</b> to alert them about the changes.'
+        + '</div>'
+      : '';
+
+    var ctaLabel;
+    if (locked) ctaLabel = svgIconCheck() + ' Record locked';
+    else if (s.saving) ctaLabel = submitted ? 'Sending update…' : 'Sending…';
+    else if (submitted) ctaLabel = svgIconSend() + ' Send updated review';
+    else ctaLabel = svgIconSend() + ' Send to AquaRev for review';
+
+    var sendCardCls = locked ? 'locked' : (allReady ? 'ready' : '');
+    var sendCardTitle = locked
+      ? 'Record locked'
+      : allReady
+        ? (submitted ? 'You can resend any time' : 'Everything looks good')
+        : 'Some items are still missing';
+    var sendCardSub = locked
+      ? 'This record was locked by the rep — no further edits or submissions are accepted.'
+      : allReady
+        ? 'Your AquaRev rep sees the full report the moment you tap send. You can keep editing and resending until the record is locked.'
+        : 'Fix the items flagged below before sending. Tap a pool to jump back to its card.';
+
+    var notes = (s.assignment && s.assignment.engineer_property_notes && String(s.assignment.engineer_property_notes).trim()) || '';
+    var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+
+    mount.innerHTML = ''
+      + '<div class="ar-eng-wrap ar-eng-flow">'
+      +   headerHtml('Step 4 of 4 · Review and send')
+      +   stepperHtml(4)
+      +   '<div class="ar-eng-card">'
+
+      // ── Header: eyebrow + property name + status pill (mirrors Step 2)
+      +     '<div class="ar-admin-review-head" style="margin-bottom:14px;padding-bottom:14px">'
+      +       '<div class="ar-admin-review-head-l">'
+      +         '<div class="ar-admin-review-eyebrow">Review and send</div>'
+      +         '<div class="ar-admin-review-title" style="font-size:20px">' + esc((s.record && s.record.property_name) || 'Verification') + '</div>'
+      +       '</div>'
+      +       '<span class="ar-admin-review-status ' + esc(status) + '">' + esc(statusLabel) + '</span>'
+      +     '</div>'
+
+      +     sentBanner
+
+      // ── KPI band ──────────────────────────────────────────────
+      +     '<div class="ar-admin-review-kpis">'
+      +       '<div class="ar-admin-review-kpi' + (allReady ? '' : ' warn') + '"><div class="ar-admin-review-kpi-lbl">Pools done</div><div class="ar-admin-review-kpi-val">' + doneCount + ' / ' + s.pools.length + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      +     '</div>'
+
+      // ── Pump-room chips (when captured) ──────────────────────
+      +     (pumpRoomCount
+          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
+            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
+            + '</div>'
+          : '')
+
+      // ── Per-pool readiness checklist — clickable rows jump to that
+      //    pool's card on Step 3 for a quick fix.
+      +     '<div class="ar-eng-readiness">'
+      +       '<div class="ar-eng-readiness-hd"><span>Pool checklist</span><b>' + doneCount + ' / ' + s.pools.length + ' complete</b></div>'
+      +       poolReadiness.map(function(pr){
+              var cls = pr.ready ? ' complete' : '';
+              var missingTxt = pr.ready ? svgIconCheck() + ' Ready to send' : ('Missing: ' + pr.missing.join(' · '));
+              return '<div class="ar-eng-readiness-row' + cls + '" data-action="ar-eng-goto-pool" data-pool-index="' + pr.index + '" role="button" tabindex="0">'
+                + '<span class="ar-eng-readiness-flag">' + (pr.ready ? svgIconCheck() : svgIconWarn()) + '</span>'
+                + '<span class="ar-eng-readiness-name">' + esc(pr.name) + '</span>'
+                + '<span class="ar-eng-readiness-missing">' + missingTxt + '</span>'
+                + '<span class="ar-eng-readiness-chev">›</span>'
+                + '</div>';
+            }).join('')
+      +     '</div>'
+
+      // ── General notes (engineer_property_notes) preview ─────────
+      +     (notes
+          ? '<div class="ar-eng-final-notes">'
+            + '<div class="ar-eng-final-notes-hd">General notes / comments</div>'
+            + '<div class="ar-eng-final-notes-body">' + esc(notes) + '</div>'
+            + '</div>'
+          : '')
+
+      // ── PDF actions ──────────────────────────────────────────
+      +     '<div class="ar-eng-pdf-row">'
+      +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-preview-pdf" type="button" title="Open an in-page preview of your verification report">' + svgIconHelp() + ' Preview Report</button>'
+      +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-download-pdf" type="button" title="Open the browser print dialog so you can save the PDF locally">' + svgIconDownload() + ' Download PDF</button>'
+      +       '<div class="ar-eng-pdf-hint">Preview reads it in-app · Download opens your browser print dialog to save a PDF.</div>'
+      +     '</div>'
+
+      // ── Send card — large primary CTA (hidden in admin mode) ──
+      +     (isAdmin
+          ? ''
+          : '<div class="ar-eng-send-card ' + sendCardCls + '">'
+            + '<div class="ar-eng-send-card-title">' + esc(sendCardTitle) + '</div>'
+            + '<div class="ar-eng-send-card-sub">' + esc(sendCardSub) + '</div>'
+            + '<button class="ar-eng-btn send-green" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>'
+            + '</div>')
+
+      // ── Bottom nav ────────────────────────────────────────────
+      +     '<div class="ar-eng-actions">'
+      +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
+      +       (isAdmin
+            ? '<button class="ar-eng-btn primary" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' Back to Archive</button>'
+            : '')
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  // ── Field handlers (called from the global click router) ───────
+  function handleAction(action, target){
+    if (action === 'ar-eng-close-assignment'){ closeAssignment(); return true; }
+    if (action === 'ar-eng-goto-step'){
+      var n = parseInt(target.getAttribute('data-step'), 10) || 1;
+      goToStep(n);
+      return true;
+    }
+    if (action === 'ar-eng-goto-pool'){
+      // Step 4 readiness row → jump to Step 3 and scroll to that pool's
+      // card. data-pool-index carries the original pool_index so we can
+      // find the corresponding [data-pool-card="N"] node after repaint.
+      var poolIdx = parseInt(target.getAttribute('data-pool-index'), 10);
+      goToStep(3);
+      // Wait for repaint then scroll the pool card into view.
+      setTimeout(function(){
+        try {
+          var card = document.querySelector('[data-pool-card="' + poolIdx + '"]');
+          if (card){
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            card.style.transition = 'box-shadow .4s';
+            card.style.boxShadow = '0 0 0 3px rgba(0,180,216,.5)';
+            setTimeout(function(){ if (card) card.style.boxShadow = ''; }, 1400);
+          }
+        } catch(_){}
+      }, 80);
+      return true;
+    }
+    if (action === 'ar-eng-toggle-briefing-skip'){
+      setBriefingSkipped(target.checked);
+      return true;
+    }
+    if (action === 'ar-eng-set-access'){
+      var has = target.getAttribute('data-access') === 'yes';
+      s.propertyConfirmation.hasAccess = has;
+      if (has) s.propertyConfirmation.accessBlockedReason = '';
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-set-gallons-match'){
+      var match = target.getAttribute('data-match') === 'yes';
+      s.propertyConfirmation.gallonsMatchesRep = match;
+      if (match) s.propertyConfirmation.gallonsOverride = '';
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-update-access-reason'){
+      s.propertyConfirmation.accessBlockedReason = target.value || '';
+      // No repaint — we're already in the textarea
+      return true;
+    }
+    if (action === 'ar-eng-update-gallons-override'){
+      s.propertyConfirmation.gallonsOverride = target.value || '';
+      return true;
+    }
+    if (action === 'ar-eng-confirm-gallons'){
+      var pi = parseInt(target.getAttribute('data-pool'), 10);
+      var val = parseInt(target.value, 10);
+      var pool = s.pools.find(function(x){ return x.index === pi; });
+      // Auto-flag discrepancy if engineer's value differs from rep by >5%.
+      // Note: when value is cleared / matches within tolerance, clear the
+      // flag too so the inline warning disappears.
+      var newConfirmed = isNaN(val) ? null : val;
+      var discFlag = false;
+      if (pool && pool.gallonsRep > 0 && newConfirmed != null && newConfirmed > 0){
+        var diff = Math.abs(newConfirmed - pool.gallonsRep);
+        if (diff / pool.gallonsRep > 0.05) discFlag = true;
+      }
+      // Silent: don't repaint mid-keystroke or focus + scroll jump.
+      updateVerification(pi, { confirmed_gallons: newConfirmed, has_discrepancy: discFlag }, { silent: true });
+      return true;
+    }
+    if (action === 'ar-eng-discrepancy-reason'){
+      var piDR = parseInt(target.getAttribute('data-pool'), 10);
+      updateVerification(piDR, { discrepancy_reason: target.value || '' }, { silent: true });
+      return true;
+    }
+    if (action === 'ar-eng-apply-pool-1'){
+      applyPool1ToRest();
+      return true;
+    }
+    if (action === 'ar-eng-media-add'){
+      // Stash the pick context on module state (not the input element)
+      // so a repaint between picker-open and file-pick doesn't lose
+      // the target pool/pump-room.
+      var mediaType  = target.getAttribute('data-media-type') || 'photo';
+      var pumpRoomId = target.getAttribute('data-pump-room');
+      var ctxTarget = pumpRoomId
+        ? { kind: 'pumpRoom', id: pumpRoomId }
+        : parseInt(target.getAttribute('data-pool'), 10);
+      s._mediaPickContext = { target: ctxTarget, mediaType: mediaType };
+
+      // ── Capture strategy (pf-20260525q rewrite) ──────────────────
+      // The previous strategy (set capture='environment' on Android,
+      // fall through to the iOS file picker on iOS) STILL produced a
+      // black camera preview on iPhone 16 Pro Max — iOS WebKit's
+      // native camera intent gets the chrome but never the stream,
+      // in both Safari and Chrome-on-iOS. Same bug regardless of how
+      // the input is configured.
+      //
+      // New approach for PHOTOS: skip the OS camera intent entirely,
+      // use a getUserMedia-based custom camera overlay. We own the
+      // <video> element, request camera permission via the standard
+      // browser prompt, and capture a frame to a canvas → JPEG blob
+      // that flows into uploadMedia() the same way a picked file
+      // would. Works in Safari, Chrome-on-iOS, Android Chrome, and
+      // desktop browsers — anywhere getUserMedia is supported on
+      // HTTPS. Library-pick fallback is one tap away from the overlay.
+      //
+      // For VIDEOS: keep the existing file-picker flow. MediaRecorder
+      // for videos is doable but adds significant complexity and
+      // file-size pitfalls; the OS file picker for video works fine
+      // since iOS routes video capture through a separate code path
+      // that doesn't hit the WebKit photo-stream bug.
+      if (mediaType === 'photo' && _supportsGetUserMedia()){
+        openEngCameraOverlay(function(blob){
+          if (!blob) return;
+          // Wrap the Blob as a File so uploadMedia's compressImage
+          // path (which does new Image() + canvas downscale) works
+          // unchanged.
+          var f = new File([blob], 'capture_'+Date.now()+'.jpg', { type: 'image/jpeg' });
+          uploadMedia(ctxTarget, f).catch(function(err){
+            alert((err && err.message) || 'Upload failed.');
+          });
+          s._mediaPickContext = null;
+        }, function(){
+          // Fallback — user tapped "Pick from library" in the overlay
+          // OR getUserMedia errored. Use the file input flow.
+          _engineerOpenFilePicker(mediaType);
+        });
+        return true;
+      }
+      // Videos / no getUserMedia support → file picker
+      _engineerOpenFilePicker(mediaType);
+      return true;
+    }
+    if (action === 'ar-eng-media-picked'){
+      var ctx = s._mediaPickContext;
+      var file = target.files && target.files[0];
+      if (!file || !ctx) return true;
+      uploadMedia(ctx.target, file).catch(function(err){
+        alert((err && err.message) || 'Upload failed.');
+      });
+      // Clear context so a stale target doesn't leak into the next pick
+      s._mediaPickContext = null;
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-add'){
+      // Open the inline draft. Engineer types a label; Save commits.
+      s.pumpRoomDraft = { label: '' };
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-cancel'){
+      s.pumpRoomDraft = null;
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-draft-input'){
+      // Live capture into the draft — no repaint, so the input keeps focus.
+      if (s.pumpRoomDraft) s.pumpRoomDraft.label = target.value || '';
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-save'){
+      // Validate + create. On success the draft closes and the new card
+      // renders with the empty walkthrough-video CTA.
+      var draftLabel = (s.pumpRoomDraft && s.pumpRoomDraft.label || '').trim();
+      if (!draftLabel){ alert('Pump room ID is required.'); return true; }
+      createPumpRoom(draftLabel).then(function(){
+        s.pumpRoomDraft = null;
+        repaint();
+      }, function(err){
+        alert((err && err.message) || 'Could not save pump room.');
+      });
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-rename'){
+      // Rename fires on every keystroke via the input/change relay. We
+      // update local state immediately (so typing feels live) but
+      // debounce the DB call by 500 ms per pump-room so a 6-character
+      // edit is one roundtrip instead of six.
+      var prId = target.getAttribute('data-pump-room');
+      var newLabel = (target.value || '').trim();
+      var current = s.pumpRooms.find(function(r){ return r.id === prId; });
+      if (!current) return true;
+      var prev = current.label;
+      current.label = newLabel;
+      if (!s._pumpRoomRenameTimers) s._pumpRoomRenameTimers = {};
+      if (s._pumpRoomRenameTimers[prId]) clearTimeout(s._pumpRoomRenameTimers[prId]);
+      s._pumpRoomRenameTimers[prId] = setTimeout(function(){
+        delete s._pumpRoomRenameTimers[prId];
+        if (!newLabel){ current.label = prev; repaint(); return; }
+        renamePumpRoom(prId, newLabel).then(function(){}, function(err){
+          current.label = prev;
+          repaint();
+          alert((err && err.message) || 'Could not rename pump room.');
+        });
+      }, 500);
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-delete'){
+      var delPrId = target.getAttribute('data-pump-room');
+      var delRoom = s.pumpRooms.find(function(r){ return r.id === delPrId; });
+      if (!delRoom) return true;
+      if (!confirm('Delete pump room "' + delRoom.label + '"? Linked pools will be un-linked, and the walkthrough video will be removed.')) return true;
+      deletePumpRoom(delPrId).then(function(){
+        repaint();
+      }, function(err){
+        alert((err && err.message) || 'Could not delete pump room.');
+        // refresh state from server on failure
+        fetchPumpRooms(s.assignmentId).then(function(rs){ s.pumpRooms = rs; repaint(); });
+      });
+      return true;
+    }
+    if (action === 'ar-eng-pump-room-link'){
+      // Per-pool pump-room linkage. Empty string = un-link.
+      var linkPool = parseInt(target.getAttribute('data-pool'), 10);
+      var linkVal  = target.value || null;
+      updateVerification(linkPool, { pump_room_id: linkVal });
+      return true;
+    }
+    if (action === 'ar-eng-pool-rename'){
+      var rPool = parseInt(target.getAttribute('data-pool'), 10);
+      var rName = (target.value || '').trim();
+      // Empty input falls back to the rep-supplied name (override cleared).
+      // Silent: don't repaint mid-keystroke.
+      updateVerification(rPool, { pool_name_override: rName || null }, { silent: true });
+      return true;
+    }
+    if (action === 'ar-eng-pool-add'){
+      // Engineer-added custom pool. Picks the next free pool_index,
+      // marks the row is_engineer_added=true, and seeds an empty
+      // return_lines array so the row exists in the DB immediately.
+      var idx = nextPoolIndex();
+      var ordinal = idx + 1;
+      var defaultLabel = 'Pool ' + ordinal + ' (new)';
+      s.verifications[idx] = {
+        pool_index: idx,
+        return_lines: [],
+        is_engineer_added: true,
+        pool_name_override: defaultLabel
+      };
+      scheduleSave(idx);
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-pool-remove'){
+      // Only engineer-added pools can be removed. Confirms first since
+      // it nukes the verification row + any media attached to it.
+      var rmIdx = parseInt(target.getAttribute('data-pool'), 10);
+      var rmV = s.verifications[rmIdx];
+      if (!rmV || !rmV.is_engineer_added) return true;
+      if (!confirm('Remove this engineer-added pool? Any media uploaded to it will also be removed.')) return true;
+      var c = client();
+      if (!c) return true;
+      // Optimistic local cleanup
+      delete s.verifications[rmIdx];
+      var mediaToDelete = s.media.filter(function(m){ return m.pool_index === rmIdx; });
+      var pathsToDelete = mediaToDelete.map(function(m){ return m.storage_path; });
+      s.media = s.media.filter(function(m){ return m.pool_index !== rmIdx; });
+      repaint();
+      Promise.all([
+        c.from('engineer_verifications').delete().eq('assignment_id', s.assignmentId).eq('pool_index', rmIdx),
+        pathsToDelete.length ? c.storage.from('engineer-media').remove(pathsToDelete).catch(function(){}) : Promise.resolve(),
+        c.from('engineer_media').delete().eq('assignment_id', s.assignmentId).eq('pool_index', rmIdx)
+      ]).then(function(){ bumpLastModified(); });
+      return true;
+    }
+    if (action === 'ar-eng-pool-image-zoom'){
+      // Open the rep's reference image in the lightbox. Reference
+      // images are base64 data URLs (or HTTPS URLs) stored on the
+      // body record — handled by openMediaLightbox's URL branch.
+      var pIdx = parseInt(target.getAttribute('data-pool-image'), 10);
+      var pool = s.pools.find(function(x){ return x.index === pIdx; });
+      if (pool && pool.image) openMediaLightbox(pool.image, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-brief-zoom'){
+      // Open one of the Step 1 specification reference images in the
+      // existing media lightbox. All three images are public CDN URLs,
+      // so we use the directUrl branch (no signed URL lookup needed).
+      var imgUrl = target.getAttribute('data-img');
+      if (imgUrl) openMediaLightbox(imgUrl, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-admin-mode-info'){
+      // Compact admin chip → popover. Explains what's editable and
+      // how to finish the review. Same modal helper used elsewhere.
+      showEngInfoModal('Admin Review Mode',
+          '<p style="margin:0 0 12px"><b>You\'re reviewing this assignment as an admin.</b></p>'
+        + '<ul style="margin:0 0 14px;padding-left:20px;list-style:disc;line-height:1.7">'
+        +   '<li>Engineer fields stay <b>editable</b> for moderation — you can fix anything before locking.</li>'
+        +   '<li>The engineer-side <b>Submit</b> button is hidden in this mode (you\'re not the engineer).</li>'
+        +   '<li>When you\'re done, return to the Archive and use <b>Lock</b> or <b>Mark Reviewed</b> in the submission review modal.</li>'
+        + '</ul>'
+        + '<p style="margin:0;font-size:12px;color:#7db8cc">Tip: the <b>← Back to Archive</b> button takes you straight back to the review modal.</p>'
+      );
+      return true;
+    }
+    if (action === 'ar-eng-return-media-tip'){
+      // Replaced the browser-native alert() with the platform's
+      // centred info modal (same look as showHelpModal). Copy updated
+      // per spec — wording tightened, references the Specifications
+      // Guide instead of "return wall".
+      showEngInfoModal('Photos & Video Instructions',
+          '<p style="margin:0 0 10px"><b>What to shoot for each pool.</b></p>'
+        + '<ul style="margin:0 0 14px;padding-left:20px;list-style:disc">'
+        +   '<li style="margin-bottom:8px"><b>Close-ups of the return pipes</b> after the filter, where flow returns to the body of water — frame so the pipe diameter is clearly readable.</li>'
+        +   '<li style="margin-bottom:8px"><b>Wide angles</b> so we can read the pipe configuration and determine the installation location. See the Specifications Guide.</li>'
+        +   '<li><b>Pan video</b> when pipes are clustered or complex.</li>'
+        + '</ul>'
+        + '<p style="margin:0;font-size:12px;color:#7db8cc">Mobile cameras open automatically on devices.</p>'
+      );
+      return true;
+    }
+    if (action === 'ar-eng-pool-type'){
+      var ptPool = parseInt(target.getAttribute('data-pool'), 10);
+      var ptVal  = target.value || null;
+      updateVerification(ptPool, { pool_type: ptVal });
+      return true;
+    }
+    if (action === 'ar-eng-preview-pdf'){
+      // In-page preview: render the report HTML, attach a Close button,
+      // and show it as an overlay. Engineer can read it without firing
+      // the browser print dialog. Same generator, no window.print().
+      try {
+        if (typeof generateEngineerReport === 'function' && s.assignmentId){
+          generateEngineerReport(s.assignmentId, { previewOnly: true });
+        }
+      } catch(err){ alert((err && err.message) || 'Could not open preview.'); }
+      return true;
+    }
+    if (action === 'ar-eng-media-remove'){
+      var mid = target.getAttribute('data-media-id');
+      if (!mid) return true;
+      removeMedia(mid).catch(function(err){
+        alert('Could not remove: ' + ((err && err.message) || err));
+      });
+      return true;
+    }
+    if (action === 'ar-eng-media-lightbox'){
+      var lbPath = target.getAttribute('data-storage-path');
+      var lbType = target.getAttribute('data-media-type');
+      var lbDirect = target.getAttribute('data-direct-url') === '1';
+      if (!lbPath) return true;
+      openMediaLightbox(lbPath, lbType, lbDirect ? { directUrl: true } : null);
+      return true;
+    }
+    if (action === 'ar-eng-lightbox-close'){
+      closeMediaLightbox();
+      return true;
+    }
+    if (action === 'ar-eng-help-open'){
+      openHelpDrawer();
+      return true;
+    }
+    if (action === 'ar-eng-help-close'){
+      closeHelpDrawer();
+      return true;
+    }
+    if (action === 'ar-eng-gallons-match'){
+      var pi2 = parseInt(target.getAttribute('data-pool'), 10);
+      var p = s.pools.find(function(x){ return x.index === pi2; });
+      if (p) updateVerification(pi2, { confirmed_gallons: p.gallonsRep, has_discrepancy: false, discrepancy_reason: null });
+      return true;
+    }
+    if (action === 'ar-eng-line-add'){
+      var pi3 = parseInt(target.getAttribute('data-pool'), 10);
+      var existing = s.verifications[pi3] || { return_lines: [] };
+      var lines3 = (existing.return_lines || []).slice();
+      lines3.push({ count: 1, diameter: 4 });
+      updateVerification(pi3, { return_lines: lines3 });
+      return true;
+    }
+    if (action === 'ar-eng-line-remove'){
+      var pi4 = parseInt(target.getAttribute('data-pool'), 10);
+      var li4 = parseInt(target.getAttribute('data-line'), 10);
+      var existing4 = s.verifications[pi4] || { return_lines: [] };
+      var lines4 = (existing4.return_lines || []).slice();
+      lines4.splice(li4, 1);
+      updateVerification(pi4, { return_lines: lines4 });
+      return true;
+    }
+    if (action === 'ar-eng-line-count'){
+      var pi5 = parseInt(target.getAttribute('data-pool'), 10);
+      var li5 = parseInt(target.getAttribute('data-line'), 10);
+      var delta = parseInt(target.getAttribute('data-d'), 10) || 0;
+      var existing5 = s.verifications[pi5] || { return_lines: [] };
+      var lines5 = (existing5.return_lines || []).slice();
+      if (lines5[li5]){
+        var newCount = Math.max(1, Math.min(99, (Number(lines5[li5].count) || 1) + delta));
+        lines5[li5] = { count: newCount, diameter: lines5[li5].diameter || 4 };
+        updateVerification(pi5, { return_lines: lines5 });
+      }
+      return true;
+    }
+    if (action === 'ar-eng-line-dia'){
+      var pi6 = parseInt(target.getAttribute('data-pool'), 10);
+      var li6 = parseInt(target.getAttribute('data-line'), 10);
+      var dia = parseInt(target.value, 10) || 4;
+      var existing6 = s.verifications[pi6] || { return_lines: [] };
+      var lines6 = (existing6.return_lines || []).slice();
+      if (lines6[li6]){
+        lines6[li6] = { count: lines6[li6].count || 1, diameter: dia };
+        updateVerification(pi6, { return_lines: lines6 });
+      }
+      return true;
+    }
+    if (action === 'ar-eng-notes'){
+      var pi7 = parseInt(target.getAttribute('data-pool'), 10);
+      // Silent: don't repaint mid-keystroke.
+      updateVerification(pi7, { notes: target.value || '' }, { silent: true });
+      return true;
+    }
+    if (action === 'ar-eng-prop-notes'){
+      // Property-wide notes. Persists to
+      // engineer_assignments.engineer_property_notes — not per-pool.
+      // Debounced via savePropertyNotesDebounced so we don't fire a
+      // round-trip on every keystroke.
+      savePropertyNotesDebounced(target.value || '');
+      return true;
+    }
+    if (action === 'ar-eng-submit'){
+      submit();
+      return true;
+    }
+    if (action === 'ar-eng-download-pdf'){
+      // Same generator the admin uses (Phase 6). Opens the print dialog;
+      // engineer can Save-as-PDF or print to keep a record of their work.
+      try {
+        if (typeof generateEngineerReport === 'function' && s.assignmentId){
+          generateEngineerReport(s.assignmentId);
+        } else {
+          alert('PDF generator not loaded yet — please reload and try again.');
+        }
+      } catch(err){
+        alert('Could not open PDF: ' + ((err && err.message) || 'unknown error'));
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /* Page-boot resume hook. Called by renderEngineerAssignmentList on
+     each render. Returns TRUE when a persisted assignment was found
+     and openAssignment() has been invoked — the caller should bail
+     because openAssignment.repaint will paint the flow. Returns FALSE
+     when there's nothing to resume (caller renders the normal list). */
+  function tryResume(){
+    if (s.assignmentId) return true;        // already open in this session
+    var p = _readPersistedState();
+    if (!p) return false;
+    openAssignment(p.assignmentId);
+    // Seed the step we were on. openAssignment defaults to step 1
+    // (briefing) which would skip past for briefing-skipped engineers
+    // anyway, but for non-skippers landing back at the briefing on
+    // every reload is annoying. Restore the saved step on the next
+    // microtask so the loading paint settles first.
+    if (p.currentStep && p.currentStep >= 1 && p.currentStep <= 4){
+      setTimeout(function(){
+        if (s.assignmentId === p.assignmentId){
+          s.currentStep = p.currentStep;
+          repaint();
+        }
+      }, 0);
+    }
+    return true;
+  }
+
+  // ── Public surface ──────────────────────────────────────────────
+  return {
+    state: function(){ return s; },
+    openAssignment: openAssignment,
+    closeAssignment: closeAssignment,
+    goToStep: goToStep,
+    renderCurrentStep: renderCurrentStep,
+    handleAction: handleAction,
+    tryResume: tryResume
+  };
+})();
+
 // Accepts optional `targetId` (string) so the Portfolio tabs wrapper can
 // redirect renderBank's output into a sub-container (#ar2-bank-singles).
 // Defaults to '#ar2-bank' so every existing caller works unchanged.
@@ -6563,6 +12279,35 @@ function renderBank(targetId){
   +'</div><div class="ar-bank-loading">Loading\u2026</div></div>';
 
   getArchiveListIndex().then(function(idx){
+    // Phase 2.5 follow-up: load engineer assignments for single
+    // assessments in the visible list (admin-only) so each row's chip
+    // renders with current state. We fire-and-forget then re-render via
+    // renderArchive once the cache is populated.
+    var isAdminBank = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+    if (isAdminBank && idx && idx.length && window.AR2_PF){
+      var singleIds    = idx.filter(function(e){ return e.archiveType !== 'portfolio'; }).map(function(e){ return e.id; });
+      var portfolioIds = idx.filter(function(e){ return e.archiveType === 'portfolio'; }).map(function(e){ return e.id; });
+      var pfState_ = AR2_PF._state || {};
+      var needsAssignFetch    = singleIds.length    && !pfState_.engineerAssignmentsByAssessment;
+      var needsPortfolioFetch = portfolioIds.length && !pfState_.engineerAssignmentsByPortfolio;
+      var needsEngFetch       = !pfState_.activeEngineers;
+      if (needsAssignFetch || needsPortfolioFetch || needsEngFetch){
+        var jobs = [];
+        if (needsAssignFetch)    jobs.push(AR2_PF.loadAssignmentsForAssessments(singleIds));
+        if (needsPortfolioFetch) jobs.push(AR2_PF.loadAssignmentsForPortfolios(portfolioIds));
+        if (needsEngFetch){
+          var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+          if (c){
+            jobs.push(c.from('app_users').select('id,name,phone').eq('role','engineer').eq('active',true).then(function(rs){
+              pfState_.activeEngineers = (rs && rs.data) || [];
+            }));
+          }
+        }
+        Promise.all(jobs).then(function(){
+          if (typeof renderArchive === 'function') renderArchive();
+        });
+      }
+    }
     var wrap=el.querySelector('.ar-bank-wrap');
     if(!idx||idx.length===0){
       wrap.innerHTML='<div class="ar-bank-hero">'
@@ -6616,6 +12361,65 @@ function renderBank(targetId){
         var reassignBtn = (isAdmin && !isPortfolio)
           ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">\u2192</button>'
           : '';
+
+        // Engineer assignment button \u2014 admin only. Supported on BOTH
+        // single assessments AND portfolios. Portfolio scope assigns one
+        // engineer to the entire portfolio (every property in it).
+        // The button is icon-only; engineer names render as clickable
+        // green pills directly under the icon (position:absolute anchor)
+        // so the name line's left edge aligns with the hardhat.
+        // Must be computed BEFORE the `actions` string concatenation
+        // below \u2014 `var` hoisting alone doesn't carry the assignment.
+        var bankEngBtn = '';
+        if (isAdmin){
+          var bankScope = isPortfolio ? 'portfolio' : 'assessment';
+          var asgnList;
+          if (isPortfolio){
+            asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForPortfolio)
+              ? AR2_PF.engineerAssignmentsForPortfolio(entry.id) : [];
+          } else {
+            asgnList = (window.AR2_PF && AR2_PF.engineerAssignmentsForAssessment)
+              ? AR2_PF.engineerAssignmentsForAssessment(entry.id) : [];
+          }
+          var bankEngNameMap = {};
+          (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers || []).forEach(function(e){ bankEngNameMap[e.id] = e.name; });
+          var titleText, btnCls = 'ar-bank-act ar-bank-act-engineer';
+          var subjectText = isPortfolio ? 'this portfolio' : 'this assessment';
+          if (asgnList.length === 0){
+            titleText = 'Assign an engineer to ' + subjectText;
+            btnCls += ' unassigned';
+          } else {
+            btnCls += ' assigned';
+            titleText = asgnList.map(function(a){
+              var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
+              return nm + ' \u00b7 ' + a.status;
+            }).join('\n');
+          }
+          var badge = asgnList.length > 1 ? '<span class="ar-bank-act-badge">' + asgnList.length + '</span>' : '';
+          // Pills: each engineer becomes a clickable chip that opens their profile.
+          var engPills = '';
+          if (asgnList.length){
+            engPills = '<div class="ar-bank-engineer-pills">'
+              + asgnList.map(function(a){
+                  var nm = bankEngNameMap[a.engineer_user_id] || 'Engineer';
+                  return '<button type="button" class="ar-bank-engineer-pill" data-action="view-engineer-profile" data-engineer-id="'+esc(a.engineer_user_id)+'" title="View engineer profile">'
+                    + esc(nm)
+                  + '</button>';
+                }).join('')
+              + '</div>';
+          }
+          bankEngBtn = '<span class="ar-bank-eng-anchor">'
+            + '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-scope="'+bankScope+'" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||subjectText)+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
+            +   '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
+            +     '<path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/>'
+            +     '<rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/>'
+            +     '<rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/>'
+            +   '</svg>'
+            +   badge
+            + '</button>'
+            + engPills
+          + '</span>';
+        }
         // Per-row actions branch by type:
         //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
         //   Portfolios \u2014 open (recall) \u00b7 delete  (PDF + duplicate live at portfolio level)
@@ -6626,6 +12430,7 @@ function renderBank(targetId){
         var actions = isPortfolio
           ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
+            +bankEngBtn
             +(isAdmin?'<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Reassign portfolio to another user">→</button>':'')
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
           : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
@@ -6633,6 +12438,7 @@ function renderBank(targetId){
             +'<button class="ar-bank-act" data-bank-action="copy-to-portfolio" data-bank-id="'+entry.id+'" title="Copy to portfolio">+☰</button>'
             +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
             +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
+            +bankEngBtn
             +reassignBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>';
         var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'') + (isPortfolio?' is-portfolio':'');
@@ -6656,8 +12462,10 @@ function renderBank(targetId){
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.poolGallons?fn(s.poolGallons):'\u2014')+'</div></div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val">'+(s.payback?Math.round(s.payback)+' mo':'\u2014')+'</div></div>'
           +createdByCell
-          +'<div class="ar-bank-actions">'
-            +actions
+          +'<div class="ar-bank-actions-cell">'
+            +'<div class="ar-bank-actions">'
+              +actions
+            +'</div>'
           +'</div>'
         +'</div>';
       }).join('');
@@ -6711,8 +12519,16 @@ function renderBank(targetId){
     // to expand. Open/closed state is remembered per-device in localStorage.
     var dashOpen = false;
     try { dashOpen = localStorage.getItem('ar2:admin-dash-open') === '1'; } catch(_){}
-    var adminPanel = isAdmin
-      ? '<div class="ar-admin-dash'+(dashOpen?' open':'')+'" id="ar-admin-dash">'
+    // Dashboard drawer is visible to admins AND regular users. Users
+    // see Overview + Engineer Submissions tabs; Users tab is hidden
+    // via the .non-admin class below + CSS rule.
+    var isCloudUser = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && !AR2_CLOUD.isAdmin() && !AR2_CLOUD.isClient && true);
+    // Refine: only show drawer for admin OR regular 'user' role (not
+    // engineer, not client).
+    var dashRole = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user() && AR2_CLOUD.user().role) || '';
+    var showDash = isAdmin || dashRole === 'user';
+    var adminPanel = showDash
+      ? '<div class="ar-admin-dash'+(dashOpen?' open':'')+(isAdmin?'':' non-admin')+'" id="ar-admin-dash">'
           +'<div class="ar-admin-dash-head" data-action="admin-dash-toggle">'
             +'<div class="ar-admin-dash-title">Admin Dashboard'
               +'<span class="ar-admin-dash-title-sub">Activity stats, sessions &amp; per-user trends</span>'
@@ -6720,29 +12536,58 @@ function renderBank(targetId){
             +'<div class="ar-admin-dash-toggle" aria-label="Toggle dashboard">\u203a</div>'
           +'</div>'
           +'<div class="ar-admin-dash-body">'
-            // 6-card KPI grid at the top of the dashboard. Hard-deleted
-            // records are excluded automatically (the underlying queries
-            // only return live rows).
-            +'<div class="ar-admin-kpis-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px">'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Records \u00b7 7 Days</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-7d" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Assessments</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-ass" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Portfolios</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pf" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Properties</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-prop" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
-              +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
-            +'</div>'
-            +'<div class="ar-admin-userstats-card">'
-              +'<div class="ar-admin-userstats-title-row">'
-                +'<div class="ar-admin-userstats-title">User Activity &amp; Management</div>'
-                +'<button class="ar-admin-add-btn" data-action="admin-add-user">+ New User</button>'
-              +'</div>'
-              +'<div id="ar-admin-userstats"><div style="color:var(--mu);font-size:11px;padding:8px">Loading\u2026</div></div>'
-            +'</div>'
-            +'<div class="ar-admin-chart">'
-              +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 90 Days \u00b7 By User (EST)</div>'
-              +'<div id="ar-admin-chart-mount"></div>'
-              +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
-            +'</div>'
+            // Phase 3 \u2014 tab strip inside the dashboard. Active tab is
+            // remembered in localStorage so admins land on whichever
+            // view they last used. Tabs are: Overview (KPIs + chart),
+            // Users (the existing User Activity card), and Engineer
+            // Submissions (new \u2014 engineer review queue).
+            +(function(){
+              var activeTab = 'overview';
+              try { activeTab = localStorage.getItem('ar2:admin-active-tab') || 'overview'; } catch(_){}
+              if (activeTab !== 'overview' && activeTab !== 'users' && activeTab !== 'engineer-submissions') activeTab = 'overview';
+              function tab(id, label){
+                return '<button class="ar-admin-tab' + (activeTab === id ? ' active' : '') + '" data-action="admin-tab-switch" data-admin-tab="' + id + '" type="button">' + label + '</button>';
+              }
+              var tabStrip = '<div class="ar-admin-tabs">'
+                + tab('overview',            'Overview')
+                + tab('users',               'Users')
+                + tab('engineer-submissions','Engineer Submissions')
+                + '</div>';
+              function pane(id, contentHtml){
+                var hidden = (id === activeTab) ? '' : ' style="display:none"';
+                return '<div class="ar-admin-tab-pane" data-admin-tab-pane="' + id + '"' + hidden + '>' + contentHtml + '</div>';
+              }
+              var paneOverview = ''
+                +'<div class="ar-admin-kpis-grid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px">'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Records \u00b7 7 Days</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-7d" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Assessments</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-ass" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Portfolios</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pf" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Properties</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-prop" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
+                  +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
+                +'</div>'
+                +'<div class="ar-admin-chart">'
+                  +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 30 Days \u00b7 By User (EST)</div>'
+                  +'<div id="ar-admin-chart-mount"></div>'
+                  +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
+                +'</div>';
+              var paneUsers = ''
+                +'<div class="ar-admin-userstats-card" style="margin-top:4px">'
+                  +'<div class="ar-admin-userstats-title-row">'
+                    +'<div class="ar-admin-userstats-title">User Activity &amp; Management</div>'
+                    +'<button class="ar-admin-add-btn" data-action="admin-add-user">+ New User</button>'
+                  +'</div>'
+                  +'<div id="ar-admin-userstats"><div style="color:var(--mu);font-size:11px;padding:8px">Loading\u2026</div></div>'
+                +'</div>';
+              var paneEngineerSubmissions = ''
+                +'<div class="ar-admin-eng-sub-card" id="ar-admin-eng-submissions">'
+                  +'<div style="color:var(--mu);font-size:11px;padding:8px">Loading engineer submissions\u2026</div>'
+                +'</div>';
+              return tabStrip
+                + pane('overview', paneOverview)
+                + pane('users', paneUsers)
+                + pane('engineer-submissions', paneEngineerSubmissions);
+            })()
           +'</div>'
         +'</div>'
       : '';
@@ -6765,9 +12610,9 @@ function renderBank(targetId){
     // — the values only filled in after a manual click to expand. Populating
     // unconditionally is cheap (one batched query) and guarantees the tiles
     // are accurate the instant the rep expands the drawer.
-    if(isAdmin) populateAdminDashboard();
+    if(showDash) populateAdminDashboard();
     // Wire up the dashboard drawer toggle (click header → open/close, persist).
-    if(isAdmin){
+    if(showDash){
       var dashEl = document.getElementById('ar-admin-dash');
       var head = dashEl && dashEl.querySelector('.ar-admin-dash-head');
       if(head){
@@ -6775,6 +12620,11 @@ function renderBank(targetId){
           var willOpen = !dashEl.classList.contains('open');
           dashEl.classList.toggle('open', willOpen);
           try { localStorage.setItem('ar2:admin-dash-open', willOpen ? '1' : '0'); } catch(_){}
+          // Re-populate every time the admin expands the drawer. Cheap
+          // (one batched query) and guarantees the KPI tiles, user
+          // table, and 30-day chart are fresh — covers any race where
+          // the initial render fired before the DOM was ready.
+          if (willOpen && typeof populateAdminDashboard === 'function') populateAdminDashboard();
         });
         // Mark loaded since populateAdminDashboard ran unconditionally above.
         dashEl.dataset.loaded = '1';
@@ -6872,6 +12722,10 @@ function resetApp(){
   }
   S.step=0; S.activeTab='advantage';
   S.propertyName='';
+  // Forget the previously-loaded record id so Step 5 (Field Report)
+  // shows its empty-state on a fresh New assessment instead of trying
+  // to load engineer data for the prior record.
+  S._currentAssessmentId = null;
   S.bodies=[{id:Date.now(),label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];
   S.devicesByPool=false;
   S.pool_gallons=0; S.chlorine_pool_gallons=0; S.co2_pool_gallons=0;
@@ -6892,6 +12746,14 @@ function resetApp(){
 
 /* ── Switch between form and bank views ── */
 function showView(v){
+  // Engineers are sandboxed to their portal view. Any showView() call
+  // that asks for 'form' (calculator) gets re-routed to 'bank', and
+  // renderArchive() then dispatches to renderEngineerPortalShell().
+  // This is the single chokepoint that prevents engineers from ever
+  // seeing rep / admin UI — even if a stale link or callback fires.
+  if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()){
+    v = 'bank';
+  }
   VIEW=v;
   var root=document.getElementById('ar2');
   var mainLayout=document.getElementById('ar2-main-layout');
@@ -6951,8 +12813,15 @@ var CHEMS=[
   {k:'clarifier', lbl:'Clarifier',      ck:'clarifier_cost',  rk:'clarifier_reduction', chlGal:false, isCo2:false},
 ];
 
-var STEPS=['map-pools','pool-system','settings','quote','export'];
-var STEP_LBLS=['Map Pools','Pool & System','Pricing & Settings','Quote','Export'];
+var STEPS=['map-pools','pool-system','settings','quote','export','field-report'];
+// Compact step labels — one word each so the header chrome fits at
+// narrow widths without wrapping. Previously these were longer (e.g.
+// "Pool & System", "Pricing & Settings") and pushed the stepper into a
+// second row on mid-size laptop screens.
+// Step 5 'Report' = the engineer field-report review pane. Visible
+// only to admins + the record-owner User; hidden via data-fr-hide
+// attribute on the stepper dot/label/connector for other roles.
+var STEP_LBLS=['Map','Pools','Pricing','Quote','Export','Report'];
 
 /* ── State — DEFAULT_INPUTS from types.ts + bodies of water ── */
 var S={
@@ -6985,6 +12854,169 @@ var S={
 
 /* ── Formatters ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── PWA install helpers ─────────────────────────────────────────────
+   Tracks the deferred-install prompt event (Chrome/Edge) so the engineer
+   portal can offer an "Install app" button when supported. iOS Safari
+   doesn't fire this event; iOS install is detected separately via
+   navigator.standalone + UA sniff, and the user is given a one-line
+   "Share → Add to Home Screen" hint instead.
+
+   Persisted state:
+     - localStorage 'ar_pwa_ios_hint_dismissed'   — engineer dismissed iOS hint
+     - sessionStorage 'ar_pwa_install_resolved'   — install succeeded this session
+*/
+/* ── Audit + Notify helpers (Phase 4 + 5) ────────────────────────────
+   AR_AUDIT.log(table, recordId, changes) writes one row per changed
+   field into public.audit_events. RLS allows any active user to insert
+   their own audit events. AR_NOTIFY.push lets admins insert a single
+   notification row directly; AR_NOTIFY.engineerSubmitted calls the
+   SECURITY DEFINER RPC that fans out notifications to admins + reps on
+   behalf of an engineer.
+
+   Both are best-effort — failures don't block the user's primary action.
+*/
+window.AR_AUDIT = {
+  log: function(tableName, recordId, changes, changeReason){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+      if (!c || !u || !changes) return Promise.resolve();
+      var rows = [];
+      Object.keys(changes).forEach(function(field){
+        var v = changes[field];
+        var oldV = (v && Object.prototype.hasOwnProperty.call(v, 'from')) ? v.from : null;
+        var newV = (v && Object.prototype.hasOwnProperty.call(v, 'to'))   ? v.to   : v;
+        rows.push({
+          table_name:         tableName,
+          record_id:          recordId,
+          field_name:         field,
+          old_value:          oldV == null ? null : oldV,
+          new_value:          newV == null ? null : newV,
+          changed_by_user_id: u.id,
+          change_reason:      changeReason || null
+        });
+      });
+      if (!rows.length) return Promise.resolve();
+      return c.from('audit_events').insert(rows);
+    } catch(_){ return Promise.resolve(); }
+  }
+};
+window.AR_NOTIFY = {
+  // Admin-only direct insert. RLS restricts to admin role.
+  push: function(recipientUserId, type, message, linkUrl, relatedRecordId){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c || !recipientUserId) return Promise.resolve();
+      return c.from('notifications').insert({
+        recipient_user_id: recipientUserId,
+        type: type,
+        message: message,
+        link_url: linkUrl || null,
+        related_record_id: relatedRecordId || null
+      });
+    } catch(_){ return Promise.resolve(); }
+  },
+  // Engineer-side RPC: notifies admins + rep about an engineer submission.
+  // Engineers can't write notifications directly; this routes through
+  // the SECURITY DEFINER notify_engineer_submitted() function. Errors
+  // are logged + returned so the caller (submit()) can surface them
+  // instead of swallowing silently.
+  engineerSubmitted: function(assignmentId){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c || !assignmentId) return Promise.resolve({ skipped: true });
+      return c.rpc('notify_engineer_submitted', { p_assignment_id: assignmentId }).then(function(rs){
+        if (rs && rs.error){
+          try { console.error('[notify_engineer_submitted] RPC error', rs.error); } catch(_){}
+          return { error: rs.error };
+        }
+        try { console.info('[notify_engineer_submitted] queued', rs && rs.data); } catch(_){}
+        return rs;
+      }, function(err){
+        try { console.error('[notify_engineer_submitted] network error', err); } catch(_){}
+        return { error: err };
+      });
+    } catch(e){
+      try { console.error('[notify_engineer_submitted] throw', e); } catch(_){}
+      return Promise.resolve({ error: e });
+    }
+  }
+};
+
+window.AR_PWA = {
+  deferredPrompt: null,
+  installable: false,
+  isStandalone: function(){
+    try {
+      // iOS exposes navigator.standalone; the display-mode media query
+      // covers Chrome/Edge/Firefox/Samsung Internet when installed.
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.navigator && window.navigator.standalone === true) return true;
+    } catch(_){}
+    return false;
+  },
+  isIos: function(){
+    try { return /iPhone|iPad|iPod/.test(window.navigator.userAgent); } catch(_){ return false; }
+  },
+  promote: function(){
+    // Fire the deferred Chrome install prompt. Resolves to a boolean for
+    // whether the user accepted. Caller is responsible for hiding the
+    // install button after a successful resolution.
+    if (!this.deferredPrompt) return Promise.resolve(false);
+    var ev = this.deferredPrompt;
+    this.deferredPrompt = null;
+    this.installable = false;
+    try { ev.prompt(); } catch(_){ return Promise.resolve(false); }
+    return ev.userChoice ? ev.userChoice.then(function(r){
+      try { sessionStorage.setItem('ar_pwa_install_resolved', '1'); } catch(_){}
+      return r && r.outcome === 'accepted';
+    }) : Promise.resolve(false);
+  }
+};
+window.addEventListener('beforeinstallprompt', function(e){
+  // Suppress the auto-banner so we can offer a tailored install moment
+  // via the top-bar Install App pill / engineer portal landing card.
+  e.preventDefault();
+  window.AR_PWA.deferredPrompt = e;
+  window.AR_PWA.installable = true;
+  // Top-bar pill is already visible (we show it on any non-standalone
+  // device). Re-render in case it was hidden before, no-op otherwise.
+  try { if (typeof updateInstallAppButton === 'function') updateInstallAppButton(); } catch(_){}
+});
+window.addEventListener('appinstalled', function(){
+  window.AR_PWA.deferredPrompt = null;
+  window.AR_PWA.installable = false;
+  try { sessionStorage.setItem('ar_pwa_install_resolved', '1'); } catch(_){}
+  // Remove the top-bar pill — they're now in the installed app.
+  try {
+    var existing = document.getElementById('ar2-install-btn');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  } catch(_){}
+});
+
+/* Normalize a phone number to E.164 (+<country><number>). Accepts any
+   common input form: "+18329796758", "1 832 979 6758", "(832) 979-6758",
+   "832.979.6758", "8329796758". Returns '' if input has fewer than 7
+   digits. US default — bare 10-digit numbers are prefixed with +1;
+   11-digit numbers starting with 1 are prefixed with +. Numbers
+   explicitly entered with + keep their country code as typed.
+   Used by the engineer Add User flow + login gate normalization. */
+function normalizePhoneE164(input){
+  if (input == null) return '';
+  var raw = String(input).trim();
+  if (!raw) return '';
+  var hasPlus = raw.indexOf('+') === 0;
+  // Strip everything except digits
+  var digits = raw.replace(/[^\d]/g, '');
+  if (digits.length < 7) return '';
+  if (hasPlus) return '+' + digits;
+  // No leading + — apply US-default heuristics
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.charAt(0) === '1') return '+' + digits;
+  // Anything else: assume the digits already include the country code
+  return '+' + digits;
+}
 
 /* ── CDN image proxy — routes big marketing images through wsrv.nl for width-capping
    and quality-compression. Reduces PDF exports from ~15 MB toward 2–4 MB.
@@ -7298,8 +13330,20 @@ function renderStepper(){
     //   • Portfolio property mode → via body.pf-property-mode + [data-pf-prop-hide]
     // Both markers are stamped on the dot, the label, and the connector line.
     var stepId = STEPS[i];
-    var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide' : '';
-    h+='<div class="ar-si"'+hideAttr+'>'
+    // Quote step is hidden for clients + portfolio-property mode.
+    // Field Report step is hidden for clients + engineers (admin+user
+    // see it via body.app-fr-eligible CSS gate set in render()).
+    var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide'
+                 : (stepId === 'field-report') ? ' data-client-hide data-fr-hide'
+                 : '';
+    // Whole step item is clickable. `data-step-jump` carries the
+    // target index; the click router validates visibility (client /
+    // portfolio-property / engineer gates) before jumping. Current
+    // step is non-clickable (no point) and gets aria-current.
+    var isCurrent = (i === S.step);
+    var jumpAttr = isCurrent ? '' : ' data-step-jump="' + i + '" role="button" tabindex="0"';
+    var ariaAttr = isCurrent ? ' aria-current="step"' : '';
+    h+='<div class="ar-si'+(isCurrent?'':' ar-si-clickable')+'"'+hideAttr+jumpAttr+ariaAttr+' aria-label="Go to ' + STEP_LBLS[i] + '">'
       +'<div class="ar-dot '+dc+'">'+dot+'</div>'
       +'<span class="ar-sl '+dc+'">'+STEP_LBLS[i]+'</span>'
       +'</div>';
@@ -7451,10 +13495,41 @@ function renderStep0(){
         +'</div>';
     }
 
-    return '<div class="ar-body-card'+(g>0?' has-gal':'')+'" id="bc-'+b.id+'">'
+    // Engineer-verified badge — green check appears on the body card
+    // header when an engineer has FULLY verified this pool (return lines
+    // saved AND at least one media uploaded). Tooltip shows the engineer's
+    // confirmed gallons + linked pump room when available. Click opens
+    // the Engineer Submission Review modal so the rep / admin can jump
+    // straight into the engineer's record.
+    var engVerified = '';
+    var loopIdx = arguments.length > 1 ? arguments[1] : null;
+    // bodiesHtml uses .map(function(b){...}) without index — pull from
+    // S.bodies position so we have a stable pool_index reference.
+    var bodyIdx = (S.bodies || []).indexOf(b);
+    var engInfo = (S._engineerVerifiedPools || {})[bodyIdx];
+    if (engInfo){
+      // Admin-only click handler — opens the Engineer Submission Review
+      // modal. Non-admin reps see the badge as a static indicator.
+      var isAdminEv = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+      var clickAttrs = (isAdminEv && engInfo.assignment_id)
+        ? ' data-action="admin-review-submission" data-assignment-id="' + esc(engInfo.assignment_id) + '" style="cursor:pointer"'
+        : ' style="cursor:default"';
+      var ttBits = [];
+      if (engInfo.confirmed_gallons) ttBits.push('Confirmed ' + fn(engInfo.confirmed_gallons) + ' gal');
+      if (engInfo.pool_type)         ttBits.push(engInfo.pool_type === 'saltwater' ? 'Saltwater' : 'Fresh / Chlorine');
+      if (engInfo.pump_room_label)   ttBits.push('Pump room: ' + engInfo.pump_room_label);
+      var tt = ttBits.length ? ttBits.join(' · ') : 'Verified by engineer';
+      engVerified = '<span class="ar-body-eng-verified" title="' + esc(tt) + '"' + clickAttrs + '>'
+        + '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12.5 10 18 20 6"/></svg>'
+        + '<span class="ar-body-eng-verified-lbl">Verified</span>'
+        + '</span>';
+    }
+
+    return '<div class="ar-body-card'+(g>0?' has-gal':'')+(engInfo?' eng-verified':'')+'" id="bc-'+b.id+'">'
       +'<div class="ar-body-hd">'
         +'<input class="ar-inp sm" style="flex:1;min-width:80px" data-bf="label" data-bid="'+b.id+'" value="'+esc(b.label)+'" placeholder="Pool name" />'
         +(b.fromMap?'<span class="ar-body-map-tag" title="Traced on the Map Pool step">MAP</span>':'')
+        +engVerified
         +'<div style="display:flex;align-items:center;gap:7px;flex-shrink:0">'
           +'<div class="ar-body-type">'
             +'<button class="ar-btype-btn'+(b.poolType==='chlorine'?' on':'')+'" data-bpt="chlorine" data-bid="'+b.id+'">Chlorine</button>'
@@ -8311,18 +14386,26 @@ function renderNav(){
   if(S.step===1) nextLabel='Continue \u2192 Pricing';
   else if(S.step===2) nextLabel = skipQuote ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
   else if(S.step===3) nextLabel='Continue \u2192 Export';
+  else if(S.step===4) nextLabel='View Field Report \u2192';
   var backLabel='\u2190 Back';
   if(S.step===1) backLabel='\u2190 Map Pools';
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
   else if(S.step===4) backLabel = skipQuote ? '\u2190 Pricing & Settings' : '\u2190 Quote';
+  else if(S.step===5) backLabel='\u2190 Back to Export';
+  // Field-report eligibility — admin + regular user; clients + engineers
+  // don't see Step 6 (Report). When the rep isn't FR-eligible, Export
+  // is effectively the final step, so we hide the Continue button there.
+  var isFrEligible = !!(document.getElementById('ar2') && document.getElementById('ar2').classList.contains('app-fr-eligible'));
+  // Step 4 (Export) is the rep's "save it" surface. Show Save to Archive
+  // ABOVE Continue here — not just on the last step — so reps don't need
+  // to scroll to the Export panel below to save. Hidden in portfolio
+  // property mode (saves happen via "Save & Close" there).
+  var hideNextOnExport = (S.step===4 && !isFrEligible);
+  var showSaveToArchive = !inPfProp && (S.step===4 || isLast);
   var html='<div class="ar-nav-stack">'
-    +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
-    // Step 5 (Export) gets a second Archive entrypoint above the Back button
-    // so the rep doesn't have to scroll to the Export panel just to save.
-    // Hidden in portfolio property mode — saves happen via "Save & Close",
-    // not the single-property Archive flow.
-    +(isLast && !inPfProp?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Save to Archive</button>':'')
+    +(showSaveToArchive?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Save to Archive</button>':'')
+    +((isLast||hideNextOnExport)?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
     +(navHint?'<div class="ar-nav-hint">'+navHint+'</div>':'')
   +'</div>';
@@ -8335,9 +14418,30 @@ function renderForm(){
   if(!el)return;
   // Step routing — order matches STEPS array:
   //   0=Map Pools  1=Pool & System  2=Pricing & Settings  3=Quote  4=Export
-  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStepQuote,renderStep3][S.step];
+  //   5=Field Report (engineer verification review, admin+owner only)
+  var stepFn=[renderMapPool,renderStep0,renderStep1,renderStepQuote,renderStep3,renderFieldReport][S.step];
   el.innerHTML=stepFn?stepFn():'';
   syncRangeStyles();
+  // After the Field Report renders, lazy-load signed URLs for any
+  // engineer-media thumbnails that requested them via data-thumb-load.
+  // Same pattern the engineer portal uses on the pools step.
+  if (S.step === 5){
+    var thumbs = el.querySelectorAll('[data-thumb-load]');
+    if (thumbs.length && window.AR2_CLOUD && AR2_CLOUD.getClient){
+      var c = AR2_CLOUD.getClient();
+      if (c){
+        for (var ti = 0; ti < thumbs.length; ti++){
+          (function(elT){
+            var path = elT.getAttribute('data-thumb-load');
+            c.storage.from('engineer-media').createSignedUrl(path, 3600).then(function(rs){
+              var url = rs && rs.data && (rs.data.signedUrl || rs.data.signedURL);
+              if (url) elT.style.backgroundImage = 'url("' + url + '")';
+            }, function(){});
+          })(thumbs[ti]);
+        }
+      }
+    }
+  }
 }
 
 function syncRangeStyles(){
@@ -8354,10 +14458,23 @@ function syncRangeStyles(){
 
 /* ── Full render ── */
 function render(){
+  // Engineer guard — if the signed-in user is an engineer, divert to the
+  // engineer portal regardless of what state was about to render. Without
+  // this, a fresh page load would briefly paint the calculator before
+  // showView() intercepts on a subsequent click. The early return here is
+  // the second chokepoint that keeps engineers out of rep / admin UI.
+  if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()){
+    if (VIEW !== 'bank' && typeof showView === 'function') showView('bank');
+    return;
+  }
+  // Not an engineer — clear engineer-mode body class so calculator
+  // chrome reappears (Archive, New, help icon, stepper).
+  document.body.classList.remove('pf-engineer-mode');
   // Toggle map-step class so CSS hides calc columns + shows #ap2
   var root=document.getElementById('ar2');
   if(root) root.classList.toggle('map-step', S.step===0);
   if(root) root.classList.toggle('quote-step', S.step===3);
+  if(root) root.classList.toggle('report-step', S.step===5);
   // Role-based feature flags — toggles .app-client / .app-admin on #ar2 so
   // CSS rules can hide / show / restyle features per role. Reapplied on every
   // render so role changes (e.g. after sign-in) take effect immediately.
@@ -8366,6 +14483,13 @@ function render(){
     var isCloudAdmin  = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isAdmin());
     root.classList.toggle('app-client', isCloudClient);
     root.classList.toggle('app-admin',  isCloudAdmin);
+    // Field-report eligibility: admin always; regular User role
+    // gets it for records they own (RLS will filter). Engineers
+    // and clients don't see the step. The class drives the
+    // [data-fr-hide] CSS rule.
+    var roleNow = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user() && AR2_CLOUD.user().role) || '';
+    var isFrEligible = isCloudAdmin || roleNow === 'user';
+    root.classList.toggle('app-fr-eligible', isFrEligible);
     // Client header branding — replace "AQUAREV WATER" wordmark in the top
     // bar with the Client's name (which the admin types as the company name
     // when creating the user). Co-brand below with subtle "powered by"
@@ -9552,11 +15676,12 @@ function generateReport(){
         +'</div>'
       +'</div>';
       // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
-      // Landscape: 15 cards/page (3 cols × 5 rows). Portrait: 10 cards/page (2 cols × 5 rows).
-      // Bumped from 12/8 → 15/10 (2026-05-13) for tighter presentation density.
-      // Each page renders its own header band (with "Page X of Y" subtitle when paginated)
-      // and its own footer band. Cards listed in user-defined order.
-      var CARDS_PER_PAGE=(EX.layout==='landscape')?15:10;
+      // Per Jeff 2026-05-24: portrait = 12 cards/page (6 rows × 2 cols),
+      // landscape = 15 cards/page (5 rows × 3 cols). Differentiated
+      // because the landscape sheet is shorter but wider — 3-col grid
+      // makes better use of the horizontal real estate, while portrait's
+      // narrow body benefits from extra vertical rows.
+      var CARDS_PER_PAGE = (EX.layout==='landscape') ? 15 : 12;
       var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
       poolProfilesHtml='';
       for(var ppPi=0; ppPi<totalPpPages; ppPi++){
@@ -9654,84 +15779,94 @@ function generateReport(){
     // ── Body ──
     +'<div class="rpt-body">'
 
-      // Row A: Pool config + Device selection
-      +'<div class="rpt-sec rpt-cols">'
-        +'<div>'
-          +'<div class="rpt-stitle">Pool Configuration</div>'
-          +poolRows
-          +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
-          +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
-          +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
-        +'</div>'
-        +'<div>'
-          +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
-          +devRows
-          +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
-          +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
-        +'</div>'
-      +'</div>'
-
-      // Rows B-D: layout-aware
-      +(EX.layout==='landscape'
-        // ── LANDSCAPE: compact single-page layout ──
-        // Row B = Purchase Options | Monthly Savings Breakdown (2 cols,
-        // natural height). Row C = Property Images | Video Resources
-        // (separate 2-col row at the bottom of body). Previous structure
-        // nested the media stacks INSIDE each column of Row B and tried
-        // to bottom-pin them with margin-top:auto / grid 1fr — Chrome's
-        // print engine wouldn't size the inner grid tracks against a
-        // definite parent height, so the bottom stacks got pushed past
-        // the body's overflow clip and vanished from PDF. Pulling the
-        // media into its own sibling row removes the inner-grid sizing
-        // dependency entirely; natural flow handles it cleanly.
-        ?'<div class="rpt-sec rpt-cols">'
+      // ── Body layout: classic 2-row vs single-column flow ───────
+      // ≤ 10 pools: original Row A (Pool Config | Devices) + Row B
+      //   (Purchase | Breakdown + Water) — looks balanced when Pool
+      //   Config column is short.
+      // > 10 pools: switch to the 2-col flow layout where LEFT = Pool
+      //   Config + Purchase Options and RIGHT = Devices + Breakdown +
+      //   Water. Each column flows its own content height so Pool
+      //   Config can grow without dragging an empty Devices column
+      //   down with it. (Jeff 2026-05-25 spec.)
+      +(poolRowsArr.length > 10
+        // ── FLOW layout (11+ pools) ────────────────────────────
+        ?'<div class="rpt-sec rpt-cols rpt-assess-flow">'
+          // LEFT column
           +'<div>'
-            +'<div class="rpt-stitle">Purchase Options</div>'
+            +'<div class="rpt-stitle">Pool Configuration</div>'
+            +poolRows
+            +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
+            +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
+            +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
+            +'<div class="rpt-stitle rpt-stitle-stack">Purchase Options</div>'
             +purBox+advBox
           +'</div>'
+          // RIGHT column
           +'<div>'
-            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+            +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+            +devRows
+            +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
+            +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+            +'<div class="rpt-stitle rpt-stitle-stack">Monthly Savings Breakdown</div>'
             +'<table class="rpt-tbl">'
-              +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
+              +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
               +'<tbody>'
                 +bkRows
                 +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
               +'</tbody>'
             +'</table>'
-            +(EX.inclWater?waterHtml:'')
-          +'</div>'
-        +'</div>'
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
-        +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
-
-        // ── PORTRAIT: Purchase Options stacked left, Breakdown + Water right ──
-        :'<div class="rpt-sec rpt-cols">'
-          +'<div>'
-            +'<div class="rpt-stitle">Purchase Options</div>'
-            +purBox+advBox
-          +'</div>'
-          +'<div>'
-            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-            +'<table class="rpt-tbl">'
-              +'<thead><tr><th>Category</th><th>Monthly Savings</th><th>% of Total</th></tr></thead>'
-              +'<tbody>'
-                +bkRows
-                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
-              +'</tbody>'
-            +'</table>'
-            +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
+            +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
             +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
           +'</div>'
         +'</div>'
-        // .rpt-pt-media-row hooks into the @media print rule that pins
-        // this row to the bottom of the body slot (margin-top:auto +
-        // flex:0 0 auto). Guarantees Property Images / Video Resources
-        // stay fully visible even when upper content (Pool Config +
-        // Purchase + Breakdown + Water) runs tall — overflow clips the
-        // upper rows first, never the media row.
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+mediaLeft+ytHtml+'</div>':'')
-        +commHtml
-        +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
+
+        // ── CLASSIC 2-row layout (1-10 pools) ──────────────────
+        :'<div class="rpt-sec rpt-cols">'
+          +'<div>'
+            +'<div class="rpt-stitle">Pool Configuration</div>'
+            +poolRows
+            +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
+            +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
+            +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
+          +'</div>'
+          +'<div>'
+            +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+            +devRows
+            +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
+            +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+          +'</div>'
+        +'</div>'
+        +'<div class="rpt-sec rpt-cols">'
+          +'<div>'
+            +'<div class="rpt-stitle">Purchase Options</div>'
+            +purBox+advBox
+          +'</div>'
+          +'<div>'
+            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+            +'<table class="rpt-tbl">'
+              +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
+              +'<tbody>'
+                +bkRows
+                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
+              +'</tbody>'
+            +'</table>'
+            +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
+            +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
+          +'</div>'
+        +'</div>'
+      )
+
+      // ── Bottom row: media + disclaimer/comments (layout-aware) ──
+      // Pinned to the body bottom via the existing margin-top:auto CSS
+      // on .rpt-ls-media-row / .rpt-pt-media-row so this stack hugs
+      // the CTA bar regardless of how short or tall the columns above
+      // turn out.
+      +(EX.layout==='landscape'
+        ?((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
+          +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
+        :((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+mediaLeft+ytHtml+'</div>':'')
+          +commHtml
+          +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
       )
 
     +'</div>' // end .rpt-body
@@ -9763,19 +15898,44 @@ function generateReport(){
   // + Property Images (pinned bottom-left) + Video Resources (pinned
   // bottom-right) + CTA bar.
   var assessmentHtml;
-  // Two distinct numbers:
-  //   POOL_TRIGGER: above this → cascade. Tuned to the single-page max where
-  //   ALL sections (pool + device + purchase + breakdown + water + images +
-  //   videos + CTA) still fit without bleeding off the page.
-  //   POOL_P1_FILL: in cascade mode, page 1 only carries pool config + device
-  //   selection, so it holds many more rows. Body ~687px / row ~20px ≈ 30
-  //   rows fit comfortably.
-  //   POOL_CONT_FILL: continuation pages render in 2 sub-columns of pool
-  //   rows, so they hold roughly twice the page-1 count.
-  var POOL_TRIGGER = (EX.layout==='landscape') ? 12 : 10;
-  var POOL_P1_FILL = (EX.layout==='landscape') ? 30 : 24;
+  // ── Pagination thresholds (tuned 2026-05-24) ──────────────────
+  //   POOL_TRIGGER : above this → cascade. Pushed to the empirically
+  //     measured max where Pool Config + Devices column + Row B
+  //     (Purchase + Breakdown) + media row + disclaimer + CTA all still
+  //     fit on a single sheet. Different per orientation: portrait body
+  //     is taller but narrower (rows wrap on long names), landscape body
+  //     is shorter but wider (rows rarely wrap).
+  //   POOL_P1_FILL  : page-1 capacity when cascade is on (pool list +
+  //     devices only — no Row B/media/CTA on this page).
+  //   POOL_CONT_FILL: continuation page capacity, 2 sub-cols of pool rows.
+  //
+  // The Total Volume + CO2 / Chlorine rows are always appended to the
+  // LAST page that carries pool data (per spec: "totals must always
+  // display with the pool list"). The dedicated final summary page no
+  // longer repeats them.
+  // New 2-col flow layout (pf-20260525l, per Jeff's suggestion):
+  //   LEFT  = Pool Config + Purchase Options (flows vertically)
+  //   RIGHT = Devices + Breakdown + Water Conservation (~320px regardless)
+  // Body content = max(LEFT, RIGHT) + media + disc.
+  //   LANDSCAPE body ~641px. After media (~110) + disc (~25) + gaps,
+  //     ~500px usable. LEFT = Purchase (~120) + pool rows. Trigger at
+  //     18 → LEFT ~120 + 18*18 = 444px. Safe.
+  //   PORTRAIT body ~830px. Usable ~665px. LEFT = Purchase (~200) +
+  //     pool rows. Trigger at 22 → LEFT ~200 + 22*22 = 684px. Tight
+  //     with wrapped names, but acceptable. Beyond either trigger the
+  //     existing cascade emits Page 1 (pools + devices + totals) and
+  //     a summary page (Purchase + Breakdown + Media + CTA).
+  var POOL_TRIGGER   = (EX.layout==='landscape') ? 18 : 22;
+  var POOL_P1_FILL   = (EX.layout==='landscape') ? 30 : 24;
   var POOL_CONT_FILL = (EX.layout==='landscape') ? 60 : 44;
   var nPoolRows = poolRowsArr.length;
+
+  // Totals block — three rows that ride at the bottom of whichever
+  // cascade page hosts the LAST pool row. Mirrors the same markup used
+  // inside the single-page Pool Configuration section.
+  var totalsBlock = '<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+' gal</span></div>'
+    + (S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'')
+    + '<div class="rpt-row"><span class="k">CO₂ pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>';
 
   if (nPoolRows <= POOL_TRIGGER) {
     assessmentHtml = singlePageAssessment;
@@ -9843,6 +16003,12 @@ function generateReport(){
     var pgLbl=function(n){return ' <span style="font-weight:400;color:#7db8cc;font-size:11px;letter-spacing:1px"> · Page '+n+' of '+totalAssessPages+'</span>';};
 
     // ── Page 1: Pool Config (first chunk) | Device Selection ──
+    // The totals strip (Total Volume / Chlorine / CO2) rides at the
+    // bottom of whichever cascade page hosts the LAST pool row. If
+    // there are no continuation pages, page 1 is that page — append the
+    // totals to the end of its left column so they sit immediately
+    // below the last pool row.
+    var p1IsLastPoolPage = (contPages === 0);
     assessmentHtml = '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
       + assessHeader + assessKpiStrip
       + '<div class="rpt-body">'
@@ -9850,6 +16016,7 @@ function generateReport(){
           + '<div>'
             + '<div class="rpt-stitle">Pool Configuration'+pgLbl(1)+'</div>'
             + poolRowsArr.slice(0, POOL_P1_FILL).join('')
+            + (p1IsLastPoolPage ? totalsBlock : '')
           + '</div>'
           + '<div>'
             + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
@@ -9870,6 +16037,9 @@ function generateReport(){
       var halfPt = Math.ceil(chunkRows.length/2);
       var leftColRows = chunkRows.slice(0, halfPt).join('');
       var rightColRows = chunkRows.slice(halfPt).join('');
+      // Last cont page hosts the totals strip at the end of its right
+      // column (since the right column ends with the very last pool).
+      var isLastContPage = (cpi === contPages - 1);
 
       assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
         + assessHeaderCont
@@ -9882,6 +16052,7 @@ function generateReport(){
             + '<div>'
               + '<div class="rpt-stitle" style="visibility:hidden">.</div>'
               + rightColRows
+              + (isLastContPage ? totalsBlock : '')
             + '</div>'
           + '</div>'
         + '</div>'
@@ -9889,18 +16060,14 @@ function generateReport(){
       + '</div>';
     }
 
-    // ── Last page: Volume totals + Purchase + Breakdown + Water + Images + Videos + CTA ──
-    var totalsBlock = '<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+' gal</span></div>'
-      + (S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'')
-      + '<div class="rpt-row"><span class="k">CO2 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>';
-
+    // ── Final summary page: Purchase + Breakdown + Water + Images + Videos + CTA ──
+    // The Property Volume Totals header section that used to sit at the
+    // top of this page was moved (per Jeff 2026-05-24 spec) to the
+    // bottom of the LAST page that carries pool rows — totals must
+    // travel with the pool list, not on a separate page.
     assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
       + assessHeaderCont
       + '<div class="rpt-body">'
-        + '<div class="rpt-sec" style="margin-bottom:10px">'
-          + '<div class="rpt-stitle">Property Volume Totals'+pgLbl(totalAssessPages)+'</div>'
-          + totalsBlock
-        + '</div>'
         + (EX.layout==='landscape'
           // Cascade last-page landscape — same restructure as the single-
           // page path: Row B = Purchase | Breakdown (2-col, natural),
@@ -10518,6 +16685,148 @@ function handleClick(e){
     if(confirm('Start a new assessment? Unsaved data will be cleared.')) resetApp();
     return;
   }
+  // ── Engineer Portal dispatch ─────────────────────────────────
+  // Row-click on the assignment list → open the 4-step flow.
+  // Filtering out clicks on nested actionable elements lets the engineer
+  // tap inside a row without accidentally opening it (when a row has
+  // nested controls in future iterations).
+  if (window.AR2_ENGINEER){
+    var engRow = e.target.closest('[data-engineer-assignment]');
+    if (engRow && !e.target.closest('button,a,input,select,textarea')){
+      AR2_ENGINEER.openAssignment(engRow.getAttribute('data-engineer-assignment'));
+      return;
+    }
+    // Action dispatch — every ar-eng-* data-action routes to the module's
+    // handleAction(), which returns true when it consumes the event.
+    var engAction = e.target.closest('[data-action]');
+    if (engAction){
+      var engActName = engAction.getAttribute('data-action');
+      if (engActName && engActName.indexOf('ar-eng-') === 0){
+        // Form-element actions (select/input/textarea) handle their own
+        // change/input events via relayEngineerInput. Routing the click
+        // through handleAction would call repaint(), which destroys the
+        // currently-open <select> dropdown before the user can pick an
+        // option — exactly the "dropdown doesn't fire correctly" bug.
+        var engTag = engAction.tagName;
+        if (engTag !== 'SELECT' && engTag !== 'INPUT' && engTag !== 'TEXTAREA'){
+          if (AR2_ENGINEER.handleAction(engActName, engAction)) return;
+        }
+      }
+    }
+  }
+  // Bank-row engineer assignment chip (Phase 2.5 follow-up — single
+  // assessments). Opens the same modal as the portfolio chip with
+  // scope=assessment.
+  var asgnBank = e.target.closest('[data-action="assign-engineer-bank"]');
+  if (asgnBank){
+    e.stopPropagation();
+    if (window.AR2_PF && AR2_PF.openAssignEngineerModal){
+      var bankScope = asgnBank.getAttribute('data-bank-scope') || 'assessment';
+      var fallbackName = bankScope === 'portfolio' ? 'this portfolio' : 'this assessment';
+      AR2_PF.openAssignEngineerModal({
+        kind: bankScope,
+        id:   asgnBank.getAttribute('data-bank-id'),
+        name: asgnBank.getAttribute('data-bank-name') || fallbackName
+      });
+    }
+    return;
+  }
+  // Engineer-profile pill (Archive list). Opens a read-only profile card
+  // showing the engineer's name, phone, role, and assignment counts.
+  // Field Report (step 5) action bar handlers — admin/user toolset.
+  var frBtn = e.target.closest('[data-action^="fr-"]');
+  if (frBtn){
+    var frAct = frBtn.getAttribute('data-action');
+    var wrap = frBtn.closest('.ar-fr-wrap');
+    var asgnId = wrap && wrap.getAttribute('data-fr-assignment-id');
+    if (frAct === 'fr-go-to-archive'){
+      if (typeof showView === 'function') showView('bank');
+      return;
+    }
+    if (frAct === 'fr-download-pdf' && asgnId){
+      try { if (typeof generateEngineerReport === 'function') generateEngineerReport(asgnId); } catch(err){ alert((err && err.message) || 'Could not generate report.'); }
+      return;
+    }
+    if (frAct === 'fr-open-engineer-portal' && asgnId){
+      if (window.AR2_ENGINEER && AR2_ENGINEER.openAssignment){
+        AR2_ENGINEER.openAssignment(asgnId);
+        if (typeof showView === 'function') showView('bank');
+      }
+      return;
+    }
+    if ((frAct === 'fr-mark-reviewed' || frAct === 'fr-lock' || frAct === 'fr-unlock') && asgnId){
+      var newStatus = frAct === 'fr-lock' ? 'locked' : 'reviewed';
+      var c = window.AR2_CLOUD && AR2_CLOUD.getClient && AR2_CLOUD.getClient();
+      if (!c) return;
+      var patch = { status: newStatus, last_modified_at: new Date().toISOString() };
+      if (newStatus === 'reviewed') patch.reviewed_at = new Date().toISOString();
+      if (newStatus === 'locked')   patch.locked_at   = new Date().toISOString();
+      c.from('engineer_assignments').update(patch).eq('id', asgnId).then(function(){
+        if (window.AR2_FIELD_REPORT){ AR2_FIELD_REPORT.load(true).then(function(){ if (typeof render === 'function') render(); }); }
+      }, function(err){ alert('Update failed: ' + ((err && err.message) || 'network error')); });
+      return;
+    }
+  }
+  var engPill = e.target.closest('[data-action="view-engineer-profile"]');
+  if (engPill){
+    e.stopPropagation();
+    e.preventDefault();
+    openEngineerProfileModal(engPill.getAttribute('data-engineer-id'));
+    return;
+  }
+  // Notification bell (Phase 5)
+  var notifBell = e.target.closest('[data-action="notif-bell-open"]');
+  if(notifBell){ toggleNotifDrawer(); return; }
+  var notifMarkAll = e.target.closest('[data-action="notif-mark-all"]');
+  if(notifMarkAll){ e.stopPropagation(); markAllNotificationsRead(); return; }
+  // Notification read/unread toggle on the dot. Fires BEFORE the row
+  // navigation handler so a click on the dot doesn't bubble up and
+  // open the target. Stops propagation hard.
+  var notifToggle = e.target.closest('[data-action="notif-toggle-read"]');
+  if(notifToggle){
+    e.stopPropagation();
+    e.preventDefault();
+    var tgId = notifToggle.getAttribute('data-notif-id');
+    var tgWasUnread = notifToggle.getAttribute('data-unread') === '1';
+    if (tgWasUnread){
+      markNotificationRead(tgId);
+    } else {
+      markNotificationUnread(tgId);
+    }
+    return;
+  }
+  var notifRow = e.target.closest('[data-action="notif-click"]');
+  if(notifRow){
+    e.stopPropagation();
+    var nid = notifRow.getAttribute('data-notif-id');
+    var url = notifRow.getAttribute('data-link-url') || '';
+    markNotificationRead(nid).then(function(){
+      // For engineer-submitted notifications, jump to the Engineer
+      // Submissions admin tab. Other types currently no-op on navigation.
+      if (url && url.indexOf('engineer-submissions') !== -1){
+        if (typeof setAdminActiveTab === 'function') setAdminActiveTab('engineer-submissions');
+        // If admin isn't on the archive view, open it
+        if (typeof showView === 'function' && VIEW !== 'bank') showView('bank');
+      }
+    });
+    return;
+  }
+  // PWA install (Chrome/Edge deferred prompt)
+  var pwaInstall=e.target.closest('[data-action="ar-pwa-install"]');
+  if(pwaInstall && window.AR_PWA){
+    AR_PWA.promote().then(function(){
+      // Re-render so the install card disappears regardless of outcome.
+      if (typeof renderArchive === 'function') renderArchive();
+    });
+    return;
+  }
+  // iOS Add-to-Home-Screen hint dismiss
+  var pwaIosDismiss=e.target.closest('[data-action="ar-pwa-ios-hint-dismiss"]');
+  if(pwaIosDismiss){
+    try { localStorage.setItem('ar_pwa_ios_hint_dismissed', '1'); } catch(_){}
+    if (typeof renderArchive === 'function') renderArchive();
+    return;
+  }
   // Toggle YouTube drawer
   var togYt=e.target.closest('[data-action="toggle-yt-drawer"]');
   if(togYt){ EX.showYtDrawer=!EX.showYtDrawer; renderForm(); return; }
@@ -10527,15 +16836,78 @@ function handleClick(e){
   // Help button — step-aware tutorial overlay
   var helpClick=e.target.closest('[data-action="show-help"]');
   if(helpClick){ showHelpModal(); return; }
+  var installAppClick=e.target.closest('[data-action="show-install-app"]');
+  if(installAppClick){ showInstallAppModal(); return; }
   // User chip — opens Sign Out menu
   var userMenuClick=e.target.closest('[data-action="user-menu"]');
   if(userMenuClick){ showUserMenu(userMenuClick); return; }
+  // Admin Dashboard tabs + Engineer Submissions (Phase 3)
+  var adminTab=e.target.closest('[data-action="admin-tab-switch"]');
+  if(adminTab){
+    setAdminActiveTab(adminTab.getAttribute('data-admin-tab') || 'overview');
+    return;
+  }
+  var engFilter=e.target.closest('[data-action="admin-eng-filter"]');
+  if(engFilter){
+    var f = engFilter.getAttribute('data-filter') || '';
+    try { localStorage.setItem('ar2:admin-eng-filter', f); } catch(_){}
+    renderAdminEngineerSubmissions();
+    return;
+  }
+  var engRefresh=e.target.closest('[data-action="admin-eng-refresh"]');
+  if(engRefresh){
+    populateAdminEngineerSubmissions();
+    return;
+  }
+  var engReview=e.target.closest('[data-action="admin-review-submission"]');
+  if(engReview){
+    var asgnIdOpen = engReview.getAttribute('data-assignment-id');
+    // The review modal reads the assignment from window.AR2_ADMIN_ENG —
+    // which is only populated when the Engineer Submissions tab is open.
+    // When the click originates outside that tab (e.g. the green Verified
+    // badge on a body card in the calculator), prime the cache first.
+    if (!window.AR2_ADMIN_ENG && typeof populateAdminEngineerSubmissions === 'function'){
+      // Stash the pending id; re-open after population completes.
+      window.AR2_ADMIN_ENG_PENDING_OPEN = asgnIdOpen;
+      populateAdminEngineerSubmissions();
+      // Poll briefly for the cache to land (populate is async).
+      var tries = 0;
+      var iv = setInterval(function(){
+        if (window.AR2_ADMIN_ENG || tries > 50){
+          clearInterval(iv);
+          if (window.AR2_ADMIN_ENG_PENDING_OPEN){
+            var id = window.AR2_ADMIN_ENG_PENDING_OPEN;
+            window.AR2_ADMIN_ENG_PENDING_OPEN = null;
+            openAdminReviewModal(id);
+          }
+        }
+        tries++;
+      }, 100);
+      return;
+    }
+    openAdminReviewModal(asgnIdOpen);
+    return;
+  }
   // Admin User Manager actions (admin-only)
   var addUserClick=e.target.closest('[data-action="admin-add-user"]');
   if(addUserClick){ showAdminAddUserModal(); return; }
+  var emailEditClick=e.target.closest('[data-action="admin-edit-email"]');
+  if(emailEditClick){
+    showAdminEditEmailModal(
+      emailEditClick.getAttribute('data-uid'),
+      emailEditClick.getAttribute('data-uname'),
+      emailEditClick.getAttribute('data-uemail') || ''
+    );
+    return;
+  }
   var resetCodeClick=e.target.closest('[data-action="admin-reset-code"]');
   if(resetCodeClick){
-    showAdminResetCodeModal(resetCodeClick.dataset.uid, resetCodeClick.dataset.uname);
+    showAdminResetCodeModal(
+      resetCodeClick.dataset.uid,
+      resetCodeClick.dataset.uname,
+      resetCodeClick.dataset.urole || '',
+      resetCodeClick.dataset.uphone || ''
+    );
     return;
   }
   var changeRoleClick=e.target.closest('[data-action="admin-change-role"]');
@@ -10609,6 +16981,18 @@ function handleClick(e){
         try { EX.previewing = true; generateReport(); } catch(e){
           alert('Could not generate preview: ' + ((e && e.message) || e));
         }
+        return;
+      }
+      // Engineer assignment chip — opens the assign-engineer modal.
+      // Stops propagation so the row's click handler (open property)
+      // doesn't fire. Admin-only chip; if a non-admin somehow has the
+      // markup, the modal's submit also checks role server-side.
+      if (act === 'assign-engineer'){
+        e.stopPropagation();
+        var asgnPid = pfAct.getAttribute('data-pf-property');
+        var asgnName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
+        if (!asgnPid) return;
+        AR2_PF.openAssignEngineerModal({ kind: 'property', id: asgnPid, name: asgnName });
         return;
       }
       // Delete a single property from a portfolio. Stops propagation via
@@ -11015,9 +17399,34 @@ function handleClick(e){
     var sdir=stepNav.dataset.stepNav;
     if(sdir==='next'&&S.step<STEPS.length-1){
       if(!requireNameOrPopup('next')) return;
-      S.step=resolveStepForClient(S.step+1,'next');render();
+      S.step=resolveStepForClient(S.step+1,'next');render();scrollAppTop();
     }
-    else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
+    else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();scrollAppTop();}
+    return;
+  }
+  // Direct step jump — click any step pill in the header to land on it.
+  // Honours the same visibility gates as the back/next arrows: Quote is
+  // skipped over for client / portfolio-property mode, Field Report is
+  // skipped for client / engineer (those steps are visually hidden via
+  // data-client-hide / data-pf-prop-hide / data-fr-hide CSS, but a
+  // savvy user could still hit the data-step-jump attribute, so we
+  // double-gate it here too).
+  var stepJump = e.target.closest('[data-step-jump]');
+  if (stepJump){
+    var targetIdx = parseInt(stepJump.getAttribute('data-step-jump'), 10);
+    if (isNaN(targetIdx) || targetIdx < 0 || targetIdx >= STEPS.length) return;
+    if (targetIdx === S.step) return; // already there
+    // Jumping FORWARD past Step 1 still requires a property name.
+    if (targetIdx > S.step && !requireNameOrPopup('jump')) return;
+    var stepId = STEPS[targetIdx];
+    var isClient = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
+    var inPfProp = !!(window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode());
+    var isEngineer = !!(window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer());
+    if (stepId === 'quote' && (isClient || inPfProp)) return;
+    if (stepId === 'field-report' && (isClient || isEngineer)) return;
+    S.step = targetIdx;
+    render();
+    if (typeof scrollAppTop === 'function') scrollAppTop();
     return;
   }
   // Nav back/next
@@ -11026,34 +17435,76 @@ function handleClick(e){
     var dir=navBtn.dataset.nav;
     if(dir==='next'&&S.step<STEPS.length-1){
       if(!requireNameOrPopup('next')) return;
-      S.step=resolveStepForClient(S.step+1,'next');render();
+      S.step=resolveStepForClient(S.step+1,'next');render();scrollAppTop();
     }
-    else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();}
+    else if(dir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();scrollAppTop();}
     return;
   }
   // Step 0 (Map Pool) → Pool & System: pull registered pools from the bridge.
   var mapCont=e.target.closest('[data-action="map-continue"]');
   if(mapCont){
     consumeMapPoolBodies();
-    S.step=1; render();
+    S.step=1; render(); scrollAppTop();
     return;
   }
   var mapSkip=e.target.closest('[data-action="map-skip"]');
   if(mapSkip){
-    S.step=1; render();
+    S.step=1; render(); scrollAppTop();
     return;
   }
   // Review edit links
   var editBtn=e.target.closest('[data-goto]');
   if(editBtn){
     S.step=parseInt(editBtn.dataset.goto);
-    render();
+    render(); scrollAppTop();
     return;
   }
 }
 
+/* Step-transition scroll helper. Lands the user at the top of the
+   calculator chrome (the brand bar) every time they advance or
+   retreat between steps — long forms left the previous step's
+   scroll position which felt jarring after navigating away. Uses
+   smooth scroll when the browser supports it; falls back to instant. */
+function scrollAppTop(){
+  try {
+    // Target the calculator root. If it's offset from the page top
+    // (Webflow embed has a nav bar above it), scroll to that offset
+    // so the calc header lands at viewport top instead of the page
+    // top, which would hide it behind the Webflow nav.
+    var rootEl = document.getElementById('ar2');
+    var y = 0;
+    if (rootEl){
+      var rect = rootEl.getBoundingClientRect();
+      y = Math.max(0, window.pageYOffset + rect.top - 8);
+    }
+    if ('scrollBehavior' in document.documentElement.style){
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    } else {
+      window.scrollTo(0, y);
+    }
+  } catch(_){ try { window.scrollTo(0, 0); } catch(__){} }
+}
+
 function handleInput(e){
   var el=e.target;
+  // Engineer Submissions search input (admin tab). Updates the in-memory
+  // query and re-renders the table. Preserves focus + caret because we
+  // re-set value in the new DOM with the same string.
+  if (el && el.getAttribute && el.getAttribute('data-action') === 'admin-eng-search'){
+    window.AR2_ADMIN_ENG_SEARCH = el.value || '';
+    if (typeof renderAdminEngineerSubmissions === 'function'){
+      renderAdminEngineerSubmissions();
+      // Refocus the new input so typing keeps working.
+      setTimeout(function(){
+        var ne = document.querySelector('[data-action="admin-eng-search"]');
+        if (ne){
+          try { ne.focus(); ne.setSelectionRange(ne.value.length, ne.value.length); } catch(_){}
+        }
+      }, 0);
+    }
+    return;
+  }
   // P3: Quote builder field — write back to pfState quote draft.
   if (el.dataset && el.dataset.qbKey && window.AR2_PF && AR2_PF.selectedPortfolioId){
     var pidQ = AR2_PF.selectedPortfolioId();
@@ -11919,8 +18370,290 @@ function injectHelpButton(){
   helpBtn.setAttribute('aria-label','Help');
   helpBtn.textContent = '?';
   // Place AFTER the New button. updateUserChip appends the chip later, so
-  // the final reading order is: Archive · New · Help · UserChip.
+  // the final reading order is: Archive · New · Help · Install · UserChip.
   actions.appendChild(helpBtn);
+}
+
+/* Install App pill — top-bar entry-point that's visible on EVERY page
+   (calculator + engineer portal + archive), so any user can install
+   the PWA without first hunting through the engineer portal landing.
+   Hidden when:
+     • Already running in standalone PWA mode (AR_PWA.isStandalone)
+     • AR_PWA module hasn't loaded yet (defensive) */
+function updateInstallAppButton(){
+  var actions = document.getElementById('ar2-bar-actions');
+  if (!actions) return;
+  var existing = document.getElementById('ar2-install-btn');
+  var pwa = window.AR_PWA;
+  // Hide when already installed
+  if (pwa && pwa.isStandalone && pwa.isStandalone()){
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  if (existing) return; // already in DOM
+  var btn = document.createElement('button');
+  btn.id = 'ar2-install-btn';
+  btn.className = 'ar-install-pill no-print';
+  btn.dataset.action = 'show-install-app';
+  btn.title = 'Install AquaRev as an app on this device';
+  btn.setAttribute('aria-label','Install AquaRev as an app');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<rect x="6" y="2" width="12" height="20" rx="2.5"/>'
+    + '<path d="M12 6v6"/><polyline points="9 9 12 6 15 9"/>'
+    + '<path d="M11 18h2"/>'
+    + '</svg>'
+    + '<span class="ar-install-pill-lbl">Install App</span>';
+  // Place before the Help button (so order is Archive · New · Install · Help · UserChip)
+  var helpBtn = document.getElementById('ar2-help-btn');
+  if (helpBtn && helpBtn.parentNode === actions) actions.insertBefore(btn, helpBtn);
+  else actions.appendChild(btn);
+}
+
+/* Install App modal — platform-aware, compact, with QR-on-other-device.
+   Detects the current UA and shows the PRIMARY block (current device,
+   full-size with action button when possible). Other-device blocks
+   collapse into a small "Other devices" section. A QR code at the
+   bottom encodes the install URL for cross-device install.
+   Esc / outside-click / Got-it all close. */
+function showInstallAppModal(){
+  var existing = document.getElementById('ar2-install-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var pwa = window.AR_PWA || {};
+  var canPrompt = !!(pwa.installable && pwa.deferredPrompt);
+  var ua = (window.navigator && window.navigator.userAgent) || '';
+  var isIos = /iPhone|iPad|iPod/i.test(ua);
+  var isAndroid = /Android/i.test(ua);
+  var primary = isIos ? 'ios' : isAndroid ? 'android' : 'desktop';
+
+  // Each platform produces a visual tutorial card with an annotated
+  // SVG diagram. PRIMARY platforms render the visual + step-by-step
+  // instructions; OTHER platforms render a compact one-liner inside
+  // the collapsible details.
+
+  // iOS visual — phone outline with the Share icon highlighted at
+  // the bottom toolbar + a callout "1" pointing at it.
+  function iosVisual(){
+    return '<div class="ar-install-visual ar-install-visual-ios">'
+      +   '<svg viewBox="0 0 240 320" fill="none" aria-hidden="true">'
+      +     '<rect x="10" y="10" width="220" height="300" rx="24" fill="#0a2540" stroke="rgba(0,180,216,.5)" stroke-width="2"/>'
+      +     '<rect x="22" y="34" width="196" height="240" rx="6" fill="#040f1e"/>'
+      +     '<rect x="32" y="46" width="80" height="8" rx="2" fill="rgba(72,202,228,.45)"/>'
+      +     '<rect x="32" y="62" width="140" height="6" rx="2" fill="rgba(255,255,255,.18)"/>'
+      +     '<rect x="32" y="74" width="120" height="6" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="32" y="90" width="176" height="100" rx="6" fill="rgba(0,180,216,.08)" stroke="rgba(0,180,216,.2)"/>'
+      +     '<rect x="32" y="200" width="80" height="6" rx="2" fill="rgba(255,255,255,.16)"/>'
+      +     '<rect x="32" y="212" width="140" height="6" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="22" y="274" width="196" height="38" rx="4" fill="#0a2540" stroke="rgba(0,180,216,.18)"/>'
+      +     '<path d="M44 293l-5-5 5-5" stroke="rgba(255,255,255,.45)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +     '<path d="M66 288l5 5-5 5" stroke="rgba(255,255,255,.45)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +     '<g class="ar-install-target">'
+      +       '<rect x="103" y="280" width="34" height="26" rx="6" fill="rgba(72,202,228,.18)" stroke="#48cae4" stroke-width="2"/>'
+      +       '<path d="M120 285v12" stroke="#48cae4" stroke-width="2" stroke-linecap="round"/>'
+      +       '<polyline points="116 289 120 285 124 289" stroke="#48cae4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +       '<rect x="111" y="291" width="18" height="11" rx="2" fill="none" stroke="#48cae4" stroke-width="2"/>'
+      +     '</g>'
+      +     '<rect x="160" y="285" width="13" height="14" rx="2" fill="rgba(255,255,255,.4)"/>'
+      +     '<rect x="186" y="285" width="13" height="14" rx="2" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="2"/>'
+      +     '<g class="ar-install-callout">'
+      +       '<circle cx="200" cy="240" r="14" fill="#48cae4"/>'
+      +       '<text x="200" y="245" font-size="14" font-weight="700" fill="#040f1e" text-anchor="middle">1</text>'
+      +       '<path d="M186 246 L138 286" stroke="#48cae4" stroke-width="2" stroke-dasharray="3 3" fill="none"/>'
+      +     '</g>'
+      +   '</svg>'
+      + '</div>';
+  }
+
+  // Android visual — phone with the Chrome top-right \u22ee menu
+  // highlighted (where Install app lives).
+  function androidVisual(){
+    return '<div class="ar-install-visual ar-install-visual-android">'
+      +   '<svg viewBox="0 0 240 320" fill="none" aria-hidden="true">'
+      +     '<rect x="10" y="10" width="220" height="300" rx="24" fill="#0a2540" stroke="rgba(0,180,216,.5)" stroke-width="2"/>'
+      +     '<rect x="22" y="20" width="196" height="14" rx="2" fill="rgba(0,0,0,.4)"/>'
+      +     '<rect x="22" y="34" width="196" height="32" fill="#0a2540" stroke="rgba(0,180,216,.18)"/>'
+      +     '<rect x="34" y="42" width="124" height="16" rx="8" fill="#040f1e" stroke="rgba(255,255,255,.18)"/>'
+      +     '<rect x="42" y="48" width="80" height="4" rx="1" fill="rgba(255,255,255,.4)"/>'
+      +     '<g class="ar-install-target">'
+      +       '<rect x="194" y="42" width="20" height="20" rx="4" fill="rgba(72,202,228,.18)" stroke="#48cae4" stroke-width="2"/>'
+      +       '<circle cx="204" cy="47" r="1.4" fill="#48cae4"/>'
+      +       '<circle cx="204" cy="52" r="1.4" fill="#48cae4"/>'
+      +       '<circle cx="204" cy="57" r="1.4" fill="#48cae4"/>'
+      +     '</g>'
+      +     '<rect x="22" y="68" width="196" height="244" fill="#040f1e"/>'
+      +     '<rect x="34" y="80" width="80" height="8" rx="2" fill="rgba(72,202,228,.45)"/>'
+      +     '<rect x="34" y="96" width="140" height="6" rx="2" fill="rgba(255,255,255,.18)"/>'
+      +     '<rect x="34" y="108" width="120" height="6" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="34" y="130" width="176" height="100" rx="6" fill="rgba(0,180,216,.08)" stroke="rgba(0,180,216,.2)"/>'
+      +     '<g class="ar-install-callout">'
+      +       '<circle cx="170" cy="100" r="14" fill="#48cae4"/>'
+      +       '<text x="170" y="105" font-size="14" font-weight="700" fill="#040f1e" text-anchor="middle">1</text>'
+      +       '<path d="M180 90 L198 60" stroke="#48cae4" stroke-width="2" stroke-dasharray="3 3" fill="none"/>'
+      +     '</g>'
+      +   '</svg>'
+      + '</div>';
+  }
+
+  // Desktop visual — browser window with the install icon highlighted
+  // at the right edge of the address bar. This is the icon most users
+  // don't realize exists; big pulsing target makes it obvious.
+  function desktopVisual(){
+    return '<div class="ar-install-visual ar-install-visual-desktop">'
+      +   '<svg viewBox="0 0 380 220" fill="none" aria-hidden="true">'
+      +     '<rect x="10" y="10" width="360" height="200" rx="8" fill="#0a2540" stroke="rgba(0,180,216,.4)"/>'
+      +     '<circle cx="24" cy="24" r="4" fill="#ef4444"/>'
+      +     '<circle cx="38" cy="24" r="4" fill="#f0a500"/>'
+      +     '<circle cx="52" cy="24" r="4" fill="#22c55e"/>'
+      +     '<rect x="68" y="14" width="100" height="22" rx="4" fill="#071628" stroke="rgba(255,255,255,.08)"/>'
+      +     '<rect x="76" y="22" width="60" height="6" rx="2" fill="rgba(255,255,255,.4)"/>'
+      +     '<rect x="14" y="42" width="352" height="32" fill="#071628" stroke="rgba(255,255,255,.06)"/>'
+      +     '<circle cx="26" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
+      +     '<circle cx="46" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
+      +     '<circle cx="66" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
+      +     '<rect x="82" y="48" width="248" height="20" rx="10" fill="#0a2540" stroke="rgba(255,255,255,.18)"/>'
+      +     '<text x="92" y="62" font-size="9" fill="rgba(255,255,255,.6)" font-family="JetBrains Mono, monospace">aquarevwater.us/calculator-sandbox</text>'
+      +     '<g class="ar-install-target">'
+      +       '<rect x="306" y="48" width="20" height="20" rx="4" fill="rgba(72,202,228,.25)" stroke="#48cae4" stroke-width="2"/>'
+      +       '<rect x="310" y="53" width="12" height="9" rx="1" fill="none" stroke="#48cae4" stroke-width="1.6"/>'
+      +       '<path d="M316 56v3.5" stroke="#48cae4" stroke-width="1.6" stroke-linecap="round"/>'
+      +       '<polyline points="314 58 316 60 318 58" stroke="#48cae4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+      +       '<path d="M310 63h12" stroke="#48cae4" stroke-width="1.6" stroke-linecap="round"/>'
+      +     '</g>'
+      +     '<rect x="340" y="48" width="20" height="20" rx="4" fill="none" stroke="rgba(255,255,255,.18)"/>'
+      +     '<circle cx="350" cy="54" r="1.2" fill="rgba(255,255,255,.4)"/>'
+      +     '<circle cx="350" cy="58" r="1.2" fill="rgba(255,255,255,.4)"/>'
+      +     '<circle cx="350" cy="62" r="1.2" fill="rgba(255,255,255,.4)"/>'
+      +     '<rect x="14" y="74" width="352" height="132" fill="#040f1e"/>'
+      +     '<rect x="28" y="88" width="140" height="10" rx="2" fill="rgba(72,202,228,.45)"/>'
+      +     '<rect x="28" y="106" width="200" height="7" rx="2" fill="rgba(255,255,255,.18)"/>'
+      +     '<rect x="28" y="120" width="170" height="7" rx="2" fill="rgba(255,255,255,.12)"/>'
+      +     '<rect x="28" y="142" width="324" height="56" rx="6" fill="rgba(0,180,216,.08)" stroke="rgba(0,180,216,.2)"/>'
+      +     '<g class="ar-install-callout">'
+      +       '<circle cx="316" cy="100" r="14" fill="#48cae4"/>'
+      +       '<text x="316" y="105" font-size="14" font-weight="700" fill="#040f1e" text-anchor="middle">1</text>'
+      +       '<path d="M316 86 L316 72" stroke="#48cae4" stroke-width="2" stroke-dasharray="3 3" fill="none"/>'
+      +     '</g>'
+      +   '</svg>'
+      + '</div>';
+  }
+
+  function iosCard(compact){
+    var lbl = compact ? '' : 'iPhone / iPad';
+    return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">\ud83d\udcf1</span></div>'
+      + (compact
+        ? '<div class="ar-install-card-sub">iPhone / iPad \u2014 tap <b>Share</b> \u2192 <b>Add to Home Screen</b>.</div>'
+        : '<div class="ar-install-card-body">'
+          + iosVisual()
+          + '<ol class="ar-install-steps">'
+          +   '<li><b>Tap the Share icon</b> at the bottom of your browser (square with up-arrow \u2014 highlighted above).</li>'
+          +   '<li>Scroll down in the share sheet and tap <b>Add to Home Screen</b>.</li>'
+          +   '<li>Tap <b>Add</b> in the top-right corner.</li>'
+          + '</ol>')
+      + '</div>';
+  }
+  function androidCard(compact){
+    var lbl = compact ? '' : 'Android';
+    return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">\ud83e\udd16</span></div>'
+      + (compact
+        ? '<div class="ar-install-card-sub">Android \u2014 open \u22ee \u2192 <b>Install app</b>.</div>'
+        : (canPrompt
+          ? '<div class="ar-install-card-body">'
+            + '<div class="ar-install-card-msg">Tap below and AquaRev installs to your home screen with a single confirmation.</div>'
+            + '<button class="ar-install-do" data-action="ar-pwa-install" type="button">Install AquaRev now</button>'
+            + '</div>'
+          : '<div class="ar-install-card-body">'
+            + androidVisual()
+            + '<ol class="ar-install-steps">'
+            +   '<li><b>Tap the \u22ee menu</b> in the top-right of Chrome (highlighted above).</li>'
+            +   '<li>Choose <b>Install app</b> (or <b>Add to Home screen</b>).</li>'
+            +   '<li>Confirm in the prompt that appears.</li>'
+            + '</ol></div>'))
+      + '</div>';
+  }
+  function desktopCard(compact){
+    var lbl = compact ? '' : 'Desktop (Chrome / Edge)';
+    return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">\ud83d\udcbb</span></div>'
+      + (compact
+        ? '<div class="ar-install-card-sub">Desktop \u2014 click the install icon in the address bar.</div>'
+        : (canPrompt
+          ? '<div class="ar-install-card-body">'
+            + '<div class="ar-install-card-msg">Click below and AquaRev installs as a desktop app instantly.</div>'
+            + '<button class="ar-install-do" data-action="ar-pwa-install" type="button">Install AquaRev now</button>'
+            + '<div class="ar-install-card-or">Or do it manually:</div>'
+            + desktopVisual()
+            + '<ol class="ar-install-steps">'
+            +   '<li><b>Click the install icon</b> at the right edge of the address bar (computer-with-down-arrow, highlighted above).</li>'
+            +   '<li>Confirm <b>Install</b> in the popup.</li>'
+            +   '<li>AquaRev opens in its own window and is added to Applications / Start menu.</li>'
+            + '</ol>'
+            + '</div>'
+          : '<div class="ar-install-card-body">'
+            + desktopVisual()
+            + '<ol class="ar-install-steps">'
+            +   '<li><b>Look at the address bar</b> at the top of your browser. On the right side, just before the \u22ee menu, you\u2019ll see a small <b>install icon</b> \u2014 computer with a down arrow (highlighted above).</li>'
+            +   '<li><b>Click it</b> and confirm <b>Install</b>.</li>'
+            +   '<li>AquaRev opens in its own window and lands in your Applications / Start menu \u2014 launch it like any other app.</li>'
+            + '</ol>'
+            + '<div class="ar-install-card-note">Don\u2019t see the install icon yet? Your browser may not have fully recognised AquaRev as installable. Reload the page once, then try again. Works best in Chrome / Edge.</div>'
+            + '</div>'))
+      + '</div>';
+  }
+  var blocks = { ios: iosCard, android: androidCard, desktop: desktopCard };
+  var primaryHtml = blocks[primary](false);
+  var otherKeys = ['ios','android','desktop'].filter(function(k){ return k !== primary; });
+  var otherHtml = '<details class="ar-install-other"><summary>Instructions for other devices</summary><div class="ar-install-other-list">'
+    + otherKeys.map(function(k){ return blocks[k](true); }).join('')
+    + '</div></details>';
+
+  // QR code — encodes the install URL so a user on desktop can scan
+  // it from their phone (or vice versa) to land on the installable
+  // page. qrserver.com is free, returns PNG, no auth.
+  var installUrl = 'https://www.aquarevwater.us/calculator-sandbox?install=1';
+  var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data='
+    + encodeURIComponent(installUrl);
+  var qrHtml = '<div class="ar-install-qr">'
+    + '<div class="ar-install-qr-l">'
+    +   '<div class="ar-install-qr-eyebrow">Install on another device</div>'
+    +   '<div class="ar-install-qr-title">Scan this with your phone\u2019s camera</div>'
+    +   '<div class="ar-install-qr-sub">Opens the install page on the other device so you can add it to that home screen too.</div>'
+    + '</div>'
+    + '<div class="ar-install-qr-r"><img src="' + qrUrl + '" alt="QR code to install AquaRev" /></div>'
+    + '</div>';
+
+  var m = document.createElement('div');
+  m.id = 'ar2-install-modal';
+  m.className = 'ar-install-modal';
+  m.innerHTML = '<div class="ar-install-card-wrap" role="dialog" aria-modal="true">'
+    + '<div class="ar-install-head">'
+    +   '<div>'
+    +     '<div class="ar-install-eyebrow">Install AquaRev</div>'
+    +     '<div class="ar-install-title">Add to your device</div>'
+    +   '</div>'
+    +   '<button id="ar2-install-close" aria-label="Close" class="ar-install-close" type="button">\u00d7</button>'
+    + '</div>'
+    + '<div class="ar-install-lede">Faster startup, one-tap launch, and a full-screen feel \u2014 no browser bars.</div>'
+    + primaryHtml
+    + otherHtml
+    + qrHtml
+    + '<div class="ar-install-foot">Need help? Call <b>(832)\u00a0979\u00a06758</b></div>'
+    + '</div>';
+  document.body.appendChild(m);
+  function close(){ if (m.parentNode) m.parentNode.removeChild(m); document.removeEventListener('keydown', onKey); }
+  function onKey(e){ if (e.key === 'Escape') close(); }
+  document.getElementById('ar2-install-close').onclick = close;
+  m.addEventListener('click', function(e){
+    if (e.target === m) return close();
+    var inst = e.target.closest && e.target.closest('[data-action="ar-pwa-install"]');
+    if (inst && window.AR_PWA){
+      AR_PWA.promote().then(function(accepted){
+        close();
+        if (accepted){ try { updateInstallAppButton(); } catch(_){} }
+      });
+    }
+  });
+  document.addEventListener('keydown', onKey);
 }
 
 /* User chip in the top bar — small avatar + name beside the New button.
@@ -11954,6 +18687,402 @@ function updateUserChip(){
   chip.innerHTML = '<span class="ar-user-chip-avatar">'+esc(initial)+'</span>';
   // Place AFTER the New button so reading order is: Help · Archive · New · UserChip
   actions.appendChild(chip);
+  // Place the notification bell BEFORE the user chip so admins see it
+  // alongside their avatar.
+  updateNotificationBell();
+}
+
+/* ── Notification bell + drawer (Phase 5) ──────────────────────────
+   Admin-only top-bar affordance that surfaces in-app notifications.
+   Sits to the LEFT of the user chip. Unread count rendered as a small
+   pill on the bell. Click opens a drawer with the last 20 notifications;
+   clicking a notification marks it read and (when link_url is provided)
+   navigates the user to the relevant screen.
+
+   Real-time updates: subscribes to INSERTs on the notifications table
+   filtered to the current user; on every insert, re-counts unread and
+   re-renders the bell.
+   ───────────────────────────────────────────────────────────────── */
+var _arNotifSub = null;     // realtime channel handle
+var _arNotifCache = [];     // last 20 notifications, newest first
+
+/* Engineer profile modal — opened from the clickable name pill on
+   Archive rows. Renders engineer name, phone, role, status, and a
+   live count of active assignments. Pulls from cached
+   AR2_PF._state.activeEngineers first, falls back to a one-row select
+   on app_users by id when the cache is cold. */
+function openEngineerProfileModal(engineerId){
+  if (!engineerId) return;
+  var existing = document.getElementById('ar-eng-profile-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  // Try cache first.
+  var cached = null;
+  try {
+    var arr = (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers) || [];
+    for (var i=0;i<arr.length;i++){ if (arr[i].id === engineerId){ cached = arr[i]; break; } }
+  } catch(_){}
+  // Count current assignments across all scopes (from caches).
+  var asgnCount = 0, byStatus = { pending:0, in_progress:0, submitted:0, completed:0 };
+  try {
+    var s = (window.AR2_PF && AR2_PF._state) || {};
+    var bags = [s.engineerAssignmentsByProperty, s.engineerAssignmentsByPortfolio, s.engineerAssignmentsByAssessment];
+    bags.forEach(function(bag){
+      if (!bag) return;
+      Object.keys(bag).forEach(function(k){
+        (bag[k]||[]).forEach(function(a){
+          if (a.engineer_user_id === engineerId){
+            asgnCount++;
+            if (byStatus[a.status] != null) byStatus[a.status]++;
+          }
+        });
+      });
+    });
+  } catch(_){}
+  var esc = (window.AR2_UTIL && AR2_UTIL.esc) ? AR2_UTIL.esc : function(x){
+    return String(x==null?'':x).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; });
+  };
+  var bd = document.createElement('div');
+  bd.id = 'ar-eng-profile-modal';
+  bd.className = 'ar-pf-modal-backdrop';
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-eng-profile-title" style="max-width:440px">'
+    + '<div class="ar-pf-modal-title" id="ar-eng-profile-title">Engineer profile</div>'
+    + '<div id="ar-eng-profile-body" style="font-size:13px;color:#cfe2eb;line-height:1.55;">'
+    +   (cached
+        ? _renderEngineerProfileBody(cached, asgnCount, byStatus, esc)
+        : '<div style="color:var(--mu);font-size:12px;padding:8px 0">Loading…</div>')
+    + '</div>'
+    + '<div class="ar-pf-modal-actions">'
+    +   '<button class="ar-pf-modal-btn primary" data-eng-profile-action="close" type="button">Close</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+  bd.addEventListener('click', function(e){
+    if (e.target === bd) { _closeEngineerProfileModal(); return; }
+    var btn = e.target.closest('[data-eng-profile-action="close"]');
+    if (btn){ e.stopPropagation(); _closeEngineerProfileModal(); }
+  });
+  bd.addEventListener('keydown', function(e){ if (e.key === 'Escape') _closeEngineerProfileModal(); });
+  // Lazy fetch if we didn't have it cached.
+  if (!cached){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient && AR2_CLOUD.getClient()) || null;
+      if (c){
+        c.from('app_users').select('id,name,phone,role,active').eq('id', engineerId).single().then(function(rs){
+          var row = rs && rs.data;
+          var body = document.getElementById('ar-eng-profile-body');
+          if (!body) return;
+          if (row){
+            body.innerHTML = _renderEngineerProfileBody(row, asgnCount, byStatus, esc);
+          } else {
+            body.innerHTML = '<div style="color:#f87171;font-size:12px">Could not load engineer record.</div>';
+          }
+        }, function(){
+          var body = document.getElementById('ar-eng-profile-body');
+          if (body) body.innerHTML = '<div style="color:#f87171;font-size:12px">Network error loading engineer.</div>';
+        });
+      }
+    } catch(_){}
+  }
+}
+function _renderEngineerProfileBody(row, asgnCount, byStatus, esc){
+  var phoneRaw = String(row.phone || '');
+  var phoneDigits = phoneRaw.replace(/[^\d]/g,'');
+  var phonePretty = phoneDigits.length === 10
+    ? '(' + phoneDigits.slice(0,3) + ') ' + phoneDigits.slice(3,6) + '-' + phoneDigits.slice(6)
+    : (phoneRaw || '—');
+  var statusLine = '';
+  if (asgnCount > 0){
+    var parts = [];
+    if (byStatus.pending)     parts.push(byStatus.pending + ' pending');
+    if (byStatus.in_progress) parts.push(byStatus.in_progress + ' in progress');
+    if (byStatus.submitted)   parts.push(byStatus.submitted + ' submitted');
+    if (byStatus.completed)   parts.push(byStatus.completed + ' completed');
+    statusLine = parts.length ? parts.join(' · ') : '';
+  }
+  return ''
+    + '<div style="display:grid;grid-template-columns:88px 1fr;gap:8px 14px;align-items:baseline">'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Name</div>'
+    +   '<div style="color:#fff;font-weight:600">' + esc(row.name || '—') + '</div>'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Phone</div>'
+    +   '<div>' + esc(phonePretty) + '</div>'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Role</div>'
+    +   '<div style="color:#4ade80;text-transform:capitalize">' + esc(row.role || 'engineer') + (row.active === false ? ' · inactive' : '') + '</div>'
+    +   '<div style="color:var(--mu);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Assignments</div>'
+    +   '<div>'
+    +     '<div style="color:#fff;font-weight:600">' + asgnCount + ' total visible</div>'
+    +     (statusLine ? '<div style="color:var(--mu);font-size:11.5px;margin-top:2px">' + statusLine + '</div>' : '')
+    +   '</div>'
+    + '</div>';
+}
+function _closeEngineerProfileModal(){
+  var el = document.getElementById('ar-eng-profile-modal');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+function updateNotificationBell(){
+  var actions = document.getElementById('ar2-bar-actions');
+  if (!actions) return;
+  var existing = document.getElementById('ar2-notif-bell');
+  var u = (window.AR2_CLOUD && AR2_CLOUD.isReady && AR2_CLOUD.isReady()) ? AR2_CLOUD.user() : null;
+  var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+  // Only admins see the bell. Engineer / rep notifications surface as a
+  // small inline banner inside their own UI (deferred to a polish ship).
+  if (!u || !isAdmin){
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  if (!existing){
+    var bell = document.createElement('button');
+    bell.id = 'ar2-notif-bell';
+    bell.className = 'ar2-notif-bell no-print';
+    bell.dataset.action = 'notif-bell-open';
+    bell.title = 'Notifications';
+    bell.innerHTML = '<span class="ar2-notif-bell-icon" aria-hidden="true">'
+      + '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      +   '<path d="M6 8a6 6 0 0 1 12 0c0 4.5 1.5 6 2.5 7H3.5C4.5 14 6 12.5 6 8Z"/>'
+      +   '<path d="M10.2 18.5a2 2 0 0 0 3.6 0"/>'
+      + '</svg>'
+      + '</span><span class="ar2-notif-bell-badge" style="display:none">0</span>';
+    // Insert before the user chip if present, otherwise append
+    var chip = document.getElementById('ar2-user-chip');
+    if (chip && chip.parentNode === actions) actions.insertBefore(bell, chip);
+    else actions.appendChild(bell);
+  }
+  refreshNotifications();
+  ensureNotifSubscription(u.id);
+}
+
+function refreshNotifications(){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+  if (!c || !u) return;
+  c.from('notifications')
+    .select('id,type,related_record_id,message,link_url,read_at,created_at')
+    .eq('recipient_user_id', u.id)
+    .order('created_at', { ascending: false })
+    .limit(20)
+    .then(function(rs){
+      _arNotifCache = (rs && rs.data) || [];
+      updateNotifBellBadge();
+      // If the drawer is open, re-render its content with the fresh list.
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+function updateNotifBellBadge(){
+  var badge = document.querySelector('#ar2-notif-bell .ar2-notif-bell-badge');
+  if (!badge) return;
+  var unread = _arNotifCache.filter(function(n){ return !n.read_at; }).length;
+  if (unread > 0){
+    badge.textContent = unread > 9 ? '9+' : String(unread);
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function ensureNotifSubscription(userId){
+  if (_arNotifSub) return;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !c.channel) return;
+  try {
+    _arNotifSub = c.channel('ar-notif-' + userId)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: 'recipient_user_id=eq.' + userId
+      }, function(){
+        refreshNotifications();
+      })
+      .subscribe();
+  } catch(_){}
+}
+
+function toggleNotifDrawer(){
+  var existing = document.getElementById('ar2-notif-drawer');
+  if (existing){
+    if (existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  var bell = document.getElementById('ar2-notif-bell');
+  if (!bell) return;
+  var drawer = document.createElement('div');
+  drawer.id = 'ar2-notif-drawer';
+  drawer.className = 'ar2-notif-drawer';
+  document.body.appendChild(drawer);
+  // Position below the bell, right-aligned
+  var rect = bell.getBoundingClientRect();
+  drawer.style.top = (rect.bottom + 8) + 'px';
+  drawer.style.right = Math.max(8, window.innerWidth - rect.right) + 'px';
+  // The main #ar2-scoped click delegator can't see clicks here because
+  // the drawer lives on document.body (so positioning isn't trapped by
+  // any #ar2 ancestor styling). Wire a dedicated delegator on the
+  // drawer itself for all notification actions.
+  drawer.addEventListener('click', handleNotifDrawerClick);
+  renderNotifDrawer(drawer);
+  // Close on outside click — defer attachment so the click that opened
+  // it doesn't immediately close again.
+  setTimeout(function(){
+    document.addEventListener('click', closeNotifDrawerOnOutsideClick, { once: true });
+  }, 0);
+}
+
+function closeNotifDrawerOnOutsideClick(e){
+  var drawer = document.getElementById('ar2-notif-drawer');
+  if (!drawer) return;
+  if (drawer.contains(e.target) || (e.target.closest && e.target.closest('#ar2-notif-bell'))){
+    // Click was inside drawer or on bell — keep listening for the next click.
+    document.addEventListener('click', closeNotifDrawerOnOutsideClick, { once: true });
+    return;
+  }
+  if (drawer.parentNode) drawer.parentNode.removeChild(drawer);
+}
+
+function renderNotifDrawer(drawer){
+  if (!drawer) return;
+  var rows = _arNotifCache;
+  var hasUnread = rows.some(function(n){ return !n.read_at; });
+  var rowsHtml = rows.length
+    ? rows.map(function(n){
+        var unread = !n.read_at;
+        var when = n.created_at ? new Date(n.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+        return '<div class="ar2-notif-row' + (unread ? ' unread' : '') + '" data-action="notif-click" data-notif-id="' + esc(n.id) + '" data-link-url="' + esc(n.link_url || '') + '">'
+          // The dot doubles as a read/unread toggle. Clicking it flips
+          // the state WITHOUT navigating away. Click anywhere else on
+          // the row opens the target (and marks read).
+          +   '<button class="ar2-notif-row-dot" data-action="notif-toggle-read" data-notif-id="' + esc(n.id) + '" data-unread="' + (unread ? '1' : '0') + '" title="' + (unread ? 'Mark as read' : 'Mark as unread') + '" aria-label="Toggle read state" type="button"></button>'
+          +   '<div class="ar2-notif-row-main">'
+          +     '<div class="ar2-notif-row-msg">' + esc(n.message || '') + '</div>'
+          +     '<div class="ar2-notif-row-when">' + esc(when) + '</div>'
+          +   '</div>'
+          +   '<button class="ar2-notif-row-del" data-action="notif-delete" data-notif-id="' + esc(n.id) + '" title="Delete notification" aria-label="Delete notification" type="button">×</button>'
+          + '</div>';
+      }).join('')
+    : '<div class="ar2-notif-empty">No notifications yet.</div>';
+  drawer.innerHTML = '<div class="ar2-notif-head">'
+    + '<div class="ar2-notif-title">Notifications</div>'
+    + (hasUnread ? '<button class="ar2-notif-mark-all" data-action="notif-mark-all" type="button">Mark all read</button>' : '')
+    + '</div>'
+    + '<div class="ar2-notif-list">' + rowsHtml + '</div>';
+}
+
+function markNotificationRead(notifId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !notifId) return Promise.resolve();
+  return c.from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', notifId)
+    .then(function(rs){
+      if (rs && rs.error){ try { console.error('[markNotificationRead] error', rs.error); } catch(_){} return; }
+      // Update local cache instantly so the UI flips read state without a refetch
+      _arNotifCache.forEach(function(n){ if (n.id === notifId && !n.read_at) n.read_at = new Date().toISOString(); });
+      updateNotifBellBadge();
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+/* Re-flip a single notification back to unread. RLS lets recipients
+   update their own rows (notifications_recipient_update policy). */
+function markNotificationUnread(notifId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !notifId) return Promise.resolve();
+  return c.from('notifications').update({ read_at: null }).eq('id', notifId)
+    .then(function(rs){
+      if (rs && rs.error){ try { console.error('[markNotificationUnread] error', rs.error); } catch(_){} return; }
+      _arNotifCache.forEach(function(n){ if (n.id === notifId) n.read_at = null; });
+      updateNotifBellBadge();
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+function markAllNotificationsRead(){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+  if (!c || !u) return;
+  c.from('notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('recipient_user_id', u.id)
+    .is('read_at', null)
+    .then(function(){
+      _arNotifCache.forEach(function(n){ if (!n.read_at) n.read_at = new Date().toISOString(); });
+      updateNotifBellBadge();
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+/* DELETE a single notification. RLS policy notifications_recipient_delete
+   allows recipients to delete their own rows. Optimistic local update
+   so the row disappears immediately; on error we re-fetch to resync. */
+function deleteNotification(notifId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !notifId) return Promise.resolve();
+  // Optimistic local removal
+  _arNotifCache = _arNotifCache.filter(function(n){ return n.id !== notifId; });
+  updateNotifBellBadge();
+  var drawer = document.getElementById('ar2-notif-drawer');
+  if (drawer) renderNotifDrawer(drawer);
+  return c.from('notifications').delete().eq('id', notifId).then(function(rs){
+    if (rs && rs.error){
+      try { console.error('[deleteNotification] error', rs.error); } catch(_){}
+      // Re-fetch to resync since we already removed locally.
+      refreshNotifications();
+    }
+  }, function(err){
+    try { console.error('[deleteNotification] network error', err); } catch(_){}
+    refreshNotifications();
+  });
+}
+
+/* Dedicated click delegator attached directly to the drawer element.
+   Necessary because the drawer is mounted on document.body, OUTSIDE
+   the #ar2 root that the main handleClick is bound to — so the main
+   dispatcher never sees these clicks. Stops propagation hard so the
+   document-level outside-click closer doesn't fire either. */
+function handleNotifDrawerClick(e){
+  // Delete (X) — highest priority because it's nested inside the row
+  var delBtn = e.target.closest && e.target.closest('[data-action="notif-delete"]');
+  if (delBtn){
+    e.stopPropagation();
+    e.preventDefault();
+    deleteNotification(delBtn.getAttribute('data-notif-id'));
+    return;
+  }
+  // Read/unread toggle dot
+  var tog = e.target.closest && e.target.closest('[data-action="notif-toggle-read"]');
+  if (tog){
+    e.stopPropagation();
+    e.preventDefault();
+    var tid = tog.getAttribute('data-notif-id');
+    var wasUnread = tog.getAttribute('data-unread') === '1';
+    if (wasUnread) markNotificationRead(tid); else markNotificationUnread(tid);
+    return;
+  }
+  // Mark all read
+  var all = e.target.closest && e.target.closest('[data-action="notif-mark-all"]');
+  if (all){
+    e.stopPropagation();
+    markAllNotificationsRead();
+    return;
+  }
+  // Row body click — mark read + navigate to target (if known type)
+  var row = e.target.closest && e.target.closest('[data-action="notif-click"]');
+  if (row){
+    e.stopPropagation();
+    var nid = row.getAttribute('data-notif-id');
+    var url = row.getAttribute('data-link-url') || '';
+    markNotificationRead(nid).then(function(){
+      if (url && url.indexOf('engineer-submissions') !== -1){
+        if (typeof setAdminActiveTab === 'function') setAdminActiveTab('engineer-submissions');
+        if (typeof showView === 'function' && typeof VIEW !== 'undefined' && VIEW !== 'bank' && typeof showView === 'function') showView('bank');
+      }
+    });
+    return;
+  }
 }
 
 /* Pop a small menu under the chip with full name, role, and Sign Out button. */
@@ -11998,7 +19127,29 @@ function showUserMenu(anchorEl){
 function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
+  // Stamp body.pwa-standalone when the app is running as an installed
+  // PWA. Drives the @media(display-mode:standalone) header-hide rule
+  // for iOS Safari (which doesn't always match the media query).
+  try {
+    if (window.AR_PWA && AR_PWA.isStandalone && AR_PWA.isStandalone()){
+      document.body.classList.add('pwa-standalone');
+    }
+  } catch(_){}
   injectHelpButton();
+  try { updateInstallAppButton(); } catch(_){}
+  // QR-scan landing: if the URL has ?install=1 AND the app isn't
+  // already installed standalone, pop the install modal automatically
+  // so the user knows what to do next on their device.
+  try {
+    var qp = (window.location && window.location.search) || '';
+    var hasInstall = /[?&]install=1\b/.test(qp);
+    var isStandalone = !!(window.AR_PWA && AR_PWA.isStandalone && AR_PWA.isStandalone());
+    if (hasInstall && !isStandalone){
+      setTimeout(function(){
+        try { if (typeof showInstallAppModal === 'function') showInstallAppModal(); } catch(_){}
+      }, 350);
+    }
+  } catch(_){}
   // Cloud-mode bootstrap — try to restore an existing Supabase session before
   // deciding whether to show the gate. If session is valid, skip the modal.
   // The Supabase SDK is loaded via <script src> in the HTML; if it's not yet
@@ -12022,6 +19173,19 @@ function init(){
   root.addEventListener('click',handleClick);
   root.addEventListener('input',handleInput);
   root.addEventListener('change',handleChange);
+  // Engineer portal input/change relay — every ar-eng-* data-action on an
+  // input/textarea/select fires both input (typing) and change (commit)
+  // events. The module's handleAction reads the target's value and
+  // dispatches, so this relay just forwards both events through.
+  function relayEngineerInput(e){
+    if (!window.AR2_ENGINEER) return;
+    var t = e.target;
+    if (!t || !t.hasAttribute || !t.hasAttribute('data-action')) return;
+    var a = t.getAttribute('data-action');
+    if (a && a.indexOf('ar-eng-') === 0) AR2_ENGINEER.handleAction(a, t);
+  }
+  root.addEventListener('input', relayEngineerInput);
+  root.addEventListener('change', relayEngineerInput);
   // Quote rich-text editor — preventDefault on toolbar mousedown so the
   // selection / focus inside the contenteditable div survives the click.
   root.addEventListener('mousedown',function(e){

@@ -1,4 +1,3 @@
-
 #ar2,#ar2 *,#ar2 *::before,#ar2 *::after{box-sizing:border-box;margin:0;padding:0}
 #ar2{
   --t:#00b4d8;--aq:#48cae4;--ic:#90e0ef;--go:#f0a500;--gr:#22c55e;
@@ -10,6 +9,16 @@
 }
 /* ── Bar ── */
 #ar2 .ar-bar{background:rgba(4,15,30,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd);padding:0 20px;}
+/* PWA standalone (Add-to-Home-Screen installed) — hide the top bar
+   entirely. iOS + Android PWA already render their own status-bar
+   area, and the app-like feel is undermined by web nav chrome. */
+@media (display-mode: standalone){
+  #ar2 .ar-bar{display:none!important;}
+}
+/* iOS Safari sets window.navigator.standalone but doesn't always
+   match the display-mode query — JS adds body.pwa-standalone on
+   init so this rule fires in both cases. */
+body.pwa-standalone #ar2 .ar-bar{display:none!important;}
 #ar2 .ar-bar-inner{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;gap:0;height:58px;max-width:1320px;margin:0 auto;width:100%;box-sizing:border-box;}
 #ar2 .ar-stepper{justify-self:center;}
 #ar2 .ar-brand{display:flex;align-items:center;gap:10px;}
@@ -18,8 +27,16 @@
 #ar2 .ar-bs{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#3a6a80;}
 /* ── Stepper ── */
 #ar2 .ar-stepper{display:flex;align-items:center;gap:4px;}
-#ar2 .ar-si{display:flex;align-items:center;gap:5px;}
-#ar2 .ar-dot{width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;transition:background .2s,border-color .2s;}
+#ar2 .ar-si{display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:8px;transition:background .15s;}
+/* Clickable step items — visible affordance + focus ring for keyboard
+   users. The active step has .ar-si without .ar-si-clickable so it
+   doesn't get hover styling (you can't jump to where you already are). */
+#ar2 .ar-si-clickable{cursor:pointer;}
+#ar2 .ar-si-clickable:hover{background:rgba(0,180,216,.08);}
+#ar2 .ar-si-clickable:hover .ar-dot.idle{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.5);color:#cfe2eb;}
+#ar2 .ar-si-clickable:hover .ar-sl.idle{color:#cfe2eb;}
+#ar2 .ar-si-clickable:focus-visible{outline:2px solid var(--t);outline-offset:2px;}
+#ar2 .ar-dot{width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;transition:background .2s,border-color .2s,color .2s;}
 #ar2 .ar-dot.done{background:var(--gr);border:1px solid var(--gr);color:var(--nv);}
 #ar2 .ar-dot.active{background:var(--t);border:1px solid var(--t);color:var(--nv);}
 #ar2 .ar-dot.idle{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.2);color:#3a6a80;}
@@ -44,12 +61,204 @@
    by side with line items / totals. */
 #ar2.quote-step .ar-form-col{grid-column:1 / 3;}
 #ar2.quote-step .ar-dev-col{display:none;}
+/* Step 6 (Field Report). The middle devices column is empty on this
+   step (devices breakdown isn't part of the report), and the form is
+   self-contained with its own KPI band — so collapse the layout to a
+   2-column grid: report content (spans cols 1-2) + results sidebar. */
+#ar2.report-step .ar-form-col{grid-column:1 / 3;}
+#ar2.report-step .ar-dev-col{display:none;}
 /* Client-mode feature gating ─ when a Client signs in, the calculator JS
    adds the .app-client class to #ar2. Any element marked with the
    `data-client-hide` attribute is then visually + interactively hidden.
    Used to gate the Quote step, Discount slider, Cover/Back Cover/Exec
    Summary export toggles, and the Quote-page export toggles. */
 #ar2.app-client [data-client-hide]{display:none !important;}
+/* Field Report (step 5) — hidden unless the user is admin or the
+   record-owner User role. The CSS hides the stepper dot, label, and
+   connector line via the data-fr-hide attribute when #ar2 lacks
+   the .app-fr-eligible class. The CSS rule below is the INVERSE —
+   it hides the attribute when the class is ABSENT. */
+#ar2:not(.app-fr-eligible) [data-fr-hide]{display:none !important;}
+
+/* ─────────────── Field Report (step 5) ─────────────── */
+#ar2 .ar-fr-wrap{max-width:1100px;margin:0 auto;padding:18px 22px 40px;color:#cfe2eb;font-family:'DM Sans',sans-serif;}
+#ar2 .ar-fr-hero{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:flex-start;padding:22px 24px;background:linear-gradient(145deg,rgba(0,180,216,.08),rgba(72,202,228,.03));border:1px solid rgba(0,180,216,.28);border-radius:14px;margin-bottom:18px;}
+#ar2 .ar-fr-eyebrow{font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
+#ar2 .ar-fr-title{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.6px;color:#fff;line-height:1.1;margin-bottom:10px;}
+#ar2 .ar-fr-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:12.5px;color:var(--mu);}
+#ar2 .ar-fr-meta b{color:#fff;font-weight:600;}
+#ar2 .ar-fr-meta .ar-eng-pill{vertical-align:1px;}
+#ar2 .ar-fr-notes{margin-top:12px;font-size:12.5px;color:#cfe2eb;background:rgba(0,180,216,.06);border-left:3px solid rgba(0,180,216,.45);padding:8px 12px;border-radius:0 7px 7px 0;line-height:1.55;}
+#ar2 .ar-fr-notes b{color:#48cae4;font-weight:700;}
+
+#ar2 .ar-fr-actions{display:flex;flex-direction:column;gap:8px;min-width:200px;}
+#ar2 .ar-fr-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.32);color:#cfe2eb;padding:9px 16px;border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .12s,border-color .12s,color .12s;}
+#ar2 .ar-fr-btn:hover:not(:disabled){background:rgba(0,180,216,.14);border-color:rgba(0,180,216,.6);color:#fff;}
+#ar2 .ar-fr-btn.primary{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border-color:transparent;}
+#ar2 .ar-fr-btn.primary:hover:not(:disabled){filter:brightness(1.08);}
+#ar2 .ar-fr-btn.success{background:linear-gradient(135deg,#16a34a,#22c55e);color:#04210d;border-color:transparent;}
+#ar2 .ar-fr-btn.success:hover:not(:disabled){filter:brightness(1.08);}
+#ar2 .ar-fr-btn.ghost{background:transparent;color:#7db8cc;border-color:rgba(125,184,204,.32);}
+#ar2 .ar-fr-btn.ghost:hover:not(:disabled){border-color:rgba(125,184,204,.65);color:#fff;}
+
+/* Field Report fallback picker — shown inside the empty state when
+   the user has engineer submissions on OTHER records they can jump to
+   instead of starting from the current (unrelated) session. */
+#ar2 .ar-fr-picker{max-width:560px;margin:18px auto 0;padding:14px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.22);border-radius:12px;}
+#ar2 .ar-fr-picker-title{font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:8px;text-align:center;}
+#ar2 .ar-fr-picker-list{display:flex;flex-direction:column;gap:6px;}
+#ar2 .ar-fr-picker-row{display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.2);border-radius:8px;padding:9px 12px;color:#cfe2eb;font-family:inherit;text-align:left;cursor:pointer;transition:background .12s,border-color .12s;}
+#ar2 .ar-fr-picker-row:hover{background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.55);}
+#ar2 .ar-fr-picker-row-scope{font-size:12.5px;font-weight:700;color:#fff;}
+#ar2 .ar-fr-picker-row-meta{font-size:10.5px;color:var(--mu);margin-top:2px;}
+
+/* Empty / error states */
+#ar2 .ar-fr-empty{text-align:center;padding:54px 24px;background:rgba(7,22,40,.4);border:1px dashed rgba(0,180,216,.25);border-radius:14px;max-width:560px;margin:0 auto;}
+#ar2 .ar-fr-empty.error{border-color:rgba(239,68,68,.4);}
+#ar2 .ar-fr-empty-icon{color:rgba(125,184,204,.55);margin-bottom:10px;display:inline-flex;}
+#ar2 .ar-fr-empty-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;margin-bottom:10px;}
+#ar2 .ar-fr-empty-body{font-size:13.5px;color:var(--mu);line-height:1.6;}
+
+/* Loading skeleton */
+#ar2 .ar-fr-hero.skel{display:block;}
+#ar2 .skel-block{background:linear-gradient(90deg,rgba(0,180,216,.06),rgba(0,180,216,.14),rgba(0,180,216,.06));background-size:200% 100%;animation:ar-fr-shimmer 1.4s linear infinite;height:18px;border-radius:6px;margin-bottom:10px;}
+#ar2 .skel-block.w70{width:70%;height:28px;}
+#ar2 .skel-block.w40{width:40%;}
+#ar2 .ar-fr-skel-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;}
+#ar2 .ar-fr-skel-grid .skel-block{height:90px;}
+@keyframes ar-fr-shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+
+/* KPI grid — 6 tiles, evenly distributed. Mirrors the visual weight
+   of the admin Overview KPIs so reps see a consistent dashboard
+   pattern. The Engineer-gal tile picks up a tone-* color (green /
+   amber / red) when the confirmed total drifts from the rep's estimate. */
+#ar2 .ar-fr-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px;}
+#ar2 .ar-fr-kpi{background:linear-gradient(145deg,rgba(0,180,216,.06),rgba(0,180,216,.02));border:1px solid rgba(0,180,216,.2);border-radius:10px;padding:14px 14px 12px;text-align:left;display:flex;flex-direction:column;gap:4px;}
+#ar2 .ar-fr-kpi-lbl{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+#ar2 .ar-fr-kpi-val{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:#fff;line-height:1.1;}
+#ar2 .ar-fr-kpi-sub{font-size:10.5px;color:var(--mu);letter-spacing:.3px;line-height:1.3;}
+#ar2 .ar-fr-kpi.tone-green{border-color:rgba(34,197,94,.45);background:linear-gradient(145deg,rgba(34,197,94,.1),rgba(34,197,94,.02));}
+#ar2 .ar-fr-kpi.tone-green .ar-fr-kpi-val{color:#4ade80;}
+#ar2 .ar-fr-kpi.tone-green .ar-fr-kpi-sub{color:#86efac;}
+#ar2 .ar-fr-kpi.tone-amber{border-color:rgba(240,165,0,.45);background:linear-gradient(145deg,rgba(240,165,0,.1),rgba(240,165,0,.02));}
+#ar2 .ar-fr-kpi.tone-amber .ar-fr-kpi-val{color:#f0a500;}
+#ar2 .ar-fr-kpi.tone-amber .ar-fr-kpi-sub{color:#fbbf24;}
+#ar2 .ar-fr-kpi.tone-red{border-color:rgba(239,68,68,.45);background:linear-gradient(145deg,rgba(239,68,68,.1),rgba(239,68,68,.02));}
+#ar2 .ar-fr-kpi.tone-red .ar-fr-kpi-val{color:#fca5a5;}
+#ar2 .ar-fr-kpi.tone-red .ar-fr-kpi-sub{color:#fca5a5;}
+
+/* Section heading — used for Pump Rooms (and later Pools). */
+#ar2 .ar-fr-section{margin-bottom:22px;}
+#ar2 .ar-fr-section-hd{margin-bottom:12px;}
+#ar2 .ar-fr-section-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;display:flex;align-items:center;gap:10px;}
+#ar2 .ar-fr-section-count{font-family:'JetBrains Mono',monospace;font-size:11px;color:#7db8cc;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.32);padding:2px 8px;border-radius:99px;letter-spacing:.5px;}
+#ar2 .ar-fr-section-sub{font-size:12px;color:var(--mu);line-height:1.55;margin-top:4px;max-width:720px;}
+#ar2 .ar-fr-empty-mini{font-size:12.5px;color:var(--mu);padding:14px;background:rgba(7,22,40,.4);border:1px dashed rgba(125,184,204,.25);border-radius:10px;}
+
+/* Pump-rooms strip — horizontal scroll on overflow. Each card has a
+   walkthrough video tile up top, label + pools-served below, photo
+   count + notes-indicator footer. */
+#ar2 .ar-fr-pr-strip{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;}
+#ar2 .ar-fr-pr-strip::-webkit-scrollbar{height:6px;}
+#ar2 .ar-fr-pr-strip::-webkit-scrollbar-thumb{background:rgba(0,180,216,.3);border-radius:3px;}
+#ar2 .ar-fr-pr-card{flex:0 0 260px;background:rgba(13,45,74,.55);border:1px solid rgba(0,180,216,.22);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;}
+#ar2 .ar-fr-pr-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+#ar2 .ar-fr-pr-label{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:#fff;}
+#ar2 .ar-fr-pr-stat{font-size:10.5px;color:#4ade80;letter-spacing:.5px;background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.35);padding:2px 7px;border-radius:99px;white-space:nowrap;}
+#ar2 .ar-fr-pr-video{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:120px;border:1px solid rgba(0,180,216,.35);background:linear-gradient(135deg,rgba(0,180,216,.16),rgba(7,22,40,.5));border-radius:9px;color:#cfe2eb;font-family:inherit;cursor:pointer;padding:18px 12px;font-size:11.5px;font-weight:600;letter-spacing:.4px;transition:background .15s,border-color .15s,color .15s;}
+#ar2 .ar-fr-pr-video:hover{background:linear-gradient(135deg,rgba(0,180,216,.28),rgba(7,22,40,.6));border-color:rgba(0,180,216,.7);color:#fff;}
+#ar2 .ar-fr-pr-video.empty{cursor:default;background:rgba(7,22,40,.35);border-color:rgba(125,184,204,.22);border-style:dashed;color:#7db8cc;}
+#ar2 .ar-fr-pr-video.empty:hover{background:rgba(7,22,40,.35);border-color:rgba(125,184,204,.22);color:#7db8cc;}
+#ar2 .ar-fr-pr-video-icon{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.08);}
+#ar2 .ar-fr-pr-video.empty .ar-fr-pr-video-icon{background:rgba(255,255,255,.04);}
+#ar2 .ar-fr-pr-foot{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--mu);letter-spacing:.4px;padding-top:4px;border-top:1px solid rgba(0,180,216,.1);}
+#ar2 .ar-fr-pr-has-notes{color:#48cae4;cursor:help;border-bottom:1px dotted rgba(72,202,228,.55);}
+
+/* Pool comparison grid — one card per pool, two-column inside
+   (reference image + Estimate/Engineer compare table), then a
+   return-line media row underneath. Cards stack on narrow viewports. */
+#ar2 .ar-fr-pool-grid{display:flex;flex-direction:column;gap:14px;}
+#ar2 .ar-fr-pool-card{background:linear-gradient(145deg,rgba(13,45,74,.55),rgba(7,22,40,.4));border:1px solid rgba(0,180,216,.22);border-radius:12px;padding:16px 18px;}
+#ar2 .ar-fr-pool-card.verified{border-color:rgba(34,197,94,.38);background:linear-gradient(145deg,rgba(34,197,94,.06),rgba(13,45,74,.4));}
+#ar2 .ar-fr-pool-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(0,180,216,.12);}
+#ar2 .ar-fr-pool-name{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;}
+#ar2 .ar-fr-pool-pills{display:flex;gap:6px;flex-wrap:wrap;}
+#ar2 .ar-fr-pool-pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:3px 9px;border-radius:99px;border:1px solid transparent;}
+#ar2 .ar-fr-pool-pill.ok{color:#4ade80;background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.45);}
+#ar2 .ar-fr-pool-pill.warn{color:#f0a500;background:rgba(240,165,0,.14);border-color:rgba(240,165,0,.4);}
+#ar2 .ar-fr-pool-pill.na{color:#7db8cc;background:rgba(125,184,204,.1);border-color:rgba(125,184,204,.25);}
+#ar2 .ar-fr-pool-pill.added{color:#48cae4;background:rgba(0,180,216,.14);border-color:rgba(0,180,216,.45);}
+
+#ar2 .ar-fr-pool-body{display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start;}
+#ar2 .ar-fr-pool-img{position:relative;border-radius:8px;overflow:hidden;border:1px solid rgba(0,180,216,.3);cursor:zoom-in;background:#0a2540;}
+#ar2 .ar-fr-pool-img img{display:block;width:100%;height:160px;object-fit:cover;}
+#ar2 .ar-fr-pool-img:hover{border-color:rgba(0,180,216,.6);}
+#ar2 .ar-fr-pool-img-tag{position:absolute;top:6px;left:6px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:rgba(72,202,228,.9);color:#040f1e;padding:2px 7px;border-radius:99px;}
+#ar2 .ar-fr-pool-img-stub{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:160px;border:1px dashed rgba(125,184,204,.22);border-radius:8px;background:rgba(7,22,40,.4);color:#7db8cc;font-size:11px;letter-spacing:.4px;text-align:center;padding:14px;}
+#ar2 .ar-fr-pool-img-stub svg{color:rgba(125,184,204,.45);}
+
+#ar2 .ar-fr-pool-compare{display:grid;grid-template-columns:120px 1fr 1fr;gap:6px 14px;font-size:12.5px;align-items:center;}
+#ar2 .ar-fr-cmp-row{display:contents;}
+#ar2 .ar-fr-cmp-row.head > div{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;border-bottom:1px solid rgba(0,180,216,.14);padding-bottom:6px;margin-bottom:4px;}
+#ar2 .ar-fr-cmp-row .lbl{font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+#ar2 .ar-fr-cmp-row > div{padding:5px 0;border-bottom:1px solid rgba(0,180,216,.05);min-height:24px;display:flex;align-items:center;gap:6px;color:#cfe2eb;}
+#ar2 .ar-fr-cmp-row > div:nth-child(3){color:#fff;font-weight:600;}
+#ar2 .ar-fr-dot{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;flex-shrink:0;margin-left:auto;}
+#ar2 .ar-fr-dot.ok{background:rgba(34,197,94,.2);color:#4ade80;border:1px solid rgba(34,197,94,.45);}
+#ar2 .ar-fr-dot.warn{background:rgba(240,165,0,.2);color:#f0a500;border:1px solid rgba(240,165,0,.45);}
+#ar2 .ar-fr-dot.na{background:rgba(125,184,204,.08);color:#7db8cc;border:1px solid rgba(125,184,204,.22);font-weight:700;}
+
+/* Engineer's property-wide notes (Step 6 / field report) */
+#ar2 .ar-fr-prop-notes{margin-top:22px;padding:18px 20px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:12px;}
+#ar2 .ar-fr-prop-notes-hd{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:12px;}
+#ar2 .ar-fr-prop-notes-block + .ar-fr-prop-notes-block{margin-top:12px;padding-top:12px;border-top:1px dashed rgba(0,180,216,.18);}
+#ar2 .ar-fr-prop-notes-eng{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:6px;}
+#ar2 .ar-fr-prop-notes-body{font-size:13px;line-height:1.65;color:#cfe2eb;white-space:pre-wrap;}
+
+/* Media gallery row */
+#ar2 .ar-fr-pool-media{margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,180,216,.1);}
+#ar2 .ar-fr-pool-media-hd{display:flex;align-items:center;justify-content:space-between;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;margin-bottom:8px;}
+#ar2 .ar-fr-pool-media-hd span{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.4px;color:var(--mu);text-transform:none;font-weight:500;}
+#ar2 .ar-fr-pool-thumbs{display:flex;flex-wrap:wrap;gap:8px;}
+#ar2 .ar-fr-pool-thumbs-empty{font-size:11.5px;color:var(--mu);font-style:italic;padding:8px 0;}
+#ar2 .ar-fr-thumb{position:relative;width:88px;height:66px;background:rgba(0,0,0,.4);border:1px solid rgba(0,180,216,.22);border-radius:7px;overflow:hidden;cursor:zoom-in;padding:0;transition:border-color .12s,transform .12s;}
+#ar2 .ar-fr-thumb:hover{border-color:rgba(0,180,216,.65);transform:translateY(-1px);}
+#ar2 .ar-fr-thumb-img{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat;}
+#ar2 .ar-fr-thumb-type{position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.7);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+
+/* Per-pool callouts */
+#ar2 .ar-fr-pool-callout{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.55;padding:9px 12px;border-radius:8px;margin-top:10px;color:#cfe2eb;background:rgba(0,180,216,.06);border-left:3px solid rgba(0,180,216,.45);}
+#ar2 .ar-fr-pool-callout b{color:#48cae4;}
+#ar2 .ar-fr-pool-callout svg{flex-shrink:0;margin-top:2px;color:#48cae4;}
+#ar2 .ar-fr-pool-callout.warn{background:rgba(240,165,0,.08);border-left-color:rgba(240,165,0,.55);}
+#ar2 .ar-fr-pool-callout.warn b,
+#ar2 .ar-fr-pool-callout.warn svg{color:#f0a500;}
+
+@media (max-width: 760px){
+  #ar2 .ar-fr-pool-body{grid-template-columns:1fr;}
+  #ar2 .ar-fr-pool-img img{height:200px;}
+  #ar2 .ar-fr-pool-compare{grid-template-columns:90px 1fr 1fr;}
+}
+
+/* Responsive: stack KPIs 3-up on narrow viewports. */
+@media (max-width: 880px){
+  #ar2 .ar-fr-kpis{grid-template-columns:repeat(3,1fr);}
+}
+@media (max-width: 520px){
+  #ar2 .ar-fr-kpis{grid-template-columns:repeat(2,1fr);}
+}
+
+/* Placeholder bands — replaced in sub-ships #7b/c/d. */
+#ar2 .ar-fr-placeholder{background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:18px;}
+#ar2 .ar-fr-placeholder-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;color:#48cae4;margin-bottom:8px;}
+#ar2 .ar-fr-placeholder-body{font-size:13px;color:#cfe2eb;margin-bottom:6px;}
+#ar2 .ar-fr-placeholder-body b{color:#fff;font-weight:600;}
+#ar2 .ar-fr-placeholder-hint{font-size:11.5px;color:var(--mu);font-style:italic;}
+
+@media (max-width: 720px){
+  #ar2 .ar-fr-hero{grid-template-columns:1fr;}
+  #ar2 .ar-fr-actions{flex-direction:row;flex-wrap:wrap;min-width:0;}
+}
 /* Portfolio property mode — hides surfaces that don't apply when the rep
    is working on a property INSIDE a portfolio. Quote step is the headline
    case (Quote lives at the portfolio level), but the pattern extends to
@@ -376,6 +585,83 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-gen-btn:disabled{opacity:.5;cursor:not-allowed;}
 /* ── Print: hide app, show report ── */
 #ar2-report{display:none;}
+/* Preview mode — when generateEngineerReport(..., {previewOnly:true})
+   opens the in-page preview, the report root gets .is-preview so the
+   page can fill the full viewport instead of being capped at the
+   default 860px narrow column. Print CSS already overrides max-width
+   separately, so paper output isn't affected. */
+#ar2-report.is-preview{background:#1a2a3a;min-height:100vh;}
+/* All report page types widen to the full viewport in preview mode so
+   the on-screen layout mirrors the printed paper without the 860px
+   narrow-column compression that the default screen CSS imposes. */
+#ar2-report.is-preview .rpt,
+#ar2-report.is-preview .rpt-pp-page,
+#ar2-report.is-preview .rpt-es-page,
+#ar2-report.is-preview .rpt-cover-page,
+#ar2-report.is-preview .rpt-factsheet-page,
+#ar2-report.is-preview .rpt-back-cover,
+#ar2-report.is-preview .rpt-fs-img-page{max-width:none!important;width:100%!important;margin:0!important;box-shadow:0 0 0 1px rgba(255,255,255,.04);}
+#ar2-report.is-preview .rpt + .rpt,
+#ar2-report.is-preview .rpt-pp-page + .rpt-pp-page,
+#ar2-report.is-preview .rpt + .rpt-pp-page,
+#ar2-report.is-preview .rpt-pp-page + .rpt,
+#ar2-report.is-preview .rpt-es-page + *,
+#ar2-report.is-preview .rpt-factsheet-page + *,
+#ar2-report.is-preview .rpt-pp-page + *{margin-top:24px!important;}
+
+/* Page-sized preview — locks each report page to the same dimensions
+   it'll print at (US Letter portrait 8.5×11in / landscape 11×8.5in)
+   so the in-page preview is a faithful preview of the PDF download,
+   not a continuous scroll. Overflow:hidden mirrors the print clip
+   behaviour: if content runs long, it's clipped at the page edge
+   instead of growing the preview tall. Centred on a slate background
+   with shadow for the "sheet of paper on a desk" effect.
+   8.5in / 11in @ 96dpi = 816px / 1056px. */
+#ar2-report.is-preview{padding:24px 0;}
+#ar2-report.is-preview .rpt:not(.rpt-landscape),
+#ar2-report.is-preview .rpt-pp-page:not(.rpt-pp-page-landscape),
+#ar2-report.is-preview .rpt-es-page,
+#ar2-report.is-preview .rpt-cover-page,
+#ar2-report.is-preview .rpt-factsheet-page,
+#ar2-report.is-preview .rpt-back-cover,
+#ar2-report.is-preview .rpt-fs-img-page{
+  width:816px!important;
+  max-width:816px!important;
+  min-height:1056px!important;
+  height:1056px!important;
+  max-height:1056px!important;
+  margin:24px auto!important;
+  overflow:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+  box-shadow:0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)!important;
+  background:#fff!important;
+  box-sizing:border-box!important;
+}
+/* Landscape page types (existing screen rules already size these to
+   1120×866 — see @media screen block lower in this stylesheet). The
+   `.is-preview` padding above applies to those too via the wrapper. */
+#ar2-report.is-preview .rpt.rpt-landscape{
+  margin:24px auto!important;
+  box-shadow:0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)!important;
+  background:#fff!important;
+}
+/* Body inside a preview page — same flex containment the print rules
+   apply, so the footer/CTA stay pinned to the bottom and overflowing
+   content gets clipped instead of spilling past the page edge. */
+#ar2-report.is-preview .rpt > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;}
+#ar2-report.is-preview .rpt-cta-bar,
+#ar2-report.is-preview .rpt-foot{flex:0 0 auto!important;}
+#ar2-report.is-preview .rpt-foot{margin-top:auto!important;}
+
+/* Engineer verification PDF — minimal additions on top of existing .rpt-* chrome. */
+#ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;}
+#ar2-report .rpt-eng-photo{break-inside:avoid;page-break-inside:avoid;}
+#ar2-report .rpt-eng-photo img{width:100%;height:auto;border-radius:6px;border:1px solid #ddd;display:block;}
+#ar2-report .rpt-eng-photo-missing{padding:24px;background:#f5f5f5;color:#888;font-size:10px;text-align:center;border-radius:6px;}
+#ar2-report .rpt-eng-photo-cap{font-size:10px;color:#666;margin-top:4px;font-style:italic;}
+#ar2-report .rpt-eng-videos{margin-top:10px;font-size:11px;color:#555;}
+#ar2-report .rpt-eng-discrepancy{margin-top:14px;padding:10px 12px;background:#fff4dc;border-left:3px solid #f0a500;border-radius:4px;font-size:11.5px;color:#5a3c00;line-height:1.5;}
 @media print{
   html,body{margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important;height:auto!important;width:auto!important;}
   /* Hide everything by default */
@@ -384,7 +670,16 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      OR reveal the ancestor chain if it's nested in Webflow wrappers */
   #ar2-report{display:block!important;max-width:none!important;width:100%!important;padding:0!important;margin:0!important;position:static!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
   /* Ensure Webflow wrapper ancestors of #ar2-report are visible */
-  #ar2-report .rpt{max-width:none!important;width:100%!important;margin:0!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
+  /* IMPORTANT: use explicit `in` units instead of `100vh` for the print
+     page wrapper. Chrome's print engine resolves vh against the BROWSER
+     window, not the printed sheet — so a tall window made 100vh > 11in
+     and the Assessment .rpt bled onto a second sheet (portrait orphan
+     page) or bottom-anchored content (landscape media row) sat below
+     the printable area. The orientation is set on @page (margin:0mm)
+     so the layout-time width × height equals exactly 8.5in × 11in
+     portrait or 11in × 8.5in landscape. */
+  #ar2-report .rpt:not(.rpt-landscape){max-width:none!important;width:100%!important;margin:0!important;min-height:11in!important;max-height:11in!important;height:11in!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
+  #ar2-report .rpt.rpt-landscape{max-width:none!important;width:100%!important;margin:0!important;min-height:8.5in!important;max-height:8.5in!important;height:8.5in!important;display:flex!important;flex-direction:column!important;page-break-after:auto!important;break-after:auto!important;overflow:hidden!important;}
   /* Body MUST be flex:1 1 0 + min-height:0 + overflow:hidden so content
      inside the body never pushes the CTA bar or footer past the page
      boundary. flex:1 alone (without min-height:0) lets body grow to fit
@@ -415,10 +710,25 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      band and footer span edge-to-edge. The grid wrapper has its own
      internal padding (.rpt-pp-grid-wrap) so the cards still have
      margin from the page edges. */
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 0!important;min-height:0!important;overflow:hidden!important;align-content:start;}
-  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:158px!important;padding:10px!important;}
-  #ar2-report .rpt-pp-page .rpt-pp-grid{gap:10px!important;}
+  /* .rpt-pp-page used to be hard-clamped to height:100vh + overflow:hidden,
+     which silently CLIPPED any cards that didn't fit in a single
+     printed sheet. With the per-page chunker now sized for headroom,
+     allow the page to grow if it needs to so nothing is hidden. The
+     page-break-before still starts every chunk on a new sheet. */
+  /* Use explicit in units (page-relative) instead of 100vh (browser-
+     window-relative in Chrome print) so the page wrapper matches the
+     printed sheet exactly. Same Chrome quirk that caused the original
+     Assessment orphan now also surfaces on Pool Profile portrait. */
+  #ar2-report .rpt-pp-page:not(.rpt-pp-page-landscape){page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:11in!important;max-height:11in!important;height:11in!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page.rpt-pp-page-landscape{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:8.5in!important;max-height:8.5in!important;height:8.5in!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 auto!important;min-height:0!important;overflow:visible!important;align-content:start;}
+  /* Card sizing — sized so 12 cards (6 rows × 2 cols) fit cleanly inside
+     the portrait 100vh print sheet. 6 × 148 + 5 × 8 gap = 928px content;
+     header (~50) + grid padding (28) + footer (30) ≈ 1036px ≤ ~1056px
+     print height. Landscape (15 cards = 5 rows × 3 cols) gets its own
+     tighter card size via the .rpt-pp-page-landscape override below. */
+  #ar2-report .rpt-pp-page .rpt-pp-card{min-height:148px!important;padding:10px!important;}
+  #ar2-report .rpt-pp-page .rpt-pp-grid{gap:8px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-row{padding:1px 0!important;font-size:10.5px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-head{margin-bottom:3px!important;padding-bottom:3px!important;}
   #ar2-report .rpt-pp-page .rpt-pp-img{width:140px!important;height:92px!important;}
@@ -427,7 +737,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
-  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:100vh!important;height:100vh!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  /* Exec Summary page — kept page-break-before / inside-avoid for
+     visual integrity but the hard height clamp was causing the same
+     clip-on-overflow problem the pool profile pages had. Allow growth. */
+  #ar2-report .rpt-es-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;page-break-inside:avoid!important;break-inside:avoid!important;min-height:100vh!important;max-height:none!important;height:auto!important;max-width:none!important;width:100%!important;margin:0!important;box-shadow:none!important;overflow:visible!important;display:flex!important;flex-direction:column!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
   #ar2-report .rpt-es-page,#ar2-report .rpt-es-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-es-head{padding:12px 28px 10px!important;}
   /* Portrait ES body containment — both body-1 (page 1) and body-2 (page 2)
@@ -656,33 +969,43 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      Advantage boxes, 6-row Breakdown table, Water Conservation row,
      2 property images, 2 video thumbs. Verified to fit with ~20px to
      spare before the disclaimer. */
-  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:8px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:9px!important;margin-bottom:5px!important;padding-bottom:3px!important;letter-spacing:2px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-row{padding:3px 0!important;font-size:11px!important;line-height:1.45!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-row.strong{padding:4px 0!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:9px 12px!important;margin-bottom:6px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:9px!important;margin-bottom:5px!important;padding-bottom:3px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:10.5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sec{margin-bottom:5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-stitle{font-size:9px!important;margin-bottom:4px!important;padding-bottom:3px!important;letter-spacing:2px!important;}
+  /* Row + box sizing tightened again (the 10.5px / 1.32 / 2px-padding
+     of pf-20260525j still left ~15px of Row B content overflowing into
+     the CTA bar at 11-pool landscape). Down another notch: 10px font,
+     1.25 line-height, 2px padding → ~16px row, ~30px saved on a
+     12-row Pool Config. Purchase sbox + Breakdown table compressed in
+     parallel so Row B doesn't pull the floor down. */
+  #ar2-report .rpt.rpt-landscape .rpt-row{padding:2px 0!important;font-size:10px!important;line-height:1.28!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-row.strong{padding:3px 0!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox{padding:7px 10px!important;margin-bottom:5px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-sbox-title{font-size:9px!important;margin-bottom:4px!important;padding-bottom:3px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl{font-size:10px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-tbl td,
-  #ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:4px 8px!important;font-size:10.5px!important;line-height:1.4!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-tbl th{padding:3px 7px!important;font-size:10px!important;line-height:1.32!important;}
   #ar2-report .rpt.rpt-landscape .rpt-cols{gap:18px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-disc{font-size:8px!important;line-height:1.45!important;margin-top:4px!important;padding-top:4px!important;border-top:1px solid #eee!important;}
   #ar2-report .rpt.rpt-landscape .rpt-stat{padding:8px 10px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:15px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px!important;}
-  /* Distribute remaining vertical space across the upper sections so they
-     visually fill the page instead of collapsing to natural height. The
-     media row at the bottom keeps its own `flex:0 0 auto` and stays pinned
-     via margin-top:auto on the wrapper, so adding flex-grow here only
-     stretches Pool Config + Devices + Purchase + Breakdown rows. */
-  #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols:not(.rpt-ls-media-row){flex:1 1 auto!important;align-items:stretch!important;}
+  /* Upper sections shrink to fit (flex:0 1 auto) but never GROW beyond
+     their natural height. The previous flex:1 1 auto was making Row A
+     + Row B compete for body height and crowding out the bottom-pinned
+     media row — images were rendering past the body's overflow:hidden
+     clip and disappearing from the PDF. align-items:stretch keeps the
+     two columns inside each row visually equal-height. */
+  #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols:not(.rpt-ls-media-row){flex:0 1 auto!important;align-items:stretch!important;}
   /* ── Property Images + Video Resources row (new) ──
      Rendered as a regular 2-col section after Row B, in natural flow.
      Capped tile height of 78px in print so the row + caption stays
      under 110px and the entire body fits a single landscape page. */
   #ar2-report .rpt.rpt-landscape .rpt-ls-media-row{margin-bottom:0!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row .rpt-stitle{font-size:9px!important;margin-bottom:5px!important;}
-  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:100px!important;}
+  #ar2-report .rpt.rpt-landscape .rpt-ls-media-row .rpt-stitle{font-size:9px!important;margin-bottom:4px!important;}
+  /* Media tile capped at 70px (was 80px / originally 100px). At 16/9
+     that's ~125×70 — still legible for a PDF thumb and recovers
+     another ~10px the dense pool-row stack needs. */
+  #ar2-report .rpt.rpt-landscape .rpt-img-wrap{aspect-ratio:16/9!important;height:auto!important;max-height:70px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-img-grid{gap:8px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-img-cap{font-size:8.5px!important;margin-top:3px!important;line-height:1.35!important;}
 }
@@ -851,6 +1174,17 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-stitle::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,#d5eaf5,transparent);}
 /* ── Two-column ── */
 #ar2-report .rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+/* Assess flow layout — each column flows its own content height
+   independently rather than locking to the row's max. CSS grid auto-
+   sizes rows to the tallest cell, but ITEMS inside don't stretch
+   unless align-items:stretch is on, so setting align-items:start keeps
+   each column packed to its own natural height. */
+#ar2-report .rpt-assess-flow{align-items:start!important;}
+/* Landscape print scoped rule above sets align-items:stretch on every
+   .rpt-cols inside the body — exclude the new assess-flow grid from
+   that stretch so its columns flow at natural height. */
+@media print { #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols.rpt-assess-flow{align-items:start!important;} }
+#ar2-report .rpt-stitle-stack{margin-top:14px;}
 /* ── Data rows ── */
 #ar2-report .rpt-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:11px;}
 #ar2-report .rpt-row:last-child{border-bottom:none;}
@@ -1385,15 +1719,30 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-pp-page > .rpt-es-head{margin:0;}
 #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;}
 #ar2-report .rpt-pp-page .rpt-foot{margin:0;}
-/* Landscape Pool Profiles — preview at 11×8.5 aspect ratio. */
+/* Landscape Pool Profiles — preview at 11×8.5 aspect ratio.
+   3-col grid + tighter card sizing previously lived ONLY inside
+   @media print, which left the screen preview rendering landscape pool
+   profile pages in the default 2-col grid. Cards then overflowed the
+   866px page-height clamp and were silently clipped — exactly the
+   "pages don't extend / pool profiles broken at 11+ pools" report.
+   Hoisted into the base stylesheet so preview and print match. */
 #ar2-report .rpt-pp-page.rpt-pp-page-landscape{max-width:1120px;aspect-ratio:11/8.5;min-height:0;overflow:hidden;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-grid{grid-template-columns:1fr 1fr 1fr;gap:8px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-card{min-height:140px;padding:8px;grid-template-columns:110px 1fr;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-img{width:110px;height:74px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-name{font-size:12px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-row{font-size:9.5px;}
+#ar2-report .rpt-pp-page-landscape .rpt-pp-row .v{font-size:10.5px;min-width:64px;}
 #ar2-report .rpt-pp-page *{box-sizing:border-box;}
 #ar2-report .rpt-pp-header{border-bottom:1.5px solid #00b4d8;padding-bottom:10px;margin-bottom:14px;}
 #ar2-report .rpt-pp-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#00b4d8;line-height:1;}
 #ar2-report .rpt-pp-sub{font-size:11px;color:#666;margin-top:4px;}
 #ar2-report .rpt-pp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 #ar2-report .rpt-pp-grid-1{grid-template-columns:1fr;}
-#ar2-report .rpt-pp-card{background:#f8fbfd;border:1px solid #d5eaf5;border-top:3px solid #00b4d8;border-radius:0 0 6px 6px;padding:12px;display:grid;grid-template-columns:150px 1fr;gap:12px;min-height:172px;break-inside:avoid;page-break-inside:avoid;}
+#ar2-report .rpt-pp-card{background:#f8fbfd;border:1px solid #d5eaf5;border-top:3px solid #00b4d8;border-radius:0 0 6px 6px;padding:12px;display:grid;grid-template-columns:150px 1fr;gap:12px;min-height:148px;break-inside:avoid;page-break-inside:avoid;}
+/* Screen-preview grid gap matches print so 12 portrait cards (6×2) fit
+   the simulated 1113px page boundary without overflowing. */
+#ar2-report .rpt-pp-page .rpt-pp-grid{gap:8px;}
 #ar2-report .rpt-pp-grid-1 .rpt-pp-card{grid-template-columns:300px 1fr;min-height:220px;}
 #ar2-report .rpt-pp-img{width:150px;height:100px;border-radius:4px;border:1px solid #d5eaf5;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#eaf5fa;flex-shrink:0;}
 #ar2-report .rpt-pp-grid-1 .rpt-pp-img{width:300px;height:200px;}
@@ -1482,6 +1831,152 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    record + 30-day login counts per user. Designed to read at a glance — small
    monospaced numbers in right-aligned columns. */
 #ar2 .ar-admin-userstats-card{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+
+/* ─── Admin Dashboard tabs (Phase 3) ─────────────────────────────── */
+#ar2 .ar-admin-tabs{display:flex;gap:2px;padding:3px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);border-radius:8px;margin-bottom:16px;flex-wrap:wrap;}
+#ar2 .ar-admin-tab{flex:1;min-width:120px;background:transparent;border:none;color:#7db8cc;padding:8px 14px;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .12s,color .12s;}
+#ar2 .ar-admin-tab:hover{color:#cfe2eb;background:rgba(0,180,216,.06);}
+#ar2 .ar-admin-tab.active{background:linear-gradient(135deg,rgba(0,180,216,.22),rgba(72,202,228,.18));color:#fff;}
+/* Regular users (non-admin) get the dashboard with Overview + Engineer
+   Submissions tabs only — the Users tab and its pane are hidden. The
+   .non-admin class is set in renderBank when role !== 'admin'. */
+#ar2 .ar-admin-dash.non-admin [data-admin-tab="users"],
+#ar2 .ar-admin-dash.non-admin [data-admin-tab-pane="users"]{display:none!important;}
+/* Drawer title flips for non-admins so it doesn't say "Admin Dashboard". */
+#ar2 .ar-admin-dash.non-admin .ar-admin-dash-title::first-line{}
+#ar2 .ar-admin-tab-pane{margin-top:4px;}
+
+/* Engineer Submissions card + filters + table */
+#ar2 .ar-admin-eng-sub-card{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:14px;}
+#ar2 .ar-admin-eng-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+#ar2 .ar-admin-eng-filter{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);color:#7db8cc;padding:5px 11px;border-radius:99px;font-family:inherit;font-size:11px;font-weight:600;letter-spacing:.4px;cursor:pointer;transition:background .12s,color .12s,border-color .12s;}
+#ar2 .ar-admin-eng-filter:hover{background:rgba(0,180,216,.08);color:#cfe2eb;border-color:rgba(0,180,216,.4);}
+#ar2 .ar-admin-eng-filter.active{background:linear-gradient(135deg,rgba(0,180,216,.25),rgba(72,202,228,.18));color:#fff;border-color:transparent;}
+#ar2 .ar-admin-eng-count{font-size:11px;color:var(--mu);margin-left:auto;letter-spacing:.4px;}
+#ar2 .ar-admin-eng-refresh{background:transparent;border:1px solid rgba(0,180,216,.25);color:#48cae4;width:28px;height:24px;border-radius:6px;font-family:inherit;font-size:13px;cursor:pointer;line-height:1;}
+#ar2 .ar-admin-eng-refresh:hover{background:rgba(0,180,216,.12);color:#fff;}
+#ar2 .ar-admin-eng-tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+#ar2 .ar-admin-eng-tbl thead th{text-align:left;padding:8px 10px;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;border-bottom:1px solid rgba(0,180,216,.18);}
+#ar2 .ar-admin-eng-tbl tbody td{padding:10px;border-bottom:1px solid rgba(0,180,216,.08);color:#cfe2eb;}
+#ar2 .ar-admin-eng-row{cursor:pointer;transition:background .12s;}
+#ar2 .ar-admin-eng-row:hover td{background:rgba(0,180,216,.06);}
+#ar2 .ar-admin-empty{padding:18px 12px;text-align:center;color:var(--mu);font-size:12px;}
+
+/* Review modal — verifications list */
+#ar2 .ar-admin-review-list{display:flex;flex-direction:column;gap:10px;margin-bottom:8px;}
+#ar2 .ar-admin-review-pool{background:rgba(13,45,74,.55);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:12px 14px;}
+#ar2 .ar-admin-review-pool-head{font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;display:flex;align-items:center;}
+#ar2 .ar-admin-review-pool-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:12.5px;align-items:baseline;}
+#ar2 .ar-admin-review-pool-row > span:first-child{color:var(--mu);font-size:11px;letter-spacing:.3px;text-transform:uppercase;flex:0 0 auto;}
+#ar2 .ar-admin-review-pool-row > b,
+#ar2 .ar-admin-review-pool-row > div{color:#cfe2eb;text-align:right;}
+#ar2 .ar-admin-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.25);color:#48cae4;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
+
+/* ──────────── Engineer Submission Review modal ────────────
+   IMPORTANT: this modal mounts on document.body (not inside #ar2), so
+   every selector below is UNSCOPED — adding `#ar2` would silently
+   disable the styling and collapse the table back to a wall of text
+   (which is exactly the bug that prompted this redesign). The
+   .ar-admin-line-chip class IS still defined under #ar2 elsewhere; we
+   replicate it here un-prefixed so it also works inside the modal. */
+.ar-admin-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.25);color:#48cae4;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
+
+/* Modal header — title + status pill on the same line, then the
+   property name set big and the engineer info as a clean metadata row. */
+.ar-admin-review-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid rgba(0,180,216,.18);}
+.ar-admin-review-head-l{min-width:0;flex:1;}
+.ar-admin-review-eyebrow{font-family:'Bebas Neue','DM Sans',sans-serif;font-size:13px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase;margin-bottom:6px;}
+.ar-admin-review-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;line-height:1.15;word-break:break-word;}
+.ar-admin-review-status{flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:99px;font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;border:1px solid transparent;line-height:1;white-space:nowrap;}
+.ar-admin-review-status::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;}
+.ar-admin-review-status.pending{background:rgba(240,165,0,.14);color:#f0a500;border-color:rgba(240,165,0,.4);}
+.ar-admin-review-status.in_progress{background:rgba(250,204,21,.14);color:#facc15;border-color:rgba(250,204,21,.4);}
+.ar-admin-review-status.submitted{background:rgba(0,180,216,.16);color:#48cae4;border-color:rgba(0,180,216,.5);}
+.ar-admin-review-status.reviewed{background:rgba(34,197,94,.16);color:#4ade80;border-color:rgba(34,197,94,.5);}
+.ar-admin-review-status.locked{background:rgba(125,184,204,.16);color:#cfe2eb;border-color:rgba(125,184,204,.45);}
+
+/* Engineer info strip — small icon-rich metadata row */
+.ar-admin-review-meta{display:flex;flex-wrap:wrap;gap:10px 22px;padding:0 0 14px;border-bottom:1px solid rgba(0,180,216,.12);margin-bottom:14px;font-size:12.5px;color:#cfe2eb;}
+.ar-admin-review-meta-item{display:flex;align-items:center;gap:7px;min-width:0;}
+.ar-admin-review-meta-lbl{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+.ar-admin-review-meta-val{color:#fff;font-weight:500;}
+.ar-admin-review-meta-val.mono{font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.4px;font-size:12px;}
+
+/* KPI band — at-a-glance counts (pools, pump rooms, photos, videos) */
+.ar-admin-review-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+.ar-admin-review-kpi{background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:8px 10px;text-align:left;}
+.ar-admin-review-kpi-lbl{font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:3px;}
+.ar-admin-review-kpi-val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#fff;line-height:1;}
+.ar-admin-review-kpi.warn .ar-admin-review-kpi-val{color:#f0a500;}
+
+/* Pump room chips */
+.ar-admin-review-rooms{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 0 14px;border-bottom:1px solid rgba(0,180,216,.12);margin-bottom:14px;}
+.ar-admin-review-rooms-lbl{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-right:4px;}
+
+/* One row per pool — column grid that actually applies now that we
+   dropped the #ar2 prefix. Designed for the 720px modal. */
+.ar-admin-review-table{display:flex;flex-direction:column;font-size:12px;background:rgba(7,22,40,.35);border:1px solid rgba(0,180,216,.18);border-radius:8px;overflow:hidden;}
+.ar-admin-review-thead,
+.ar-admin-review-trow{display:grid;grid-template-columns:minmax(120px,1.4fr) 70px 95px minmax(160px,1.7fr) 70px minmax(80px,1fr) 50px;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid rgba(0,180,216,.08);}
+.ar-admin-review-trow:last-child{border-bottom:none;}
+.ar-admin-review-thead{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;background:rgba(0,180,216,.07);border-bottom:1px solid rgba(0,180,216,.25);}
+.ar-admin-review-trow{color:#cfe2eb;transition:background .12s;}
+.ar-admin-review-trow:hover{background:rgba(0,180,216,.05);}
+.ar-admin-review-trow .col-pool{display:flex;align-items:center;gap:5px;min-width:0;}
+.ar-admin-review-trow .col-pool b{color:#fff;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ar-admin-review-thead .col-gal,
+.ar-admin-review-trow .col-gal{font-family:'JetBrains Mono',monospace;text-align:right;}
+.ar-admin-review-thead .col-media,
+.ar-admin-review-trow .col-media{font-family:'JetBrains Mono',monospace;text-align:center;}
+.ar-admin-review-trow .col-lines{display:flex;flex-wrap:wrap;gap:3px;}
+.ar-admin-review-trow .col-lines .ar-admin-line-chip{margin:0;padding:1px 6px;font-size:10.5px;}
+.ar-admin-review-trow .col-room,
+.ar-admin-review-trow .col-type{font-size:11.5px;color:#cfe2eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ar-admin-review-type-pill{display:inline-flex;align-items:center;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;border:1px solid transparent;line-height:1.4;}
+.ar-admin-review-type-pill.fresh{background:rgba(0,180,216,.15);color:#48cae4;border-color:rgba(0,180,216,.35);}
+.ar-admin-review-type-pill.salt{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.35);}
+.ar-admin-review-type-pill.unk{background:rgba(125,184,204,.1);color:#7db8cc;border-color:rgba(125,184,204,.25);}
+.ar-admin-review-trow .col-flag{display:flex;gap:4px;justify-content:flex-end;}
+.ar-admin-review-chev{display:inline-block;color:#7db8cc;font-size:10px;flex-shrink:0;transition:transform .12s;}
+.ar-admin-review-flag{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;line-height:1;}
+.ar-admin-review-flag.added{background:rgba(34,197,94,.22);border:1px solid rgba(34,197,94,.55);color:#4ade80;}
+.ar-admin-review-flag.disc{background:rgba(240,165,0,.22);border:1px solid rgba(240,165,0,.55);color:#f0a500;}
+.ar-admin-review-flag.note{background:rgba(125,184,204,.18);border:1px solid rgba(125,184,204,.45);color:#cfe2eb;}
+
+/* Expandable notes / discrepancy region beneath a pool row */
+.ar-admin-review-expand{background:rgba(0,180,216,.06);border-left:3px solid rgba(0,180,216,.45);padding:10px 14px;margin:0;font-size:12px;}
+.ar-admin-review-expand-row{display:flex;gap:12px;align-items:baseline;padding:4px 0;line-height:1.5;}
+.ar-admin-review-expand-row > span:first-child{flex:0 0 92px;color:#7db8cc;font-size:9.5px;letter-spacing:1px;text-transform:uppercase;font-weight:600;}
+.ar-admin-review-expand-row.disc > span:first-child{color:#f0a500;}
+.ar-admin-review-expand-row > div{color:#cfe2eb;flex:1;}
+
+/* Property-wide engineer notes (engineer_property_notes), shown below
+   the pool table when present. */
+.ar-admin-review-prop-notes{margin-top:14px;padding:12px 14px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:8px;}
+.ar-admin-review-prop-notes-hd{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px;}
+.ar-admin-review-prop-notes-body{font-size:12.5px;color:#cfe2eb;line-height:1.6;white-space:pre-wrap;}
+
+/* Empty / error states */
+.ar-admin-review-empty,.ar-admin-review-err{padding:18px 14px;text-align:center;font-size:12.5px;color:#7db8cc;background:rgba(7,22,40,.4);border:1px dashed rgba(125,184,204,.3);border-radius:8px;}
+.ar-admin-review-err{color:#fca5a5;border-color:rgba(252,165,165,.4);background:rgba(252,165,165,.06);}
+
+/* Narrow viewport — collapse the table to a 2-line stacked layout */
+@media (max-width:680px){
+  .ar-admin-review-kpis{grid-template-columns:repeat(2,1fr);}
+  .ar-admin-review-thead{display:none;}
+  .ar-admin-review-trow{grid-template-columns:1fr;gap:4px;padding:11px 14px;}
+  .ar-admin-review-trow > span{display:flex;align-items:baseline;gap:8px;}
+  .ar-admin-review-trow > span::before{content:attr(data-lbl);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;min-width:74px;}
+  .ar-admin-review-trow .col-pool::before{content:'';min-width:0;}
+}
+#ar2 .ar-admin-review-expand-row > div{color:#cfe2eb;flex:1;}
+#ar2 .ar-admin-review-expand-row.disc > div{color:#f0a500;}
+@media (max-width: 640px){
+  #ar2 .ar-admin-review-thead{display:none;}
+  #ar2 .ar-admin-review-trow{grid-template-columns:1fr 1fr;grid-auto-flow:row;gap:4px 10px;padding:10px 8px;}
+  #ar2 .ar-admin-review-trow .col-pool{grid-column:1/-1;}
+  #ar2 .ar-admin-review-trow .col-lines{grid-column:1/-1;}
+}
 #ar2 .ar-admin-userstats-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:8px;}
 #ar2 .ar-admin-userstats-tbl{width:100%;border-collapse:collapse;font-size:11px;color:var(--tx);}
 #ar2 .ar-admin-userstats-tbl th{text-align:left;font-weight:500;color:var(--mu);font-size:10px;letter-spacing:.6px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);}
@@ -1495,6 +1990,9 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-role.role-admin{background:rgba(240,165,0,.14);color:var(--go);border:1px solid rgba(240,165,0,.3);}
 #ar2 .ar-admin-role.role-user{background:rgba(0,180,216,.1);color:var(--t);border:1px solid rgba(0,180,216,.25);}
 #ar2 .ar-admin-role.role-client{background:rgba(168,85,247,.12);color:#c89aff;border:1px solid rgba(168,85,247,.3);}
+/* Engineer role pill — green, signaling field/verification status distinct
+   from rep (teal/blue), admin (gold), or client (purple). */
+#ar2 .ar-admin-role.role-engineer{background:rgba(34,197,94,.12);color:#4ade80;border:1px solid rgba(34,197,94,.32);}
 #ar2 .ar-admin-disabled{display:inline-block;font-size:9px;color:var(--re);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:1px 6px;border-radius:99px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase;}
 /* ── Admin modal styling ────────────────────────────────────────────
    Admin pop-up modals are appended to <body>, OUTSIDE the #ar2 root, so
@@ -1507,6 +2005,11 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 .ar2-modal-card label{display:block;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;margin-bottom:5px;}
 .ar2-modal-card input[type="text"],
 .ar2-modal-card input[type="password"],
+.ar2-modal-card input[type="tel"],
+.ar2-modal-card input[type="email"],
+.ar2-modal-card input[type="number"],
+.ar2-modal-card input[type="search"],
+.ar2-modal-card input[type="url"],
 .ar2-modal-card input:not([type]),
 .ar2-modal-card select,
 .ar2-modal-card textarea{
@@ -1594,6 +2097,88 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    Sits between New and the user chip. */
 #ar2 .ar-help-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;cursor:pointer;padding:0;line-height:1;transition:.15s;flex-shrink:0;}
 #ar2 .ar-help-icon:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.6);color:#fff;}
+/* Install App pill in the top bar — visible only when the calculator
+   isn't already running as a standalone PWA. Click opens an info
+   modal with platform-specific instructions (and fires the native
+   install prompt directly when Android Chrome has it available). */
+#ar2 .ar-install-pill{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:99px;background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.08));border:1px solid rgba(0,180,216,.5);color:#cfe2eb;font-family:'DM Sans',sans-serif;font-size:11.5px;font-weight:600;letter-spacing:.4px;cursor:pointer;line-height:1;transition:background .15s,border-color .15s,color .15s,transform .15s;flex-shrink:0;}
+#ar2 .ar-install-pill:hover{background:linear-gradient(135deg,rgba(0,180,216,.32),rgba(72,202,228,.14));border-color:rgba(0,180,216,.85);color:#fff;transform:translateY(-1px);}
+#ar2 .ar-install-pill svg{width:14px;height:14px;color:#48cae4;flex-shrink:0;}
+#ar2 .ar-install-pill:hover svg{color:#fff;}
+@media(max-width:780px){#ar2 .ar-install-pill-lbl{display:none;}#ar2 .ar-install-pill{padding:0 9px;}}
+
+/* ── Install AquaRev modal — platform-prioritized, scrollable on
+   any screen height, QR section at the bottom. */
+.ar-install-modal{position:fixed;inset:0;background:rgba(4,15,30,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:14px;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;}
+.ar-install-modal .ar-install-card-wrap{background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.32);border-radius:14px;padding:22px 24px 18px;width:100%;max-width:520px;max-height:92vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.55);}
+.ar-install-modal .ar-install-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.ar-install-modal .ar-install-eyebrow{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:3px;}
+.ar-install-modal .ar-install-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;line-height:1.1;}
+.ar-install-modal .ar-install-close{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:18px;font-family:inherit;line-height:1;flex-shrink:0;}
+.ar-install-modal .ar-install-close:hover{background:rgba(255,255,255,.18);color:#fff;}
+.ar-install-modal .ar-install-lede{font-size:12.5px;color:#cfe2eb;line-height:1.55;margin-bottom:14px;}
+
+/* Primary platform card */
+.ar-install-modal .ar-install-card{background:linear-gradient(135deg,rgba(0,180,216,.12),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.42);border-radius:11px;padding:14px 16px;margin-bottom:10px;}
+.ar-install-modal .ar-install-card-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+.ar-install-modal .ar-install-card-lbl{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;}
+.ar-install-modal .ar-install-card-ico{font-size:18px;line-height:1;}
+.ar-install-modal .ar-install-card-msg{font-size:13px;color:#cfe2eb;line-height:1.55;margin-bottom:12px;}
+.ar-install-modal .ar-install-do{display:block;width:100%;background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:14px 18px;border-radius:9px;font-family:inherit;font-size:14px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:filter .12s,transform .12s;}
+.ar-install-modal .ar-install-do:hover{filter:brightness(1.08);transform:translateY(-1px);}
+
+/* Pulse arrow pointing down to where the iOS Share button lives */
+.ar-install-modal .ar-install-card-pulse{display:flex;align-items:center;gap:12px;padding:10px 12px;background:rgba(0,180,216,.08);border:1px dashed rgba(0,180,216,.45);border-radius:8px;margin-bottom:12px;color:#cfe2eb;}
+.ar-install-modal .ar-install-card-pulse svg{width:22px;height:22px;color:#48cae4;flex-shrink:0;animation:arInstallBounce 1.4s ease-in-out infinite;}
+@keyframes arInstallBounce{0%,100%{transform:translateY(0);}50%{transform:translateY(4px);}}
+.ar-install-modal .ar-install-card-pulse-msg{font-size:12.5px;line-height:1.45;}
+
+/* Annotated visual tutorial — SVG diagrams for each platform */
+.ar-install-modal .ar-install-visual{margin:0 0 12px;background:rgba(0,0,0,.3);border:1px solid rgba(0,180,216,.18);border-radius:10px;overflow:hidden;padding:10px;}
+.ar-install-modal .ar-install-visual svg{display:block;width:100%;height:auto;max-height:280px;}
+.ar-install-modal .ar-install-visual-desktop svg{max-height:200px;}
+.ar-install-modal .ar-install-visual-ios svg,
+.ar-install-modal .ar-install-visual-android svg{max-width:200px;margin:0 auto;}
+/* Pulse animation on the highlighted install target */
+.ar-install-modal .ar-install-target{animation:arInstallPulse 1.6s ease-in-out infinite;transform-origin:center;transform-box:fill-box;}
+.ar-install-modal .ar-install-callout{animation:arInstallPulse 1.6s ease-in-out infinite;}
+@keyframes arInstallPulse{0%,100%{opacity:1;filter:drop-shadow(0 0 0 rgba(72,202,228,0));}50%{opacity:.7;filter:drop-shadow(0 0 6px rgba(72,202,228,.85));}}
+.ar-install-modal .ar-install-card-or{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;text-align:center;margin:14px 0 10px;position:relative;}
+.ar-install-modal .ar-install-card-or::before,
+.ar-install-modal .ar-install-card-or::after{content:'';display:inline-block;width:48px;height:1px;background:rgba(0,180,216,.25);vertical-align:middle;margin:0 8px;}
+.ar-install-modal .ar-install-card-note{margin-top:10px;padding:8px 12px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.25);border-radius:7px;font-size:11.5px;color:#cfe2eb;line-height:1.5;}
+
+/* Numbered steps */
+.ar-install-modal .ar-install-steps{margin:0;padding-left:22px;color:#cfe2eb;font-size:12.5px;line-height:1.65;}
+.ar-install-modal .ar-install-steps li{margin-bottom:4px;}
+.ar-install-modal .ar-install-steps b{color:#fff;font-weight:600;}
+
+/* Other-device collapsed cards */
+.ar-install-modal .ar-install-other{margin:8px 0 14px;}
+.ar-install-modal .ar-install-other summary{cursor:pointer;font-size:11.5px;color:#7db8cc;text-transform:uppercase;letter-spacing:1.2px;font-weight:600;padding:6px 0;list-style:none;outline:none;}
+.ar-install-modal .ar-install-other summary::-webkit-details-marker{display:none;}
+.ar-install-modal .ar-install-other summary::before{content:'▸ ';color:#48cae4;display:inline-block;transition:transform .15s;margin-right:4px;}
+.ar-install-modal .ar-install-other[open] summary::before{transform:rotate(90deg);}
+.ar-install-modal .ar-install-other-list{margin-top:6px;display:flex;flex-direction:column;gap:6px;}
+.ar-install-modal .ar-install-card.compact{padding:9px 12px;background:rgba(7,22,40,.45);border-color:rgba(0,180,216,.18);}
+.ar-install-modal .ar-install-card.compact .ar-install-card-hd{margin-bottom:3px;}
+.ar-install-modal .ar-install-card-sub{font-size:12px;color:#cfe2eb;line-height:1.5;}
+
+/* QR section — install on another device */
+.ar-install-modal .ar-install-qr{display:flex;gap:14px;align-items:center;padding:14px 16px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);border-radius:11px;margin-bottom:10px;}
+.ar-install-modal .ar-install-qr-l{flex:1;min-width:0;}
+.ar-install-modal .ar-install-qr-eyebrow{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:4px;}
+.ar-install-modal .ar-install-qr-title{font-size:13.5px;color:#fff;font-weight:600;margin-bottom:4px;line-height:1.35;}
+.ar-install-modal .ar-install-qr-sub{font-size:11.5px;color:#7db8cc;line-height:1.5;}
+.ar-install-modal .ar-install-qr-r{flex-shrink:0;}
+.ar-install-modal .ar-install-qr-r img{display:block;width:100px;height:100px;border-radius:6px;background:#fff;padding:6px;border:1px solid rgba(0,180,216,.25);}
+@media(max-width:480px){
+  .ar-install-modal .ar-install-qr{flex-direction:column;text-align:center;}
+  .ar-install-modal .ar-install-qr-r img{width:140px;height:140px;}
+}
+
+.ar-install-modal .ar-install-foot{margin-top:6px;font-size:10.5px;color:#7db8cc;text-align:center;}
+.ar-install-modal .ar-install-foot b{color:#cfe2eb;}
 /* Guided tour — 4 mask bands dim the page except the target, a teal ring
    highlights the spotlight area, and a coach-mark card carries the step copy
    + controls. Outside the bands, clicks pass through to the highlighted
@@ -1634,6 +2219,35 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Icon-only variant — renders as a clean circle without the name pill. */
 #ar2 .ar-user-chip.ar-user-chip-icononly{padding:3px;border-radius:50%;}
 #ar2 .ar-user-chip.ar-user-chip-icononly .ar-user-chip-name{display:none;}
+
+/* ─── Notification bell + drawer (Phase 5) ───────────────────────── */
+#ar2 .ar2-notif-bell{position:relative;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.28);color:#cfe2eb;width:32px;height:32px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;transition:.15s;line-height:1;}
+#ar2 .ar2-notif-bell:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
+#ar2 .ar2-notif-bell-icon{display:inline-flex;align-items:center;justify-content:center;line-height:0;color:#cfe2eb;}
+#ar2 .ar2-notif-bell:hover .ar2-notif-bell-icon{color:#e6f4f9;}
+#ar2 .ar2-notif-bell-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:99px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;border:2px solid #040f1e;letter-spacing:0;font-family:'JetBrains Mono',monospace;}
+.ar2-notif-drawer{position:fixed;z-index:999998;width:340px;max-width:calc(100vw - 16px);max-height:70vh;overflow:hidden;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.32);border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.5);font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;display:flex;flex-direction:column;}
+.ar2-notif-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(0,180,216,.18);}
+.ar2-notif-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;}
+.ar2-notif-mark-all{background:transparent;border:1px solid rgba(0,180,216,.3);color:#48cae4;font-family:inherit;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;cursor:pointer;transition:background .12s,color .12s;}
+.ar2-notif-mark-all:hover{background:rgba(0,180,216,.12);color:#fff;}
+.ar2-notif-list{overflow-y:auto;max-height:calc(70vh - 50px);}
+.ar2-notif-empty{padding:20px;text-align:center;color:#7db8cc;font-size:12px;}
+.ar2-notif-row{display:grid;grid-template-columns:16px 1fr 18px;gap:10px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid rgba(0,180,216,.08);cursor:pointer;transition:background .12s;}
+.ar2-notif-row:hover{background:rgba(0,180,216,.06);}
+.ar2-notif-row-del{background:transparent;border:0;color:#7db8cc;cursor:pointer;padding:0;width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;line-height:1;opacity:0;transition:opacity .12s,background .12s,color .12s;margin-top:1px;}
+.ar2-notif-row:hover .ar2-notif-row-del{opacity:.65;}
+.ar2-notif-row-del:hover{opacity:1!important;background:rgba(239,68,68,.18);color:#fca5a5;}
+/* Read/unread toggle. Bigger hit area (16px) + cursor:pointer because
+   it's a real button now. Read state shows a hollow ring; unread shows
+   the filled aqua dot with the existing halo. */
+.ar2-notif-row-dot{width:16px;height:16px;border-radius:50%;background:transparent;border:1.5px solid rgba(125,184,204,.4);cursor:pointer;padding:0;flex-shrink:0;margin-top:2px;display:inline-block;transition:border-color .12s,background .12s,box-shadow .12s;}
+.ar2-notif-row-dot:hover{border-color:#48cae4;background:rgba(72,202,228,.12);}
+.ar2-notif-row.unread .ar2-notif-row-dot{background:#48cae4;border-color:#48cae4;box-shadow:0 0 0 3px rgba(72,202,228,.18);}
+.ar2-notif-row.unread .ar2-notif-row-dot:hover{background:#1a8aa3;border-color:#1a8aa3;}
+.ar2-notif-row-msg{font-size:12.5px;color:#cfe2eb;line-height:1.45;}
+.ar2-notif-row.unread .ar2-notif-row-msg{color:#fff;font-weight:600;}
+.ar2-notif-row-when{font-size:10.5px;color:#7db8cc;margin-top:3px;font-family:'JetBrains Mono',monospace;}
 /* Sign-Out menu popped open from the chip */
 .ar-user-menu{position:fixed;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:14px;box-shadow:0 12px 36px rgba(0,0,0,.5);z-index:999997;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;color:#cfe2eb;min-width:220px;}
 .ar-user-menu-name{font-size:14px;font-weight:600;color:#fff;margin-bottom:2px;}
@@ -1668,9 +2282,30 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-bank-createdby .role{font-size:9px;color:var(--mu);text-transform:uppercase;letter-spacing:.6px;}
 #ar2 .ar-bank-createdby .role.admin{color:var(--go);}
 #ar2 .ar-bank-act.reassign{background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.28);color:#f0a500;}
+/* Engineer-assign hardhat icon button on Archive single-assessment rows.
+   Always green when engineers are assigned (filled); dimmer outline when
+   none. Tiny badge in the top-right corner when 2+ engineers. */
+#ar2 .ar-bank-act.ar-bank-act-engineer{position:relative;padding:6px 8px;background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.32);color:#4ade80;}
+#ar2 .ar-bank-act.ar-bank-act-engineer:hover{background:rgba(34,197,94,.24);border-color:rgba(34,197,94,.55);color:#fff;}
+#ar2 .ar-bank-act.ar-bank-act-engineer.unassigned{background:transparent;border-color:rgba(125,184,204,.25);color:rgba(125,184,204,.65);border-style:dashed;}
+#ar2 .ar-bank-act.ar-bank-act-engineer.unassigned:hover{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.5);color:#4ade80;border-style:solid;}
+#ar2 .ar-bank-act.ar-bank-act-engineer svg{display:block;flex-shrink:0;}
+/* Engineer names line — sits BELOW the action button row on the right
+   side of the card, right-justified, green, same typographic scale as
+   .ar-bank-date so the row reads as "metadata under controls". */
+/* Actions cell holds the row of buttons. Engineer-name pills are
+   anchored as an absolutely-positioned column under the hardhat icon
+   via .ar-bank-eng-anchor so the line's left edge aligns with the icon. */
+#ar2 .ar-bank-actions-cell{display:flex;align-items:center;justify-content:flex-end;}
+#ar2 .ar-bank-eng-anchor{position:relative;display:inline-flex;align-items:center;}
+#ar2 .ar-bank-engineer-pills{position:absolute;top:calc(100% + 4px);left:0;display:flex;flex-wrap:wrap;gap:3px;max-width:340px;z-index:2;pointer-events:auto;}
+#ar2 .ar-bank-engineer-pill{font-size:9.5px;font-weight:600;color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);border-radius:99px;padding:2px 7px;line-height:1.3;letter-spacing:.2px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:.15s;}
+#ar2 .ar-bank-engineer-pill:hover{background:rgba(34,197,94,.24);border-color:rgba(34,197,94,.6);color:#fff;}
+#ar2 .ar-bank-engineer-pill:focus-visible{outline:2px solid rgba(34,197,94,.6);outline-offset:1px;}
+#ar2 .ar-bank-act-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:99px;background:#4ade80;color:#040f1e;font-size:10px;font-weight:700;padding:0 4px;display:inline-flex;align-items:center;justify-content:center;border:2px solid #040f1e;font-family:'JetBrains Mono',monospace;letter-spacing:0;line-height:1;}
 #ar2 .ar-bank-act.reassign:hover{background:rgba(240,165,0,.22);}
 /* Each record row */
-#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;align-items:center;padding:16px 0;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
+#ar2 .ar-bank-card{display:grid;grid-template-columns:2.2fr repeat(7,1fr) 260px;gap:0;align-items:center;padding:16px 0 22px;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s;position:relative;}
 #ar2 .ar-bank-card.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 200px;}
 #ar2 .ar-bank-card.admin-cols{grid-template-columns:2.2fr repeat(7,1fr) 1.2fr 280px;}
 #ar2 .ar-bank-card.admin-cols.selmode{grid-template-columns:32px 2.2fr repeat(7,1fr) 1.2fr 280px;}
@@ -1695,7 +2330,10 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-bank-card::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:#48cae4;opacity:.65;}
 #ar2 .ar-bank-card.is-portfolio::before{background:#4ade80;opacity:.85;}
 #ar2 .ar-bank-card.is-portfolio{background:linear-gradient(90deg,rgba(74,222,128,.04),transparent 35%);}
-#ar2 .ar-bank-date{font-size:11px;color:var(--mu);font-weight:400;}
+/* Date sits directly under the property icon (which is offset 10px
+   inside .ar-bank-prop); matching padding-left lines it up with the
+   icon's left edge rather than with the property name text. */
+#ar2 .ar-bank-date{font-size:11px;color:var(--mu);font-weight:400;padding-left:10px;}
 /* Data cells */
 #ar2 .ar-bank-cell{text-align:right;font-variant-numeric:tabular-nums;}
 #ar2 .ar-bank-cell-val{font-size:14px;font-weight:600;color:#e8e8e8;line-height:1.4;}
@@ -2121,6 +2759,651 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    renderBank renders its own .ar-bank-wrap inside which already adds
    60px bottom padding. The Portfolio panel sets its own bottom space. */
 #ar2 .ar-pf-archive-wrap{max-width:1320px;margin:0 auto;padding:0 20px;width:100%;box-sizing:border-box;}
+
+/* ─── Engineer Portal — Phase 1 landing shell ───────────────────────
+   Standalone view for role='engineer'. Sized for tablet field-use
+   first; desktop scales up gracefully. No rep / admin chrome. */
+#ar2 .ar-eng-wrap{max-width:760px;margin:0 auto;padding:40px 20px 80px;width:100%;box-sizing:border-box;}
+#ar2 .ar-eng-header{margin-bottom:28px;}
+#ar2 .ar-eng-eyebrow{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#4ade80;font-weight:600;margin-bottom:8px;}
+#ar2 .ar-eng-title{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:2px;color:#fff;margin-bottom:6px;line-height:1.05;}
+#ar2 .ar-eng-sub{font-size:13.5px;color:var(--mu);line-height:1.5;}
+#ar2 .ar-eng-list{display:flex;flex-direction:column;gap:10px;}
+#ar2 .ar-eng-row{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:16px 18px;background:rgba(13,45,74,.5);border:1px solid rgba(34,197,94,.18);border-radius:12px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-eng-row:hover{background:rgba(13,45,74,.7);border-color:rgba(34,197,94,.4);}
+#ar2 .ar-eng-row:active{transform:translateY(1px);}
+#ar2 .ar-eng-row-main{min-width:0;}
+#ar2 .ar-eng-row-name{font-size:15px;font-weight:600;color:#fff;margin-bottom:2px;}
+#ar2 .ar-eng-row-sub{font-size:12px;color:var(--mu);line-height:1.4;}
+#ar2 .ar-eng-row-status{flex-shrink:0;}
+#ar2 .ar-eng-pill{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:.4px;white-space:nowrap;}
+#ar2 .ar-eng-pill.amber {background:rgba(240,165,0,.12); color:#f0a500; border:1px solid rgba(240,165,0,.32);}
+#ar2 .ar-eng-pill.yellow{background:rgba(234,179,8,.12); color:#eab308; border:1px solid rgba(234,179,8,.32);}
+#ar2 .ar-eng-pill.blue  {background:rgba(0,180,216,.12);  color:#48cae4; border:1px solid rgba(0,180,216,.32);}
+#ar2 .ar-eng-pill.green {background:rgba(34,197,94,.12);  color:#4ade80; border:1px solid rgba(34,197,94,.32);}
+#ar2 .ar-eng-pill.gray  {background:rgba(125,184,204,.1); color:#7db8cc; border:1px solid rgba(125,184,204,.25);}
+#ar2 .ar-eng-empty{padding:48px 20px;text-align:center;border:1px dashed rgba(0,180,216,.18);border-radius:14px;color:var(--mu);font-size:13px;}
+#ar2 .ar-eng-empty-icon{font-size:36px;color:rgba(125,184,204,.45);margin-bottom:8px;line-height:1;}
+#ar2 .ar-eng-empty-title{font-size:14px;font-weight:600;color:#cfe2eb;margin-bottom:6px;}
+#ar2 .ar-eng-empty-body{font-size:12px;color:var(--mu);line-height:1.55;max-width:380px;margin:0 auto;}
+/* Install affordance — appears between header and assignment list. */
+/* PWA install card — engineer portal landing.
+   Three variants depending on capability:
+     • Android Chrome (programmatic install)  → bright aqua card + "Install AquaRev" button
+     • iOS Safari/Chrome                       → tutorial card with the iOS Share-icon SVG
+     • Already standalone                       → not rendered at all (handled in JS) */
+#ar2 .ar-eng-install{display:grid;grid-template-columns:auto 1fr auto;gap:14px 16px;align-items:center;padding:16px 18px;margin-bottom:18px;background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.42);border-radius:12px;box-shadow:0 6px 18px rgba(0,180,216,.08);}
+#ar2 .ar-eng-install.ios{background:linear-gradient(135deg,rgba(13,45,74,.65),rgba(7,22,40,.55));border-color:rgba(0,180,216,.3);box-shadow:none;}
+#ar2 .ar-eng-install-ico{width:42px;height:42px;border-radius:10px;background:rgba(0,180,216,.18);border:1px solid rgba(0,180,216,.45);color:#48cae4;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+#ar2 .ar-eng-install.ios .ar-eng-install-ico{background:rgba(125,184,204,.12);border-color:rgba(125,184,204,.32);color:#cfe2eb;}
+#ar2 .ar-eng-install-ico svg{width:22px;height:22px;}
+#ar2 .ar-eng-install-body{min-width:0;}
+#ar2 .ar-eng-install-eyebrow{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:3px;}
+#ar2 .ar-eng-install.ios .ar-eng-install-eyebrow{color:#7db8cc;}
+#ar2 .ar-eng-install-title{font-size:14px;font-weight:600;color:#fff;line-height:1.25;margin-bottom:4px;}
+#ar2 .ar-eng-install-msg{font-size:12px;color:#cfe2eb;line-height:1.5;}
+#ar2 .ar-eng-install-msg b{color:#fff;font-weight:600;}
+#ar2 .ar-eng-install-msg .ar-eng-share-glyph{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:rgba(0,180,216,.18);border:1px solid rgba(0,180,216,.45);border-radius:4px;vertical-align:-4px;margin:0 2px;}
+#ar2 .ar-eng-install-msg .ar-eng-share-glyph svg{width:11px;height:13px;color:#48cae4;}
+#ar2 .ar-eng-install-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+#ar2 .ar-eng-install-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:10px 18px;border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:filter .12s,transform .12s;white-space:nowrap;}
+#ar2 .ar-eng-install-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+#ar2 .ar-eng-install-btn.outline{background:transparent;border:1px solid rgba(125,184,204,.4);color:#cfe2eb;font-weight:600;font-size:11.5px;padding:8px 14px;}
+#ar2 .ar-eng-install-btn.outline:hover{border-color:rgba(125,184,204,.7);color:#fff;transform:none;}
+@media(max-width:560px){
+  #ar2 .ar-eng-install{grid-template-columns:auto 1fr;gap:10px 12px;}
+  #ar2 .ar-eng-install-actions{grid-column:1 / -1;flex-direction:row;}
+  #ar2 .ar-eng-install-btn{flex:1;}
+}
+#ar2 .ar-eng-footer{margin-top:36px;text-align:center;}
+
+/* ─── Engineer Portal — 4-step flow (Phase 2) ────────────────────── */
+#ar2 .ar-eng-flow{max-width:880px;}
+#ar2 .ar-eng-flow-header{position:relative;margin-bottom:22px;}
+#ar2 .ar-eng-header-top{display:flex;align-items:center;justify-content:space-between;}
+#ar2 .ar-eng-help-btn{background:transparent;border:1px solid rgba(0,180,216,.3);color:#48cae4;width:28px;height:28px;border-radius:50%;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .12s,border-color .12s,color .12s;}
+#ar2 .ar-eng-help-btn:hover{background:rgba(0,180,216,.15);border-color:rgba(0,180,216,.6);color:#fff;}
+
+/* Help drawer */
+.ar-eng-help-drawer-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.7);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:999990;display:flex;align-items:stretch;justify-content:flex-end;}
+.ar-eng-help-drawer-panel{width:420px;max-width:100vw;height:100vh;background:linear-gradient(180deg,#0a2540,#071628);border-left:1px solid rgba(0,180,216,.3);box-shadow:-20px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column;}
+.ar-eng-help-drawer-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(0,180,216,.2);}
+.ar-eng-help-drawer-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#48cae4;}
+.ar-eng-help-close{background:transparent;border:none;color:#cfe2eb;font-size:24px;line-height:1;cursor:pointer;padding:0;width:32px;height:32px;border-radius:6px;}
+.ar-eng-help-close:hover{background:rgba(0,180,216,.1);color:#fff;}
+.ar-eng-help-drawer-body{padding:18px 22px 24px;overflow-y:auto;flex:1;color:#cfe2eb;font-size:13px;line-height:1.6;font-family:'DM Sans',sans-serif;}
+.ar-eng-help-drawer-body p{margin:0 0 12px;}
+.ar-eng-help-drawer-body b{color:#fff;font-weight:600;}
+.ar-eng-help-drawer-body .ar-eng-help-section{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#4ade80;font-weight:600;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(34,197,94,.2);}
+.ar-eng-help-drawer-body button{margin:6px 0 14px;}
+
+/* Pipe diameter visual reference */
+.ar-eng-pipe-ref{display:flex;align-items:flex-end;justify-content:space-around;gap:8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:14px 10px;margin:8px 0 12px;}
+.ar-eng-pipe-ref-col{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.ar-eng-pipe-ref-circle{border-radius:50%;background:radial-gradient(circle at 35% 30%, #48cae4, #00b4d8 50%, #0090b4);border:1px solid rgba(255,255,255,0.18);box-shadow:inset 0 0 4px rgba(0,0,0,.3);}
+.ar-eng-pipe-ref-lbl{font-family:'JetBrains Mono',monospace;font-size:11px;color:#cfe2eb;font-weight:600;}
+#ar2 .ar-eng-back-btn{background:transparent;border:1px solid rgba(0,180,216,.25);color:#cfe2eb;padding:6px 12px;border-radius:7px;font-family:inherit;font-size:11.5px;letter-spacing:.4px;cursor:pointer;transition:border-color .15s,color .15s;display:inline-flex;align-items:center;gap:6px;}
+#ar2 .ar-eng-back-btn:hover{border-color:rgba(0,180,216,.6);color:#fff;}
+#ar2 .ar-eng-back-btn svg{width:14px;height:14px;}
+#ar2 .ar-eng-prop-title{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:2px;color:#fff;margin-top:14px;line-height:1.1;}
+#ar2 .ar-eng-prop-sub{font-size:12px;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-top:4px;}
+#ar2 .ar-eng-saved{display:inline-block;font-size:11px;color:#7db8cc;margin-top:8px;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-eng-lock-banner{background:rgba(125,184,204,.08);border:1px solid rgba(125,184,204,.25);color:#cfe2eb;padding:10px 14px;border-radius:8px;font-size:12.5px;margin-top:14px;}
+
+/* Stepper */
+#ar2 .ar-eng-stepper{display:flex;align-items:center;gap:0;margin-bottom:24px;flex-wrap:wrap;}
+#ar2 .ar-eng-step{background:transparent;border:none;padding:0 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-family:inherit;color:var(--mu);transition:color .15s;}
+#ar2 .ar-eng-step.current{color:#fff;}
+#ar2 .ar-eng-step.done{color:#4ade80;cursor:pointer;}
+#ar2 .ar-eng-step.pending{color:rgba(125,184,204,.5);cursor:not-allowed;}
+#ar2 .ar-eng-step-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(125,184,204,.12);border:1px solid rgba(125,184,204,.3);font-size:13px;font-weight:600;}
+#ar2 .ar-eng-step.current .ar-eng-step-num{background:linear-gradient(135deg,#00b4d8,#48cae4);border-color:transparent;color:#040f1e;}
+#ar2 .ar-eng-step.done .ar-eng-step-num{background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.45);color:#4ade80;}
+#ar2 .ar-eng-step-lbl{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;}
+#ar2 .ar-eng-step-bar{flex:1;height:2px;background:rgba(125,184,204,.18);margin:0 6px;align-self:center;margin-top:-14px;}
+#ar2 .ar-eng-step-bar.done{background:rgba(34,197,94,.4);}
+
+/* Cards + sections */
+#ar2 .ar-eng-card{background:rgba(13,45,74,.45);border:1px solid rgba(0,180,216,.18);border-radius:14px;padding:24px 24px 20px;margin-bottom:18px;}
+#ar2 .ar-eng-card .ar-eng-eyebrow{margin-bottom:6px;}
+#ar2 .ar-eng-h1{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:2px;color:#fff;line-height:1.1;margin-bottom:10px;}
+#ar2 .ar-eng-h2{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;line-height:1.15;margin-bottom:10px;}
+#ar2 .ar-eng-lede{font-size:13.5px;color:var(--mu);line-height:1.6;margin-bottom:20px;}
+#ar2 .ar-eng-section-title{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin:22px 0 10px;border-top:1px dashed rgba(0,180,216,.14);padding-top:14px;}
+#ar2 .ar-eng-section-title:first-of-type{border-top:none;padding-top:0;margin-top:18px;}
+
+/* Briefing video + bullets */
+#ar2 .ar-eng-video{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:10px;background:#000;margin-bottom:18px;}
+#ar2 .ar-eng-video iframe{position:absolute;inset:0;width:100%;height:100%;border:none;}
+#ar2 .ar-eng-bullets{list-style:none;padding:0;margin:0 0 18px;font-size:13px;color:#cfe2eb;line-height:1.6;}
+#ar2 .ar-eng-bullets li{padding:6px 0 6px 22px;position:relative;}
+#ar2 .ar-eng-bullets li::before{content:'';position:absolute;left:0;top:14px;width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#48cae4);}
+#ar2 .ar-eng-bullets li b{color:#fff;font-weight:600;}
+#ar2 .ar-eng-skip-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#cfe2eb;cursor:pointer;user-select:none;margin-bottom:14px;}
+#ar2 .ar-eng-skip-row input{width:16px;height:16px;cursor:pointer;accent-color:#00b4d8;}
+
+/* Briefing supplement (Step 1, below the video). Drawn from the
+   AquaRev Specifications Guide PDF — gives the engineer a quick
+   visual reference for what to capture on site, plus a link to the
+   full PDF for deeper detail. */
+#ar2 .ar-eng-brief-sup{margin:22px 0 6px;padding-top:18px;border-top:1px dashed rgba(0,180,216,.18);}
+#ar2 .ar-eng-brief-sup-hd{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-eng-brief-sup-sub{font-size:12.5px;color:var(--mu);line-height:1.6;margin-bottom:14px;}
+#ar2 .ar-eng-brief-imgs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;}
+@media(max-width:720px){#ar2 .ar-eng-brief-imgs{grid-template-columns:1fr;}}
+#ar2 .ar-eng-brief-fig{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.18);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;cursor:zoom-in;transition:border-color .15s,transform .15s;}
+#ar2 .ar-eng-brief-fig:hover{border-color:rgba(0,180,216,.5);transform:translateY(-1px);}
+#ar2 .ar-eng-brief-fig img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#040f1e;}
+#ar2 .ar-eng-brief-fig-cap{padding:9px 11px 11px;font-size:11.5px;color:#cfe2eb;line-height:1.45;}
+#ar2 .ar-eng-brief-fig-cap b{display:block;color:#fff;font-weight:600;margin-bottom:2px;font-size:12px;letter-spacing:.2px;}
+/* Device sizing mini-table */
+#ar2 .ar-eng-brief-sizes{background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+#ar2 .ar-eng-brief-sizes-hd{font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:8px;}
+#ar2 .ar-eng-brief-sizes-tbl{width:100%;border-collapse:collapse;font-size:12px;color:#cfe2eb;}
+#ar2 .ar-eng-brief-sizes-tbl th,#ar2 .ar-eng-brief-sizes-tbl td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(0,180,216,.08);}
+#ar2 .ar-eng-brief-sizes-tbl th{color:#7db8cc;font-weight:600;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;}
+#ar2 .ar-eng-brief-sizes-tbl tr:last-child td{border-bottom:none;}
+#ar2 .ar-eng-brief-sizes-tbl td:first-child{color:#48cae4;font-weight:600;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-eng-brief-sizes-foot{margin-top:8px;font-size:11px;color:var(--mu);font-style:italic;}
+/* Resource strip — PDF link + contact */
+#ar2 .ar-eng-brief-strip{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;}
+#ar2 .ar-eng-brief-link{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(135deg,rgba(0,180,216,.16),rgba(72,202,228,.06));border:1px solid rgba(0,180,216,.4);color:#cfe2eb;padding:11px 14px;border-radius:10px;font-size:12.5px;font-weight:600;text-decoration:none;letter-spacing:.2px;transition:background .15s,border-color .15s,color .15s;flex:1;min-width:240px;}
+#ar2 .ar-eng-brief-link:hover{background:linear-gradient(135deg,rgba(0,180,216,.28),rgba(72,202,228,.12));border-color:rgba(0,180,216,.7);color:#fff;}
+#ar2 .ar-eng-brief-link svg{flex-shrink:0;width:16px;height:16px;color:#48cae4;}
+#ar2 .ar-eng-brief-link-sub{display:block;font-size:10.5px;font-weight:500;color:var(--mu);letter-spacing:.5px;text-transform:uppercase;margin-top:1px;}
+#ar2 .ar-eng-brief-contact{display:flex;flex-direction:column;justify-content:center;padding:9px 14px;background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.15);border-radius:10px;font-size:11.5px;color:var(--mu);line-height:1.5;min-width:200px;}
+#ar2 .ar-eng-brief-contact b{display:block;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;margin-bottom:3px;font-weight:600;}
+#ar2 .ar-eng-brief-contact a{color:#cfe2eb;text-decoration:none;font-weight:500;}
+#ar2 .ar-eng-brief-contact a:hover{color:#48cae4;}
+
+/* Install QR card on the briefing step — text on the left, QR on
+   the right. Stacks vertically on phones. */
+#ar2 .ar-eng-brief-install{display:flex;gap:18px;align-items:center;margin:22px 0 4px;padding:18px 20px;background:linear-gradient(135deg,rgba(0,180,216,.15),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.4);border-radius:12px;}
+#ar2 .ar-eng-brief-install-l{flex:1;min-width:0;}
+#ar2 .ar-eng-brief-install-eyebrow{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:4px;}
+#ar2 .ar-eng-brief-install-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:#fff;line-height:1.2;margin-bottom:6px;}
+#ar2 .ar-eng-brief-install-sub{font-size:12.5px;color:#cfe2eb;line-height:1.55;margin-bottom:12px;}
+#ar2 .ar-eng-brief-install-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:10px 18px;border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:700;letter-spacing:.4px;cursor:pointer;transition:filter .12s,transform .12s;}
+#ar2 .ar-eng-brief-install-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+#ar2 .ar-eng-brief-install-qr{flex-shrink:0;text-align:center;}
+#ar2 .ar-eng-brief-install-qr img{display:block;width:120px;height:120px;border-radius:8px;background:#fff;padding:6px;border:1px solid rgba(0,180,216,.25);}
+#ar2 .ar-eng-brief-install-qr-cap{margin-top:5px;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+@media(max-width:560px){
+  #ar2 .ar-eng-brief-install{flex-direction:column;text-align:left;}
+  #ar2 .ar-eng-brief-install-qr{align-self:center;}
+  #ar2 .ar-eng-brief-install-qr img{width:140px;height:140px;}
+}
+
+/* Flat key-value rows + notes */
+#ar2 .ar-eng-row-flat{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:1px solid rgba(0,180,216,.08);font-size:13px;}
+#ar2 .ar-eng-row-flat:last-of-type{border-bottom:none;}
+#ar2 .ar-eng-k{color:var(--mu);font-size:12px;letter-spacing:.4px;}
+#ar2 .ar-eng-v{color:#cfe2eb;font-weight:500;text-align:right;}
+#ar2 .ar-eng-link{color:#48cae4;text-decoration:underline;text-underline-offset:2px;font-size:12px;margin-left:6px;}
+#ar2 .ar-eng-link:hover{color:#fff;}
+#ar2 .ar-eng-notes{background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.15);border-radius:8px;padding:10px 12px;margin:14px 0 6px;font-size:12.5px;color:#cfe2eb;line-height:1.55;}
+#ar2 .ar-eng-notes b{display:block;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;margin-bottom:4px;font-weight:600;}
+
+/* Confirm choice buttons */
+#ar2 .ar-eng-choice{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+#ar2 .ar-eng-choice-btn{flex:1;min-width:180px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.22);color:#cfe2eb;padding:12px 16px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.3px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
+#ar2 .ar-eng-choice-btn:hover{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.4);}
+#ar2 .ar-eng-choice-btn.on.green{background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.55);color:#4ade80;}
+#ar2 .ar-eng-choice-btn.on.red{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);color:#fca5a5;}
+#ar2 .ar-eng-choice-btn.on.amber{background:rgba(240,165,0,.18);border-color:rgba(240,165,0,.5);color:#f0a500;}
+
+/* Fields */
+#ar2 .ar-eng-field{margin:14px 0;}
+#ar2 .ar-eng-field label{display:block;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:6px;}
+#ar2 .ar-eng-field .ar-eng-hint{text-transform:none;letter-spacing:0;color:var(--mu);font-size:11px;font-weight:400;}
+#ar2 .ar-eng-field input[type=text],
+#ar2 .ar-eng-field input[type=number],
+#ar2 .ar-eng-field input[type=tel],
+#ar2 .ar-eng-field textarea,
+#ar2 .ar-eng-field select{width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(0,180,216,.22);color:#fff;padding:10px 12px;border-radius:8px;font-family:inherit;font-size:13.5px;outline:none;transition:border-color .15s,box-shadow .15s;box-sizing:border-box;}
+#ar2 .ar-eng-field input:focus,
+#ar2 .ar-eng-field textarea:focus,
+#ar2 .ar-eng-field select:focus{border-color:rgba(0,180,216,.6);box-shadow:0 0 0 3px rgba(0,180,216,.12);}
+#ar2 .ar-eng-field textarea{resize:vertical;min-height:60px;font-family:inherit;}
+#ar2 .ar-eng-inline{display:flex;gap:8px;align-items:center;}
+#ar2 .ar-eng-inline input{flex:1;}
+#ar2 .ar-eng-tiny{background:transparent;border:1px solid rgba(0,180,216,.3);color:#48cae4;font-family:inherit;font-size:11px;font-weight:600;padding:6px 10px;border-radius:6px;white-space:nowrap;cursor:pointer;transition:background .15s;}
+#ar2 .ar-eng-tiny:hover{background:rgba(0,180,216,.1);color:#fff;}
+
+/* Pool grid */
+#ar2 .ar-eng-pool-grid{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:18px;}
+@media(min-width:768px){
+  #ar2 .ar-eng-pool-grid{grid-template-columns:1fr 1fr;}
+}
+#ar2 .ar-eng-pool-card{background:rgba(13,45,74,.45);border:1px solid rgba(0,180,216,.18);border-radius:12px;padding:18px 18px 14px;position:relative;transition:border-color .2s;}
+#ar2 .ar-eng-pool-card.complete{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.04);}
+#ar2 .ar-eng-pool-head{margin-bottom:8px;}
+#ar2 .ar-eng-pool-name{font-size:15px;font-weight:600;color:#fff;}
+#ar2 .ar-eng-pool-meta{font-size:11.5px;color:var(--mu);margin-top:2px;}
+/* Status pill in the pool card head row. Was previously position:absolute
+   (overlapped long pool names); now a normal flex item, pushed to the
+   right with margin-left:auto. Two states: "Complete" (green) when
+   verification + photo requirements pass, otherwise "Pending" (amber). */
+#ar2 .ar-eng-pool-check{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;letter-spacing:.4px;padding:3px 8px;border-radius:99px;flex-shrink:0;margin-left:auto;white-space:nowrap;}
+#ar2 .ar-eng-pool-check.complete{color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);}
+#ar2 .ar-eng-pool-check.pending{color:#f0a500;background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.32);}
+#ar2 .ar-eng-pool-check svg{width:11px;height:11px;}
+
+/* Return-line stepper rows */
+#ar2 .ar-eng-lines{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
+#ar2 .ar-eng-line{display:flex;align-items:center;gap:8px;padding:6px;background:rgba(0,0,0,.18);border:1px solid rgba(0,180,216,.14);border-radius:8px;}
+#ar2 .ar-eng-line-stepper{display:flex;align-items:center;gap:4px;}
+#ar2 .ar-eng-line-step{width:30px;height:30px;border-radius:6px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.2);color:#cfe2eb;font-family:inherit;font-size:16px;font-weight:600;cursor:pointer;transition:background .12s;display:flex;align-items:center;justify-content:center;}
+#ar2 .ar-eng-line-step:hover{background:rgba(0,180,216,.22);color:#fff;}
+#ar2 .ar-eng-line-count{min-width:24px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:14px;color:#fff;font-weight:600;}
+#ar2 .ar-eng-line-dia{flex:1;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.2);color:#fff;padding:7px 10px;border-radius:6px;font-family:inherit;font-size:13px;outline:none;cursor:pointer;}
+#ar2 .ar-eng-line-x{background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;width:30px;height:30px;border-radius:6px;font-size:14px;line-height:1;cursor:pointer;transition:background .12s;display:flex;align-items:center;justify-content:center;}
+#ar2 .ar-eng-line-x:hover{background:rgba(239,68,68,.18);color:#fca5a5;}
+#ar2 .ar-eng-add-line{background:transparent;border:1px dashed rgba(0,180,216,.35);color:#48cae4;padding:8px 12px;border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;width:100%;transition:border-color .15s,color .15s;}
+#ar2 .ar-eng-add-line:hover{border-color:rgba(0,180,216,.6);color:#fff;}
+#ar2 .ar-eng-empty-mini{font-size:12px;color:var(--mu);padding:8px;opacity:.7;}
+#ar2 .ar-eng-media-placeholder{margin-top:12px;padding:10px;background:rgba(125,184,204,.06);border:1px dashed rgba(125,184,204,.2);border-radius:8px;font-size:11.5px;color:var(--mu);text-align:center;}
+
+/* Apply Pool 1 toolbar (Phase 2 — fast-fill for identical pool decks) */
+#ar2 .ar-eng-pool-toolbar{display:flex;justify-content:flex-end;margin-bottom:10px;}
+#ar2 .ar-eng-pool-toolbar .ar-eng-tiny{font-size:11.5px;padding:6px 12px;}
+
+/* Discrepancy soft-warning — surfaces when engineer's gallons differ
+   from rep value by more than 5%. Inline note + required reason field. */
+#ar2 .ar-eng-discrepancy{background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.35);border-radius:8px;padding:10px 12px;margin-top:8px;}
+#ar2 .ar-eng-discrepancy-title{font-size:12px;font-weight:600;color:#f0a500;margin-bottom:4px;}
+#ar2 .ar-eng-discrepancy-body{font-size:11.5px;color:#cfe2eb;line-height:1.45;margin-bottom:8px;}
+#ar2 .ar-eng-discrepancy textarea{width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(240,165,0,.32);color:#fff;padding:8px 10px;border-radius:7px;font-family:inherit;font-size:12.5px;outline:none;resize:vertical;min-height:48px;box-sizing:border-box;}
+#ar2 .ar-eng-discrepancy textarea:focus{border-color:#f0a500;box-shadow:0 0 0 3px rgba(240,165,0,.15);}
+
+/* Media thumbnails + uploader buttons */
+#ar2 .ar-eng-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;min-height:6px;}
+#ar2 .ar-eng-thumb{position:relative;width:72px;height:72px;border-radius:8px;border:1px solid rgba(0,180,216,.22);background:rgba(0,0,0,.32);overflow:hidden;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#7db8cc;font-size:24px;}
+#ar2 .ar-eng-thumb-img{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat;}
+#ar2 .ar-eng-thumb.uploading{border-style:dashed;border-color:rgba(0,180,216,.45);background:rgba(0,180,216,.08);}
+#ar2 .ar-eng-thumb-spin{position:absolute;bottom:6px;right:6px;width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,180,216,.25);border-top-color:#48cae4;animation:ar-eng-spin 0.8s linear infinite;}
+@keyframes ar-eng-spin{to{transform:rotate(360deg);}}
+#ar2 .ar-eng-thumb-type{position:absolute;left:4px;bottom:4px;background:rgba(4,15,30,.7);color:#fff;font-size:11px;padding:1px 5px;border-radius:4px;}
+#ar2 .ar-eng-thumb-x{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;background:rgba(4,15,30,.85);border:1px solid rgba(239,68,68,.4);color:#fca5a5;font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;padding:0;}
+#ar2 .ar-eng-thumb:hover .ar-eng-thumb-x{opacity:1;}
+#ar2 .ar-eng-thumb-x:hover{background:rgba(239,68,68,.4);color:#fff;}
+#ar2 .ar-eng-media-actions{display:flex;gap:8px;flex-wrap:wrap;}
+#ar2 .ar-eng-media-btn{flex:1;min-width:130px;background:rgba(0,180,216,.08);border:1px dashed rgba(0,180,216,.4);color:#48cae4;padding:10px 12px;border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;transition:background .12s,color .12s,border-color .12s;}
+#ar2 .ar-eng-media-btn:hover:not(.disabled){background:rgba(0,180,216,.18);color:#fff;border-color:rgba(0,180,216,.6);}
+#ar2 .ar-eng-media-btn.disabled{opacity:.4;cursor:not-allowed;border-style:solid;}
+
+/* Lightbox modal — full-size view of a thumbnail. */
+/* Lightbox mounts on document.body (outside #ar2 root) so it can stay
+   above all calculator chrome. Selectors are NOT #ar2-prefixed —
+   prefixing would leave the lightbox invisible because the cascade
+   never matches. */
+.ar-eng-lightbox-backdrop{position:fixed;inset:0;background:rgba(4,15,30,.92);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:9999990;display:flex;align-items:center;justify-content:center;padding:24px;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;}
+.ar-eng-lightbox-content{max-width:90vw;max-height:90vh;border-radius:10px;overflow:hidden;background:#000;box-shadow:0 20px 80px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
+.ar-eng-lightbox-content img,
+.ar-eng-lightbox-content video{max-width:90vw;max-height:90vh;display:block;}
+.ar-eng-lightbox-close{position:fixed;top:18px;right:18px;background:rgba(7,22,40,.85);border:1px solid rgba(0,180,216,.4);color:#cfe2eb;width:42px;height:42px;border-radius:50%;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:9999991;}
+.ar-eng-lightbox-close:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.7);color:#fff;}
+
+/* Action bar */
+#ar2 .ar-eng-actions{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-top:18px;}
+#ar2 .ar-eng-btn{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.25);color:#cfe2eb;padding:12px 22px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.5px;cursor:pointer;transition:filter .12s,background .15s,border-color .15s;display:inline-flex;align-items:center;gap:7px;justify-content:center;}
+#ar2 .ar-eng-btn:hover:not(:disabled){background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.5);color:#fff;}
+#ar2 .ar-eng-btn.primary{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border-color:transparent;}
+#ar2 .ar-eng-btn.primary:hover:not(:disabled){filter:brightness(1.08);background:linear-gradient(135deg,#00b4d8,#48cae4);}
+#ar2 .ar-eng-btn:disabled{opacity:.5;cursor:not-allowed;}
+#ar2 .ar-eng-btn.secondary:hover:not(:disabled){background:rgba(125,184,204,.08);}
+/* Ghost-aqua: high-contrast outlined button used inside the help drawer
+   and for the engineer-side PDF preview button. Replaces the low-contrast
+   .secondary that disappeared into the drawer background. */
+#ar2 .ar-eng-btn.ghost-aq,
+.ar-eng-help-drawer-body .ar-eng-btn.ghost-aq{background:rgba(0,180,216,.14);border:1px solid rgba(0,180,216,.55);color:#48cae4;}
+#ar2 .ar-eng-btn.ghost-aq:hover:not(:disabled),
+.ar-eng-help-drawer-body .ar-eng-btn.ghost-aq:hover:not(:disabled){background:rgba(0,180,216,.24);border-color:rgba(0,180,216,.85);color:#fff;}
+
+/* Engineer inline icons — replace OS emojis. Default to vertically
+   centered with the button text. Currentcolor makes them inherit hover
+   state styling automatically. */
+.ar-eng-svg-icon{display:inline-block;vertical-align:-2px;flex-shrink:0;}
+#ar2 .ar-eng-btn .ar-eng-svg-icon,
+#ar2 .ar-eng-tiny .ar-eng-svg-icon{vertical-align:-1px;}
+
+/* Step-2 access UI (Phase 7.1) — replaces the binary Confirm Access
+   buttons. The "ok" row sits inline (badge + tiny report button); the
+   "blocked" card opens when the engineer reports an issue. */
+#ar2 .ar-eng-access-ok-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:11px 14px;flex-wrap:wrap;}
+#ar2 .ar-eng-access-ok-msg{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#4ade80;font-weight:600;}
+#ar2 .ar-eng-access-blocked-card{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.32);border-radius:10px;padding:14px;}
+#ar2 .ar-eng-access-blocked-hd{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#fca5a5;margin-bottom:10px;letter-spacing:.3px;}
+#ar2 .ar-eng-tiny.danger{border-color:rgba(239,68,68,.45);color:#fca5a5;}
+#ar2 .ar-eng-tiny.danger:hover{background:rgba(239,68,68,.15);color:#fff;}
+
+/* Pool-card "still missing" inline hint — surfaces which specific item
+   is blocking the Complete state so the engineer can act without
+   guessing. Amber to match the "warn" color family. */
+#ar2 .ar-eng-pool-missing{display:flex;align-items:center;gap:7px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.32);color:#f0a500;font-size:11.5px;border-radius:8px;padding:7px 11px;margin-top:12px;line-height:1.45;}
+#ar2 .ar-eng-hint.required{color:#f0a500;}
+
+/* Pre-fill tag — appears beside field labels (Water type, Return lines)
+   when the value was seeded from the rep's assessment. Subtle cue that
+   the engineer should confirm or edit, not enter from scratch. */
+#ar2 .ar-eng-prefilled-tag{display:inline-block;font-size:9.5px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;color:#48cae4;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.34);padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px;}
+
+/* Pools section wrapper — explicit visual break between the Pump
+   Rooms section above and the Pools work area below. Adds its own
+   eyebrow + lede so engineers can't conflate the two asks. */
+#ar2 .ar-eng-pools-section{margin-top:8px;padding-top:18px;border-top:1px dashed rgba(0,180,216,.25);}
+#ar2 .ar-eng-pools-section > .ar-eng-section-hd{margin-bottom:16px;}
+#ar2 .ar-eng-pools-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
+#ar2 .ar-eng-pools-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
+
+/* Property-wide notes (bottom of Step 3 / Pool profiles). Visually
+   parallels the .ar-eng-pump-rooms-section / .ar-eng-pools-section
+   blocks so the engineer reads the page as three distinct buckets:
+   pump rooms → pools → property-level notes. */
+#ar2 .ar-eng-prop-notes-section{margin-top:22px;padding:18px 18px 18px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:14px;}
+#ar2 .ar-eng-prop-notes-section > .ar-eng-section-hd{margin-bottom:12px;}
+#ar2 .ar-eng-prop-notes-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
+#ar2 .ar-eng-prop-notes-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
+#ar2 .ar-eng-prop-notes-input{width:100%;background:rgba(7,22,40,.5);border:1px solid rgba(0,180,216,.22);color:#cfe2eb;border-radius:10px;padding:11px 13px;font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.55;resize:vertical;min-height:96px;transition:border-color .12s,background .12s,box-shadow .12s;}
+#ar2 .ar-eng-prop-notes-input:focus{outline:none;border-color:rgba(0,180,216,.65);background:rgba(0,180,216,.08);box-shadow:0 0 0 3px rgba(0,180,216,.14);}
+#ar2 .ar-eng-prop-notes-input::placeholder{color:rgba(125,184,204,.7);}
+
+/* Compact return-line media block — replaces the bulky cyan callout.
+   Single header row holds label + Required/Captured pill + tally + ?
+   help chip. Thumbs render in their own row (hidden when empty).
+   Buttons sit beside each other. Everything fits in ~120px height. */
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-hd{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
+#ar2 .ar-eng-return-media-field .ar-eng-return-media-hd > label{margin:0;}
+#ar2 .ar-eng-media-tally{font-size:10.5px;color:var(--mu);letter-spacing:.3px;font-family:'JetBrains Mono',monospace;margin-left:auto;}
+#ar2 .ar-eng-mini-help{width:18px;height:18px;border-radius:50%;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.4);color:#48cae4;font-size:10px;font-weight:700;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;}
+#ar2 .ar-eng-mini-help:hover{background:rgba(0,180,216,.24);color:#fff;}
+
+/* Smaller variant of the existing engineer status pills — used inline
+   beside labels (Required / Captured). */
+#ar2 .ar-eng-pill.sm{padding:2px 7px;font-size:9.5px;letter-spacing:.6px;display:inline-flex;align-items:center;gap:3px;}
+#ar2 .ar-eng-pill.sm .ar-eng-svg-icon{width:10px;height:10px;}
+
+/* Step-4 PDF row — outline button + helper hint paired side-by-side. */
+#ar2 .ar-eng-pdf-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;}
+#ar2 .ar-eng-pdf-hint{font-size:11.5px;color:var(--mu);line-height:1.4;flex:1 1 200px;}
+
+/* Step-4 "already sent" banner. Soft success tint with reinforcing
+   message that re-edit + re-send is normal/expected. */
+#ar2 .ar-eng-sent-banner{display:flex;align-items:flex-start;gap:8px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);color:#cfe2eb;font-size:12.5px;line-height:1.5;padding:11px 14px;border-radius:10px;margin:10px 0 14px;}
+#ar2 .ar-eng-sent-banner b{color:#4ade80;font-weight:700;}
+#ar2 .ar-eng-sent-banner .ar-eng-svg-icon{color:#4ade80;flex-shrink:0;margin-top:1px;}
+
+/* Engineer help button — match the calculator header's .ar-help-icon
+   (32x32 circle with aqua tint). Overrides the older 28x28 ? style. */
+#ar2 .ar-eng-help-btn.ar-help-icon{width:32px;height:32px;font-size:16px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);}
+#ar2 .ar-eng-help-btn.ar-help-icon:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.7);color:#fff;}
+
+/* Admin Review Mode — compact pill in the engineer-portal header.
+   Replaces the old verbose 2-line banner with a tight aqua chip that
+   reads "ADMIN REVIEW MODE" + a tappable info icon. The full
+   "what's editable / how to finish" copy moves into a small popover
+   that opens on the info-icon tap, so the chrome stays uncluttered. */
+#ar2 .ar-eng-admin-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px 5px 9px;border-radius:99px;background:rgba(0,180,216,.18);border:1px solid rgba(0,180,216,.55);color:#48cae4;font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;line-height:1;margin-bottom:10px;align-self:flex-start;}
+#ar2 .ar-eng-admin-chip svg{width:13px;height:13px;color:#48cae4;flex-shrink:0;}
+#ar2 .ar-eng-admin-chip-info{background:transparent;border:none;color:inherit;width:16px;height:16px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;margin-left:2px;opacity:.7;transition:opacity .12s,background .12s;}
+#ar2 .ar-eng-admin-chip-info:hover{opacity:1;background:rgba(0,180,216,.25);}
+#ar2 .ar-eng-admin-chip-info svg{width:11px;height:11px;}
+/* Legacy .ar-eng-admin-banner — kept for the rare "engineer-submit
+   succeeded but admin notification fan-out failed" warning at runtime
+   (see _engineerSubmit handler). Same shape as the old aqua banner. */
+#ar2 .ar-eng-admin-banner{display:flex;align-items:flex-start;gap:9px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.42);color:#cfe2eb;font-size:12.5px;line-height:1.5;padding:10px 14px;border-radius:9px;margin:10px 0 4px;}
+#ar2 .ar-eng-admin-banner b{color:#48cae4;font-weight:700;}
+
+/* Outline variant of the modal primary button for "Review in Portal" —
+   primary intent but visually softer than the destructive Lock or
+   confirming Mark Reviewed actions sitting beside it. */
+#ar2 .ar-pf-modal-btn.primary.outline{background:transparent;border:1px solid rgba(0,180,216,.55);color:#48cae4;}
+#ar2 .ar-pf-modal-btn.primary.outline:hover{background:rgba(0,180,216,.14);color:#fff;border-color:rgba(0,180,216,.85);}
+
+/* ──────── Ship #3 — Engineer portal additions ──────── */
+
+/* Defensive: when the engineer mode is active, hide the calculator's
+   three-column main layout AND the Pool Measure mount even if showView
+   has somehow left them visible. Catches a class of "image leaking
+   below the footer" bugs where a body-image preview was rendering. */
+body.pf-engineer-mode #ar2 #ar2-main-layout,
+body.pf-engineer-mode #ap2{display:none!important;}
+
+/* Reference image attached to the pool card. Click opens lightbox. */
+#ar2 .ar-eng-pool-image{position:relative;width:100%;border-radius:8px;overflow:hidden;border:1px solid rgba(0,180,216,.32);background:rgba(7,22,40,.65);cursor:zoom-in;margin:6px 0 12px;}
+#ar2 .ar-eng-pool-image img{display:block;width:100%;max-height:220px;object-fit:cover;}
+#ar2 .ar-eng-pool-image:hover{border-color:rgba(0,180,216,.6);}
+#ar2 .ar-eng-pool-image-tag{position:absolute;top:8px;left:8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#040f1e;background:rgba(72,202,228,.92);padding:3px 8px;border-radius:99px;}
+#ar2 .ar-eng-pool-image-stub{font-size:11.5px;color:#7db8cc;background:rgba(7,22,40,.4);border:1px dashed rgba(125,184,204,.3);border-radius:8px;padding:8px 12px;margin:6px 0 12px;display:inline-flex;align-items:center;gap:6px;}
+#ar2 .ar-eng-pool-image-stub svg{opacity:.7;}
+
+/* Pool name input — editable inline. Engineer override replaces the
+   rep-supplied label without mutating the assessment. */
+/* Editable pool-name label. The pencil icon sits inside the input
+   wrapper so it acts as the visual "tap to edit" affordance. The
+   <label> wrap means a click anywhere on the chip — including the
+   pencil — focuses the input. */
+#ar2 .ar-eng-pool-name-edit{flex:1;display:inline-flex;align-items:center;gap:6px;padding:3px 10px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:8px;min-width:0;cursor:text;transition:background .12s,border-color .12s;}
+#ar2 .ar-eng-pool-name-edit:hover{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.45);}
+#ar2 .ar-eng-pool-name-edit:focus-within{background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.7);box-shadow:0 0 0 3px rgba(0,180,216,.12);}
+#ar2 .ar-eng-pool-name-input{flex:1;background:transparent;border:none;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;padding:2px 0;outline:none;min-width:0;}
+#ar2 .ar-eng-pool-name-input::placeholder{color:rgba(125,184,204,.45);}
+#ar2 .ar-eng-pool-name-input:disabled{opacity:.55;cursor:not-allowed;}
+#ar2 .ar-eng-pool-name-edit-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:rgba(0,180,216,.12);color:#48cae4;flex-shrink:0;transition:background .12s,color .12s;}
+#ar2 .ar-eng-pool-name-edit:hover .ar-eng-pool-name-edit-icon{background:rgba(0,180,216,.25);color:#fff;}
+#ar2 .ar-eng-pool-name-edit:focus-within .ar-eng-pool-name-edit-icon{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;}
+/* Locked card disables the pencil affordance visually. */
+#ar2 .ar-eng-pool-card.locked .ar-eng-pool-name-edit{opacity:.55;pointer-events:none;}
+#ar2 .ar-eng-pool-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;}
+#ar2 .ar-eng-pool-head .ar-eng-pool-meta{flex-basis:100%;}
+#ar2 .ar-eng-pool-head .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;}
+#ar2 .ar-eng-pool-added-pill{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#4ade80;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.4);padding:2px 8px;border-radius:99px;}
+
+/* Locked-card overlay state — pool cards disable until pump rooms get
+   at least one piece of media. Inputs are :disabled; the card itself
+   gets a soft fade + a yellow tinted border. */
+#ar2 .ar-eng-pool-card.locked{opacity:.78;background:rgba(13,45,74,.32);}
+#ar2 .ar-eng-pools-locked{display:flex;align-items:flex-start;gap:9px;background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.42);color:#cfe2eb;font-size:12.5px;line-height:1.55;padding:11px 14px;border-radius:9px;margin:10px 0 14px;}
+#ar2 .ar-eng-pools-locked b{color:#f0a500;font-weight:700;}
+#ar2 .ar-eng-pools-locked .ar-eng-svg-icon{color:#f0a500;flex-shrink:0;margin-top:2px;}
+
+/* + Add Pool button + hint below the grid. */
+#ar2 .ar-eng-pool-add-row{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap;}
+#ar2 .ar-eng-add-pool{background:transparent;border:1px dashed rgba(0,180,216,.42);color:#48cae4;font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:.4px;padding:10px 18px;border-radius:9px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
+#ar2 .ar-eng-add-pool:hover{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.7);color:#fff;}
+#ar2 .ar-eng-pool-add-hint{font-size:11.5px;color:var(--mu);flex:1 1 220px;}
+
+/* GREEN Send button — primary intent flips from cyan to green on the
+   final review step so the engineer can spot it as the success action.
+   Disabled state keeps the cyan-muted treatment so it doesn't look
+   broken before all requirements are met. */
+#ar2 .ar-eng-btn.primary.send-green{background:linear-gradient(135deg,#16a34a,#22c55e);color:#04210d;border-color:transparent;}
+#ar2 .ar-eng-btn.primary.send-green:hover:not(:disabled){filter:brightness(1.08);}
+#ar2 .ar-eng-btn.primary.send-green:disabled{background:linear-gradient(135deg,rgba(34,197,94,.32),rgba(22,163,74,.32));color:rgba(255,255,255,.72);}
+
+/* Engineer-verified badge on the rep's pool body card. Sits beside
+   the pool name input. Click opens the Engineer Submission Review
+   modal (admin only — data-action routes through admin-review-submission
+   which checks isAdmin() before opening). */
+#ar2 .ar-body-eng-verified{display:inline-flex;align-items:center;gap:4px;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.5);color:#4ade80;padding:3px 8px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;transition:background .15s,color .15s;}
+#ar2 .ar-body-eng-verified:hover{background:rgba(34,197,94,.28);color:#fff;}
+#ar2 .ar-body-eng-verified svg{flex-shrink:0;}
+#ar2 .ar-body-eng-verified-lbl{line-height:1;}
+#ar2 .ar-body-card.eng-verified{border-color:rgba(34,197,94,.35);}
+
+/* Pool Water-type dropdown inside the engineer pool card. */
+#ar2 .ar-eng-pool-type-select{width:100%;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.28);color:#fff;padding:9px 12px;border-radius:7px;font-family:inherit;font-size:13px;outline:none;cursor:pointer;}
+#ar2 .ar-eng-pool-type-select:focus{border-color:rgba(0,180,216,.65);}
+#ar2 .ar-eng-pool-type-select:disabled{opacity:.55;cursor:not-allowed;}
+
+/* Engineer Submissions search input — paired with the filter chips. */
+#ar2 .ar-admin-eng-search-wrap{flex:1 1 220px;min-width:160px;max-width:320px;display:flex;align-items:center;}
+#ar2 .ar-admin-eng-search{width:100%;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.25);color:#fff;padding:5px 12px;border-radius:99px;font-family:inherit;font-size:11.5px;outline:none;transition:border-color .12s;}
+#ar2 .ar-admin-eng-search:focus{border-color:rgba(0,180,216,.65);}
+#ar2 .ar-admin-eng-search::placeholder{color:rgba(125,184,204,.55);}
+
+/* Engineer report — pump-room pool-list chip styling. Mirrors the
+   per-pool return-line chip family but matches the print color palette
+   (light bg so it reads on the white PDF page). */
+#ar2-report .rpt-eng-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:#e6f4f9;border:1px solid #b8dbe6;color:#0a2540;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
+
+/* The previous .ar-eng-report-preview-* overlay is retired in favor of
+   the calculator-style hide-body + fixed-toolbar pattern. The toolbar
+   itself is built inline (#ar2-eng-preview-toolbar) so no class hook
+   is required here. */
+
+/* ───────── Pump Rooms (Ship #2) ─────────
+   Section lives at the top of Step 3, above the pool grid. Each card
+   captures a pump-room ID + walkthrough video + supporting photos.
+   Pool cards reference these via the per-pool Pump Room dropdown. */
+#ar2 .ar-eng-pump-rooms-section{margin-bottom:22px;padding:18px 18px 16px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:14px;}
+#ar2 .ar-eng-pump-rooms-section .ar-eng-section-hd{margin-bottom:14px;}
+#ar2 .ar-eng-pump-rooms-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
+#ar2 .ar-eng-pump-rooms-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
+#ar2 .ar-eng-pump-room-empty{font-size:12.5px;color:var(--mu);background:rgba(7,22,40,.4);border:1px dashed rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px;line-height:1.5;}
+#ar2 .ar-eng-pump-room-empty b{color:#48cae4;font-weight:600;}
+
+#ar2 .ar-eng-pump-room-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:12px;}
+
+#ar2 .ar-eng-pump-room-card{background:rgba(13,45,74,.65);border:1px solid rgba(0,180,216,.28);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;}
+#ar2 .ar-eng-pump-room-head{display:flex;align-items:center;gap:8px;}
+#ar2 .ar-eng-pump-room-label{flex:1;background:transparent;border:none;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;padding:4px 6px;border-radius:5px;outline:none;min-width:0;}
+#ar2 .ar-eng-pump-room-label:hover,#ar2 .ar-eng-pump-room-label:focus{background:rgba(0,180,216,.08);}
+#ar2 .ar-eng-pump-room-card .ar-eng-thumb-x{position:static;width:24px;height:24px;flex-shrink:0;}
+
+/* Walkthrough video tile — full-width inside the card. Three states:
+   empty (click to record), uploading (spinner), has-video (click to view). */
+#ar2 .ar-eng-pump-room-video{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:100%;min-height:100px;border-radius:9px;border:1px solid rgba(0,180,216,.32);background:rgba(7,22,40,.55);color:#cfe2eb;font-family:inherit;cursor:pointer;padding:14px;text-align:center;transition:background .15s,border-color .15s;position:relative;}
+#ar2 .ar-eng-pump-room-video:hover{background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.6);color:#fff;}
+#ar2 .ar-eng-pump-room-video.empty{border-style:dashed;color:#48cae4;}
+#ar2 .ar-eng-pump-room-video.empty:hover{color:#fff;}
+#ar2 .ar-eng-pump-room-video.has-video{background:linear-gradient(135deg,rgba(34,197,94,.16),rgba(34,197,94,.06));border-color:rgba(34,197,94,.45);color:#4ade80;}
+#ar2 .ar-eng-pump-room-video.has-video:hover{background:linear-gradient(135deg,rgba(34,197,94,.24),rgba(34,197,94,.1));color:#fff;}
+#ar2 .ar-eng-pump-room-video.uploading{opacity:.85;color:#48cae4;cursor:default;}
+#ar2 .ar-eng-pump-room-video-icon{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.08);}
+#ar2 .ar-eng-pump-room-video-icon svg{width:18px;height:18px;}
+#ar2 .ar-eng-pump-room-video-msg{font-size:11.5px;font-weight:600;letter-spacing:.4px;line-height:1.3;}
+#ar2 .ar-eng-pump-room-video .ar-eng-thumb-x{position:absolute;top:6px;right:6px;}
+
+#ar2 .ar-eng-pump-room-photos{display:flex;flex-direction:column;gap:6px;}
+#ar2 .ar-eng-pump-room-photos-lbl{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+#ar2 .ar-eng-pump-room-photos .ar-eng-thumbs{display:flex;flex-wrap:wrap;gap:6px;}
+#ar2 .ar-eng-pump-room-photos .ar-eng-media-btn{align-self:flex-start;font-size:11.5px;padding:6px 10px;}
+#ar2 .ar-eng-pump-room-foot{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--mu);padding-top:6px;border-top:1px solid rgba(0,180,216,.12);}
+#ar2 .ar-eng-pump-room-stat{letter-spacing:.4px;}
+
+/* Inline draft entry — Add Pump Room → input + Save/Cancel. */
+#ar2 .ar-eng-pump-room-draft{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.38);border-radius:10px;margin-bottom:10px;}
+#ar2 .ar-eng-pump-room-input{flex:1;min-width:180px;background:rgba(7,22,40,.7);border:1px solid rgba(0,180,216,.35);color:#fff;font-family:inherit;font-size:13px;padding:8px 12px;border-radius:7px;outline:none;}
+#ar2 .ar-eng-pump-room-input:focus{border-color:rgba(0,180,216,.7);}
+#ar2 .ar-eng-tiny.ghost{background:transparent;border-color:rgba(125,184,204,.3);color:#cfe2eb;}
+#ar2 .ar-eng-tiny.ghost:hover{border-color:rgba(125,184,204,.6);}
+#ar2 .ar-eng-add-pump-room{background:transparent;border:1px dashed rgba(0,180,216,.45);color:#48cae4;font-family:inherit;font-size:12.5px;font-weight:600;letter-spacing:.4px;padding:10px 16px;border-radius:9px;cursor:pointer;width:100%;transition:background .15s,border-color .15s,color .15s;}
+#ar2 .ar-eng-add-pump-room:hover{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.7);color:#fff;}
+
+/* Per-pool pump room linkage dropdown. */
+#ar2 .ar-eng-pump-room-select{width:100%;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.28);color:#fff;padding:9px 12px;border-radius:7px;font-family:inherit;font-size:13px;outline:none;cursor:pointer;}
+#ar2 .ar-eng-pump-room-select:focus{border-color:rgba(0,180,216,.65);}
+
+/* Review summary */
+#ar2 .ar-eng-summary{background:rgba(0,0,0,.18);border:1px solid rgba(0,180,216,.12);border-radius:10px;padding:14px 16px;margin:14px 0 18px;}
+#ar2 .ar-eng-summary-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(0,180,216,.08);font-size:13px;}
+#ar2 .ar-eng-summary-row:last-child{border-bottom:none;}
+#ar2 .ar-eng-warn{background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.32);color:#f0a500;padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:12px;}
+
+/* Step 4 — Review & Send polish. Builds on the .ar-admin-review-*
+   patterns so all three views (admin Submission Review modal, eng
+   Step 2 Property Review, eng Step 4 Final Review) share the same
+   visual grammar. */
+/* Per-pool readiness checklist — one row per pool showing ready /
+   missing-items in a glance. Clickable rows scroll back to the pool
+   card on Step 3 (data-action="ar-eng-goto-pool"). */
+#ar2 .ar-eng-readiness{background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:6px 0;margin:14px 0 18px;}
+#ar2 .ar-eng-readiness-hd{padding:10px 16px 8px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;display:flex;justify-content:space-between;border-bottom:1px solid rgba(0,180,216,.14);}
+#ar2 .ar-eng-readiness-hd b{color:#fff;font-weight:600;letter-spacing:.4px;font-size:11px;text-transform:none;}
+#ar2 .ar-eng-readiness-row{display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid rgba(0,180,216,.06);font-size:12.5px;color:#cfe2eb;transition:background .12s;cursor:pointer;}
+#ar2 .ar-eng-readiness-row:last-child{border-bottom:none;}
+#ar2 .ar-eng-readiness-row:hover{background:rgba(0,180,216,.05);}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-name{flex:1;min-width:0;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-missing{flex:2 1 auto;min-width:0;color:#f0a500;font-size:11.5px;font-style:italic;}
+#ar2 .ar-eng-readiness-row.complete .ar-eng-readiness-missing{color:#4ade80;font-style:normal;}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-flag{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;}
+#ar2 .ar-eng-readiness-row.complete .ar-eng-readiness-flag{background:rgba(34,197,94,.18);border:1px solid rgba(34,197,94,.5);color:#4ade80;}
+#ar2 .ar-eng-readiness-row:not(.complete) .ar-eng-readiness-flag{background:rgba(240,165,0,.18);border:1px solid rgba(240,165,0,.5);color:#f0a500;}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-chev{color:#7db8cc;font-size:14px;flex-shrink:0;}
+
+/* General notes preview — read-only display of engineer_property_notes
+   (entered on Step 3) so the engineer can review what they wrote
+   before sending. */
+#ar2 .ar-eng-final-notes{background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:12px 14px;margin:0 0 14px;}
+#ar2 .ar-eng-final-notes-hd{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px;}
+#ar2 .ar-eng-final-notes-body{font-size:12.5px;color:#cfe2eb;line-height:1.6;white-space:pre-wrap;}
+
+/* Send section — large primary CTA with prominent send button + small
+   secondary text. Replaces the cramped single-line submit button. */
+#ar2 .ar-eng-send-card{background:linear-gradient(135deg,rgba(0,180,216,.1),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.35);border-radius:12px;padding:18px 20px;margin:18px 0 6px;}
+#ar2 .ar-eng-send-card.ready{background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(34,197,94,.04));border-color:rgba(34,197,94,.45);}
+#ar2 .ar-eng-send-card.locked{background:linear-gradient(135deg,rgba(125,184,204,.08),rgba(125,184,204,.02));border-color:rgba(125,184,204,.32);}
+#ar2 .ar-eng-send-card-title{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;color:#fff;margin-bottom:4px;}
+#ar2 .ar-eng-send-card-sub{font-size:12.5px;color:var(--mu);line-height:1.5;margin-bottom:14px;}
+#ar2 .ar-eng-send-card .ar-eng-btn.send-green{width:100%;font-size:14px;padding:14px 22px;background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;font-weight:700;letter-spacing:.6px;}
+#ar2 .ar-eng-send-card .ar-eng-btn.send-green:hover:not(:disabled){filter:brightness(1.1);}
+#ar2 .ar-eng-send-card .ar-eng-btn.send-green:disabled{background:rgba(125,184,204,.18);color:#7db8cc;cursor:not-allowed;}
+
+/* ── Custom camera overlay (getUserMedia-backed) ──────────────────
+   iOS WebKit's <input capture> launches the native camera UI but
+   frequently fails to attach a live stream — preview stays black.
+   Same issue inside iOS PWA standalone mode. Custom camera built
+   on getUserMedia() is bulletproof: we own the <video> element,
+   own the permission grant, and produce a JPEG blob the same way
+   the existing uploadMedia(file) call expects. Lives outside #ar2
+   because the overlay covers the entire viewport. */
+.ar-eng-cam{position:fixed;inset:0;z-index:1000000;background:#000;display:flex;flex-direction:column;font-family:'DM Sans',sans-serif;}
+.ar-eng-cam-stage{flex:1 1 0;min-height:0;position:relative;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+.ar-eng-cam-stage video,
+.ar-eng-cam-stage img{width:100%;height:100%;object-fit:cover;background:#000;}
+.ar-eng-cam-stage video{transform:scaleX(1);}
+/* Front-camera selfie mirror */
+.ar-eng-cam-stage video.front{transform:scaleX(-1);}
+.ar-eng-cam-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;color:#fff;text-align:center;font-size:14px;line-height:1.55;background:rgba(0,0,0,.7);}
+.ar-eng-cam-msg b{display:block;font-size:18px;margin-bottom:10px;letter-spacing:.5px;font-weight:700;}
+.ar-eng-cam-msg-sub{font-size:13px;color:#cfe2eb;max-width:340px;margin-bottom:18px;}
+.ar-eng-cam-msg .ar-eng-cam-fallback{background:rgba(0,180,216,.22);border:1px solid rgba(0,180,216,.55);color:#cfe2eb;padding:11px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.4px;}
+.ar-eng-cam-msg .ar-eng-cam-fallback:hover{background:rgba(0,180,216,.35);color:#fff;}
+
+/* Top bar — close X */
+.ar-eng-cam-top{position:absolute;top:0;left:0;right:0;padding:16px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(180deg,rgba(0,0,0,.5),rgba(0,0,0,0));z-index:5;}
+.ar-eng-cam-close{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;line-height:1;}
+.ar-eng-cam-flip{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.ar-eng-cam-flip svg{width:20px;height:20px;}
+
+/* Bottom action bar — capture shutter + library fallback */
+.ar-eng-cam-bottom{flex:0 0 auto;background:#000;padding:18px 24px calc(18px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;}
+.ar-eng-cam-pick{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;padding:9px 14px;border-radius:8px;font-family:inherit;font-size:12.5px;cursor:pointer;font-weight:500;}
+.ar-eng-cam-pick:hover{background:rgba(255,255,255,.08);}
+.ar-eng-cam-shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.5);cursor:pointer;padding:0;flex-shrink:0;transition:transform .1s;}
+.ar-eng-cam-shutter:active{transform:scale(.92);}
+.ar-eng-cam-shutter:disabled{background:rgba(255,255,255,.4);cursor:not-allowed;}
+.ar-eng-cam-side{min-width:96px;display:flex;justify-content:flex-end;}
+.ar-eng-cam-side .ar-eng-cam-pick{padding-left:10px;padding-right:10px;}
+
+/* Review state — show captured photo with retake / use buttons */
+.ar-eng-cam.is-review .ar-eng-cam-shutter{display:none;}
+.ar-eng-cam-review-actions{display:flex;gap:10px;flex:1;justify-content:center;}
+.ar-eng-cam-retake,.ar-eng-cam-use{padding:11px 20px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.3px;}
+.ar-eng-cam-retake{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;}
+.ar-eng-cam-retake:hover{background:rgba(255,255,255,.08);}
+.ar-eng-cam-use{background:linear-gradient(135deg,#16a34a,#22c55e);border:none;color:#fff;}
+.ar-eng-cam-use:hover{filter:brightness(1.08);}
+.ar-eng-cam-use:disabled{background:rgba(125,184,204,.18);color:#7db8cc;cursor:not-allowed;}
+
+#ar2 .ar-eng-signout-btn{background:transparent;border:1px solid rgba(125,184,204,.25);color:var(--mu);padding:8px 18px;border-radius:8px;font-family:inherit;font-size:12px;letter-spacing:.5px;cursor:pointer;transition:border-color .15s,color .15s;}
+#ar2 .ar-eng-signout-btn:hover{border-color:rgba(125,184,204,.5);color:#cfe2eb;}
+@media(max-width:640px){
+  #ar2 .ar-eng-wrap{padding:24px 16px 60px;}
+  #ar2 .ar-eng-title{font-size:28px;}
+  #ar2 .ar-eng-row{padding:14px 14px;}
+}
 /* Tab strip — sits at the top of the archive wrap when AR2_PF is enabled.
    No horizontal padding here because the wrap above already centers content. */
 #ar2 .ar-pf-tabstrip{display:flex;gap:2px;background:linear-gradient(180deg,rgba(13,45,74,.5),rgba(7,22,40,.3));border-bottom:1px solid rgba(0,180,216,.18);}
@@ -2337,6 +3620,30 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-pf-prop-idx{position:relative;}
 #ar2 .ar-pf-prop-grip{position:absolute;left:-4px;top:50%;transform:translateY(-50%);color:#5a8aa0;font-size:14px;letter-spacing:-2px;line-height:1;user-select:none;pointer-events:none;opacity:0;transition:opacity .12s;}
 #ar2 .ar-pf-prop-row:hover .ar-pf-prop-grip{opacity:1;}
+/* Engineer assignment chip — sits under the address inside the property
+   name column. Color reflects assignment status; outline variant when
+   no engineer is assigned. Click opens the assign-engineer modal. */
+#ar2 .ar-pf-prop-eng-chip{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:3px 9px;border-radius:99px;font-size:10.5px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;border:1px solid;transition:filter .12s,border-color .15s,background .15s;}
+#ar2 .ar-pf-prop-eng-chip.amber {background:rgba(240,165,0,.14); color:#f0a500; border-color:rgba(240,165,0,.4);}
+#ar2 .ar-pf-prop-eng-chip.yellow{background:rgba(234,179,8,.14); color:#eab308; border-color:rgba(234,179,8,.4);}
+#ar2 .ar-pf-prop-eng-chip.blue  {background:rgba(0,180,216,.14); color:#48cae4; border-color:rgba(0,180,216,.4);}
+#ar2 .ar-pf-prop-eng-chip.green {background:rgba(34,197,94,.14); color:#4ade80; border-color:rgba(34,197,94,.4);}
+#ar2 .ar-pf-prop-eng-chip.gray  {background:rgba(125,184,204,.1); color:#7db8cc; border-color:rgba(125,184,204,.25);}
+#ar2 .ar-pf-prop-eng-chip.outline{background:transparent; color:#7db8cc; border-color:rgba(125,184,204,.3); border-style:dashed;}
+#ar2 .ar-pf-prop-eng-chip:hover{filter:brightness(1.1);}
+#ar2 .ar-pf-prop-eng-chip.outline:hover{border-color:#4ade80; color:#4ade80; background:rgba(34,197,94,.08);}
+/* Danger button shared with Add Property modal's "Remove assignment" CTA. */
+.ar-pf-modal-btn.danger{background:transparent; border:1px solid rgba(239,68,68,.35); color:#fca5a5;}
+.ar-pf-modal-btn.danger:hover{background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.6); color:#fff;}
+
+/* Multi-engineer assignment list inside the assign-engineer modal */
+.ar2-modal-card .ar-eng-assign-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:8px 12px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px;margin-bottom:6px;}
+.ar2-modal-card .ar-eng-assign-row-main{min-width:0;}
+.ar2-modal-card .ar-eng-assign-row-name{font-size:13px;font-weight:600;color:#fff;}
+.ar2-modal-card .ar-eng-assign-row-meta{font-size:11px;color:var(--mu);margin-top:2px;}
+.ar2-modal-card .ar-eng-assign-row-x{background:transparent;border:1px solid rgba(239,68,68,.32);color:#fca5a5;width:24px;height:24px;border-radius:6px;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:background .12s,color .12s;}
+.ar2-modal-card .ar-eng-assign-row-x:hover{background:rgba(239,68,68,.18);color:#fff;}
+
 #ar2 .ar-pf-prop-del{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;font-family:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s;padding:0;}
 #ar2 .ar-pf-prop-row:hover .ar-pf-prop-del,#ar2 .ar-pf-prop-del:focus{opacity:1;}
 #ar2 .ar-pf-prop-del:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);color:#fca5a5;}
@@ -2402,3 +3709,12 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    the Archive button label is replaced by the breadcrumb so we hide
    it. The .pf-property-mode body class scopes these overrides. */
 body.pf-property-mode #ar2 #ar2-bar-actions{display:none!important;}
+
+/* Engineer mode — hide calculator-specific affordances (Archive, New,
+   Help tutorial icon, stepper) since engineers only use the field
+   verification portal. The user chip + notification bell remain visible
+   via id-specific exceptions so engineers can still sign out. */
+body.pf-engineer-mode #ar2 #ar2-bank-nav,
+body.pf-engineer-mode #ar2 #ar2-bar-actions [data-action="reset-app"],
+body.pf-engineer-mode #ar2 #ar2-help-btn,
+body.pf-engineer-mode #ar2 #ar2-stepper{display:none!important;}
