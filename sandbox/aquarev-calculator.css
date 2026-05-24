@@ -660,7 +660,12 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
      printed sheet. With the per-page chunker now sized for headroom,
      allow the page to grow if it needs to so nothing is hidden. The
      page-break-before still starts every chunk on a new sheet. */
-  #ar2-report .rpt-pp-page{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:100vh!important;max-height:none!important;height:auto!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:visible!important;}
+  /* Use explicit in units (page-relative) instead of 100vh (browser-
+     window-relative in Chrome print) so the page wrapper matches the
+     printed sheet exactly. Same Chrome quirk that caused the original
+     Assessment orphan now also surfaces on Pool Profile portrait. */
+  #ar2-report .rpt-pp-page:not(.rpt-pp-page-landscape){page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:11in!important;max-height:11in!important;height:11in!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
+  #ar2-report .rpt-pp-page.rpt-pp-page-landscape{page-break-before:always!important;break-before:page!important;page-break-after:auto!important;break-after:auto!important;min-height:8.5in!important;max-height:8.5in!important;height:8.5in!important;max-width:none!important;width:100%!important;margin:0!important;padding:0!important;display:flex!important;flex-direction:column!important;box-shadow:none!important;overflow:hidden!important;}
   #ar2-report .rpt-pp-page .rpt-pp-grid{padding:14px 22px;flex:1 1 auto!important;min-height:0!important;overflow:visible!important;align-content:start;}
   /* Card sizing — sized so 12 cards (6 rows × 2 cols) fit cleanly inside
      the portrait 100vh print sheet. 6 × 148 + 5 × 8 gap = 928px content;
@@ -923,12 +928,13 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt.rpt-landscape .rpt-stat{padding:8px 10px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-stat-val{font-size:15px!important;}
   #ar2-report .rpt.rpt-landscape .rpt-stat-lbl{font-size:8px!important;}
-  /* Distribute remaining vertical space across the upper sections so they
-     visually fill the page instead of collapsing to natural height. The
-     media row at the bottom keeps its own `flex:0 0 auto` and stays pinned
-     via margin-top:auto on the wrapper, so adding flex-grow here only
-     stretches Pool Config + Devices + Purchase + Breakdown rows. */
-  #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols:not(.rpt-ls-media-row){flex:1 1 auto!important;align-items:stretch!important;}
+  /* Upper sections shrink to fit (flex:0 1 auto) but never GROW beyond
+     their natural height. The previous flex:1 1 auto was making Row A
+     + Row B compete for body height and crowding out the bottom-pinned
+     media row — images were rendering past the body's overflow:hidden
+     clip and disappearing from the PDF. align-items:stretch keeps the
+     two columns inside each row visually equal-height. */
+  #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols:not(.rpt-ls-media-row){flex:0 1 auto!important;align-items:stretch!important;}
   /* ── Property Images + Video Resources row (new) ──
      Rendered as a regular 2-col section after Row B, in natural flow.
      Capped tile height of 78px in print so the row + caption stays
