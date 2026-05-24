@@ -9010,7 +9010,9 @@ function renderEngineerPortalShell(mountEl){
   }
   // If an assignment is currently open, route into the 4-step flow.
   if (window.AR2_ENGINEER && AR2_ENGINEER.state && AR2_ENGINEER.state().assignmentId){
-    return AR2_ENGINEER.renderCurrentStep(mountEl);
+    var r = AR2_ENGINEER.renderCurrentStep(mountEl);
+    if (typeof scrollAppTop === 'function') scrollAppTop();
+    return r;
   }
   // Admins should never see the engineer's assignment list (it's empty
   // for them by RLS and confusing). Send them back to the archive instead.
@@ -9018,7 +9020,12 @@ function renderEngineerPortalShell(mountEl){
     if (typeof showView === 'function') showView('bank');
     return;
   }
-  return renderEngineerAssignmentList(mountEl);
+  var result = renderEngineerAssignmentList(mountEl);
+  // Land the engineer at the top of the page on every entry — sign-in,
+  // back-from-assignment, fresh PWA launch. Otherwise they sometimes
+  // arrive mid-scroll from the calculator view that was just hidden.
+  if (typeof scrollAppTop === 'function') scrollAppTop();
+  return result;
 }
 
 /* Assignment list — Phase 1's original shell, extracted so the dispatch
@@ -9444,6 +9451,9 @@ window.AR2_ENGINEER = (function(){
     // straight to step 2 once the load completes.
     s.currentStep = 1;
     repaint();
+    // Scroll to the top so the engineer lands on the page header /
+    // briefing card, not wherever the previous list view was scrolled.
+    if (typeof scrollAppTop === 'function') scrollAppTop();
     fetchAssignmentBundle();
   }
   function closeAssignment(){
@@ -9469,6 +9479,8 @@ window.AR2_ENGINEER = (function(){
       if (typeof showView === 'function') { showView('bank'); return; }
     }
     repaint();
+    // Land at top of the assignment list on every return.
+    if (typeof scrollAppTop === 'function') scrollAppTop();
   }
 
   /* Load the assignment row + linked record + any prior verifications.
