@@ -18307,8 +18307,12 @@ function updateInstallAppButton(){
   else actions.appendChild(btn);
 }
 
-/* Install App modal — platform-aware instructions + native prompt
-   trigger. Same visual language as showHelpModal. */
+/* Install App modal — platform-aware, compact, with QR-on-other-device.
+   Detects the current UA and shows the PRIMARY block (current device,
+   full-size with action button when possible). Other-device blocks
+   collapse into a small "Other devices" section. A QR code at the
+   bottom encodes the install URL for cross-device install.
+   Esc / outside-click / Got-it all close. */
 function showInstallAppModal(){
   var existing = document.getElementById('ar2-install-modal');
   if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
@@ -18317,62 +18321,104 @@ function showInstallAppModal(){
   var ua = (window.navigator && window.navigator.userAgent) || '';
   var isIos = /iPhone|iPad|iPod/i.test(ua);
   var isAndroid = /Android/i.test(ua);
+  var primary = isIos ? 'ios' : isAndroid ? 'android' : 'desktop';
 
-  // Build the body — order platforms by likelihood for the current UA
-  // so the engineer sees the relevant instructions first.
-  function iosBlock(){
-    return '<div style="background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px">'
-      + '<div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px">iPhone / iPad (Safari or Chrome)</div>'
-      + '<ol style="margin:0;padding-left:20px;color:#cfe2eb;font-size:13px;line-height:1.65">'
-      +   '<li>Tap the <b>Share</b> icon at the bottom of your browser (square with the up-arrow).</li>'
-      +   '<li>Scroll down in the share sheet and choose <b>Add to Home Screen</b>.</li>'
-      +   '<li>Tap <b>Add</b> in the top-right.</li>'
-      + '</ol>'
-      + '<div style="margin-top:8px;font-size:11.5px;color:#7db8cc">The AquaRev icon will appear on your home screen — launch it like any other app.</div>'
-      + '</div>';
-  }
-  function androidBlock(){
-    return '<div style="background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px">'
-      + '<div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px">Android (Chrome / Edge)</div>'
-      + (canPrompt
-        ? '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:10px">Tap the button below to install AquaRev to your home screen with a single tap.</div>'
-          + '<button class="ar-pf-modal-btn primary" data-action="ar-pwa-install" style="width:100%;font-size:13px;font-weight:700;padding:12px">Install AquaRev now</button>'
-        : '<ol style="margin:0;padding-left:20px;color:#cfe2eb;font-size:13px;line-height:1.65">'
-          + '<li>Tap the <b>⋮</b> menu (top-right of Chrome).</li>'
-          + '<li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li>'
-          + '<li>Confirm in the prompt that appears.</li>'
+  // Each platform produces an action+instructions pair. "Primary"
+  // platforms render full-size; "other" platforms render compact.
+  function iosCard(compact){
+    var lbl = compact ? '' : 'iPhone / iPad';
+    return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">📱</span></div>'
+      + (compact
+        ? '<div class="ar-install-card-sub">iPhone / iPad — tap <b>Share</b> → <b>Add to Home Screen</b>.</div>'
+        : '<div class="ar-install-card-body">'
+          + '<div class="ar-install-card-pulse">'
+          +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="3" x2="12" y2="21"/><polyline points="6 15 12 21 18 15"/></svg>'
+          +   '<div class="ar-install-card-pulse-msg">Tap the <b>Share</b> button at the bottom of your browser</div>'
+          + '</div>'
+          + '<ol class="ar-install-steps">'
+          +   '<li>Tap the <b>Share</b> icon (square with up-arrow) at the bottom of Safari/Chrome.</li>'
+          +   '<li>Scroll down and tap <b>Add to Home Screen</b>.</li>'
+          +   '<li>Tap <b>Add</b> in the top-right.</li>'
           + '</ol>')
       + '</div>';
   }
-  function desktopBlock(){
-    return '<div style="background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px">'
-      + '<div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px">Desktop (Chrome / Edge)</div>'
-      + (canPrompt
-        ? '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:10px">Tap the button below to install AquaRev as a desktop app.</div>'
-          + '<button class="ar-pf-modal-btn primary" data-action="ar-pwa-install" style="width:100%;font-size:13px;font-weight:700;padding:12px">Install AquaRev now</button>'
-        : '<ol style="margin:0;padding-left:20px;color:#cfe2eb;font-size:13px;line-height:1.65">'
-          + '<li>Look for the small <b>install icon</b> at the right edge of the address bar (computer-with-arrow).</li>'
-          + '<li>Click it and confirm <b>Install</b>.</li>'
-          + '<li>The AquaRev app opens in its own window and lands in your Applications / Start menu.</li>'
-          + '</ol>')
+  function androidCard(compact){
+    var lbl = compact ? '' : 'Android';
+    return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">🤖</span></div>'
+      + (compact
+        ? '<div class="ar-install-card-sub">Android — open ⋮ → <b>Install app</b>.</div>'
+        : (canPrompt
+          ? '<div class="ar-install-card-body">'
+            + '<div class="ar-install-card-msg">Tap below and AquaRev installs to your home screen with a single confirmation.</div>'
+            + '<button class="ar-install-do" data-action="ar-pwa-install" type="button">Install AquaRev now</button>'
+            + '</div>'
+          : '<div class="ar-install-card-body">'
+            + '<ol class="ar-install-steps">'
+            +   '<li>Tap the <b>⋮</b> menu in the top-right of Chrome.</li>'
+            +   '<li>Choose <b>Install app</b> (or <b>Add to Home screen</b>).</li>'
+            +   '<li>Confirm in the prompt that appears.</li>'
+            + '</ol></div>'))
       + '</div>';
   }
-  var body = '';
-  if (isIos)         body = iosBlock() + androidBlock() + desktopBlock();
-  else if (isAndroid)body = androidBlock() + iosBlock() + desktopBlock();
-  else               body = desktopBlock() + androidBlock() + iosBlock();
+  function desktopCard(compact){
+    var lbl = compact ? '' : 'Desktop (Chrome / Edge)';
+    return '<div class="ar-install-card' + (compact ? ' compact' : '') + '">'
+      + '<div class="ar-install-card-hd">' + (lbl ? '<span class="ar-install-card-lbl">' + lbl + '</span>' : '') + '<span class="ar-install-card-ico">💻</span></div>'
+      + (compact
+        ? '<div class="ar-install-card-sub">Desktop — click the install icon in the address bar.</div>'
+        : (canPrompt
+          ? '<div class="ar-install-card-body">'
+            + '<div class="ar-install-card-msg">Tap below and AquaRev installs as a desktop app.</div>'
+            + '<button class="ar-install-do" data-action="ar-pwa-install" type="button">Install AquaRev now</button>'
+            + '</div>'
+          : '<div class="ar-install-card-body">'
+            + '<ol class="ar-install-steps">'
+            +   '<li>Look for the small <b>install icon</b> at the right edge of the address bar (computer-with-arrow).</li>'
+            +   '<li>Click it and confirm <b>Install</b>.</li>'
+            +   '<li>AquaRev opens in its own window and is added to Applications / Start menu.</li>'
+            + '</ol></div>'))
+      + '</div>';
+  }
+  var blocks = { ios: iosCard, android: androidCard, desktop: desktopCard };
+  var primaryHtml = blocks[primary](false);
+  var otherKeys = ['ios','android','desktop'].filter(function(k){ return k !== primary; });
+  var otherHtml = '<details class="ar-install-other"><summary>Instructions for other devices</summary><div class="ar-install-other-list">'
+    + otherKeys.map(function(k){ return blocks[k](true); }).join('')
+    + '</div></details>';
+
+  // QR code — encodes the install URL so a user on desktop can scan
+  // it from their phone (or vice versa) to land on the installable
+  // page. qrserver.com is free, returns PNG, no auth.
+  var installUrl = 'https://www.aquarevwater.us/calculator-sandbox';
+  var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data='
+    + encodeURIComponent(installUrl);
+  var qrHtml = '<div class="ar-install-qr">'
+    + '<div class="ar-install-qr-l">'
+    +   '<div class="ar-install-qr-eyebrow">Install on another device</div>'
+    +   '<div class="ar-install-qr-title">Scan this with your phone\u2019s camera</div>'
+    +   '<div class="ar-install-qr-sub">Opens the install page on the other device so you can add it to that home screen too.</div>'
+    + '</div>'
+    + '<div class="ar-install-qr-r"><img src="' + qrUrl + '" alt="QR code to install AquaRev" /></div>'
+    + '</div>';
 
   var m = document.createElement('div');
   m.id = 'ar2-install-modal';
-  m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  m.innerHTML = '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:28px 32px;max-width:520px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);">'
-    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px">'
-    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:2px;color:#48cae4;text-transform:uppercase">Install AquaRev</div>'
-    +   '<button id="ar2-install-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
+  m.className = 'ar-install-modal';
+  m.innerHTML = '<div class="ar-install-card-wrap" role="dialog" aria-modal="true">'
+    + '<div class="ar-install-head">'
+    +   '<div>'
+    +     '<div class="ar-install-eyebrow">Install AquaRev</div>'
+    +     '<div class="ar-install-title">Add to your device</div>'
+    +   '</div>'
+    +   '<button id="ar2-install-close" aria-label="Close" class="ar-install-close" type="button">\u00d7</button>'
     + '</div>'
-    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">Add AquaRev to your home screen for one-tap access, faster startup, and a full-screen app feel (no browser bars).</div>'
-    + body
-    + '<div style="margin-top:14px;font-size:10.5px;color:#7db8cc;text-align:center">Need help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
+    + '<div class="ar-install-lede">Faster startup, one-tap launch, and a full-screen feel \u2014 no browser bars.</div>'
+    + primaryHtml
+    + otherHtml
+    + qrHtml
+    + '<div class="ar-install-foot">Need help? Call <b>(832)\u00a0979\u00a06758</b></div>'
     + '</div>';
   document.body.appendChild(m);
   function close(){ if (m.parentNode) m.parentNode.removeChild(m); document.removeEventListener('keydown', onKey); }
@@ -18862,6 +18908,14 @@ function showUserMenu(anchorEl){
 function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
+  // Stamp body.pwa-standalone when the app is running as an installed
+  // PWA. Drives the @media(display-mode:standalone) header-hide rule
+  // for iOS Safari (which doesn't always match the media query).
+  try {
+    if (window.AR_PWA && AR_PWA.isStandalone && AR_PWA.isStandalone()){
+      document.body.classList.add('pwa-standalone');
+    }
+  } catch(_){}
   injectHelpButton();
   try { updateInstallAppButton(); } catch(_){}
   // Cloud-mode bootstrap — try to restore an existing Supabase session before
