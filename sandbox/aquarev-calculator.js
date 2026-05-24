@@ -17641,6 +17641,11 @@ function toggleNotifDrawer(){
   var rect = bell.getBoundingClientRect();
   drawer.style.top = (rect.bottom + 8) + 'px';
   drawer.style.right = Math.max(8, window.innerWidth - rect.right) + 'px';
+  // The main #ar2-scoped click delegator can't see clicks here because
+  // the drawer lives on document.body (so positioning isn't trapped by
+  // any #ar2 ancestor styling). Wire a dedicated delegator on the
+  // drawer itself for all notification actions.
+  drawer.addEventListener('click', handleNotifDrawerClick);
   renderNotifDrawer(drawer);
   // Close on outside click — defer attachment so the click that opened
   // it doesn't immediately close again.
@@ -17677,6 +17682,7 @@ function renderNotifDrawer(drawer){
           +     '<div class="ar2-notif-row-msg">' + esc(n.message || '') + '</div>'
           +     '<div class="ar2-notif-row-when">' + esc(when) + '</div>'
           +   '</div>'
+          +   '<button class="ar2-notif-row-del" data-action="notif-delete" data-notif-id="' + esc(n.id) + '" title="Delete notification" aria-label="Delete notification" type="button">×</button>'
           + '</div>';
       }).join('')
     : '<div class="ar2-notif-empty">No notifications yet.</div>';
@@ -17693,7 +17699,8 @@ function markNotificationRead(notifId){
   return c.from('notifications')
     .update({ read_at: new Date().toISOString() })
     .eq('id', notifId)
-    .then(function(){
+    .then(function(rs){
+      if (rs && rs.error){ try { console.error('[markNotificationRead] error', rs.error); } catch(_){} return; }
       // Update local cache instantly so the UI flips read state without a refetch
       _arNotifCache.forEach(function(n){ if (n.id === notifId && !n.read_at) n.read_at = new Date().toISOString(); });
       updateNotifBellBadge();
@@ -17708,7 +17715,8 @@ function markNotificationUnread(notifId){
   var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
   if (!c || !notifId) return Promise.resolve();
   return c.from('notifications').update({ read_at: null }).eq('id', notifId)
-    .then(function(){
+    .then(function(rs){
+      if (rs && rs.error){ try { console.error('[markNotificationUnread] error', rs.error); } catch(_){} return; }
       _arNotifCache.forEach(function(n){ if (n.id === notifId) n.read_at = null; });
       updateNotifBellBadge();
       var drawer = document.getElementById('ar2-notif-drawer');
@@ -17730,6 +17738,76 @@ function markAllNotificationsRead(){
       var drawer = document.getElementById('ar2-notif-drawer');
       if (drawer) renderNotifDrawer(drawer);
     });
+}
+
+/* DELETE a single notification. RLS policy notifications_recipient_delete
+   allows recipients to delete their own rows. Optimistic local update
+   so the row disappears immediately; on error we re-fetch to resync. */
+function deleteNotification(notifId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !notifId) return Promise.resolve();
+  // Optimistic local removal
+  _arNotifCache = _arNotifCache.filter(function(n){ return n.id !== notifId; });
+  updateNotifBellBadge();
+  var drawer = document.getElementById('ar2-notif-drawer');
+  if (drawer) renderNotifDrawer(drawer);
+  return c.from('notifications').delete().eq('id', notifId).then(function(rs){
+    if (rs && rs.error){
+      try { console.error('[deleteNotification] error', rs.error); } catch(_){}
+      // Re-fetch to resync since we already removed locally.
+      refreshNotifications();
+    }
+  }, function(err){
+    try { console.error('[deleteNotification] network error', err); } catch(_){}
+    refreshNotifications();
+  });
+}
+
+/* Dedicated click delegator attached directly to the drawer element.
+   Necessary because the drawer is mounted on document.body, OUTSIDE
+   the #ar2 root that the main handleClick is bound to — so the main
+   dispatcher never sees these clicks. Stops propagation hard so the
+   document-level outside-click closer doesn't fire either. */
+function handleNotifDrawerClick(e){
+  // Delete (X) — highest priority because it's nested inside the row
+  var delBtn = e.target.closest && e.target.closest('[data-action="notif-delete"]');
+  if (delBtn){
+    e.stopPropagation();
+    e.preventDefault();
+    deleteNotification(delBtn.getAttribute('data-notif-id'));
+    return;
+  }
+  // Read/unread toggle dot
+  var tog = e.target.closest && e.target.closest('[data-action="notif-toggle-read"]');
+  if (tog){
+    e.stopPropagation();
+    e.preventDefault();
+    var tid = tog.getAttribute('data-notif-id');
+    var wasUnread = tog.getAttribute('data-unread') === '1';
+    if (wasUnread) markNotificationRead(tid); else markNotificationUnread(tid);
+    return;
+  }
+  // Mark all read
+  var all = e.target.closest && e.target.closest('[data-action="notif-mark-all"]');
+  if (all){
+    e.stopPropagation();
+    markAllNotificationsRead();
+    return;
+  }
+  // Row body click — mark read + navigate to target (if known type)
+  var row = e.target.closest && e.target.closest('[data-action="notif-click"]');
+  if (row){
+    e.stopPropagation();
+    var nid = row.getAttribute('data-notif-id');
+    var url = row.getAttribute('data-link-url') || '';
+    markNotificationRead(nid).then(function(){
+      if (url && url.indexOf('engineer-submissions') !== -1){
+        if (typeof setAdminActiveTab === 'function') setAdminActiveTab('engineer-submissions');
+        if (typeof showView === 'function' && typeof VIEW !== 'undefined' && VIEW !== 'bank' && typeof showView === 'function') showView('bank');
+      }
+    });
+    return;
+  }
 }
 
 /* Pop a small menu under the chip with full name, role, and Sign Out button. */

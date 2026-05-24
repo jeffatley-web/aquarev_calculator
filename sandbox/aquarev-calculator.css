@@ -1954,8 +1954,11 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 .ar2-notif-mark-all:hover{background:rgba(0,180,216,.12);color:#fff;}
 .ar2-notif-list{overflow-y:auto;max-height:calc(70vh - 50px);}
 .ar2-notif-empty{padding:20px;text-align:center;color:#7db8cc;font-size:12px;}
-.ar2-notif-row{display:grid;grid-template-columns:14px 1fr;gap:10px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid rgba(0,180,216,.08);cursor:pointer;transition:background .12s;}
+.ar2-notif-row{display:grid;grid-template-columns:16px 1fr 18px;gap:10px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid rgba(0,180,216,.08);cursor:pointer;transition:background .12s;}
 .ar2-notif-row:hover{background:rgba(0,180,216,.06);}
+.ar2-notif-row-del{background:transparent;border:0;color:#7db8cc;cursor:pointer;padding:0;width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;line-height:1;opacity:0;transition:opacity .12s,background .12s,color .12s;margin-top:1px;}
+.ar2-notif-row:hover .ar2-notif-row-del{opacity:.65;}
+.ar2-notif-row-del:hover{opacity:1!important;background:rgba(239,68,68,.18);color:#fca5a5;}
 /* Read/unread toggle. Bigger hit area (16px) + cursor:pointer because
    it's a real button now. Read state shows a hollow ring; unread shows
    the filled aqua dot with the existing halo. */
