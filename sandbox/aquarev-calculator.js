@@ -1887,6 +1887,22 @@ window.AR2_PF = (function(){
     _loadActiveEngineers().then(function(engineers){
       _refreshEngineerDropdown(engineers);
     });
+    // For portfolio scope, the aggregate display needs both the
+    // portfolio's property roster AND any property-scoped assignments
+    // already in the system. Kick off both fetches in parallel and
+    // re-render once they land.
+    if (scope.kind === 'portfolio'){
+      var pfId = scope.id;
+      Promise.all([
+        loadProperties(pfId),
+        _loadAssignmentsForPortfolio(pfId)
+      ]).then(function(){
+        // Refresh both the assigned-list and the engineer-already-assigned
+        // dropdown filter so admins don't double-add.
+        _renderAssignmentList();
+        _refreshEngineerDropdown(pfState.activeEngineers || []);
+      });
+    }
 
     // Event handlers
     bd.addEventListener('click', function(e){
@@ -1894,7 +1910,10 @@ window.AR2_PF = (function(){
       var rmBtn = e.target.closest('[data-eng-assign-action="remove-row"]');
       if (rmBtn){
         e.stopPropagation();
-        removeEngineerAssignmentRow(rmBtn.getAttribute('data-assignment-id'));
+        removeEngineerAssignmentRow(
+          rmBtn.getAttribute('data-assignment-id'),
+          rmBtn.getAttribute('data-assignment-ids') || ''
+        );
         return;
       }
       var btn = e.target.closest('[data-eng-assign-action]');
@@ -1917,8 +1936,64 @@ window.AR2_PF = (function(){
     var kind = bd.dataset.scopeKind;
     var id   = bd.dataset.scopeId;
     if (kind === 'property')   return (pfState.engineerAssignmentsByProperty   || {})[id] || [];
-    if (kind === 'portfolio')  return (pfState.engineerAssignmentsByPortfolio  || {})[id] || [];
     if (kind === 'assessment') return (pfState.engineerAssignmentsByAssessment || {})[id] || [];
+    if (kind === 'portfolio'){
+      // Ship #4 fan-out: portfolio assignments are now stored per
+      // property. Aggregate the per-property assignments down to one
+      // synthetic row per distinct engineer for display. Each synthetic
+      // row carries the full set of property-assignment ids in
+      // _propertyAssignmentIds so remove can clean every row at once.
+      var props = (pfState.properties[id] && pfState.properties[id].rows) || [];
+      var byEng = {};
+      props.forEach(function(p){
+        var list = (pfState.engineerAssignmentsByProperty || {})[p.id] || [];
+        list.forEach(function(a){
+          var slot = byEng[a.engineer_user_id];
+          if (!slot){
+            slot = {
+              id:                  a.id,                  // representative row id
+              engineer_user_id:    a.engineer_user_id,
+              assignment_notes:    a.assignment_notes,
+              status:              a.status,
+              _propertyAssignmentIds: [],
+              _propertyCount:      0
+            };
+            byEng[a.engineer_user_id] = slot;
+          }
+          slot._propertyAssignmentIds.push(a.id);
+          slot._propertyCount++;
+          // Status priority: locked > submitted > in_progress > pending > reviewed.
+          // We surface the LEAST progress so admins know if any property
+          // still needs engineer attention.
+          var statusOrder = { pending:0, in_progress:1, submitted:2, reviewed:3, locked:4 };
+          if (statusOrder[a.status] != null && statusOrder[a.status] < (statusOrder[slot.status] || 99)){
+            slot.status = a.status;
+          }
+        });
+      });
+      // Legacy: also include any old portfolio-scoped rows (from before
+      // fan-out shipped) so they still surface for cleanup. New rows
+      // never use portfolio_id.
+      var legacy = (pfState.engineerAssignmentsByPortfolio || {})[id] || [];
+      legacy.forEach(function(a){
+        var slot = byEng[a.engineer_user_id];
+        if (!slot){
+          byEng[a.engineer_user_id] = {
+            id: a.id,
+            engineer_user_id: a.engineer_user_id,
+            assignment_notes: a.assignment_notes,
+            status: a.status,
+            _propertyAssignmentIds: [a.id],
+            _propertyCount: 0,
+            _legacyPortfolioId: a.id
+          };
+        } else {
+          slot._propertyAssignmentIds.push(a.id);
+          slot._legacyPortfolioId = a.id;
+        }
+      });
+      return Object.keys(byEng).map(function(k){ return byEng[k]; });
+    }
     return [];
   }
 
@@ -1944,12 +2019,21 @@ window.AR2_PF = (function(){
     }
     listEl.innerHTML = assignments.map(function(a){
       var name = engNameById[a.engineer_user_id] || 'Engineer';
+      // For portfolio scope, the row aggregates N property-assignments.
+      // Show the count alongside status so admins know how broadly the
+      // engineer is assigned. data-property-ids carries the full id
+      // list for the remove flow.
+      var fanCount = (a._propertyAssignmentIds && a._propertyAssignmentIds.length) || 0;
+      var fanSuffix = fanCount > 1 ? ' · ' + fanCount + ' properties' : '';
+      var idsAttr = a._propertyAssignmentIds && a._propertyAssignmentIds.length
+        ? ' data-assignment-ids="' + esc(a._propertyAssignmentIds.join(',')) + '"'
+        : '';
       return '<div class="ar-eng-assign-row">'
         +   '<div class="ar-eng-assign-row-main">'
         +     '<div class="ar-eng-assign-row-name">👷 ' + esc(name) + '</div>'
-        +     '<div class="ar-eng-assign-row-meta">' + esc(_statusLabel(a.status)) + (a.assignment_notes ? ' · ' + esc(a.assignment_notes) : '') + '</div>'
+        +     '<div class="ar-eng-assign-row-meta">' + esc(_statusLabel(a.status)) + fanSuffix + (a.assignment_notes ? ' · ' + esc(a.assignment_notes) : '') + '</div>'
         +   '</div>'
-        +   '<button class="ar-eng-assign-row-x" data-eng-assign-action="remove-row" data-assignment-id="' + esc(a.id) + '" type="button" aria-label="Remove">×</button>'
+        +   '<button class="ar-eng-assign-row-x" data-eng-assign-action="remove-row" data-assignment-id="' + esc(a.id) + '"' + idsAttr + ' type="button" aria-label="Remove">×</button>'
         + '</div>';
     }).join('');
   }
@@ -1977,8 +2061,18 @@ window.AR2_PF = (function(){
   }
 
   /* Add a new engineer assignment to the current scope. Each Add creates
-     a fresh engineer_assignments row — supports multiple engineers per
-     record. Modal stays open after each add so admins can chain. */
+     one or more engineer_assignments rows depending on scope:
+       • assessment / property → single row
+       • portfolio             → FAN-OUT — one row per property in the
+                                  portfolio (Ship #4). Treating each
+                                  property as its own record matches the
+                                  one-record model: assessment + calc +
+                                  engineer field report all bundled per
+                                  property. Engineer's All Assignments
+                                  list then surfaces each property as a
+                                  separate row, ready for individual
+                                  verification.
+     Modal stays open after each add so admins can chain. */
   function submitAddEngineer(){
     var bd = document.getElementById('ar-eng-assign-modal');
     if (!bd) return;
@@ -1997,61 +2091,112 @@ window.AR2_PF = (function(){
     var btns = bd.querySelectorAll('[data-eng-assign-action]');
     for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
 
-    var payload = {
-      engineer_user_id: engineerUserId,
-      assignment_notes: (notes && notes.value || '') || null,
-      assigned_by_user_id: u.id,
-      status: 'pending',
-      assigned_at: new Date().toISOString(),
-      last_modified_at: new Date().toISOString()
-    };
-    if (scopeKind === 'property')   payload.property_id   = scopeId;
-    if (scopeKind === 'portfolio')  payload.portfolio_id  = scopeId;
-    if (scopeKind === 'assessment') payload.assessment_id = scopeId;
-
-    c.from('engineer_assignments').insert(payload).select('*').single().then(function(rs){
-      if (rs && rs.error) throw new Error(rs.error.message);
-      var newRow = rs.data;
-      // Audit + notify (best-effort)
-      if (newRow && window.AR_AUDIT){
-        AR_AUDIT.log('engineer_assignments', newRow.id, {
-          engineer_user_id: engineerUserId,
-          assignment_notes: payload.assignment_notes
-        }, 'admin add engineer');
-      }
-      if (window.AR_NOTIFY && engineerUserId){
-        AR_NOTIFY.push(engineerUserId, 'assignment_created', 'You have a new assignment — open AquaRev to start.', null, newRow && newRow.id);
-      }
-      // Update local caches in-place so the list re-renders immediately
-      _insertAssignmentIntoCache(newRow);
+    function _onSuccess(rows){
+      // Audit + notify (best-effort). For portfolio fan-out we still
+      // send ONE notification per assignment so the engineer sees each
+      // property in their list — they're individual records.
+      rows.forEach(function(newRow){
+        if (newRow && window.AR_AUDIT){
+          AR_AUDIT.log('engineer_assignments', newRow.id, {
+            engineer_user_id: engineerUserId,
+            assignment_notes: newRow.assignment_notes
+          }, 'admin add engineer');
+        }
+        if (window.AR_NOTIFY && engineerUserId){
+          AR_NOTIFY.push(engineerUserId, 'assignment_created', 'You have a new assignment — open AquaRev to start.', null, newRow && newRow.id);
+        }
+        _insertAssignmentIntoCache(newRow);
+      });
       _renderAssignmentList();
       _refreshEngineerDropdown(pfState.activeEngineers || []);
-      // Clear notes so admin can add another fresh
       if (notes) notes.value = '';
       for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
-      // Outer chip refresh on next archive render
       if (typeof renderArchive === 'function') renderArchive();
-    }, function(e){
+    }
+    function _onError(e){
       for (var j2 = 0; j2 < btns.length; j2++) btns[j2].disabled = false;
       if (err) err.textContent = (e && e.message) || 'Assignment failed.';
-    });
+    }
+
+    // ──── ASSESSMENT / PROPERTY — single row ────
+    if (scopeKind === 'assessment' || scopeKind === 'property'){
+      var payload = {
+        engineer_user_id:    engineerUserId,
+        assignment_notes:    (notes && notes.value || '') || null,
+        assigned_by_user_id: u.id,
+        status:              'pending',
+        assigned_at:         new Date().toISOString(),
+        last_modified_at:    new Date().toISOString()
+      };
+      if (scopeKind === 'property')   payload.property_id   = scopeId;
+      if (scopeKind === 'assessment') payload.assessment_id = scopeId;
+      c.from('engineer_assignments').insert(payload).select('*').single()
+        .then(function(rs){
+          if (rs && rs.error) throw new Error(rs.error.message);
+          _onSuccess([rs.data]);
+        }, _onError);
+      return;
+    }
+
+    // ──── PORTFOLIO — fan-out into per-property rows ────
+    if (scopeKind === 'portfolio'){
+      loadProperties(scopeId).then(function(props){
+        if (!props || !props.length){
+          throw new Error('No properties in this portfolio yet — add one before assigning an engineer.');
+        }
+        // Skip properties this engineer is already assigned to (idempotent re-click).
+        var existingByEngineer = {};
+        (pfState.engineerAssignmentsByProperty || {});
+        props.forEach(function(p){
+          var existing = (pfState.engineerAssignmentsByProperty && pfState.engineerAssignmentsByProperty[p.id]) || [];
+          existing.forEach(function(a){
+            if (a.engineer_user_id === engineerUserId) existingByEngineer[p.id] = true;
+          });
+        });
+        var toInsert = props.filter(function(p){ return !existingByEngineer[p.id]; }).map(function(p){
+          return {
+            engineer_user_id:    engineerUserId,
+            property_id:         p.id,
+            assignment_notes:    (notes && notes.value || '') || null,
+            assigned_by_user_id: u.id,
+            status:              'pending',
+            assigned_at:         new Date().toISOString(),
+            last_modified_at:    new Date().toISOString()
+          };
+        });
+        if (!toInsert.length){
+          throw new Error('This engineer is already assigned to every property in the portfolio.');
+        }
+        return c.from('engineer_assignments').insert(toInsert).select('*').then(function(rs){
+          if (rs && rs.error) throw new Error(rs.error.message);
+          _onSuccess(rs.data || []);
+        });
+      }).catch(_onError);
+      return;
+    }
   }
 
-  /* Remove one engineer's assignment for the current scope. Only deletes
-     that single row — other engineers remain assigned. */
-  function removeEngineerAssignmentRow(assignmentId){
-    if (!assignmentId) return;
-    if (!confirm('Remove this engineer? They\'ll lose access to the record. Other assigned engineers stay.')) return;
+  /* Remove an engineer's assignment(s) for the current scope. For
+     scope=portfolio (Ship #4 fan-out), the synthetic row carries an
+     array of property-assignment ids — all get deleted. For
+     property / assessment scope, just the single id. Other engineers
+     stay untouched. */
+  function removeEngineerAssignmentRow(assignmentId, idsCsv){
+    if (!assignmentId && !idsCsv) return;
+    var ids = idsCsv ? idsCsv.split(',').filter(Boolean) : [assignmentId];
+    var msg = ids.length > 1
+      ? 'Remove this engineer from all ' + ids.length + ' properties in this portfolio? Other engineers stay.'
+      : 'Remove this engineer? They\'ll lose access to the record. Other assigned engineers stay.';
+    if (!confirm(msg)) return;
     var c = client();
     if (!c) return;
-    c.from('engineer_assignments').delete().eq('id', assignmentId).then(function(rs){
+    c.from('engineer_assignments').delete().in('id', ids).then(function(rs){
       if (rs && rs.error){
         var err = document.getElementById('ar-eng-assign-err');
         if (err) err.textContent = rs.error.message;
         return;
       }
-      // Pull from caches
-      _removeAssignmentFromCache(assignmentId);
+      ids.forEach(function(id){ _removeAssignmentFromCache(id); });
       _renderAssignmentList();
       _refreshEngineerDropdown(pfState.activeEngineers || []);
       if (typeof renderArchive === 'function') renderArchive();
@@ -8860,31 +9005,86 @@ function renderEngineerAssignmentList(mountEl){
         AR2_ENGINEER.openAssignment(rows[0].id);
         return;
       }
-      listEl.innerHTML = rows.map(function(r){
-        var statusPill = '';
-        if      (r.status === 'pending')     statusPill = '<span class="ar-eng-pill amber">Pending</span>';
-        else if (r.status === 'in_progress') statusPill = '<span class="ar-eng-pill yellow">In progress</span>';
-        else if (r.status === 'submitted')   statusPill = '<span class="ar-eng-pill blue">Sent for review</span>';
-        else if (r.status === 'reviewed')    statusPill = '<span class="ar-eng-pill green">Reviewed</span>';
-        else if (r.status === 'locked')      statusPill = '<span class="ar-eng-pill gray">Locked</span>';
-        var lastEdit = r.last_modified_at
-          ? new Date(r.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
-          : '';
-        var scopeLabel = r.property_id ? 'Property'
-                       : r.portfolio_id ? 'Portfolio'
-                       : 'Assessment';
-        // For Phase 1 we don't have the property/portfolio NAME available
-        // (would require a follow-up fetch per row). Phase 2 batches a
-        // names lookup. Placeholder shows the scope type + id stub.
-        return ''
-          + '<div class="ar-eng-row" data-engineer-assignment="' + esc(r.id) + '">'
-          +   '<div class="ar-eng-row-main">'
-          +     '<div class="ar-eng-row-name">' + esc(scopeLabel) + ' assignment</div>'
-          +     '<div class="ar-eng-row-sub">' + (lastEdit ? 'Last activity ' + esc(lastEdit) : '') + (r.assignment_notes ? ' · ' + esc(r.assignment_notes) : '') + '</div>'
-          +   '</div>'
-          +   '<div class="ar-eng-row-status">' + statusPill + '</div>'
-          + '</div>';
-      }).join('');
+      // Batch-resolve names for property / portfolio / assessment ids
+      // referenced by the rows so each card shows real names instead of
+      // generic 'Property assignment' labels. RLS lets engineers read
+      // these rows (assessments_engineer_select / portfolio_properties
+      // _engineer_select / portfolios_engineer_select policies).
+      var propIds = [], pfIds = [], assIds = [];
+      rows.forEach(function(r){
+        if (r.property_id)   propIds.push(r.property_id);
+        if (r.portfolio_id)  pfIds.push(r.portfolio_id);
+        if (r.assessment_id) assIds.push(r.assessment_id);
+      });
+      function uniq(arr){ var s={}; arr.forEach(function(x){ if(x) s[x]=true; }); return Object.keys(s); }
+      var lookups = [
+        uniq(propIds).length ? c.from('portfolio_properties').select('id,property_name,portfolio_id').in('id', uniq(propIds)) : Promise.resolve({data:[]}),
+        uniq(pfIds).length   ? c.from('portfolios').select('id,name').in('id', uniq(pfIds))                                  : Promise.resolve({data:[]}),
+        uniq(assIds).length  ? c.from('assessments').select('id,property_name').in('id', uniq(assIds))                       : Promise.resolve({data:[]})
+      ];
+      // After the property lookup we also need to resolve the parent
+      // portfolio names referenced by property.portfolio_id (so the
+      // row can render the "Resort A → Pool 3" context).
+      Promise.all(lookups).then(function(arr){
+        var propById = {}; (arr[0].data || []).forEach(function(p){ propById[p.id] = p; });
+        var pfById   = {}; (arr[1].data || []).forEach(function(p){ pfById[p.id]   = p; });
+        var assById  = {}; (arr[2].data || []).forEach(function(p){ assById[p.id]  = p; });
+        // Pull in any portfolio names the property rows point at.
+        var extraPfIds = [];
+        (arr[0].data || []).forEach(function(p){ if (p.portfolio_id && !pfById[p.portfolio_id]) extraPfIds.push(p.portfolio_id); });
+        var extraPfP = extraPfIds.length
+          ? c.from('portfolios').select('id,name').in('id', uniq(extraPfIds)).then(function(r2){
+              (r2.data || []).forEach(function(p){ pfById[p.id] = p; });
+            }, function(){})
+          : Promise.resolve();
+        return extraPfP.then(function(){
+          listEl.innerHTML = rows.map(function(r){
+            var statusPill = '';
+            if      (r.status === 'pending')     statusPill = '<span class="ar-eng-pill amber">Pending</span>';
+            else if (r.status === 'in_progress') statusPill = '<span class="ar-eng-pill yellow">In progress</span>';
+            else if (r.status === 'submitted')   statusPill = '<span class="ar-eng-pill blue">Sent for review</span>';
+            else if (r.status === 'reviewed')    statusPill = '<span class="ar-eng-pill green">Reviewed</span>';
+            else if (r.status === 'locked')      statusPill = '<span class="ar-eng-pill gray">Locked</span>';
+            var lastEdit = r.last_modified_at
+              ? new Date(r.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+              : '';
+            // Resolve a friendly name + sub-context for this row:
+            //   • Property in a portfolio → "Pool 3" + sub "Portfolio: Resort Bay"
+            //   • Standalone property     → property name
+            //   • Standalone portfolio    → portfolio name (legacy, pre-fan-out)
+            //   • Assessment              → assessment property name
+            var primary = 'Assignment';
+            var subContext = '';
+            if (r.property_id){
+              var p = propById[r.property_id];
+              primary = p ? (p.property_name || 'Property') : 'Property (removed)';
+              if (p && p.portfolio_id){
+                var pf = pfById[p.portfolio_id];
+                subContext = 'Portfolio: ' + (pf ? pf.name : 'Unknown');
+              }
+            } else if (r.portfolio_id){
+              var pfStandalone = pfById[r.portfolio_id];
+              primary = pfStandalone ? pfStandalone.name : 'Portfolio (removed)';
+              subContext = 'Entire portfolio';
+            } else if (r.assessment_id){
+              var ass = assById[r.assessment_id];
+              primary = ass ? (ass.property_name || 'Assessment') : 'Assessment (removed)';
+              subContext = 'Standalone assessment';
+            }
+            var subLine = subContext + (subContext && lastEdit ? ' · ' : '')
+              + (lastEdit ? 'Last activity ' + esc(lastEdit) : '')
+              + (r.assignment_notes ? ' · ' + esc(r.assignment_notes) : '');
+            return ''
+              + '<div class="ar-eng-row" data-engineer-assignment="' + esc(r.id) + '">'
+              +   '<div class="ar-eng-row-main">'
+              +     '<div class="ar-eng-row-name">' + esc(primary) + '</div>'
+              +     '<div class="ar-eng-row-sub">' + subLine + '</div>'
+              +   '</div>'
+              +   '<div class="ar-eng-row-status">' + statusPill + '</div>'
+              + '</div>';
+          }).join('');
+        });
+      });
     }, function(err){
       var listEl = document.getElementById('ar-eng-assignment-list');
       if (listEl) listEl.innerHTML = '<div class="ar-eng-empty" style="color:#fca5a5">Couldn\'t load assignments: ' + esc((err && err.message) || 'network error') + '</div>';
