@@ -7355,6 +7355,64 @@ function renderFieldReport(){
     var hint = hasData
       ? 'You have assessment data on this property but it hasn\'t been saved to the Archive yet. Save it now — the Field Report will then surface an engineer\'s on-site verification once you assign one from the Archive row.'
       : 'The Field Report shows an engineer\'s on-site verification of THIS property. Complete the assessment, save it, then assign an engineer from the Archive list — their submission appears here once they send it for review.';
+    // FINAL FALLBACK — there's no current-record context but the user
+    // may still have engineer submissions in flight on OTHER records.
+    // Fire an async query for any engineer_assignment visible to them
+    // (RLS scopes admin → all, user → their own, engineer → their own)
+    // and render a picker INSIDE the empty state when results land.
+    if (!S._frPickerInFlight){
+      S._frPickerInFlight = true;
+      var pickerClient = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (pickerClient){
+        pickerClient.from('engineer_assignments')
+          .select('id,assessment_id,portfolio_id,property_id,status,assigned_at,last_modified_at')
+          .order('last_modified_at', { ascending: false })
+          .limit(10)
+          .then(function(rs){
+            S._frPickerInFlight = false;
+            var rows = (rs && rs.data) || [];
+            S._frPickerRows = rows;
+            if (S.step === 5 && typeof render === 'function') render();
+          }, function(){ S._frPickerInFlight = false; });
+      } else {
+        S._frPickerInFlight = false;
+      }
+    }
+    var pickerRows = (S._frPickerRows || []).slice();
+    var pickerHtml = '';
+    if (pickerRows.length){
+      pickerHtml = '<div class="ar-fr-picker">'
+        + '<div class="ar-fr-picker-title">Or jump to an existing engineer submission</div>'
+        + '<div class="ar-fr-picker-list">'
+        +   pickerRows.map(function(r){
+              var statusPill = '<span class="ar-eng-pill '
+                + (r.status === 'submitted' ? 'blue'
+                  : r.status === 'reviewed' ? 'green'
+                  : r.status === 'locked' ? 'gray'
+                  : r.status === 'in_progress' ? 'yellow'
+                  : 'amber') + '">' + esc(r.status || 'pending') + '</span>';
+              var scopeLabel = r.assessment_id ? 'Assessment'
+                              : r.property_id  ? 'Property'
+                              : r.portfolio_id ? 'Portfolio' : 'Assignment';
+              var lastEdit = r.last_modified_at
+                ? new Date(r.last_modified_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+                : '';
+              return '<button class="ar-fr-picker-row" data-action="fr-pick-assignment"'
+                + ' data-assignment-id="' + esc(r.id) + '"'
+                + ' data-assessment-id="' + esc(r.assessment_id || '') + '"'
+                + ' data-portfolio-id="' + esc(r.portfolio_id || '') + '"'
+                + ' data-property-id="' + esc(r.property_id || '') + '"'
+                + ' type="button">'
+                + '<div class="ar-fr-picker-row-l">'
+                +   '<div class="ar-fr-picker-row-scope">' + esc(scopeLabel) + '</div>'
+                +   '<div class="ar-fr-picker-row-meta">' + (lastEdit ? 'Last edit ' + esc(lastEdit) : '') + '</div>'
+                + '</div>'
+                + '<div class="ar-fr-picker-row-r">' + statusPill + '</div>'
+                + '</button>';
+            }).join('')
+        + '</div>'
+        + '</div>';
+    }
     return '<div class="ar-fr-wrap">'
       + '<div class="ar-fr-empty">'
       +   '<div class="ar-fr-empty-icon">' + svgFrIconDoc() + '</div>'
@@ -7367,6 +7425,7 @@ function renderFieldReport(){
           +  '</div>'
           : '')
       + '</div>'
+      + pickerHtml
       + '</div>';
   }
   // Loading skeleton.
@@ -15597,6 +15656,28 @@ function handleClick(e){
       if (typeof showView === 'function') showView('bank');
       return;
     }
+    if (frAct === 'fr-pick-assignment'){
+      // User picked an engineer submission from the fallback list.
+      // Hydrate S._currentAssessmentId so getCurrentRecordRef finds
+      // it on the next render. For portfolio properties we'd need to
+      // call AR2_PF.enterProperty; for now, the picker only surfaces
+      // assessment-scoped rows which the field-report resolver
+      // handles directly.
+      var pickedAss = frBtn.getAttribute('data-assessment-id') || '';
+      var pickedProp = frBtn.getAttribute('data-property-id') || '';
+      if (pickedAss){
+        S._currentAssessmentId = pickedAss;
+        if (window.AR2_FIELD_REPORT) AR2_FIELD_REPORT.clear();
+        if (typeof render === 'function') render();
+      } else if (pickedProp && window.AR2_PF && AR2_PF.enterProperty){
+        AR2_PF.enterProperty(pickedProp).then(function(){
+          if (window.AR2_FIELD_REPORT) AR2_FIELD_REPORT.clear();
+          S.step = 5;
+          if (typeof render === 'function') render();
+        }).catch(function(err){ alert((err && err.message) || 'Could not open property.'); });
+      }
+      return;
+    }
     if (frAct === 'fr-download-pdf' && asgnId){
       try { if (typeof generateEngineerReport === 'function') generateEngineerReport(asgnId); } catch(err){ alert((err && err.message) || 'Could not generate report.'); }
       return;
@@ -15633,6 +15714,22 @@ function handleClick(e){
   if(notifBell){ toggleNotifDrawer(); return; }
   var notifMarkAll = e.target.closest('[data-action="notif-mark-all"]');
   if(notifMarkAll){ e.stopPropagation(); markAllNotificationsRead(); return; }
+  // Notification read/unread toggle on the dot. Fires BEFORE the row
+  // navigation handler so a click on the dot doesn't bubble up and
+  // open the target. Stops propagation hard.
+  var notifToggle = e.target.closest('[data-action="notif-toggle-read"]');
+  if(notifToggle){
+    e.stopPropagation();
+    e.preventDefault();
+    var tgId = notifToggle.getAttribute('data-notif-id');
+    var tgWasUnread = notifToggle.getAttribute('data-unread') === '1';
+    if (tgWasUnread){
+      markNotificationRead(tgId);
+    } else {
+      markNotificationUnread(tgId);
+    }
+    return;
+  }
   var notifRow = e.target.closest('[data-action="notif-click"]');
   if(notifRow){
     e.stopPropagation();
@@ -17468,7 +17565,10 @@ function renderNotifDrawer(drawer){
         var unread = !n.read_at;
         var when = n.created_at ? new Date(n.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
         return '<div class="ar2-notif-row' + (unread ? ' unread' : '') + '" data-action="notif-click" data-notif-id="' + esc(n.id) + '" data-link-url="' + esc(n.link_url || '') + '">'
-          +   '<div class="ar2-notif-row-dot"></div>'
+          // The dot doubles as a read/unread toggle. Clicking it flips
+          // the state WITHOUT navigating away. Click anywhere else on
+          // the row opens the target (and marks read).
+          +   '<button class="ar2-notif-row-dot" data-action="notif-toggle-read" data-notif-id="' + esc(n.id) + '" data-unread="' + (unread ? '1' : '0') + '" title="' + (unread ? 'Mark as read' : 'Mark as unread') + '" aria-label="Toggle read state" type="button"></button>'
           +   '<div class="ar2-notif-row-main">'
           +     '<div class="ar2-notif-row-msg">' + esc(n.message || '') + '</div>'
           +     '<div class="ar2-notif-row-when">' + esc(when) + '</div>'
@@ -17492,6 +17592,20 @@ function markNotificationRead(notifId){
     .then(function(){
       // Update local cache instantly so the UI flips read state without a refetch
       _arNotifCache.forEach(function(n){ if (n.id === notifId && !n.read_at) n.read_at = new Date().toISOString(); });
+      updateNotifBellBadge();
+      var drawer = document.getElementById('ar2-notif-drawer');
+      if (drawer) renderNotifDrawer(drawer);
+    });
+}
+
+/* Re-flip a single notification back to unread. RLS lets recipients
+   update their own rows (notifications_recipient_update policy). */
+function markNotificationUnread(notifId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c || !notifId) return Promise.resolve();
+  return c.from('notifications').update({ read_at: null }).eq('id', notifId)
+    .then(function(){
+      _arNotifCache.forEach(function(n){ if (n.id === notifId) n.read_at = null; });
       updateNotifBellBadge();
       var drawer = document.getElementById('ar2-notif-drawer');
       if (drawer) renderNotifDrawer(drawer);

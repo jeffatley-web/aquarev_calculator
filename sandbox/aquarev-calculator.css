@@ -77,6 +77,17 @@
 #ar2 .ar-fr-btn.ghost{background:transparent;color:#7db8cc;border-color:rgba(125,184,204,.32);}
 #ar2 .ar-fr-btn.ghost:hover:not(:disabled){border-color:rgba(125,184,204,.65);color:#fff;}
 
+/* Field Report fallback picker — shown inside the empty state when
+   the user has engineer submissions on OTHER records they can jump to
+   instead of starting from the current (unrelated) session. */
+#ar2 .ar-fr-picker{max-width:560px;margin:18px auto 0;padding:14px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.22);border-radius:12px;}
+#ar2 .ar-fr-picker-title{font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:8px;text-align:center;}
+#ar2 .ar-fr-picker-list{display:flex;flex-direction:column;gap:6px;}
+#ar2 .ar-fr-picker-row{display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.2);border-radius:8px;padding:9px 12px;color:#cfe2eb;font-family:inherit;text-align:left;cursor:pointer;transition:background .12s,border-color .12s;}
+#ar2 .ar-fr-picker-row:hover{background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.55);}
+#ar2 .ar-fr-picker-row-scope{font-size:12.5px;font-weight:700;color:#fff;}
+#ar2 .ar-fr-picker-row-meta{font-size:10.5px;color:var(--mu);margin-top:2px;}
+
 /* Empty / error states */
 #ar2 .ar-fr-empty{text-align:center;padding:54px 24px;background:rgba(7,22,40,.4);border:1px dashed rgba(0,180,216,.25);border-radius:14px;max-width:560px;margin:0 auto;}
 #ar2 .ar-fr-empty.error{border-color:rgba(239,68,68,.4);}
@@ -1945,8 +1956,13 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 .ar2-notif-empty{padding:20px;text-align:center;color:#7db8cc;font-size:12px;}
 .ar2-notif-row{display:grid;grid-template-columns:14px 1fr;gap:10px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid rgba(0,180,216,.08);cursor:pointer;transition:background .12s;}
 .ar2-notif-row:hover{background:rgba(0,180,216,.06);}
-.ar2-notif-row-dot{width:8px;height:8px;border-radius:50%;background:transparent;margin-top:4px;}
-.ar2-notif-row.unread .ar2-notif-row-dot{background:#48cae4;box-shadow:0 0 0 3px rgba(72,202,228,.18);}
+/* Read/unread toggle. Bigger hit area (16px) + cursor:pointer because
+   it's a real button now. Read state shows a hollow ring; unread shows
+   the filled aqua dot with the existing halo. */
+.ar2-notif-row-dot{width:16px;height:16px;border-radius:50%;background:transparent;border:1.5px solid rgba(125,184,204,.4);cursor:pointer;padding:0;flex-shrink:0;margin-top:2px;display:inline-block;transition:border-color .12s,background .12s,box-shadow .12s;}
+.ar2-notif-row-dot:hover{border-color:#48cae4;background:rgba(72,202,228,.12);}
+.ar2-notif-row.unread .ar2-notif-row-dot{background:#48cae4;border-color:#48cae4;box-shadow:0 0 0 3px rgba(72,202,228,.18);}
+.ar2-notif-row.unread .ar2-notif-row-dot:hover{background:#1a8aa3;border-color:#1a8aa3;}
 .ar2-notif-row-msg{font-size:12.5px;color:#cfe2eb;line-height:1.45;}
 .ar2-notif-row.unread .ar2-notif-row-msg{color:#fff;font-weight:600;}
 .ar2-notif-row-when{font-size:10.5px;color:#7db8cc;margin-top:3px;font-family:'JetBrains Mono',monospace;}
