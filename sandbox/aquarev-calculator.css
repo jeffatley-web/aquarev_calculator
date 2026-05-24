@@ -43,6 +43,12 @@
    by side with line items / totals. */
 #ar2.quote-step .ar-form-col{grid-column:1 / 3;}
 #ar2.quote-step .ar-dev-col{display:none;}
+/* Step 6 (Field Report). The middle devices column is empty on this
+   step (devices breakdown isn't part of the report), and the form is
+   self-contained with its own KPI band — so collapse the layout to a
+   2-column grid: report content (spans cols 1-2) + results sidebar. */
+#ar2.report-step .ar-form-col{grid-column:1 / 3;}
+#ar2.report-step .ar-dev-col{display:none;}
 /* Client-mode feature gating ─ when a Client signs in, the calculator JS
    adds the .app-client class to #ar2. Any element marked with the
    `data-client-hide` attribute is then visually + interactively hidden.

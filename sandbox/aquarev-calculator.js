@@ -13618,6 +13618,7 @@ function render(){
   var root=document.getElementById('ar2');
   if(root) root.classList.toggle('map-step', S.step===0);
   if(root) root.classList.toggle('quote-step', S.step===3);
+  if(root) root.classList.toggle('report-step', S.step===5);
   // Role-based feature flags — toggles .app-client / .app-admin on #ar2 so
   // CSS rules can hide / show / restyle features per role. Reapplied on every
   // render so role changes (e.g. after sign-in) take effect immediately.
