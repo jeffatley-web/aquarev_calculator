@@ -290,7 +290,7 @@ function showCalcPasswordModal(onUnlock){
     // bcrypt match accepts any length ≥4. Letter-spacing adjusts to the
     // typed length dynamically (handler below) so 4-char codes still
     // visually align in the pin-style input.
-    +'<input id="ar2-calc-pw-input" type="password" maxlength="20" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="Code or phone" />'
+    +'<input id="ar2-calc-pw-input" type="password" maxlength="20" autocomplete="off" autocapitalize="characters" style="width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(0,180,216,.35);color:#fff;padding:12px 14px;border-radius:6px;font-size:22px;font-family:\'JetBrains Mono\',monospace;letter-spacing:8px;margin-bottom:8px;box-sizing:border-box;outline:none;text-align:center;text-transform:uppercase" placeholder="Code" />'
     // Email field — only revealed for Client codes after the server prompts
     // for it (HTTP 422 needs_email). Hidden by default for Users/Admins so
     // their flow stays one-field.
@@ -309,7 +309,7 @@ function showCalcPasswordModal(onUnlock){
     +'</label>'
     +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
     +(cloudMode
-      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.5">Locked out or forgot your code? Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b></div>'
+      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.55">Locked out or forgot your code?<br>Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b> or email <a href="mailto:water@aquarevwater.com" style="color:#48cae4;text-decoration:none"><b>water@aquarevwater.com</b></a></div>'
       : '')
   +'</div>';
   document.body.appendChild(m);
