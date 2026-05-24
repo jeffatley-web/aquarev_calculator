@@ -10535,7 +10535,7 @@ window.AR2_ENGINEER = (function(){
       +   '<div class="ar-eng-card">'
       +     '<div class="ar-eng-eyebrow">Briefing</div>'
       +     '<div class="ar-eng-h1">Welcome to AquaRev field verification</div>'
-      +     '<div class="ar-eng-lede">A quick 60 to 90 second briefing on what you\'ll do today and how to get the best result.</div>'
+      +     '<div class="ar-eng-lede">Below is a quick video briefing on the information and images we are asking for to get best results.</div>'
       +     '<div class="ar-eng-video">'
       +       '<iframe src="https://www.youtube-nocookie.com/embed/zWqMcZFWpyE" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
       +     '</div>'
