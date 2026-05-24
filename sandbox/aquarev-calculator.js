@@ -12706,7 +12706,14 @@ function renderStepper(){
     var hideAttr = (stepId === 'quote') ? ' data-client-hide data-pf-prop-hide'
                  : (stepId === 'field-report') ? ' data-client-hide data-fr-hide'
                  : '';
-    h+='<div class="ar-si"'+hideAttr+'>'
+    // Whole step item is clickable. `data-step-jump` carries the
+    // target index; the click router validates visibility (client /
+    // portfolio-property / engineer gates) before jumping. Current
+    // step is non-clickable (no point) and gets aria-current.
+    var isCurrent = (i === S.step);
+    var jumpAttr = isCurrent ? '' : ' data-step-jump="' + i + '" role="button" tabindex="0"';
+    var ariaAttr = isCurrent ? ' aria-current="step"' : '';
+    h+='<div class="ar-si'+(isCurrent?'':' ar-si-clickable')+'"'+hideAttr+jumpAttr+ariaAttr+' aria-label="Go to ' + STEP_LBLS[i] + '">'
       +'<div class="ar-dot '+dc+'">'+dot+'</div>'
       +'<span class="ar-sl '+dc+'">'+STEP_LBLS[i]+'</span>'
       +'</div>';
@@ -16735,6 +16742,31 @@ function handleClick(e){
       S.step=resolveStepForClient(S.step+1,'next');render();scrollAppTop();
     }
     else if(sdir==='back'&&S.step>0){S.step=resolveStepForClient(S.step-1,'back');render();scrollAppTop();}
+    return;
+  }
+  // Direct step jump — click any step pill in the header to land on it.
+  // Honours the same visibility gates as the back/next arrows: Quote is
+  // skipped over for client / portfolio-property mode, Field Report is
+  // skipped for client / engineer (those steps are visually hidden via
+  // data-client-hide / data-pf-prop-hide / data-fr-hide CSS, but a
+  // savvy user could still hit the data-step-jump attribute, so we
+  // double-gate it here too).
+  var stepJump = e.target.closest('[data-step-jump]');
+  if (stepJump){
+    var targetIdx = parseInt(stepJump.getAttribute('data-step-jump'), 10);
+    if (isNaN(targetIdx) || targetIdx < 0 || targetIdx >= STEPS.length) return;
+    if (targetIdx === S.step) return; // already there
+    // Jumping FORWARD past Step 1 still requires a property name.
+    if (targetIdx > S.step && !requireNameOrPopup('jump')) return;
+    var stepId = STEPS[targetIdx];
+    var isClient = !!(window.AR2_CLOUD && AR2_CLOUD.isReady() && AR2_CLOUD.isClient());
+    var inPfProp = !!(window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode());
+    var isEngineer = !!(window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer());
+    if (stepId === 'quote' && (isClient || inPfProp)) return;
+    if (stepId === 'field-report' && (isClient || isEngineer)) return;
+    S.step = targetIdx;
+    render();
+    if (typeof scrollAppTop === 'function') scrollAppTop();
     return;
   }
   // Nav back/next

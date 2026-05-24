@@ -17,8 +17,16 @@
 #ar2 .ar-bs{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:#3a6a80;}
 /* ── Stepper ── */
 #ar2 .ar-stepper{display:flex;align-items:center;gap:4px;}
-#ar2 .ar-si{display:flex;align-items:center;gap:5px;}
-#ar2 .ar-dot{width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;transition:background .2s,border-color .2s;}
+#ar2 .ar-si{display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:8px;transition:background .15s;}
+/* Clickable step items — visible affordance + focus ring for keyboard
+   users. The active step has .ar-si without .ar-si-clickable so it
+   doesn't get hover styling (you can't jump to where you already are). */
+#ar2 .ar-si-clickable{cursor:pointer;}
+#ar2 .ar-si-clickable:hover{background:rgba(0,180,216,.08);}
+#ar2 .ar-si-clickable:hover .ar-dot.idle{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.5);color:#cfe2eb;}
+#ar2 .ar-si-clickable:hover .ar-sl.idle{color:#cfe2eb;}
+#ar2 .ar-si-clickable:focus-visible{outline:2px solid var(--t);outline-offset:2px;}
+#ar2 .ar-dot{width:25px;height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;transition:background .2s,border-color .2s,color .2s;}
 #ar2 .ar-dot.done{background:var(--gr);border:1px solid var(--gr);color:var(--nv);}
 #ar2 .ar-dot.active{background:var(--t);border:1px solid var(--t);color:var(--nv);}
 #ar2 .ar-dot.idle{background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.2);color:#3a6a80;}
