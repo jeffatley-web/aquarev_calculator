@@ -14963,12 +14963,12 @@ function generateReport(){
         +'</div>'
       +'</div>';
       // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
-      // Unified to 10 cards/page across both orientations (per Jeff
-      // 2026-05-24 spec). Portrait = 5 rows × 2 cols; landscape = 4 rows
-      // (3+3+3+1) × 3 cols. Both layouts have measured headroom inside the
-      // page-height clamps (1056px portrait, 866px landscape) so cards
-      // never spill past the visible region in preview or PDF.
-      var CARDS_PER_PAGE=10;
+      // Per Jeff 2026-05-24: portrait = 12 cards/page (6 rows × 2 cols),
+      // landscape = 15 cards/page (5 rows × 3 cols). Differentiated
+      // because the landscape sheet is shorter but wider — 3-col grid
+      // makes better use of the horizontal real estate, while portrait's
+      // narrow body benefits from extra vertical rows.
+      var CARDS_PER_PAGE = (EX.layout==='landscape') ? 15 : 12;
       var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
       poolProfilesHtml='';
       for(var ppPi=0; ppPi<totalPpPages; ppPi++){
