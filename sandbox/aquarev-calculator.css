@@ -599,6 +599,51 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report.is-preview .rpt-factsheet-page + *,
 #ar2-report.is-preview .rpt-pp-page + *{margin-top:24px!important;}
 
+/* Page-sized preview — locks each report page to the same dimensions
+   it'll print at (US Letter portrait 8.5×11in / landscape 11×8.5in)
+   so the in-page preview is a faithful preview of the PDF download,
+   not a continuous scroll. Overflow:hidden mirrors the print clip
+   behaviour: if content runs long, it's clipped at the page edge
+   instead of growing the preview tall. Centred on a slate background
+   with shadow for the "sheet of paper on a desk" effect.
+   8.5in / 11in @ 96dpi = 816px / 1056px. */
+#ar2-report.is-preview{padding:24px 0;}
+#ar2-report.is-preview .rpt:not(.rpt-landscape),
+#ar2-report.is-preview .rpt-pp-page:not(.rpt-pp-page-landscape),
+#ar2-report.is-preview .rpt-es-page,
+#ar2-report.is-preview .rpt-cover-page,
+#ar2-report.is-preview .rpt-factsheet-page,
+#ar2-report.is-preview .rpt-back-cover,
+#ar2-report.is-preview .rpt-fs-img-page{
+  width:816px!important;
+  max-width:816px!important;
+  min-height:1056px!important;
+  height:1056px!important;
+  max-height:1056px!important;
+  margin:24px auto!important;
+  overflow:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+  box-shadow:0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)!important;
+  background:#fff!important;
+  box-sizing:border-box!important;
+}
+/* Landscape page types (existing screen rules already size these to
+   1120×866 — see @media screen block lower in this stylesheet). The
+   `.is-preview` padding above applies to those too via the wrapper. */
+#ar2-report.is-preview .rpt.rpt-landscape{
+  margin:24px auto!important;
+  box-shadow:0 12px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04)!important;
+  background:#fff!important;
+}
+/* Body inside a preview page — same flex containment the print rules
+   apply, so the footer/CTA stay pinned to the bottom and overflowing
+   content gets clipped instead of spilling past the page edge. */
+#ar2-report.is-preview .rpt > .rpt-body{flex:1 1 0!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;}
+#ar2-report.is-preview .rpt-cta-bar,
+#ar2-report.is-preview .rpt-foot{flex:0 0 auto!important;}
+#ar2-report.is-preview .rpt-foot{margin-top:auto!important;}
+
 /* Engineer verification PDF — minimal additions on top of existing .rpt-* chrome. */
 #ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;}
 #ar2-report .rpt-eng-photo{break-inside:avoid;page-break-inside:avoid;}
