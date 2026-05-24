@@ -14963,12 +14963,12 @@ function generateReport(){
         +'</div>'
       +'</div>';
       // ── Auto-pagination: chunk cards into multiple .rpt-pp-page wrappers ──
-      // Landscape: 12 cards/page (3 cols × 4 rows). Portrait: 8 cards/page
-      // (2 cols × 4 rows). Trimmed from 15/10 (2026-05-24) because pools
-      // with long names / notes were exceeding the printable area and the
-      // hard height clamp + overflow:hidden was clipping rows silently —
-      // exactly the "content cut at 11+ pools" bug.
-      var CARDS_PER_PAGE=(EX.layout==='landscape')?12:8;
+      // Unified to 10 cards/page across both orientations (per Jeff
+      // 2026-05-24 spec). Portrait = 5 rows × 2 cols; landscape = 4 rows
+      // (3+3+3+1) × 3 cols. Both layouts have measured headroom inside the
+      // page-height clamps (1056px portrait, 866px landscape) so cards
+      // never spill past the visible region in preview or PDF.
+      var CARDS_PER_PAGE=10;
       var totalPpPages=Math.max(1, Math.ceil(allCards.length/CARDS_PER_PAGE));
       poolProfilesHtml='';
       for(var ppPi=0; ppPi<totalPpPages; ppPi++){
@@ -15175,19 +15175,38 @@ function generateReport(){
   // + Property Images (pinned bottom-left) + Video Resources (pinned
   // bottom-right) + CTA bar.
   var assessmentHtml;
-  // Two distinct numbers:
-  //   POOL_TRIGGER: above this → cascade. Tuned to the single-page max where
-  //   ALL sections (pool + device + purchase + breakdown + water + images +
-  //   videos + CTA) still fit without bleeding off the page.
-  //   POOL_P1_FILL: in cascade mode, page 1 only carries pool config + device
-  //   selection, so it holds many more rows. Body ~687px / row ~20px ≈ 30
-  //   rows fit comfortably.
-  //   POOL_CONT_FILL: continuation pages render in 2 sub-columns of pool
-  //   rows, so they hold roughly twice the page-1 count.
-  var POOL_TRIGGER = (EX.layout==='landscape') ? 12 : 10;
-  var POOL_P1_FILL = (EX.layout==='landscape') ? 30 : 24;
+  // ── Pagination thresholds (tuned 2026-05-24) ──────────────────
+  //   POOL_TRIGGER : above this → cascade. Pushed to the empirically
+  //     measured max where Pool Config + Devices column + Row B
+  //     (Purchase + Breakdown) + media row + disclaimer + CTA all still
+  //     fit on a single sheet. Different per orientation: portrait body
+  //     is taller but narrower (rows wrap on long names), landscape body
+  //     is shorter but wider (rows rarely wrap).
+  //   POOL_P1_FILL  : page-1 capacity when cascade is on (pool list +
+  //     devices only — no Row B/media/CTA on this page).
+  //   POOL_CONT_FILL: continuation page capacity, 2 sub-cols of pool rows.
+  //
+  // The Total Volume + CO2 / Chlorine rows are always appended to the
+  // LAST page that carries pool data (per spec: "totals must always
+  // display with the pool list"). The dedicated final summary page no
+  // longer repeats them.
+  // Measured max: portrait body ≈ 830px / 18px per row ≈ 26 rows, less
+  // Row B (~200) + media (~120) + disc (~30) = ~480px for Row A → ~23
+  // rows. Held conservatively to 16 so long pool names that wrap don't
+  // push the totals strip off-page. Landscape rows are ~15px (rarely
+  // wrap because cols are wider) and body is shorter (~671px) so 20
+  // is the parallel target.
+  var POOL_TRIGGER   = (EX.layout==='landscape') ? 20 : 16;
+  var POOL_P1_FILL   = (EX.layout==='landscape') ? 30 : 24;
   var POOL_CONT_FILL = (EX.layout==='landscape') ? 60 : 44;
   var nPoolRows = poolRowsArr.length;
+
+  // Totals block — three rows that ride at the bottom of whichever
+  // cascade page hosts the LAST pool row. Mirrors the same markup used
+  // inside the single-page Pool Configuration section.
+  var totalsBlock = '<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+' gal</span></div>'
+    + (S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'')
+    + '<div class="rpt-row"><span class="k">CO₂ pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>';
 
   if (nPoolRows <= POOL_TRIGGER) {
     assessmentHtml = singlePageAssessment;
@@ -15255,6 +15274,12 @@ function generateReport(){
     var pgLbl=function(n){return ' <span style="font-weight:400;color:#7db8cc;font-size:11px;letter-spacing:1px"> · Page '+n+' of '+totalAssessPages+'</span>';};
 
     // ── Page 1: Pool Config (first chunk) | Device Selection ──
+    // The totals strip (Total Volume / Chlorine / CO2) rides at the
+    // bottom of whichever cascade page hosts the LAST pool row. If
+    // there are no continuation pages, page 1 is that page — append the
+    // totals to the end of its left column so they sit immediately
+    // below the last pool row.
+    var p1IsLastPoolPage = (contPages === 0);
     assessmentHtml = '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
       + assessHeader + assessKpiStrip
       + '<div class="rpt-body">'
@@ -15262,6 +15287,7 @@ function generateReport(){
           + '<div>'
             + '<div class="rpt-stitle">Pool Configuration'+pgLbl(1)+'</div>'
             + poolRowsArr.slice(0, POOL_P1_FILL).join('')
+            + (p1IsLastPoolPage ? totalsBlock : '')
           + '</div>'
           + '<div>'
             + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
@@ -15282,6 +15308,9 @@ function generateReport(){
       var halfPt = Math.ceil(chunkRows.length/2);
       var leftColRows = chunkRows.slice(0, halfPt).join('');
       var rightColRows = chunkRows.slice(halfPt).join('');
+      // Last cont page hosts the totals strip at the end of its right
+      // column (since the right column ends with the very last pool).
+      var isLastContPage = (cpi === contPages - 1);
 
       assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
         + assessHeaderCont
@@ -15294,6 +15323,7 @@ function generateReport(){
             + '<div>'
               + '<div class="rpt-stitle" style="visibility:hidden">.</div>'
               + rightColRows
+              + (isLastContPage ? totalsBlock : '')
             + '</div>'
           + '</div>'
         + '</div>'
@@ -15301,18 +15331,14 @@ function generateReport(){
       + '</div>';
     }
 
-    // ── Last page: Volume totals + Purchase + Breakdown + Water + Images + Videos + CTA ──
-    var totalsBlock = '<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+' gal</span></div>'
-      + (S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'')
-      + '<div class="rpt-row"><span class="k">CO2 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>';
-
+    // ── Final summary page: Purchase + Breakdown + Water + Images + Videos + CTA ──
+    // The Property Volume Totals header section that used to sit at the
+    // top of this page was moved (per Jeff 2026-05-24 spec) to the
+    // bottom of the LAST page that carries pool rows — totals must
+    // travel with the pool list, not on a separate page.
     assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
       + assessHeaderCont
       + '<div class="rpt-body">'
-        + '<div class="rpt-sec" style="margin-bottom:10px">'
-          + '<div class="rpt-stitle">Property Volume Totals'+pgLbl(totalAssessPages)+'</div>'
-          + totalsBlock
-        + '</div>'
         + (EX.layout==='landscape'
           // Cascade last-page landscape — same restructure as the single-
           // page path: Row B = Purchase | Breakdown (2-col, natural),
