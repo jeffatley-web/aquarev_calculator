@@ -829,67 +829,32 @@ var Cloud = (function(){
   }
 
   // Admin-only: portfolio-aware totals for the top of the dashboard.
-  // Returns aggregate counts across assessments + portfolios + properties
-  // (hard-deleted records never appear here — Supabase returns only live rows).
+  // Returns aggregate counts across assessments + portfolios + properties.
+  //
+  // SERVER-SIDE AGGREGATION (RPC): the previous implementation pulled the
+  // full `snapshot` jsonb of every assessment to the client just to count
+  // bodies. With even a handful of large records (e.g. a property with
+  // 11 pools + map polygons + serialized photos can be 8MB+ of jsonb),
+  // the response payload climbed into the tens of megabytes and PostgREST
+  // either truncated or timed out — leaving the whole Promise rejected
+  // and every KPI card stuck on an em-dash. Moved to admin_dashboard_kpis()
+  // RPC which computes the aggregates in Postgres and returns ~80 bytes
+  // of integers. The RPC honours admin / user role internally so this
+  // is callable by any signed-in user; non-admins simply see their own
+  // scoped totals.
   function statsAdminKpis(){
     var c = getClient();
-    // Renamed for clarity but kept as statsAdminKpis for back-compat.
-    // Available to any signed-in user; RLS naturally scopes the
-    // returned data to what the caller can see (admins see all,
-    // regular users see only their own records).
     if(!c || !user) return Promise.reject(new Error('not_signed_in'));
-    var since7 = new Date(Date.now() - 7*86400000).toISOString();
-    // Assessments table stores the full session under `snapshot` jsonb
-    // (snapshot.state.bodies, snapshot.state.manualPoolCount, etc.).
-    // Older versions of this query asked for a top-level `state` column —
-    // that doesn't exist on the schema, which makes the whole Promise reject
-    // and leaves the dashboard KPIs at their em-dash placeholder.
-    return Promise.all([
-      c.from('assessments').select('id,created_at,summary,snapshot').eq('app_id', APP_ID),
-      c.from('portfolios').select('id,created_at'),
-      c.from('portfolio_properties').select('id,state_json,computed_kpis,excluded_from_rollup,created_at')
-    ]).then(function(arr){
-      var asRes = arr[0], pfRes = arr[1], ppRes = arr[2];
-      if (asRes.error) throw asRes.error;
-      if (pfRes.error) throw pfRes.error;
-      if (ppRes.error) throw ppRes.error;
-      var ass = asRes.data || [], pfs = pfRes.data || [], pps = ppRes.data || [];
-      var recordsLast7Days = 0;
-      var poolsTotal = 0, valueTotal = 0;
-      ass.forEach(function(r){
-        if (r.created_at && r.created_at >= since7) recordsLast7Days++;
-        // snapshot.state holds the bodies array; legacy records may have
-        // bodies directly on snapshot. Try both for robustness.
-        var snap = r.snapshot || {};
-        var st = snap.state || snap || {};
-        var bodies = Array.isArray(st.bodies) ? st.bodies : [];
-        if (st.manualVolume) poolsTotal += Math.max(1, Number(st.manualPoolCount) || 1);
-        else                 poolsTotal += bodies.length;
-        var sum = r.summary || {};
-        valueTotal += Number(sum.inv) || 0;
-      });
-      pfs.forEach(function(r){
-        if (r.created_at && r.created_at >= since7) recordsLast7Days++;
-      });
-      pps.forEach(function(r){
-        var sj = r.state_json || {};
-        var bodies = Array.isArray(sj.bodies) ? sj.bodies : [];
-        if (sj.manualVolume) poolsTotal += Math.max(1, Number(sj.manualPoolCount) || 1);
-        else                 poolsTotal += bodies.length;
-        var k = r.computed_kpis || {};
-        valueTotal += Number(k.inv) || 0;
-      });
+    return c.rpc('admin_dashboard_kpis').then(function(rs){
+      if (rs.error) throw rs.error;
+      var row = (rs.data && rs.data[0]) || {};
       return {
-        recordsLast7Days: recordsLast7Days,
-        assessmentsTotal: ass.length,
-        portfoliosTotal:  pfs.length,
-        // Properties = every individual property record across the system:
-        // each single-assessment is one property, plus every row in
-        // portfolio_properties. Previously this only counted portfolio_
-        // properties, undercounting standalone assessments entirely.
-        propertiesTotal:  ass.length + pps.length,
-        poolsTotal:       poolsTotal,
-        valueTotal:       valueTotal
+        recordsLast7Days: Number(row.records_last_7_days) || 0,
+        assessmentsTotal: Number(row.assessments_total)   || 0,
+        portfoliosTotal:  Number(row.portfolios_total)    || 0,
+        propertiesTotal:  Number(row.properties_total)    || 0,
+        poolsTotal:       Number(row.pools_total)         || 0,
+        valueTotal:       Number(row.value_total)         || 0
       };
     });
   }
