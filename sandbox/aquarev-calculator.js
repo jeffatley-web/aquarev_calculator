@@ -7397,7 +7397,7 @@ window.AR2_FIELD_REPORT = (function(){
             : ref.type === 'portfolio' ? 'portfolio_id'
             : 'assessment_id';
     return c.from('engineer_assignments')
-      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,engineer_property_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at')
       .eq(col, ref.id)
       .order('last_modified_at', { ascending: false })
       .then(function(rs){
@@ -7592,6 +7592,31 @@ function renderFieldReport(){
     + _frRenderKpis(b)
     + _frRenderPumpRoomsStrip(b)
     + _frRenderPoolCompare(b)
+    + _frRenderEngineerPropertyNotes(b)
+    + '</div>';
+}
+
+/* General notes / comments from the engineer (engineer_property_notes
+   on the assignment). Renders only when at least one assignment has a
+   note. Read-only here — engineer edits via Step 3 of the portal. */
+function _frRenderEngineerPropertyNotes(bundle){
+  var asgns = (bundle && bundle.assignments) || [];
+  // Collect notes from all assignments — usually one, but multi-engineer
+  // records would surface each separately.
+  var withNotes = asgns.filter(function(a){
+    return a.engineer_property_notes && String(a.engineer_property_notes).trim();
+  });
+  if (!withNotes.length) return '';
+  var engineerById = (bundle && bundle.engineerById) || {};
+  return '<div class="ar-fr-prop-notes">'
+    + '<div class="ar-fr-prop-notes-hd">General notes / comments</div>'
+    + withNotes.map(function(a){
+        var eng = engineerById[a.engineer_user_id] || {};
+        return '<div class="ar-fr-prop-notes-block">'
+          + (eng.name ? '<div class="ar-fr-prop-notes-eng">' + esc(eng.name) + '</div>' : '')
+          + '<div class="ar-fr-prop-notes-body">' + esc(a.engineer_property_notes).replace(/\n/g, '<br>') + '</div>'
+        + '</div>';
+      }).join('')
     + '</div>';
 }
 
@@ -9345,7 +9370,7 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c){ s.loading = false; s.loadError = 'Cloud unavailable.'; repaint(); return; }
     c.from('engineer_assignments')
-      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,locked_at,assigned_at,last_modified_at,submitted_at,reviewed_at')
+      .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,engineer_property_notes,status,locked_at,assigned_at,last_modified_at,submitted_at,reviewed_at')
       .eq('id', s.assignmentId)
       .single()
       .then(function(rs){
@@ -9805,6 +9830,43 @@ window.AR2_ENGINEER = (function(){
       persistVerification(poolIndex);
     }, 600);
     s.saving = true;
+  }
+
+  /* Debounced save for the property-wide General Notes textarea
+     (Step 3 bottom). Persists to engineer_assignments.engineer_property_notes.
+     One timer — only one field on the page. Updates the local
+     s.assignment cache after a successful write so refocus doesn't
+     show stale content. */
+  function savePropertyNotesDebounced(value){
+    s._propNotesLocal = value;
+    s.saving = true;
+    if (s._propNotesTimer) clearTimeout(s._propNotesTimer);
+    s._propNotesTimer = setTimeout(function(){
+      s._propNotesTimer = null;
+      var c = client();
+      if (!c || !s.assignmentId) { s.saving = false; return; }
+      c.from('engineer_assignments')
+        .update({ engineer_property_notes: value || null,
+                  last_modified_at: new Date().toISOString() })
+        .eq('id', s.assignmentId)
+        .then(function(rs){
+          s.saving = false;
+          if (rs && rs.error){
+            s.lastSaveError = rs.error.message || 'save failed';
+            try { console.error('[engineer property notes] save error', rs.error); } catch(_){}
+          } else {
+            if (s.assignment) s.assignment.engineer_property_notes = value || null;
+            s.lastSaveError = null;
+            s.lastSavedAt = Date.now();
+          }
+          if (typeof _refreshSavedIndicator === 'function') _refreshSavedIndicator();
+        }, function(err){
+          s.saving = false;
+          s.lastSaveError = (err && err.message) || 'network error';
+          try { console.error('[engineer property notes] network error', err); } catch(_){}
+          if (typeof _refreshSavedIndicator === 'function') _refreshSavedIndicator();
+        });
+    }, 700);
   }
   // True when a text input / textarea inside the engineer flow has
   // focus. Used to skip full repaints so engineers can type without
@@ -10719,6 +10781,20 @@ window.AR2_ENGINEER = (function(){
       +     '<div class="ar-eng-pool-grid">' + cardsHtml + '</div>'
       +     addPoolBtn
       +   '</div>'
+
+      // Property-wide notes. Lives on engineer_assignments.engineer_property_notes
+      // (separate from assignment_notes, which is the rep's note TO the
+      // engineer). Anything pool-specific belongs in the per-pool Notes
+      // field — this is for property-level observations: site access
+      // quirks, contractor coordination, unusual treatment setups, etc.
+      +   '<div class="ar-eng-prop-notes-section">'
+      +     '<div class="ar-eng-section-hd">'
+      +       '<div class="ar-eng-section-eyebrow">General notes / comments</div>'
+      +       '<div class="ar-eng-section-sub">Anything about this property as a whole that doesn\'t belong on a single pool — site access, contractor coordination, treatment quirks, etc. Optional.</div>'
+      +     '</div>'
+      +     '<textarea class="ar-eng-prop-notes-input" data-action="ar-eng-prop-notes" rows="4" placeholder="e.g. Pump room shares wall with mechanical room — schedule with facility lead. Two of the salt cells were offline at time of visit." maxlength="2000">' + esc((s.assignment && s.assignment.engineer_property_notes) || '') + '</textarea>'
+      +   '</div>'
+
       // Hidden file input — shared across pool cards. When the engineer
       // taps + Photo or + Video on a card, the data-pool + data-media-type
       // are stashed on the input before .click() so the change handler
@@ -10901,10 +10977,11 @@ window.AR2_ENGINEER = (function(){
         + '</div>';
     }).join('');
 
-    // Discrepancy warning state — surface a soft inline note if engineer's
-    // confirmed_gallons differs from the Estimate by more than 5%.
-    // Per decision: discrepancy_reason becomes required at app layer when
-    // the difference exceeds the threshold.
+    // Discrepancy badge — soft inline notice when engineer's confirmed
+    // gallons differ from the Estimate by more than 5%. The "explain it"
+    // textarea was removed per UX feedback — engineers can leave that
+    // commentary in the per-pool Notes field below, no need for a
+    // dedicated input here that duplicates the same answer.
     var divergenceWarning = '';
     if (p.gallonsRep > 0 && v.confirmed_gallons != null && v.confirmed_gallons > 0){
       var diff = Math.abs(v.confirmed_gallons - p.gallonsRep);
@@ -10912,8 +10989,7 @@ window.AR2_ENGINEER = (function(){
       if (pct > 0.05){
         divergenceWarning = '<div class="ar-eng-discrepancy">'
           + '<div class="ar-eng-discrepancy-title">' + svgIconWarn() + ' ' + Math.round(pct * 100) + '% off Estimate</div>'
-          + '<div class="ar-eng-discrepancy-body">Add a quick note explaining what you measured.</div>'
-          + '<textarea data-action="ar-eng-discrepancy-reason" data-pool="' + p.index + '" rows="2" placeholder="e.g. Measured at fill line vs auto-fill marker, pool was partially drained, etc.">' + esc(v.discrepancy_reason || '') + '</textarea>'
+          + '<div class="ar-eng-discrepancy-body">Use the Notes field below if context helps the reviewer.</div>'
         + '</div>';
       }
     }
@@ -11426,6 +11502,14 @@ window.AR2_ENGINEER = (function(){
       var pi7 = parseInt(target.getAttribute('data-pool'), 10);
       // Silent: don't repaint mid-keystroke.
       updateVerification(pi7, { notes: target.value || '' }, { silent: true });
+      return true;
+    }
+    if (action === 'ar-eng-prop-notes'){
+      // Property-wide notes. Persists to
+      // engineer_assignments.engineer_property_notes — not per-pool.
+      // Debounced via savePropertyNotesDebounced so we don't fire a
+      // round-trip on every keystroke.
+      savePropertyNotesDebounced(target.value || '');
       return true;
     }
     if (action === 'ar-eng-submit'){

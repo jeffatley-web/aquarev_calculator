@@ -190,6 +190,13 @@
 #ar2 .ar-fr-dot.warn{background:rgba(240,165,0,.2);color:#f0a500;border:1px solid rgba(240,165,0,.45);}
 #ar2 .ar-fr-dot.na{background:rgba(125,184,204,.08);color:#7db8cc;border:1px solid rgba(125,184,204,.22);font-weight:700;}
 
+/* Engineer's property-wide notes (Step 6 / field report) */
+#ar2 .ar-fr-prop-notes{margin-top:22px;padding:18px 20px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:12px;}
+#ar2 .ar-fr-prop-notes-hd{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:12px;}
+#ar2 .ar-fr-prop-notes-block + .ar-fr-prop-notes-block{margin-top:12px;padding-top:12px;border-top:1px dashed rgba(0,180,216,.18);}
+#ar2 .ar-fr-prop-notes-eng{font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:6px;}
+#ar2 .ar-fr-prop-notes-body{font-size:13px;line-height:1.65;color:#cfe2eb;white-space:pre-wrap;}
+
 /* Media gallery row */
 #ar2 .ar-fr-pool-media{margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,180,216,.1);}
 #ar2 .ar-fr-pool-media-hd{display:flex;align-items:center;justify-content:space-between;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;margin-bottom:8px;}
@@ -2784,6 +2791,18 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-pools-section > .ar-eng-section-hd{margin-bottom:16px;}
 #ar2 .ar-eng-pools-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
 #ar2 .ar-eng-pools-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
+
+/* Property-wide notes (bottom of Step 3 / Pool profiles). Visually
+   parallels the .ar-eng-pump-rooms-section / .ar-eng-pools-section
+   blocks so the engineer reads the page as three distinct buckets:
+   pump rooms → pools → property-level notes. */
+#ar2 .ar-eng-prop-notes-section{margin-top:22px;padding:18px 18px 18px;background:rgba(0,180,216,.04);border:1px solid rgba(0,180,216,.18);border-radius:14px;}
+#ar2 .ar-eng-prop-notes-section > .ar-eng-section-hd{margin-bottom:12px;}
+#ar2 .ar-eng-prop-notes-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
+#ar2 .ar-eng-prop-notes-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
+#ar2 .ar-eng-prop-notes-input{width:100%;background:rgba(7,22,40,.5);border:1px solid rgba(0,180,216,.22);color:#cfe2eb;border-radius:10px;padding:11px 13px;font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.55;resize:vertical;min-height:96px;transition:border-color .12s,background .12s,box-shadow .12s;}
+#ar2 .ar-eng-prop-notes-input:focus{outline:none;border-color:rgba(0,180,216,.65);background:rgba(0,180,216,.08);box-shadow:0 0 0 3px rgba(0,180,216,.14);}
+#ar2 .ar-eng-prop-notes-input::placeholder{color:rgba(125,184,204,.7);}
 
 /* Compact return-line media block — replaces the bulky cyan callout.
    Single header row holds label + Required/Captured pill + tally + ?
