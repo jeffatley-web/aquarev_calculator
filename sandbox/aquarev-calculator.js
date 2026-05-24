@@ -13756,19 +13756,26 @@ function renderNav(){
   if(S.step===1) nextLabel='Continue \u2192 Pricing';
   else if(S.step===2) nextLabel = skipQuote ? 'Continue \u2192 Export' : 'Continue \u2192 Quote';
   else if(S.step===3) nextLabel='Continue \u2192 Export';
+  else if(S.step===4) nextLabel='View Field Report \u2192';
   var backLabel='\u2190 Back';
   if(S.step===1) backLabel='\u2190 Map Pools';
   else if(S.step===2) backLabel='\u2190 Pool & System';
   else if(S.step===3) backLabel='\u2190 Pricing & Settings';
   else if(S.step===4) backLabel = skipQuote ? '\u2190 Pricing & Settings' : '\u2190 Quote';
   else if(S.step===5) backLabel='\u2190 Back to Export';
+  // Field-report eligibility — admin + regular user; clients + engineers
+  // don't see Step 6 (Report). When the rep isn't FR-eligible, Export
+  // is effectively the final step, so we hide the Continue button there.
+  var isFrEligible = !!(document.getElementById('ar2') && document.getElementById('ar2').classList.contains('app-fr-eligible'));
+  // Step 4 (Export) is the rep's "save it" surface. Show Save to Archive
+  // ABOVE Continue here — not just on the last step — so reps don't need
+  // to scroll to the Export panel below to save. Hidden in portfolio
+  // property mode (saves happen via "Save & Close" there).
+  var hideNextOnExport = (S.step===4 && !isFrEligible);
+  var showSaveToArchive = !inPfProp && (S.step===4 || isLast);
   var html='<div class="ar-nav-stack">'
-    +(isLast?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
-    // Step 5 (Export) gets a second Archive entrypoint above the Back button
-    // so the rep doesn't have to scroll to the Export panel just to save.
-    // Hidden in portfolio property mode — saves happen via "Save & Close",
-    // not the single-property Archive flow.
-    +(isLast && !inPfProp?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Save to Archive</button>':'')
+    +(showSaveToArchive?'<button class="ar-btn full" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv);border:none;font-weight:700"'+(EX.saving?' disabled':'')+'>Save to Archive</button>':'')
+    +((isLast||hideNextOnExport)?'':'<button class="ar-btn primary advance full" data-nav="next"'+(disableNext?' disabled':'')+'>'+nextLabel+'</button>')
     +'<button class="ar-btn ghost retreat full" data-nav="back">'+backLabel+'</button>'
     +(navHint?'<div class="ar-nav-hint">'+navHint+'</div>':'')
   +'</div>';
