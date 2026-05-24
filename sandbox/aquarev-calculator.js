@@ -11302,21 +11302,28 @@ window.AR2_ENGINEER = (function(){
       var input = document.getElementById('ar-eng-media-input');
       if (!input) return true;
       // ── Camera launch strategy ────────────────────────────────
-      // capture="environment" is a mobile-only hint that asks the OS to
-      // launch the rear camera app instead of the photo library picker.
-      // On DESKTOP browsers and certain PWA / embedded webview contexts
-      // it tries to wire the camera feed INTO the offscreen <input>
-      // element — which has 1×1px dimensions — producing a black
-      // viewport with no camera feed (the bug Jeff reported).
-      // Fix: only set capture on real mobile UAs. Desktop falls back to
-      // the standard file picker which already offers "Take Photo" /
-      // "Use Camera" when a webcam is available.
+      // capture="environment" is a hint that asks the OS to launch the
+      // rear camera app instead of the photo library picker. It works
+      // reliably on Android but has TWO broken paths we have to dodge:
+      //   1. Desktop browsers / embedded webviews — the camera feed
+      //      gets wired into the offscreen 1×1 px input element →
+      //      black viewport, no preview.
+      //   2. iOS WebKit (especially in PWA / 'Add to Home Screen'
+      //      standalone mode, and increasingly in vanilla Safari on
+      //      iOS 17+) — the camera UI launches but the live feed never
+      //      attaches, so the preview is solid black even though the
+      //      capture chrome appears. Apple's own bug.
+      //
+      // Strategy: only set capture on Android. iOS + desktop fall back
+      // to the standard file picker; both include a "Take Photo" /
+      // "Use Camera" path that works correctly. Costs an extra tap on
+      // iOS but the camera actually shows live video.
       input.setAttribute('accept', mediaType === 'video' ? 'video/*' : 'image/*');
       var ua = (window.navigator && window.navigator.userAgent) || '';
-      var isMobile = /Mobi|Android|iPhone|iPad|iPod|Mobile|webOS/i.test(ua);
+      var isAndroid = /Android/i.test(ua);
       try {
-        if (isMobile) input.setAttribute('capture', 'environment');
-        else          input.removeAttribute('capture');
+        if (isAndroid) input.setAttribute('capture', 'environment');
+        else           input.removeAttribute('capture');
       } catch(_){}
       input.value = '';   // clear so picking the same file again still fires change
       input.click();
