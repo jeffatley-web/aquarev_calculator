@@ -3191,6 +3191,46 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-summary-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(0,180,216,.08);font-size:13px;}
 #ar2 .ar-eng-summary-row:last-child{border-bottom:none;}
 #ar2 .ar-eng-warn{background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.32);color:#f0a500;padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:12px;}
+
+/* Step 4 — Review & Send polish. Builds on the .ar-admin-review-*
+   patterns so all three views (admin Submission Review modal, eng
+   Step 2 Property Review, eng Step 4 Final Review) share the same
+   visual grammar. */
+/* Per-pool readiness checklist — one row per pool showing ready /
+   missing-items in a glance. Clickable rows scroll back to the pool
+   card on Step 3 (data-action="ar-eng-goto-pool"). */
+#ar2 .ar-eng-readiness{background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:6px 0;margin:14px 0 18px;}
+#ar2 .ar-eng-readiness-hd{padding:10px 16px 8px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;display:flex;justify-content:space-between;border-bottom:1px solid rgba(0,180,216,.14);}
+#ar2 .ar-eng-readiness-hd b{color:#fff;font-weight:600;letter-spacing:.4px;font-size:11px;text-transform:none;}
+#ar2 .ar-eng-readiness-row{display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid rgba(0,180,216,.06);font-size:12.5px;color:#cfe2eb;transition:background .12s;cursor:pointer;}
+#ar2 .ar-eng-readiness-row:last-child{border-bottom:none;}
+#ar2 .ar-eng-readiness-row:hover{background:rgba(0,180,216,.05);}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-name{flex:1;min-width:0;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-missing{flex:2 1 auto;min-width:0;color:#f0a500;font-size:11.5px;font-style:italic;}
+#ar2 .ar-eng-readiness-row.complete .ar-eng-readiness-missing{color:#4ade80;font-style:normal;}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-flag{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;}
+#ar2 .ar-eng-readiness-row.complete .ar-eng-readiness-flag{background:rgba(34,197,94,.18);border:1px solid rgba(34,197,94,.5);color:#4ade80;}
+#ar2 .ar-eng-readiness-row:not(.complete) .ar-eng-readiness-flag{background:rgba(240,165,0,.18);border:1px solid rgba(240,165,0,.5);color:#f0a500;}
+#ar2 .ar-eng-readiness-row .ar-eng-readiness-chev{color:#7db8cc;font-size:14px;flex-shrink:0;}
+
+/* General notes preview — read-only display of engineer_property_notes
+   (entered on Step 3) so the engineer can review what they wrote
+   before sending. */
+#ar2 .ar-eng-final-notes{background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:12px 14px;margin:0 0 14px;}
+#ar2 .ar-eng-final-notes-hd{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px;}
+#ar2 .ar-eng-final-notes-body{font-size:12.5px;color:#cfe2eb;line-height:1.6;white-space:pre-wrap;}
+
+/* Send section — large primary CTA with prominent send button + small
+   secondary text. Replaces the cramped single-line submit button. */
+#ar2 .ar-eng-send-card{background:linear-gradient(135deg,rgba(0,180,216,.1),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.35);border-radius:12px;padding:18px 20px;margin:18px 0 6px;}
+#ar2 .ar-eng-send-card.ready{background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(34,197,94,.04));border-color:rgba(34,197,94,.45);}
+#ar2 .ar-eng-send-card.locked{background:linear-gradient(135deg,rgba(125,184,204,.08),rgba(125,184,204,.02));border-color:rgba(125,184,204,.32);}
+#ar2 .ar-eng-send-card-title{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;color:#fff;margin-bottom:4px;}
+#ar2 .ar-eng-send-card-sub{font-size:12.5px;color:var(--mu);line-height:1.5;margin-bottom:14px;}
+#ar2 .ar-eng-send-card .ar-eng-btn.send-green{width:100%;font-size:14px;padding:14px 22px;background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;font-weight:700;letter-spacing:.6px;}
+#ar2 .ar-eng-send-card .ar-eng-btn.send-green:hover:not(:disabled){filter:brightness(1.1);}
+#ar2 .ar-eng-send-card .ar-eng-btn.send-green:disabled{background:rgba(125,184,204,.18);color:#7db8cc;cursor:not-allowed;}
+
 #ar2 .ar-eng-signout-btn{background:transparent;border:1px solid rgba(125,184,204,.25);color:var(--mu);padding:8px 18px;border-radius:8px;font-family:inherit;font-size:12px;letter-spacing:.5px;cursor:pointer;transition:border-color .15s,color .15s;}
 #ar2 .ar-eng-signout-btn:hover{border-color:rgba(125,184,204,.5);color:#cfe2eb;}
 @media(max-width:640px){

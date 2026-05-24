@@ -11286,62 +11286,153 @@ window.AR2_ENGINEER = (function(){
   function renderReviewStep(mount){
     var locked = s.assignment && s.assignment.status === 'locked';
     var submitted = s.assignment && (s.assignment.status === 'submitted' || s.assignment.status === 'reviewed');
-    var doneCount = s.pools.filter(function(p){
+    var status = (s.assignment && s.assignment.status) || 'pending';
+    var statusLabelMap = {
+      pending:     'Pending',
+      in_progress: 'In progress',
+      submitted:   'Sent for review',
+      reviewed:    'Reviewed',
+      locked:      'Locked'
+    };
+    var statusLabel = statusLabelMap[status] || status;
+
+    // Per-pool readiness — drives both the KPI count and the
+    // clickable checklist below.
+    var poolReadiness = s.pools.map(function(p){
       var v = s.verifications[p.index];
       var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
-      return hasLines && poolHasMedia(p.index);
-    }).length;
+      var hasMedia = poolHasMedia(p.index);
+      var missing = [];
+      if (!hasLines) missing.push('Return lines');
+      if (!hasMedia) missing.push('Photo or video');
+      return {
+        index: p.index,
+        name: (v && v.pool_name_override) || p.name,
+        ready: hasLines && hasMedia,
+        missing: missing
+      };
+    });
+    var doneCount = poolReadiness.filter(function(p){ return p.ready; }).length;
     var allReady = doneCount === s.pools.length && s.pools.length > 0;
-    var totalMedia = 0;
-    s.media.forEach(function(m){ if (!m._uploading) totalMedia++; });
-    // Submission state copy. The action button toggles between Send and
-    // Send updates depending on whether the assignment has already been
-    // submitted at least once. Engineers can re-send any number of times
-    // (each re-send re-notifies the rep) until the record is locked.
+
+    // Media counts for the KPI band
+    var photoCount = 0, videoCount = 0;
+    s.media.forEach(function(m){
+      if (m._uploading) return;
+      if (m.media_type === 'photo') photoCount++;
+      if (m.media_type === 'video') videoCount++;
+    });
+    var pumpRoomCount = (s.pumpRooms || []).length;
+
+    var submittedTxt = submitted && s.assignment && s.assignment.submitted_at
+      ? new Date(s.assignment.submitted_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})
+      : null;
+
+    var sentBanner = submitted && !locked
+      ? '<div class="ar-eng-sent-banner">'
+        + svgIconCheck() + ' <b>Sent for review' + (submittedTxt ? ' on ' + esc(submittedTxt) : '') + '.</b> Your rep was notified — feel free to edit pool cards or upload more media. Tap <b>Send updated review</b> to alert them about the changes.'
+        + '</div>'
+      : '';
+
     var ctaLabel;
-    if (locked) ctaLabel = 'Record locked';
+    if (locked) ctaLabel = svgIconCheck() + ' Record locked';
     else if (s.saving) ctaLabel = submitted ? 'Sending update…' : 'Sending…';
     else if (submitted) ctaLabel = svgIconSend() + ' Send updated review';
     else ctaLabel = svgIconSend() + ' Send to AquaRev for review';
 
-    var sentBanner = submitted && !locked
-      ? '<div class="ar-eng-sent-banner">'
-        + svgIconCheck() + ' <b>Sent for review.</b> Your rep was notified — feel free to edit pool cards or upload more media. Tap <b>Send updated review</b> to alert them about the changes.'
-        + '</div>'
-      : '';
+    var sendCardCls = locked ? 'locked' : (allReady ? 'ready' : '');
+    var sendCardTitle = locked
+      ? 'Record locked'
+      : allReady
+        ? (submitted ? 'You can resend any time' : 'Everything looks good')
+        : 'Some items are still missing';
+    var sendCardSub = locked
+      ? 'This record was locked by the rep — no further edits or submissions are accepted.'
+      : allReady
+        ? 'Your AquaRev rep sees the full report the moment you tap send. You can keep editing and resending until the record is locked.'
+        : 'Fix the items flagged below before sending. Tap a pool to jump back to its card.';
+
+    var notes = (s.assignment && s.assignment.engineer_property_notes && String(s.assignment.engineer_property_notes).trim()) || '';
+    var isAdmin = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
 
     mount.innerHTML = ''
       + '<div class="ar-eng-wrap ar-eng-flow">'
       +   headerHtml('Step 4 of 4 · Review and send')
       +   stepperHtml(4)
       +   '<div class="ar-eng-card">'
-      +     '<div class="ar-eng-eyebrow">Review</div>'
-      +     '<div class="ar-eng-h2">' + (submitted ? 'Review &amp; resend' : 'Ready to send?') + '</div>'
-      +     '<div class="ar-eng-lede">Your AquaRev rep sees everything below the moment you tap send. You can keep editing — and resending — until the record is locked.</div>'
-      +     sentBanner
-      +     '<div class="ar-eng-summary">'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Property</span><span class="ar-eng-v">' + esc((s.record && s.record.property_name) || '—') + '</span></div>'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Access</span><span class="ar-eng-v">' + (s.propertyConfirmation.hasAccess === false ? svgIconWarn() + ' Blocked — ' + esc(s.propertyConfirmation.accessBlockedReason || '(no note)') : svgIconCheck() + ' Confirmed on portal entry') + '</span></div>'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Pools documented</span><span class="ar-eng-v">' + doneCount + ' of ' + s.pools.length + '</span></div>'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Pump rooms</span><span class="ar-eng-v">' + (s.pumpRooms.length || '—') + (s.pumpRooms.length ? ' captured' : '') + '</span></div>'
-      +       '<div class="ar-eng-summary-row"><span class="ar-eng-k">Media uploaded</span><span class="ar-eng-v">' + totalMedia + ' file' + (totalMedia === 1 ? '' : 's') + '</span></div>'
+
+      // ── Header: eyebrow + property name + status pill (mirrors Step 2)
+      +     '<div class="ar-admin-review-head" style="margin-bottom:14px;padding-bottom:14px">'
+      +       '<div class="ar-admin-review-head-l">'
+      +         '<div class="ar-admin-review-eyebrow">Review and send</div>'
+      +         '<div class="ar-admin-review-title" style="font-size:20px">' + esc((s.record && s.record.property_name) || 'Verification') + '</div>'
+      +       '</div>'
+      +       '<span class="ar-admin-review-status ' + esc(status) + '">' + esc(statusLabel) + '</span>'
       +     '</div>'
 
-      +     (allReady
-          ? ''
-          : '<div class="ar-eng-warn">' + svgIconWarn() + ' Some required items are missing. Step back and complete them before sending.</div>')
+      +     sentBanner
 
+      // ── KPI band ──────────────────────────────────────────────
+      +     '<div class="ar-admin-review-kpis">'
+      +       '<div class="ar-admin-review-kpi' + (allReady ? '' : ' warn') + '"><div class="ar-admin-review-kpi-lbl">Pools done</div><div class="ar-admin-review-kpi-val">' + doneCount + ' / ' + s.pools.length + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      +     '</div>'
+
+      // ── Pump-room chips (when captured) ──────────────────────
+      +     (pumpRoomCount
+          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
+            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
+            + '</div>'
+          : '')
+
+      // ── Per-pool readiness checklist — clickable rows jump to that
+      //    pool's card on Step 3 for a quick fix.
+      +     '<div class="ar-eng-readiness">'
+      +       '<div class="ar-eng-readiness-hd"><span>Pool checklist</span><b>' + doneCount + ' / ' + s.pools.length + ' complete</b></div>'
+      +       poolReadiness.map(function(pr){
+              var cls = pr.ready ? ' complete' : '';
+              var missingTxt = pr.ready ? svgIconCheck() + ' Ready to send' : ('Missing: ' + pr.missing.join(' · '));
+              return '<div class="ar-eng-readiness-row' + cls + '" data-action="ar-eng-goto-pool" data-pool-index="' + pr.index + '" role="button" tabindex="0">'
+                + '<span class="ar-eng-readiness-flag">' + (pr.ready ? svgIconCheck() : svgIconWarn()) + '</span>'
+                + '<span class="ar-eng-readiness-name">' + esc(pr.name) + '</span>'
+                + '<span class="ar-eng-readiness-missing">' + missingTxt + '</span>'
+                + '<span class="ar-eng-readiness-chev">›</span>'
+                + '</div>';
+            }).join('')
+      +     '</div>'
+
+      // ── General notes (engineer_property_notes) preview ─────────
+      +     (notes
+          ? '<div class="ar-eng-final-notes">'
+            + '<div class="ar-eng-final-notes-hd">General notes / comments</div>'
+            + '<div class="ar-eng-final-notes-body">' + esc(notes) + '</div>'
+            + '</div>'
+          : '')
+
+      // ── PDF actions ──────────────────────────────────────────
       +     '<div class="ar-eng-pdf-row">'
       +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-preview-pdf" type="button" title="Open an in-page preview of your verification report">' + svgIconHelp() + ' Preview Report</button>'
       +       '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-download-pdf" type="button" title="Open the browser print dialog so you can save the PDF locally">' + svgIconDownload() + ' Download PDF</button>'
-      +       '<div class="ar-eng-pdf-hint">Preview reads it in-app · Download opens your browser print dialog so you can save the PDF.</div>'
+      +       '<div class="ar-eng-pdf-hint">Preview reads it in-app · Download opens your browser print dialog to save a PDF.</div>'
       +     '</div>'
 
+      // ── Send card — large primary CTA (hidden in admin mode) ──
+      +     (isAdmin
+          ? ''
+          : '<div class="ar-eng-send-card ' + sendCardCls + '">'
+            + '<div class="ar-eng-send-card-title">' + esc(sendCardTitle) + '</div>'
+            + '<div class="ar-eng-send-card-sub">' + esc(sendCardSub) + '</div>'
+            + '<button class="ar-eng-btn send-green" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>'
+            + '</div>')
+
+      // ── Bottom nav ────────────────────────────────────────────
       +     '<div class="ar-eng-actions">'
       +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
-      +       ((window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())
+      +       (isAdmin
             ? '<button class="ar-eng-btn primary" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' Back to Archive</button>'
-            : '<button class="ar-eng-btn primary send-green" data-action="ar-eng-submit" type="button"' + (allReady && !s.saving && !locked ? '' : ' disabled') + '>' + ctaLabel + '</button>')
+            : '')
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -11353,6 +11444,26 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-goto-step'){
       var n = parseInt(target.getAttribute('data-step'), 10) || 1;
       goToStep(n);
+      return true;
+    }
+    if (action === 'ar-eng-goto-pool'){
+      // Step 4 readiness row → jump to Step 3 and scroll to that pool's
+      // card. data-pool-index carries the original pool_index so we can
+      // find the corresponding [data-pool-card="N"] node after repaint.
+      var poolIdx = parseInt(target.getAttribute('data-pool-index'), 10);
+      goToStep(3);
+      // Wait for repaint then scroll the pool card into view.
+      setTimeout(function(){
+        try {
+          var card = document.querySelector('[data-pool-card="' + poolIdx + '"]');
+          if (card){
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            card.style.transition = 'box-shadow .4s';
+            card.style.boxShadow = '0 0 0 3px rgba(0,180,216,.5)';
+            setTimeout(function(){ if (card) card.style.boxShadow = ''; }, 1400);
+          }
+        } catch(_){}
+      }, 80);
       return true;
     }
     if (action === 'ar-eng-toggle-briefing-skip'){
