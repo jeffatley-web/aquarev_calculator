@@ -2916,6 +2916,24 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-brief-contact a{color:#cfe2eb;text-decoration:none;font-weight:500;}
 #ar2 .ar-eng-brief-contact a:hover{color:#48cae4;}
 
+/* Install QR card on the briefing step — text on the left, QR on
+   the right. Stacks vertically on phones. */
+#ar2 .ar-eng-brief-install{display:flex;gap:18px;align-items:center;margin:22px 0 4px;padding:18px 20px;background:linear-gradient(135deg,rgba(0,180,216,.15),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.4);border-radius:12px;}
+#ar2 .ar-eng-brief-install-l{flex:1;min-width:0;}
+#ar2 .ar-eng-brief-install-eyebrow{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:4px;}
+#ar2 .ar-eng-brief-install-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:#fff;line-height:1.2;margin-bottom:6px;}
+#ar2 .ar-eng-brief-install-sub{font-size:12.5px;color:#cfe2eb;line-height:1.55;margin-bottom:12px;}
+#ar2 .ar-eng-brief-install-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:10px 18px;border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:700;letter-spacing:.4px;cursor:pointer;transition:filter .12s,transform .12s;}
+#ar2 .ar-eng-brief-install-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
+#ar2 .ar-eng-brief-install-qr{flex-shrink:0;text-align:center;}
+#ar2 .ar-eng-brief-install-qr img{display:block;width:120px;height:120px;border-radius:8px;background:#fff;padding:6px;border:1px solid rgba(0,180,216,.25);}
+#ar2 .ar-eng-brief-install-qr-cap{margin-top:5px;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+@media(max-width:560px){
+  #ar2 .ar-eng-brief-install{flex-direction:column;text-align:left;}
+  #ar2 .ar-eng-brief-install-qr{align-self:center;}
+  #ar2 .ar-eng-brief-install-qr img{width:140px;height:140px;}
+}
+
 /* Flat key-value rows + notes */
 #ar2 .ar-eng-row-flat{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:1px solid rgba(0,180,216,.08);font-size:13px;}
 #ar2 .ar-eng-row-flat:last-of-type{border-bottom:none;}

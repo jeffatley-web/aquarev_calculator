@@ -11033,6 +11033,28 @@ window.AR2_ENGINEER = (function(){
       +       '</div>'
       +     '</div>'
 
+      // ── Install AquaRev card (briefing step) ────────────────────
+      // Engineers who arrive here in a browser tab benefit from a
+      // visual cue that this works as an installed app. QR code is
+      // the easiest path on a desk-bound rep handing the page to an
+      // engineer's phone, or for an engineer with the page on
+      // desktop scanning their own phone. Hidden when already in
+      // standalone PWA mode.
+      +     (window.AR_PWA && !AR_PWA.isStandalone()
+          ? '<div class="ar-eng-brief-install">'
+            + '<div class="ar-eng-brief-install-l">'
+            +   '<div class="ar-eng-brief-install-eyebrow">Install on your phone</div>'
+            +   '<div class="ar-eng-brief-install-title">Add AquaRev to your home screen</div>'
+            +   '<div class="ar-eng-brief-install-sub">One-tap launch, no browser bars, faster startup. Scan the QR code with your phone\'s camera to open the install page there, or tap the button below to install on this device.</div>'
+            +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">Install on this device</button>'
+            + '</div>'
+            + '<div class="ar-eng-brief-install-qr">'
+            +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent('https://www.aquarevwater.us/calculator-sandbox?install=1') + '" alt="Scan to install AquaRev" />'
+            +   '<div class="ar-eng-brief-install-qr-cap">Scan with your phone</div>'
+            + '</div>'
+            + '</div>'
+          : '')
+
       +     '<label class="ar-eng-skip-row">'
       +       '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
       +       '<span>Don\'t show this briefing on future visits</span>'
