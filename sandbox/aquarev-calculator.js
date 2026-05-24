@@ -15340,10 +15340,11 @@ function generateReport(){
   // Measured max: portrait body ≈ 830px / 18px per row ≈ 26 rows, less
   // Row B (~200) + media (~120) + disc (~30) = ~480px for Row A → ~23
   // rows. Held conservatively to 16 so long pool names that wrap don't
-  // push the totals strip off-page. Landscape rows are ~15px (rarely
-  // wrap because cols are wider) and body is shorter (~671px) so 20
-  // is the parallel target.
-  var POOL_TRIGGER   = (EX.layout==='landscape') ? 20 : 16;
+  // push the totals strip off-page. Landscape rows are ~18px after the
+  // compaction rules and body is shorter (~641px). Trigger at 14 so
+  // Row A stays under ~250px and the bottom-pinned media row + disc
+  // never get clipped, even with Purchase + Breakdown filled out below.
+  var POOL_TRIGGER   = (EX.layout==='landscape') ? 14 : 16;
   var POOL_P1_FILL   = (EX.layout==='landscape') ? 30 : 24;
   var POOL_CONT_FILL = (EX.layout==='landscape') ? 60 : 44;
   var nPoolRows = poolRowsArr.length;
