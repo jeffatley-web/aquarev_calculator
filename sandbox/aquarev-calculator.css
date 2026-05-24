@@ -1774,37 +1774,103 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-review-pool-row > div{color:#cfe2eb;text-align:right;}
 #ar2 .ar-admin-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.25);color:#48cae4;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
 
-/* ──────────── Engineer Submission Review — compact table ────────────
-   One row per pool. Optimized for 20+ pool properties — the admin
-   sees all pools at a glance and can click any row to drill into
-   notes / discrepancy reason. Columns are width-tuned for the 720px
-   modal; collapses to a 2-line layout on narrow screens. */
-#ar2 .ar-admin-review-rooms{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0 12px;border-bottom:1px solid rgba(0,180,216,.12);margin-bottom:10px;}
-#ar2 .ar-admin-review-rooms-lbl{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;margin-right:4px;}
-#ar2 .ar-admin-review-table{display:flex;flex-direction:column;font-size:12px;}
-#ar2 .ar-admin-review-thead,
-#ar2 .ar-admin-review-trow{display:grid;grid-template-columns:1.4fr 0.65fr 0.95fr 1.7fr 0.6fr 1fr 0.5fr;align-items:center;gap:8px;padding:8px 8px;border-bottom:1px solid rgba(0,180,216,.08);}
-#ar2 .ar-admin-review-thead{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;border-bottom:1px solid rgba(0,180,216,.22);padding-top:0;}
-#ar2 .ar-admin-review-trow{color:#cfe2eb;transition:background .12s;}
-#ar2 .ar-admin-review-trow:hover{background:rgba(0,180,216,.05);}
-#ar2 .ar-admin-review-trow b{color:#fff;font-weight:600;font-size:12.5px;}
-#ar2 .ar-admin-review-trow .col-gal,
-#ar2 .ar-admin-review-thead .col-gal,
-#ar2 .ar-admin-review-trow .col-media,
-#ar2 .ar-admin-review-thead .col-media{font-family:'JetBrains Mono',monospace;}
-#ar2 .ar-admin-review-trow .col-lines{display:flex;flex-wrap:wrap;gap:3px;}
-#ar2 .ar-admin-review-trow .col-lines .ar-admin-line-chip{margin:0;padding:1px 5px;font-size:10.5px;}
-#ar2 .ar-admin-review-trow .col-room,
-#ar2 .ar-admin-review-trow .col-type{font-size:11.5px;color:#cfe2eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-#ar2 .ar-admin-review-trow .col-flag{display:flex;gap:3px;justify-content:flex-end;}
-#ar2 .ar-admin-review-chev{display:inline-block;color:var(--mu);font-size:9px;margin-left:3px;transition:transform .12s;}
-#ar2 .ar-admin-review-flag{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-size:10px;font-weight:700;line-height:1;}
-#ar2 .ar-admin-review-flag.added{background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.55);color:#4ade80;}
-#ar2 .ar-admin-review-flag.disc{background:rgba(240,165,0,.22);border:1px solid rgba(240,165,0,.55);color:#f0a500;}
-#ar2 .ar-admin-review-flag.note{background:rgba(125,184,204,.18);border:1px solid rgba(125,184,204,.45);color:#cfe2eb;}
-#ar2 .ar-admin-review-expand{background:rgba(0,180,216,.05);border-left:3px solid rgba(0,180,216,.4);padding:8px 12px;margin:0 8px 6px;border-radius:0 6px 6px 0;}
-#ar2 .ar-admin-review-expand-row{display:flex;gap:10px;align-items:baseline;padding:3px 0;font-size:12px;line-height:1.45;}
-#ar2 .ar-admin-review-expand-row > span:first-child{flex:0 0 90px;color:#7db8cc;font-size:10px;letter-spacing:.8px;text-transform:uppercase;}
+/* ──────────── Engineer Submission Review modal ────────────
+   IMPORTANT: this modal mounts on document.body (not inside #ar2), so
+   every selector below is UNSCOPED — adding `#ar2` would silently
+   disable the styling and collapse the table back to a wall of text
+   (which is exactly the bug that prompted this redesign). The
+   .ar-admin-line-chip class IS still defined under #ar2 elsewhere; we
+   replicate it here un-prefixed so it also works inside the modal. */
+.ar-admin-line-chip{display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.25);color:#48cae4;font-family:'JetBrains Mono',monospace;font-size:11px;margin-right:4px;}
+
+/* Modal header — title + status pill on the same line, then the
+   property name set big and the engineer info as a clean metadata row. */
+.ar-admin-review-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid rgba(0,180,216,.18);}
+.ar-admin-review-head-l{min-width:0;flex:1;}
+.ar-admin-review-eyebrow{font-family:'Bebas Neue','DM Sans',sans-serif;font-size:13px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase;margin-bottom:6px;}
+.ar-admin-review-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;line-height:1.15;word-break:break-word;}
+.ar-admin-review-status{flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:99px;font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;border:1px solid transparent;line-height:1;white-space:nowrap;}
+.ar-admin-review-status::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;}
+.ar-admin-review-status.pending{background:rgba(240,165,0,.14);color:#f0a500;border-color:rgba(240,165,0,.4);}
+.ar-admin-review-status.in_progress{background:rgba(250,204,21,.14);color:#facc15;border-color:rgba(250,204,21,.4);}
+.ar-admin-review-status.submitted{background:rgba(0,180,216,.16);color:#48cae4;border-color:rgba(0,180,216,.5);}
+.ar-admin-review-status.reviewed{background:rgba(34,197,94,.16);color:#4ade80;border-color:rgba(34,197,94,.5);}
+.ar-admin-review-status.locked{background:rgba(125,184,204,.16);color:#cfe2eb;border-color:rgba(125,184,204,.45);}
+
+/* Engineer info strip — small icon-rich metadata row */
+.ar-admin-review-meta{display:flex;flex-wrap:wrap;gap:10px 22px;padding:0 0 14px;border-bottom:1px solid rgba(0,180,216,.12);margin-bottom:14px;font-size:12.5px;color:#cfe2eb;}
+.ar-admin-review-meta-item{display:flex;align-items:center;gap:7px;min-width:0;}
+.ar-admin-review-meta-lbl{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
+.ar-admin-review-meta-val{color:#fff;font-weight:500;}
+.ar-admin-review-meta-val.mono{font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.4px;font-size:12px;}
+
+/* KPI band — at-a-glance counts (pools, pump rooms, photos, videos) */
+.ar-admin-review-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+.ar-admin-review-kpi{background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:8px;padding:8px 10px;text-align:left;}
+.ar-admin-review-kpi-lbl{font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:3px;}
+.ar-admin-review-kpi-val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#fff;line-height:1;}
+.ar-admin-review-kpi.warn .ar-admin-review-kpi-val{color:#f0a500;}
+
+/* Pump room chips */
+.ar-admin-review-rooms{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 0 14px;border-bottom:1px solid rgba(0,180,216,.12);margin-bottom:14px;}
+.ar-admin-review-rooms-lbl{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-right:4px;}
+
+/* One row per pool — column grid that actually applies now that we
+   dropped the #ar2 prefix. Designed for the 720px modal. */
+.ar-admin-review-table{display:flex;flex-direction:column;font-size:12px;background:rgba(7,22,40,.35);border:1px solid rgba(0,180,216,.18);border-radius:8px;overflow:hidden;}
+.ar-admin-review-thead,
+.ar-admin-review-trow{display:grid;grid-template-columns:minmax(120px,1.4fr) 70px 95px minmax(160px,1.7fr) 70px minmax(80px,1fr) 50px;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid rgba(0,180,216,.08);}
+.ar-admin-review-trow:last-child{border-bottom:none;}
+.ar-admin-review-thead{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;background:rgba(0,180,216,.07);border-bottom:1px solid rgba(0,180,216,.25);}
+.ar-admin-review-trow{color:#cfe2eb;transition:background .12s;}
+.ar-admin-review-trow:hover{background:rgba(0,180,216,.05);}
+.ar-admin-review-trow .col-pool{display:flex;align-items:center;gap:5px;min-width:0;}
+.ar-admin-review-trow .col-pool b{color:#fff;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ar-admin-review-thead .col-gal,
+.ar-admin-review-trow .col-gal{font-family:'JetBrains Mono',monospace;text-align:right;}
+.ar-admin-review-thead .col-media,
+.ar-admin-review-trow .col-media{font-family:'JetBrains Mono',monospace;text-align:center;}
+.ar-admin-review-trow .col-lines{display:flex;flex-wrap:wrap;gap:3px;}
+.ar-admin-review-trow .col-lines .ar-admin-line-chip{margin:0;padding:1px 6px;font-size:10.5px;}
+.ar-admin-review-trow .col-room,
+.ar-admin-review-trow .col-type{font-size:11.5px;color:#cfe2eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ar-admin-review-type-pill{display:inline-flex;align-items:center;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;border:1px solid transparent;line-height:1.4;}
+.ar-admin-review-type-pill.fresh{background:rgba(0,180,216,.15);color:#48cae4;border-color:rgba(0,180,216,.35);}
+.ar-admin-review-type-pill.salt{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.35);}
+.ar-admin-review-type-pill.unk{background:rgba(125,184,204,.1);color:#7db8cc;border-color:rgba(125,184,204,.25);}
+.ar-admin-review-trow .col-flag{display:flex;gap:4px;justify-content:flex-end;}
+.ar-admin-review-chev{display:inline-block;color:#7db8cc;font-size:10px;flex-shrink:0;transition:transform .12s;}
+.ar-admin-review-flag{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;line-height:1;}
+.ar-admin-review-flag.added{background:rgba(34,197,94,.22);border:1px solid rgba(34,197,94,.55);color:#4ade80;}
+.ar-admin-review-flag.disc{background:rgba(240,165,0,.22);border:1px solid rgba(240,165,0,.55);color:#f0a500;}
+.ar-admin-review-flag.note{background:rgba(125,184,204,.18);border:1px solid rgba(125,184,204,.45);color:#cfe2eb;}
+
+/* Expandable notes / discrepancy region beneath a pool row */
+.ar-admin-review-expand{background:rgba(0,180,216,.06);border-left:3px solid rgba(0,180,216,.45);padding:10px 14px;margin:0;font-size:12px;}
+.ar-admin-review-expand-row{display:flex;gap:12px;align-items:baseline;padding:4px 0;line-height:1.5;}
+.ar-admin-review-expand-row > span:first-child{flex:0 0 92px;color:#7db8cc;font-size:9.5px;letter-spacing:1px;text-transform:uppercase;font-weight:600;}
+.ar-admin-review-expand-row.disc > span:first-child{color:#f0a500;}
+.ar-admin-review-expand-row > div{color:#cfe2eb;flex:1;}
+
+/* Property-wide engineer notes (engineer_property_notes), shown below
+   the pool table when present. */
+.ar-admin-review-prop-notes{margin-top:14px;padding:12px 14px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:8px;}
+.ar-admin-review-prop-notes-hd{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px;}
+.ar-admin-review-prop-notes-body{font-size:12.5px;color:#cfe2eb;line-height:1.6;white-space:pre-wrap;}
+
+/* Empty / error states */
+.ar-admin-review-empty,.ar-admin-review-err{padding:18px 14px;text-align:center;font-size:12.5px;color:#7db8cc;background:rgba(7,22,40,.4);border:1px dashed rgba(125,184,204,.3);border-radius:8px;}
+.ar-admin-review-err{color:#fca5a5;border-color:rgba(252,165,165,.4);background:rgba(252,165,165,.06);}
+
+/* Narrow viewport — collapse the table to a 2-line stacked layout */
+@media (max-width:680px){
+  .ar-admin-review-kpis{grid-template-columns:repeat(2,1fr);}
+  .ar-admin-review-thead{display:none;}
+  .ar-admin-review-trow{grid-template-columns:1fr;gap:4px;padding:11px 14px;}
+  .ar-admin-review-trow > span{display:flex;align-items:baseline;gap:8px;}
+  .ar-admin-review-trow > span::before{content:attr(data-lbl);font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;min-width:74px;}
+  .ar-admin-review-trow .col-pool::before{content:'';min-width:0;}
+}
 #ar2 .ar-admin-review-expand-row > div{color:#cfe2eb;flex:1;}
 #ar2 .ar-admin-review-expand-row.disc > div{color:#f0a500;}
 @media (max-width: 640px){

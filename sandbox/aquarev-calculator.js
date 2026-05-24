@@ -8414,7 +8414,7 @@ function populateAdminEngineerSubmissions(){
   if (!c){ mount.innerHTML = '<div class="ar-admin-empty">Cloud unavailable.</div>'; return; }
   // Fetch assignments + engineer names + linked record names in parallel.
   Promise.all([
-    c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at').order('last_modified_at',{ascending:false}),
+    c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,engineer_property_notes,status,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at').order('last_modified_at',{ascending:false}),
     c.from('app_users').select('id,name,phone').eq('role','engineer'),
     c.from('portfolio_properties').select('id,property_name,portfolio_id'),
     c.from('portfolios').select('id,name'),
@@ -8553,16 +8553,64 @@ function openAdminReviewModal(assignmentId){
   bd.id = 'ar-admin-review-modal';
   bd.className = 'ar-pf-modal-backdrop';
   bd.dataset.assignmentId = assignmentId;
-  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" style="max-width:720px;max-height:88vh;overflow-y:auto">'
-    + '<div class="ar-pf-modal-title">Engineer Submission Review</div>'
-    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.5;margin-bottom:14px">'
-    +   '<b style="color:#fff">' + esc(scopeName) + '</b><br>'
-    +   'Engineer: ' + esc(eng ? eng.name : '(removed)') + (eng && eng.phone ? ' · ' + esc(eng.phone) : '') + '<br>'
-    +   'Status: ' + esc(asgn.status) + (asgn.submitted_at ? ' · sent ' + new Date(asgn.submitted_at).toLocaleString() : '')
+  // Build a status pill for the title row. Maps DB status → display.
+  var statusMap = {
+    pending:     'Pending',
+    in_progress: 'In progress',
+    submitted:   'Sent for review',
+    reviewed:    'Reviewed',
+    locked:      'Locked'
+  };
+  var statusCls = asgn.status || 'pending';
+  var statusLabel = statusMap[statusCls] || statusCls;
+  var sentTxt = asgn.submitted_at
+    ? new Date(asgn.submitted_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})
+    : null;
+  var reviewedTxt = asgn.reviewed_at
+    ? new Date(asgn.reviewed_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})
+    : null;
+
+  bd.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" style="max-width:760px;max-height:90vh;overflow-y:auto;padding:24px 26px 20px">'
+
+    // ── Header: eyebrow + property name on the left, status pill on the right ──
+    + '<div class="ar-admin-review-head">'
+    +   '<div class="ar-admin-review-head-l">'
+    +     '<div class="ar-admin-review-eyebrow">Engineer Submission Review</div>'
+    +     '<div class="ar-admin-review-title">' + esc(scopeName) + '</div>'
+    +   '</div>'
+    +   '<span class="ar-admin-review-status ' + esc(statusCls) + '">' + esc(statusLabel) + '</span>'
     + '</div>'
-    + '<div id="ar-admin-review-body"><div style="color:var(--mu);font-size:12px;padding:12px">Loading verifications…</div></div>'
+
+    // ── Metadata strip: engineer, phone, submitted, reviewed ──
+    + '<div class="ar-admin-review-meta">'
+    +   '<div class="ar-admin-review-meta-item">'
+    +     '<span class="ar-admin-review-meta-lbl">Engineer</span>'
+    +     '<span class="ar-admin-review-meta-val">' + esc(eng ? eng.name : '(removed)') + '</span>'
+    +   '</div>'
+    +   (eng && eng.phone
+        ? '<div class="ar-admin-review-meta-item">'
+          + '<span class="ar-admin-review-meta-lbl">Phone</span>'
+          + '<span class="ar-admin-review-meta-val mono">' + esc(eng.phone) + '</span>'
+          + '</div>'
+        : '')
+    +   (sentTxt
+        ? '<div class="ar-admin-review-meta-item">'
+          + '<span class="ar-admin-review-meta-lbl">Sent</span>'
+          + '<span class="ar-admin-review-meta-val">' + esc(sentTxt) + '</span>'
+          + '</div>'
+        : '')
+    +   (reviewedTxt
+        ? '<div class="ar-admin-review-meta-item">'
+          + '<span class="ar-admin-review-meta-lbl">Reviewed</span>'
+          + '<span class="ar-admin-review-meta-val">' + esc(reviewedTxt) + '</span>'
+          + '</div>'
+        : '')
+    + '</div>'
+
+    + '<div id="ar-admin-review-body"><div class="ar-admin-review-empty">Loading verifications…</div></div>'
     + '<div class="ar-pf-modal-err" id="ar-admin-review-err"></div>'
-    + '<div class="ar-pf-modal-actions">'
+
+    + '<div class="ar-pf-modal-actions" style="margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,180,216,.18)">'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-download-pdf" type="button" title="Generate engineer verification PDF">↓ PDF</button>'
     +   '<button class="ar-pf-modal-btn primary outline" data-action="admin-review-open-portal" type="button" title="Open the engineer\'s 4-step portal for this record">Review in Portal</button>'
@@ -8633,28 +8681,46 @@ function openAdminReviewModal(assignmentId){
     var body = document.getElementById('ar-admin-review-body');
     if (!body) return;
     if (!verifs.length){
-      body.innerHTML = '<div class="ar-admin-empty" style="margin:8px 0 0">No pool data recorded yet. Engineer hasn\'t saved anything on Step 3.</div>';
+      body.innerHTML = '<div class="ar-admin-review-empty">No pool data recorded yet. Engineer hasn\'t saved anything on Step 3.</div>';
       return;
     }
     // Compact one-row-per-pool table layout. Optimized for 20+ pools —
     // each pool collapses to a single tight line with all the data the
-    // admin needs at a glance: name, water type, gallons, return-line
-    // chips, media counts, linked pump room, status flag. Notes and
-    // discrepancy reasons (which can be long) live in an expandable
-    // row revealed by clicking the pool name.
-    function poolTypeLabel(t){
-      if (t === 'fresh' || t === 'chlorine') return 'Fresh';
-      if (t === 'saltwater') return 'Salt';
-      return '—';
+    // admin needs at a glance. Notes / discrepancy reasons live in an
+    // expandable row revealed by clicking the pool name.
+    function poolTypeChip(t){
+      if (t === 'fresh' || t === 'chlorine')
+        return '<span class="ar-admin-review-type-pill fresh">Fresh</span>';
+      if (t === 'saltwater')
+        return '<span class="ar-admin-review-type-pill salt">Salt</span>';
+      return '<span class="ar-admin-review-type-pill unk">—</span>';
     }
+    // ── KPI band: at-a-glance verification counts ──
+    var totalPhotos = 0, totalVideos = 0;
+    media.forEach(function(m){
+      if (m.media_type === 'photo') totalPhotos++;
+      if (m.media_type === 'video') totalVideos++;
+    });
+    var kpiBand = '<div class="ar-admin-review-kpis">'
+      + '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pools</div><div class="ar-admin-review-kpi-val">' + verifs.length + '</div></div>'
+      + '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRooms.length + '</div></div>'
+      + '<div class="ar-admin-review-kpi' + (totalPhotos===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + totalPhotos + '</div></div>'
+      + '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + totalVideos + '</div></div>'
+      + '</div>';
+    // Pump-room summary block
+    var pumpRoomSummary = pumpRooms.length
+      ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
+        + pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label) + '</span>'; }).join('')
+        + '</div>'
+      : '';
     var headRow = '<div class="ar-admin-review-thead">'
       + '<span class="col-pool">Pool</span>'
       + '<span class="col-type">Type</span>'
       + '<span class="col-gal">Gallons</span>'
       + '<span class="col-lines">Return lines</span>'
-      + '<span class="col-media">Media</span>'
+      + '<span class="col-media" title="Photos / Videos">P / V</span>'
       + '<span class="col-room">Pump room</span>'
-      + '<span class="col-flag" title="Discrepancy / notes / engineer-added">·</span>'
+      + '<span class="col-flag" title="Discrepancy / notes / engineer-added"></span>'
       + '</div>';
     var rowsHtml = verifs.map(function(v){
       var idx = Number(v.pool_index);
@@ -8662,11 +8728,11 @@ function openAdminReviewModal(assignmentId){
       var linesHtml = (v.return_lines || []).map(function(ln){
         return '<span class="ar-admin-line-chip">' + (ln.count || 1) + '×' + (ln.diameter || '?') + '"</span>';
       }).join('');
-      if (!linesHtml) linesHtml = '<span style="color:var(--mu)">—</span>';
+      if (!linesHtml) linesHtml = '<span style="color:#7db8cc">—</span>';
       var mc = mediaByPool[idx] || { photo: 0, video: 0 };
       var mediaCell = (mc.photo + mc.video) === 0
-        ? '<span style="color:#f0a500">0 / 0</span>'
-        : '<span title="' + mc.photo + ' photo'+(mc.photo===1?'':'s')+', ' + mc.video + ' video'+(mc.video===1?'':'s')+'">' + mc.photo + ' / ' + mc.video + '</span>';
+        ? '<span style="color:#f0a500">0/0</span>'
+        : '<span title="' + mc.photo + ' photo'+(mc.photo===1?'':'s')+', ' + mc.video + ' video'+(mc.video===1?'':'s')+'">' + mc.photo + '/' + mc.video + '</span>';
       var roomLabel = v.pump_room_id ? (roomLabelById[v.pump_room_id] || '—') : '—';
       var flags = [];
       if (v.is_engineer_added)       flags.push('<span class="ar-admin-review-flag added" title="Engineer-added pool">+</span>');
@@ -8675,12 +8741,12 @@ function openAdminReviewModal(assignmentId){
       var hasExpand = !!(v.notes || v.discrepancy_reason);
       var rowAttrs = hasExpand ? ' data-action="admin-review-pool-toggle" data-pool-row="' + idx + '" style="cursor:pointer"' : '';
       var rowHtml = '<div class="ar-admin-review-trow"' + rowAttrs + '>'
-        + '<span class="col-pool"><b>' + esc(name) + '</b>' + (hasExpand ? ' <span class="ar-admin-review-chev">▸</span>' : '') + '</span>'
-        + '<span class="col-type">' + esc(poolTypeLabel(v.pool_type)) + '</span>'
-        + '<span class="col-gal">' + (v.confirmed_gallons != null ? fn(v.confirmed_gallons) : '<span style="color:var(--mu)">—</span>') + '</span>'
-        + '<span class="col-lines">' + linesHtml + '</span>'
-        + '<span class="col-media">' + mediaCell + '</span>'
-        + '<span class="col-room">' + esc(roomLabel) + '</span>'
+        + '<span class="col-pool" data-lbl="Pool"><b>' + esc(name) + '</b>' + (hasExpand ? '<span class="ar-admin-review-chev">▸</span>' : '') + '</span>'
+        + '<span class="col-type" data-lbl="Type">' + poolTypeChip(v.pool_type) + '</span>'
+        + '<span class="col-gal" data-lbl="Gallons">' + (v.confirmed_gallons != null ? fn(v.confirmed_gallons) : '<span style="color:#7db8cc">—</span>') + '</span>'
+        + '<span class="col-lines" data-lbl="Lines">' + linesHtml + '</span>'
+        + '<span class="col-media" data-lbl="Media">' + mediaCell + '</span>'
+        + '<span class="col-room" data-lbl="Pump room">' + esc(roomLabel) + '</span>'
         + '<span class="col-flag">' + flags.join('') + '</span>'
         + '</div>';
       var expandHtml = hasExpand
@@ -8691,18 +8757,21 @@ function openAdminReviewModal(assignmentId){
         : '';
       return rowHtml + expandHtml;
     }).join('');
-    // Pump-room summary block — short list above the pool table so
-    // the admin can quickly see how many rooms were captured.
-    var pumpRoomSummary = pumpRooms.length
-      ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms (' + pumpRooms.length + ')</span> '
-        + pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label) + '</span>'; }).join('')
-        + '</div>'
-      : '';
-    body.innerHTML = pumpRoomSummary
-      + '<div class="ar-admin-review-table">' + headRow + rowsHtml + '</div>';
+    // Property-wide engineer notes (engineer_property_notes) live on the
+    // assignment row — fetch and render below the table when present.
+    var propNotesHtml = '';
+    if (asgn.engineer_property_notes && String(asgn.engineer_property_notes).trim()){
+      propNotesHtml = '<div class="ar-admin-review-prop-notes">'
+        + '<div class="ar-admin-review-prop-notes-hd">General notes / comments</div>'
+        + '<div class="ar-admin-review-prop-notes-body">' + esc(asgn.engineer_property_notes) + '</div>'
+        + '</div>';
+    }
+    body.innerHTML = kpiBand + pumpRoomSummary
+      + '<div class="ar-admin-review-table">' + headRow + rowsHtml + '</div>'
+      + propNotesHtml;
   }, function(err){
     var body = document.getElementById('ar-admin-review-body');
-    if (body) body.innerHTML = '<div style="color:#fca5a5;font-size:12px;padding:8px">Couldn\'t load verifications: ' + esc((err && err.message) || 'unknown') + '</div>';
+    if (body) body.innerHTML = '<div class="ar-admin-review-err">Couldn\'t load verifications: ' + esc((err && err.message) || 'unknown') + '</div>';
   });
 }
 function closeAdminReviewModal(){
