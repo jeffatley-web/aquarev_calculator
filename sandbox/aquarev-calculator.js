@@ -11301,10 +11301,23 @@ window.AR2_ENGINEER = (function(){
       }
       var input = document.getElementById('ar-eng-media-input');
       if (!input) return true;
-      // capture="environment" hints the OS to prefer the rear camera on
-      // mobile. Desktops ignore this and show the file picker normally.
+      // ── Camera launch strategy ────────────────────────────────
+      // capture="environment" is a mobile-only hint that asks the OS to
+      // launch the rear camera app instead of the photo library picker.
+      // On DESKTOP browsers and certain PWA / embedded webview contexts
+      // it tries to wire the camera feed INTO the offscreen <input>
+      // element — which has 1×1px dimensions — producing a black
+      // viewport with no camera feed (the bug Jeff reported).
+      // Fix: only set capture on real mobile UAs. Desktop falls back to
+      // the standard file picker which already offers "Take Photo" /
+      // "Use Camera" when a webcam is available.
       input.setAttribute('accept', mediaType === 'video' ? 'video/*' : 'image/*');
-      try { input.setAttribute('capture', 'environment'); } catch(_){}
+      var ua = (window.navigator && window.navigator.userAgent) || '';
+      var isMobile = /Mobi|Android|iPhone|iPad|iPod|Mobile|webOS/i.test(ua);
+      try {
+        if (isMobile) input.setAttribute('capture', 'environment');
+        else          input.removeAttribute('capture');
+      } catch(_){}
       input.value = '';   // clear so picking the same file again still fires change
       input.click();
       return true;
