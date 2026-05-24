@@ -9040,18 +9040,57 @@ function renderEngineerAssignmentList(mountEl){
   var u = (window.AR2_CLOUD && AR2_CLOUD.user && AR2_CLOUD.user()) || {};
   var nameDisplay = esc(u.name || 'Engineer');
   // PWA install affordance — only shown when the app is NOT already
-  // running as a standalone PWA. Chrome/Edge get a real install button
-  // (deferred prompt event). iOS Safari gets a hint string that the user
-  // can dismiss; localStorage remembers the dismissal.
+  // running as a standalone PWA. Three variants:
+  //   • Android Chrome / desktop Chromium: deferred install prompt
+  //     fired → big aqua "Install app" CTA.
+  //   • iOS Safari / iOS Chrome: WebKit doesn't expose programmatic
+  //     install, so we show step-by-step instructions with the actual
+  //     iOS Share-icon glyph inline. Dismissal persisted in localStorage.
+  //   • Already standalone: nothing rendered (engineer is already in
+  //     the installed PWA).
   var installHtml = '';
   if (window.AR_PWA && !AR_PWA.isStandalone()){
+    // Phone-with-arrow icon used as the leading thumbnail on the card.
+    var phoneIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<rect x="6" y="2" width="12" height="20" rx="2.5"/>'
+      + '<path d="M11 18h2"/>'
+      + '<path d="M12 6v6"/>'
+      + '<polyline points="9 9 12 6 15 9"/>'
+      + '</svg>';
     if (AR_PWA.installable){
-      installHtml = '<div class="ar-eng-install"><span class="ar-eng-install-msg">Install AquaRev on this device for one-tap access.</span><button class="ar-eng-install-btn" data-action="ar-pwa-install" type="button">Install app</button></div>';
+      installHtml = '<div class="ar-eng-install">'
+        + '<div class="ar-eng-install-ico">' + phoneIcon + '</div>'
+        + '<div class="ar-eng-install-body">'
+        +   '<div class="ar-eng-install-eyebrow">Recommended</div>'
+        +   '<div class="ar-eng-install-title">Install AquaRev as an app</div>'
+        +   '<div class="ar-eng-install-msg">One-tap launch from your home screen. No browser bars, faster startup, behaves like a native app.</div>'
+        + '</div>'
+        + '<div class="ar-eng-install-actions">'
+        +   '<button class="ar-eng-install-btn" data-action="ar-pwa-install" type="button">Install app</button>'
+        + '</div>'
+        + '</div>';
     } else if (AR_PWA.isIos()){
       var dismissed = false;
       try { dismissed = localStorage.getItem('ar_pwa_ios_hint_dismissed') === '1'; } catch(_){}
       if (!dismissed){
-        installHtml = '<div class="ar-eng-install ios"><span class="ar-eng-install-msg">Install on iPhone: tap <b>Share</b> → <b>Add to Home Screen</b>.</span><button class="ar-eng-install-btn outline" data-action="ar-pwa-ios-hint-dismiss" type="button">Got it</button></div>';
+        // The iOS Share icon — square with an up arrow exiting the top.
+        var shareGlyph = '<span class="ar-eng-share-glyph">'
+          + '<svg viewBox="0 0 16 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          +   '<path d="M8 2v10"/><polyline points="5 5 8 2 11 5"/>'
+          +   '<path d="M3 8v6a2 2 0 002 2h6a2 2 0 002-2V8"/>'
+          + '</svg>'
+        + '</span>';
+        installHtml = '<div class="ar-eng-install ios">'
+          + '<div class="ar-eng-install-ico">' + phoneIcon + '</div>'
+          + '<div class="ar-eng-install-body">'
+          +   '<div class="ar-eng-install-eyebrow">Install on iPhone</div>'
+          +   '<div class="ar-eng-install-title">Add AquaRev to your home screen</div>'
+          +   '<div class="ar-eng-install-msg">Tap the Share icon ' + shareGlyph + ' at the bottom of your browser, then choose <b>Add to Home Screen</b>. Launch it like a normal app — no more typing the URL.</div>'
+          + '</div>'
+          + '<div class="ar-eng-install-actions">'
+          +   '<button class="ar-eng-install-btn outline" data-action="ar-pwa-ios-hint-dismiss" type="button">Got it</button>'
+          + '</div>'
+          + '</div>';
       }
     }
   }
@@ -10535,7 +10574,12 @@ window.AR2_ENGINEER = (function(){
         + '<div class="ar-eng-help-section">Step 1 — Briefing</div>'
         + '<p>A 60–90 second orientation video. Watch once, then check <b>"Don\'t show this again"</b> to skip it on future logins.</p>'
         + '<p>If you ever want to rewatch it, tap the button below.</p>'
-        + '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconReplay() + ' Watch the briefing again</button>',
+        + '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconReplay() + ' Watch the briefing again</button>'
+        + '<div class="ar-eng-help-section" style="margin-top:24px">Install on your phone</div>'
+        + '<p>Add AquaRev to your home screen so you can launch it like a regular app.</p>'
+        + '<p><b>iPhone (Safari or Chrome):</b> tap the Share icon at the bottom of the browser, then choose <b>Add to Home Screen</b>.</p>'
+        + '<p><b>Android (Chrome):</b> a blue "Install" banner appears at the bottom — or tap the ⋮ menu and choose <b>Install app</b>.</p>'
+        + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments + signed-in session are remembered on the icon. No browser bars, no URL typing.</p>',
       2: ''
         + '<div class="ar-eng-help-section">Step 2 — Property review</div>'
         + '<p><b>Access is auto-confirmed</b> the moment you open this assignment from the portal — so you don\'t need to tap anything to start.</p>'
