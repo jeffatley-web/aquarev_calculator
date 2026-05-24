@@ -15213,48 +15213,82 @@ function generateReport(){
     // ── Body ──
     +'<div class="rpt-body">'
 
-      // ── Two-column flow layout (Jeff 2026-05-25 spec) ──────────
-      // LEFT  : Pool Configuration → totals → Purchase Options.
-      // RIGHT : AquaRev Devices Required → Total Investment →
-      //         Monthly Savings Breakdown → Water Conservation.
-      // Each column flows independently. Previously this was TWO
-      // 2-col rows (Row A + Row B) where each row locked to the max of
-      // its two children, wasting space when one side was much shorter
-      // than the other. Now Pool Config (usually the tallest item) lives
-      // in the same column as the natural-height Purchase block, and the
-      // right column packs Devices + Breakdown + Water Conservation
-      // densely under each other. ~80-100px more usable body height,
-      // letting 20+ pool single-page landscape and 25+ portrait fit
-      // without crowding the bottom-pinned media row / CTA bar.
-      +'<div class="rpt-sec rpt-cols rpt-assess-flow">'
-        // ── LEFT column ──
-        +'<div>'
-          +'<div class="rpt-stitle">Pool Configuration</div>'
-          +poolRows
-          +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
-          +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
-          +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
-          +'<div class="rpt-stitle rpt-stitle-stack">Purchase Options</div>'
-          +purBox+advBox
+      // ── Body layout: classic 2-row vs single-column flow ───────
+      // ≤ 10 pools: original Row A (Pool Config | Devices) + Row B
+      //   (Purchase | Breakdown + Water) — looks balanced when Pool
+      //   Config column is short.
+      // > 10 pools: switch to the 2-col flow layout where LEFT = Pool
+      //   Config + Purchase Options and RIGHT = Devices + Breakdown +
+      //   Water. Each column flows its own content height so Pool
+      //   Config can grow without dragging an empty Devices column
+      //   down with it. (Jeff 2026-05-25 spec.)
+      +(poolRowsArr.length > 10
+        // ── FLOW layout (11+ pools) ────────────────────────────
+        ?'<div class="rpt-sec rpt-cols rpt-assess-flow">'
+          // LEFT column
+          +'<div>'
+            +'<div class="rpt-stitle">Pool Configuration</div>'
+            +poolRows
+            +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
+            +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
+            +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
+            +'<div class="rpt-stitle rpt-stitle-stack">Purchase Options</div>'
+            +purBox+advBox
+          +'</div>'
+          // RIGHT column
+          +'<div>'
+            +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+            +devRows
+            +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
+            +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+            +'<div class="rpt-stitle rpt-stitle-stack">Monthly Savings Breakdown</div>'
+            +'<table class="rpt-tbl">'
+              +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
+              +'<tbody>'
+                +bkRows
+                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
+              +'</tbody>'
+            +'</table>'
+            +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
+            +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
+          +'</div>'
         +'</div>'
-        // ── RIGHT column ──
-        +'<div>'
-          +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
-          +devRows
-          +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
-          +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
-          +'<div class="rpt-stitle rpt-stitle-stack">Monthly Savings Breakdown</div>'
-          +'<table class="rpt-tbl">'
-            +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
-            +'<tbody>'
-              +bkRows
-              +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
-            +'</tbody>'
-          +'</table>'
-          +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
-          +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
+
+        // ── CLASSIC 2-row layout (1-10 pools) ──────────────────
+        :'<div class="rpt-sec rpt-cols">'
+          +'<div>'
+            +'<div class="rpt-stitle">Pool Configuration</div>'
+            +poolRows
+            +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
+            +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
+            +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
+          +'</div>'
+          +'<div>'
+            +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+            +devRows
+            +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
+            +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+          +'</div>'
         +'</div>'
-      +'</div>'
+        +'<div class="rpt-sec rpt-cols">'
+          +'<div>'
+            +'<div class="rpt-stitle">Purchase Options</div>'
+            +purBox+advBox
+          +'</div>'
+          +'<div>'
+            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+            +'<table class="rpt-tbl">'
+              +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
+              +'<tbody>'
+                +bkRows
+                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
+              +'</tbody>'
+            +'</table>'
+            +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
+            +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
+          +'</div>'
+        +'</div>'
+      )
 
       // ── Bottom row: media + disclaimer/comments (layout-aware) ──
       // Pinned to the body bottom via the existing margin-top:auto CSS
