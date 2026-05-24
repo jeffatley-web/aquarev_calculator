@@ -1119,6 +1119,17 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-stitle::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,#d5eaf5,transparent);}
 /* ── Two-column ── */
 #ar2-report .rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+/* Assess flow layout — each column flows its own content height
+   independently rather than locking to the row's max. CSS grid auto-
+   sizes rows to the tallest cell, but ITEMS inside don't stretch
+   unless align-items:stretch is on, so setting align-items:start keeps
+   each column packed to its own natural height. */
+#ar2-report .rpt-assess-flow{align-items:start!important;}
+/* Landscape print scoped rule above sets align-items:stretch on every
+   .rpt-cols inside the body — exclude the new assess-flow grid from
+   that stretch so its columns flow at natural height. */
+@media print { #ar2-report .rpt.rpt-landscape > .rpt-body > .rpt-sec.rpt-cols.rpt-assess-flow{align-items:start!important;} }
+#ar2-report .rpt-stitle-stack{margin-top:14px;}
 /* ── Data rows ── */
 #ar2-report .rpt-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:11px;}
 #ar2-report .rpt-row:last-child{border-bottom:none;}

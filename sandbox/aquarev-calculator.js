@@ -15213,84 +15213,60 @@ function generateReport(){
     // ── Body ──
     +'<div class="rpt-body">'
 
-      // Row A: Pool config + Device selection
-      +'<div class="rpt-sec rpt-cols">'
+      // ── Two-column flow layout (Jeff 2026-05-25 spec) ──────────
+      // LEFT  : Pool Configuration → totals → Purchase Options.
+      // RIGHT : AquaRev Devices Required → Total Investment →
+      //         Monthly Savings Breakdown → Water Conservation.
+      // Each column flows independently. Previously this was TWO
+      // 2-col rows (Row A + Row B) where each row locked to the max of
+      // its two children, wasting space when one side was much shorter
+      // than the other. Now Pool Config (usually the tallest item) lives
+      // in the same column as the natural-height Purchase block, and the
+      // right column packs Devices + Breakdown + Water Conservation
+      // densely under each other. ~80-100px more usable body height,
+      // letting 20+ pool single-page landscape and 25+ portrait fit
+      // without crowding the bottom-pinned media row / CTA bar.
+      +'<div class="rpt-sec rpt-cols rpt-assess-flow">'
+        // ── LEFT column ──
         +'<div>'
           +'<div class="rpt-stitle">Pool Configuration</div>'
           +poolRows
           +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+'\u00a0gal</span></div>'
           +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+'\u00a0gal</span></div>':'')
           +'<div class="rpt-row"><span class="k">CO\u2082 pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+'\u00a0gal':'None enabled')+'</span></div>'
+          +'<div class="rpt-stitle rpt-stitle-stack">Purchase Options</div>'
+          +purBox+advBox
         +'</div>'
+        // ── RIGHT column ──
         +'<div>'
           +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
           +devRows
           +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">\u2212'+fc(R.disc_amt,0)+'</span></div>':'')
           +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+          +'<div class="rpt-stitle rpt-stitle-stack">Monthly Savings Breakdown</div>'
+          +'<table class="rpt-tbl">'
+            +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
+            +'<tbody>'
+              +bkRows
+              +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
+            +'</tbody>'
+          +'</table>'
+          +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
+          +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
         +'</div>'
       +'</div>'
 
-      // Rows B-D: layout-aware
+      // ── Bottom row: media + disclaimer/comments (layout-aware) ──
+      // Pinned to the body bottom via the existing margin-top:auto CSS
+      // on .rpt-ls-media-row / .rpt-pt-media-row so this stack hugs
+      // the CTA bar regardless of how short or tall the columns above
+      // turn out.
       +(EX.layout==='landscape'
-        // ── LANDSCAPE: compact single-page layout ──
-        // Row B = Purchase Options | Monthly Savings Breakdown (2 cols,
-        // natural height). Row C = Property Images | Video Resources
-        // (separate 2-col row at the bottom of body). Previous structure
-        // nested the media stacks INSIDE each column of Row B and tried
-        // to bottom-pin them with margin-top:auto / grid 1fr — Chrome's
-        // print engine wouldn't size the inner grid tracks against a
-        // definite parent height, so the bottom stacks got pushed past
-        // the body's overflow clip and vanished from PDF. Pulling the
-        // media into its own sibling row removes the inner-grid sizing
-        // dependency entirely; natural flow handles it cleanly.
-        ?'<div class="rpt-sec rpt-cols">'
-          +'<div>'
-            +'<div class="rpt-stitle">Purchase Options</div>'
-            +purBox+advBox
-          +'</div>'
-          +'<div>'
-            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-            +'<table class="rpt-tbl">'
-              +'<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
-              +'<tbody>'
-                +bkRows
-                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
-              +'</tbody>'
-            +'</table>'
-            +(EX.inclWater?waterHtml:'')
-          +'</div>'
-        +'</div>'
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
-        +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
-
-        // ── PORTRAIT: Purchase Options stacked left, Breakdown + Water right ──
-        :'<div class="rpt-sec rpt-cols">'
-          +'<div>'
-            +'<div class="rpt-stitle">Purchase Options</div>'
-            +purBox+advBox
-          +'</div>'
-          +'<div>'
-            +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-            +'<table class="rpt-tbl">'
-              +'<thead><tr><th>Category</th><th>Monthly Savings</th><th>% of Total</th></tr></thead>'
-              +'<tbody>'
-                +bkRows
-                +'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr>'
-              +'</tbody>'
-            +'</table>'
-            +'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
-            +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
-          +'</div>'
-        +'</div>'
-        // .rpt-pt-media-row hooks into the @media print rule that pins
-        // this row to the bottom of the body slot (margin-top:auto +
-        // flex:0 0 auto). Guarantees Property Images / Video Resources
-        // stay fully visible even when upper content (Pool Config +
-        // Purchase + Breakdown + Water) runs tall — overflow clips the
-        // upper rows first, never the media row.
-        +((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+mediaLeft+ytHtml+'</div>':'')
-        +commHtml
-        +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
+        ?((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
+          +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
+        :((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-pt-media-row">'+mediaLeft+ytHtml+'</div>':'')
+          +commHtml
+          +'<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings may vary by property size, usage patterns, climate, and maintenance practices. AquaRev devices are NSF/ANSI 50 certified and tested by IAPMO R&amp;T. Chemical reduction rates reflect controlled lab results. This assessment is for informational purposes only and does not constitute a guarantee of savings.</div>'
       )
 
     +'</div>' // end .rpt-body
@@ -15337,19 +15313,19 @@ function generateReport(){
   // LAST page that carries pool data (per spec: "totals must always
   // display with the pool list"). The dedicated final summary page no
   // longer repeats them.
-  // Measured max: portrait body ≈ 830px / 18px per row ≈ 26 rows, less
-  // Row B (~200) + media (~120) + disc (~30) = ~480px for Row A → ~23
-  // rows. Held conservatively to 16 so long pool names that wrap don't
-  // push the totals strip off-page. Landscape body is significantly
-  // shorter (~641px after chrome) and Row B (Purchase + Breakdown +
-  // Water Conservation) eats ~190-220px on its own. After pushing the
-  // landscape trigger to 14 and seeing 11-pool properties STILL clip
-  // the CTA bar, we backed it off to 10 — single-page landscape now
-  // tops out at 10 pools (matches the original threshold), and 11+
-  // cascades cleanly with one page for pools + a final page for
-  // Purchase / Breakdown / Media / CTA. Headroom on each cascade page
-  // is ~150px → pixel-perfect.
-  var POOL_TRIGGER   = (EX.layout==='landscape') ? 10 : 16;
+  // New 2-col flow layout (pf-20260525l, per Jeff's suggestion):
+  //   LEFT  = Pool Config + Purchase Options (flows vertically)
+  //   RIGHT = Devices + Breakdown + Water Conservation (~320px regardless)
+  // Body content = max(LEFT, RIGHT) + media + disc.
+  //   LANDSCAPE body ~641px. After media (~110) + disc (~25) + gaps,
+  //     ~500px usable. LEFT = Purchase (~120) + pool rows. Trigger at
+  //     18 → LEFT ~120 + 18*18 = 444px. Safe.
+  //   PORTRAIT body ~830px. Usable ~665px. LEFT = Purchase (~200) +
+  //     pool rows. Trigger at 22 → LEFT ~200 + 22*22 = 684px. Tight
+  //     with wrapped names, but acceptable. Beyond either trigger the
+  //     existing cascade emits Page 1 (pools + devices + totals) and
+  //     a summary page (Purchase + Breakdown + Media + CTA).
+  var POOL_TRIGGER   = (EX.layout==='landscape') ? 18 : 22;
   var POOL_P1_FILL   = (EX.layout==='landscape') ? 30 : 24;
   var POOL_CONT_FILL = (EX.layout==='landscape') ? 60 : 44;
   var nPoolRows = poolRowsArr.length;
