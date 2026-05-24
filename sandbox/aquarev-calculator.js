@@ -10551,8 +10551,17 @@ window.AR2_ENGINEER = (function(){
     }
     var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
     var backLabel = isAdminViewing ? 'Back to Archive' : 'All assignments';
+    // Admin Review Mode chip — compact aqua pill + info button.
+    // Replaces the old wordy 2-line banner. Full explanation lives in
+    // a popover (showEngInfoModal) opened by the info icon.
     var adminBanner = isAdminViewing
-      ? '<div class="ar-eng-admin-banner">' + svgIconCheck() + ' <b>Reviewing as Admin</b> — engineer fields stay editable for moderation; the engineer-side Submit button is hidden. Use Lock / Mark Reviewed from the Archive review modal when done.</div>'
+      ? '<div class="ar-eng-admin-chip">'
+        +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z"/></svg>'
+        +   '<span>Admin Review Mode</span>'
+        +   '<button class="ar-eng-admin-chip-info" data-action="ar-eng-admin-mode-info" type="button" aria-label="What does this mean?" title="What does this mean?">'
+        +     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="7.5" r=".7" fill="currentColor"/></svg>'
+        +   '</button>'
+        + '</div>'
       : '';
     return '<div class="ar-eng-flow-header">'
       +   '<div class="ar-eng-header-top">'
@@ -11958,6 +11967,20 @@ window.AR2_ENGINEER = (function(){
       // so we use the directUrl branch (no signed URL lookup needed).
       var imgUrl = target.getAttribute('data-img');
       if (imgUrl) openMediaLightbox(imgUrl, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-admin-mode-info'){
+      // Compact admin chip → popover. Explains what's editable and
+      // how to finish the review. Same modal helper used elsewhere.
+      showEngInfoModal('Admin Review Mode',
+          '<p style="margin:0 0 12px"><b>You\'re reviewing this assignment as an admin.</b></p>'
+        + '<ul style="margin:0 0 14px;padding-left:20px;list-style:disc;line-height:1.7">'
+        +   '<li>Engineer fields stay <b>editable</b> for moderation — you can fix anything before locking.</li>'
+        +   '<li>The engineer-side <b>Submit</b> button is hidden in this mode (you\'re not the engineer).</li>'
+        +   '<li>When you\'re done, return to the Archive and use <b>Lock</b> or <b>Mark Reviewed</b> in the submission review modal.</li>'
+        + '</ul>'
+        + '<p style="margin:0;font-size:12px;color:#7db8cc">Tip: the <b>← Back to Archive</b> button takes you straight back to the review modal.</p>'
+      );
       return true;
     }
     if (action === 'ar-eng-return-media-tip'){

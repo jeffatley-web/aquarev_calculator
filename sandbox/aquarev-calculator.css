@@ -3037,12 +3037,21 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-help-btn.ar-help-icon{width:32px;height:32px;font-size:16px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);}
 #ar2 .ar-eng-help-btn.ar-help-icon:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.7);color:#fff;}
 
-/* "Reviewing as Admin" banner — shown at the top of every engineer
-   step when an admin has opened the portal from the submission review
-   modal. Aqua tint (matches admin chrome) with the check icon. */
-#ar2 .ar-eng-admin-banner{display:flex;align-items:flex-start;gap:9px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.42);color:#cfe2eb;font-size:12.5px;line-height:1.5;padding:10px 14px;border-radius:9px;margin:12px 0 4px;}
+/* Admin Review Mode — compact pill in the engineer-portal header.
+   Replaces the old verbose 2-line banner with a tight aqua chip that
+   reads "ADMIN REVIEW MODE" + a tappable info icon. The full
+   "what's editable / how to finish" copy moves into a small popover
+   that opens on the info-icon tap, so the chrome stays uncluttered. */
+#ar2 .ar-eng-admin-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px 5px 9px;border-radius:99px;background:rgba(0,180,216,.18);border:1px solid rgba(0,180,216,.55);color:#48cae4;font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;line-height:1;margin-bottom:10px;align-self:flex-start;}
+#ar2 .ar-eng-admin-chip svg{width:13px;height:13px;color:#48cae4;flex-shrink:0;}
+#ar2 .ar-eng-admin-chip-info{background:transparent;border:none;color:inherit;width:16px;height:16px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;margin-left:2px;opacity:.7;transition:opacity .12s,background .12s;}
+#ar2 .ar-eng-admin-chip-info:hover{opacity:1;background:rgba(0,180,216,.25);}
+#ar2 .ar-eng-admin-chip-info svg{width:11px;height:11px;}
+/* Legacy .ar-eng-admin-banner — kept for the rare "engineer-submit
+   succeeded but admin notification fan-out failed" warning at runtime
+   (see _engineerSubmit handler). Same shape as the old aqua banner. */
+#ar2 .ar-eng-admin-banner{display:flex;align-items:flex-start;gap:9px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.42);color:#cfe2eb;font-size:12.5px;line-height:1.5;padding:10px 14px;border-radius:9px;margin:10px 0 4px;}
 #ar2 .ar-eng-admin-banner b{color:#48cae4;font-weight:700;}
-#ar2 .ar-eng-admin-banner .ar-eng-svg-icon{color:#48cae4;flex-shrink:0;margin-top:2px;}
 
 /* Outline variant of the modal primary button for "Review in Portal" —
    primary intent but visually softer than the destructive Lock or
