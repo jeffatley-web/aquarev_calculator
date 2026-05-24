@@ -2629,7 +2629,14 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-pool-head{margin-bottom:8px;}
 #ar2 .ar-eng-pool-name{font-size:15px;font-weight:600;color:#fff;}
 #ar2 .ar-eng-pool-meta{font-size:11.5px;color:var(--mu);margin-top:2px;}
-#ar2 .ar-eng-pool-check{position:absolute;top:14px;right:14px;font-size:11px;font-weight:600;color:#4ade80;letter-spacing:.4px;}
+/* Status pill in the pool card head row. Was previously position:absolute
+   (overlapped long pool names); now a normal flex item, pushed to the
+   right with margin-left:auto. Two states: "Complete" (green) when
+   verification + photo requirements pass, otherwise "Pending" (amber). */
+#ar2 .ar-eng-pool-check{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;letter-spacing:.4px;padding:3px 8px;border-radius:99px;flex-shrink:0;margin-left:auto;white-space:nowrap;}
+#ar2 .ar-eng-pool-check.complete{color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);}
+#ar2 .ar-eng-pool-check.pending{color:#f0a500;background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.32);}
+#ar2 .ar-eng-pool-check svg{width:11px;height:11px;}
 
 /* Return-line stepper rows */
 #ar2 .ar-eng-lines{display:flex;flex-direction:column;gap:6px;margin-top:6px;}

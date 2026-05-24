@@ -7445,11 +7445,18 @@ window.AR2_FIELD_REPORT = (function(){
 function renderFieldReport(){
   var st = AR2_FIELD_REPORT.state();
   var ref = (function(){
-    if (window.AR2_PF && AR2_PF.isInPropertyMode && AR2_PF.isInPropertyMode()){
+    // Mirror AR2_FIELD_REPORT.getCurrentRecordRef() exactly — these two
+    // resolvers MUST agree, otherwise we kick off a load() that finds a
+    // record but the renderer can't see one and shows the empty state.
+    // Property mode wins, then the assessment id stashed by bankRecall
+    // (S._currentAssessmentId, NOT S.id which is never set).
+    if (window.AR2_PF && AR2_PF.inPropertyMode && AR2_PF.inPropertyMode()){
       var lp = AR2_PF.loadedProperty && AR2_PF.loadedProperty();
       if (lp && lp.id) return { id: lp.id, type: 'property' };
     }
-    if (S && S.id) return { id: S.id, type: 'assessment' };
+    if (typeof S !== 'undefined' && S && S._currentAssessmentId){
+      return { id: S._currentAssessmentId, type: 'assessment' };
+    }
     return null;
   })();
   // Fire the load on first entry / when the record changes. The load
@@ -9220,6 +9227,11 @@ window.AR2_ENGINEER = (function(){
       + '<polyline points="5 5 5 13 16 13"/><polyline points="12 9 16 13 12 17"/>'
       + '</svg>';
   }
+  function svgIconClock(){
+    return '<svg class="ar-eng-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>'
+      + '</svg>';
+  }
 
   function client(){
     return (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
@@ -10844,7 +10856,11 @@ window.AR2_ENGINEER = (function(){
       +     engAddedBadge
       +     deleteBtn
       +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
-      +     (complete ? '<div class="ar-eng-pool-check">' + svgIconCheck() + ' Complete</div>' : '')
+      // Always render the status pill so the head row reserves space and
+      // the engineer can see at a glance which pools still need work.
+      +     (complete
+              ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Complete</div>'
+              : '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
       +   '</div>'
 
       +   imageBlock
