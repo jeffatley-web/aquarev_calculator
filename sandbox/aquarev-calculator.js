@@ -10468,6 +10468,40 @@ window.AR2_ENGINEER = (function(){
     }
   }
 
+  /* Small centred info modal — same visual language as the platform
+     showHelpModal (Bebas-Neue aqua title, blurred backdrop, gradient
+     card). Used for short contextual tips like "What to shoot for each
+     pool" so we no longer fall back to the browser-native alert(). */
+  function showEngInfoModal(title, bodyHtml){
+    var existing = document.getElementById('ar-eng-info-modal');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var m = document.createElement('div');
+    m.id = 'ar-eng-info-modal';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+    m.innerHTML = '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:28px 32px;max-width:520px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);">'
+      +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">'
+      +     '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase">' + esc(title || '') + '</div>'
+      +     '<button data-action="ar-eng-info-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
+      +   '</div>'
+      +   '<div style="font-size:13px;color:#cfe2eb;line-height:1.7">' + bodyHtml + '</div>'
+      +   '<div style="margin-top:18px;display:flex;justify-content:flex-end">'
+      +     '<button data-action="ar-eng-info-close" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;border-radius:8px;padding:9px 22px;font-family:inherit;font-size:12.5px;font-weight:700;letter-spacing:.5px;cursor:pointer">Got it</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(m);
+    function close(){
+      if (m.parentNode) m.parentNode.removeChild(m);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e){ if (e.key === 'Escape') close(); }
+    m.addEventListener('click', function(e){
+      if (e.target === m){ close(); return; }
+      var act = e.target.closest && e.target.closest('[data-action="ar-eng-info-close"]');
+      if (act){ close(); }
+    });
+    document.addEventListener('keydown', onKey);
+  }
+
   /* Tiny inline SVG showing the five canonical pipe diameters at scale
      (relative). Used inside the help drawer and as a tooltip on the
      return-line diameter selector. */
@@ -11221,7 +11255,19 @@ window.AR2_ENGINEER = (function(){
       return true;
     }
     if (action === 'ar-eng-return-media-tip'){
-      alert('What to shoot for each pool:\n\n• One close-up of each return-jet showing the pipe diameter\n• One wider shot of the full return wall\n• Optional pan video when pipes are clustered\n\nCameras open automatically on mobile. Photos compress before upload.');
+      // Replaced the browser-native alert() with the platform's
+      // centred info modal (same look as showHelpModal). Copy updated
+      // per spec — wording tightened, references the Specifications
+      // Guide instead of "return wall".
+      showEngInfoModal('Photos & Video Instructions',
+          '<p style="margin:0 0 10px"><b>What to shoot for each pool.</b></p>'
+        + '<ul style="margin:0 0 14px;padding-left:20px;list-style:disc">'
+        +   '<li style="margin-bottom:8px"><b>Close-ups of the return pipes</b> after the filter, where flow returns to the body of water — frame so the pipe diameter is clearly readable.</li>'
+        +   '<li style="margin-bottom:8px"><b>Wide angles</b> so we can read the pipe configuration and determine the installation location. See the Specifications Guide.</li>'
+        +   '<li><b>Pan video</b> when pipes are clustered or complex.</li>'
+        + '</ul>'
+        + '<p style="margin:0;font-size:12px;color:#7db8cc">Mobile cameras open automatically on devices.</p>'
+      );
       return true;
     }
     if (action === 'ar-eng-pool-type'){
