@@ -2589,6 +2589,40 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-skip-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#cfe2eb;cursor:pointer;user-select:none;margin-bottom:14px;}
 #ar2 .ar-eng-skip-row input{width:16px;height:16px;cursor:pointer;accent-color:#00b4d8;}
 
+/* Briefing supplement (Step 1, below the video). Drawn from the
+   AquaRev Specifications Guide PDF — gives the engineer a quick
+   visual reference for what to capture on site, plus a link to the
+   full PDF for deeper detail. */
+#ar2 .ar-eng-brief-sup{margin:22px 0 6px;padding-top:18px;border-top:1px dashed rgba(0,180,216,.18);}
+#ar2 .ar-eng-brief-sup-hd{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-eng-brief-sup-sub{font-size:12.5px;color:var(--mu);line-height:1.6;margin-bottom:14px;}
+#ar2 .ar-eng-brief-imgs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;}
+@media(max-width:720px){#ar2 .ar-eng-brief-imgs{grid-template-columns:1fr;}}
+#ar2 .ar-eng-brief-fig{background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.18);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;cursor:zoom-in;transition:border-color .15s,transform .15s;}
+#ar2 .ar-eng-brief-fig:hover{border-color:rgba(0,180,216,.5);transform:translateY(-1px);}
+#ar2 .ar-eng-brief-fig img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#040f1e;}
+#ar2 .ar-eng-brief-fig-cap{padding:9px 11px 11px;font-size:11.5px;color:#cfe2eb;line-height:1.45;}
+#ar2 .ar-eng-brief-fig-cap b{display:block;color:#fff;font-weight:600;margin-bottom:2px;font-size:12px;letter-spacing:.2px;}
+/* Device sizing mini-table */
+#ar2 .ar-eng-brief-sizes{background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.18);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+#ar2 .ar-eng-brief-sizes-hd{font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:8px;}
+#ar2 .ar-eng-brief-sizes-tbl{width:100%;border-collapse:collapse;font-size:12px;color:#cfe2eb;}
+#ar2 .ar-eng-brief-sizes-tbl th,#ar2 .ar-eng-brief-sizes-tbl td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(0,180,216,.08);}
+#ar2 .ar-eng-brief-sizes-tbl th{color:#7db8cc;font-weight:600;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;}
+#ar2 .ar-eng-brief-sizes-tbl tr:last-child td{border-bottom:none;}
+#ar2 .ar-eng-brief-sizes-tbl td:first-child{color:#48cae4;font-weight:600;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-eng-brief-sizes-foot{margin-top:8px;font-size:11px;color:var(--mu);font-style:italic;}
+/* Resource strip — PDF link + contact */
+#ar2 .ar-eng-brief-strip{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;}
+#ar2 .ar-eng-brief-link{display:inline-flex;align-items:center;gap:9px;background:linear-gradient(135deg,rgba(0,180,216,.16),rgba(72,202,228,.06));border:1px solid rgba(0,180,216,.4);color:#cfe2eb;padding:11px 14px;border-radius:10px;font-size:12.5px;font-weight:600;text-decoration:none;letter-spacing:.2px;transition:background .15s,border-color .15s,color .15s;flex:1;min-width:240px;}
+#ar2 .ar-eng-brief-link:hover{background:linear-gradient(135deg,rgba(0,180,216,.28),rgba(72,202,228,.12));border-color:rgba(0,180,216,.7);color:#fff;}
+#ar2 .ar-eng-brief-link svg{flex-shrink:0;width:16px;height:16px;color:#48cae4;}
+#ar2 .ar-eng-brief-link-sub{display:block;font-size:10.5px;font-weight:500;color:var(--mu);letter-spacing:.5px;text-transform:uppercase;margin-top:1px;}
+#ar2 .ar-eng-brief-contact{display:flex;flex-direction:column;justify-content:center;padding:9px 14px;background:rgba(7,22,40,.4);border:1px solid rgba(0,180,216,.15);border-radius:10px;font-size:11.5px;color:var(--mu);line-height:1.5;min-width:200px;}
+#ar2 .ar-eng-brief-contact b{display:block;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;margin-bottom:3px;font-weight:600;}
+#ar2 .ar-eng-brief-contact a{color:#cfe2eb;text-decoration:none;font-weight:500;}
+#ar2 .ar-eng-brief-contact a:hover{color:#48cae4;}
+
 /* Flat key-value rows + notes */
 #ar2 .ar-eng-row-flat{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:1px solid rgba(0,180,216,.08);font-size:13px;}
 #ar2 .ar-eng-row-flat:last-of-type{border-bottom:none;}

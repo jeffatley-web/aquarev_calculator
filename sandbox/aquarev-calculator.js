@@ -10544,6 +10544,57 @@ window.AR2_ENGINEER = (function(){
       +       '<li><b>Verify each pool</b> on Step 3 — gallons, return lines, diameters, and any notes.</li>'
       +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
       +     '</ul>'
+
+      // ── Specifications briefing supplement ─────────────────────
+      // Visual reference drawn from the AquaRev Specifications Guide
+      // PDF. Gives the engineer a quick orientation to (1) where
+      // devices install in the pump room, (2) what return-pipe shots
+      // we need, and (3) the device size range so they know to
+      // capture pipe diameters carefully. Images open full-size in
+      // the existing media lightbox; full PDF link below.
+      +     '<div class="ar-eng-brief-sup">'
+      +       '<div class="ar-eng-brief-sup-hd">Specifications reference</div>'
+      +       '<div class="ar-eng-brief-sup-sub">AquaRev devices install as the last conditioning stage — in-line on the return pipe between the filter and the body of water. The photos and pipe sizes you capture on site determine correct device sizing and the best installation location.</div>'
+      +       '<div class="ar-eng-brief-imgs">'
+      +         '<button class="ar-eng-brief-fig" type="button" data-action="ar-eng-brief-zoom" data-img="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f4d1ee8f81cc5957ead786_AquaRev_Pump_Room%203.png" aria-label="Open pump-room reference">'
+      +           '<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69f4d1ee8f81cc5957ead786_AquaRev_Pump_Room%203.png" alt="AquaRev device installed on return line in a pump room" loading="lazy" />'
+      +           '<div class="ar-eng-brief-fig-cap"><b>Pump room walkthrough</b>Follow supply lines through the treatment system and back to the pool. 30 sec – 2 min video.</div>'
+      +         '</button>'
+      +         '<button class="ar-eng-brief-fig" type="button" data-action="ar-eng-brief-zoom" data-img="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6d8dcbbe12cfca65b_Pipe%20Size%204.png" aria-label="Open pipe sizing reference 1">'
+      +           '<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6d8dcbbe12cfca65b_Pipe%20Size%204.png" alt="Return pipe size — close-up with tape measure" loading="lazy" />'
+      +           '<div class="ar-eng-brief-fig-cap"><b>Return pipe — close-up</b>Capture the pipe diameter on labeling, or hold a tape measure across the width.</div>'
+      +         '</button>'
+      +         '<button class="ar-eng-brief-fig" type="button" data-action="ar-eng-brief-zoom" data-img="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6c517fb01f8c84557_Pipe%20Size%203.png" aria-label="Open pipe sizing reference 2">'
+      +           '<img src="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/6a12efe6c517fb01f8c84557_Pipe%20Size%203.png" alt="Return pipe size — wider angle showing configuration" loading="lazy" />'
+      +           '<div class="ar-eng-brief-fig-cap"><b>Return pipe — wide angle</b>Capture configuration and installation context. Add a sticky note if the pipe isn\'t labeled.</div>'
+      +         '</button>'
+      +       '</div>'
+      +       '<div class="ar-eng-brief-sizes">'
+      +         '<div class="ar-eng-brief-sizes-hd">Device size range — what to capture</div>'
+      +         '<table class="ar-eng-brief-sizes-tbl">'
+      +           '<thead><tr><th>Pipe</th><th>Chamber Ø</th><th>Collar Ø</th><th>Total length</th></tr></thead>'
+      +           '<tbody>'
+      +             '<tr><td>2"</td><td>5"</td><td>3.6"</td><td>20.25"</td></tr>'
+      +             '<tr><td>3"</td><td>7.25"</td><td>5.06"</td><td>24"</td></tr>'
+      +             '<tr><td>4"</td><td>9.34"</td><td>6.19"</td><td>28.19"</td></tr>'
+      +             '<tr><td>6"</td><td>13.75"</td><td>9"</td><td>40"</td></tr>'
+      +           '</tbody>'
+      +         '</table>'
+      +         '<div class="ar-eng-brief-sizes-foot">Devices need 20" – 40" of straight pipe to install. Note any tight runs in your walkthrough video.</div>'
+      +       '</div>'
+      +       '<div class="ar-eng-brief-strip">'
+      +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener">'
+      +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="12" y1="13" x2="12" y2="19"/><polyline points="9 16 12 19 15 16"/></svg>'
+      +           '<span>Download full Specifications Guide<span class="ar-eng-brief-link-sub">PDF · device sizing, placement, photo / video checklist</span></span>'
+      +         '</a>'
+      +         '<div class="ar-eng-brief-contact">'
+      +           '<b>Questions on site?</b>'
+      +           '<a href="tel:+18329796758">(832) 979-6758</a>'
+      +           '<a href="mailto:water@AquaRevWater.us">water@AquaRevWater.us</a>'
+      +         '</div>'
+      +       '</div>'
+      +     '</div>'
+
       +     '<label class="ar-eng-skip-row">'
       +       '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
       +       '<span>Don\'t show this briefing on future visits</span>'
@@ -11252,6 +11303,14 @@ window.AR2_ENGINEER = (function(){
       var pIdx = parseInt(target.getAttribute('data-pool-image'), 10);
       var pool = s.pools.find(function(x){ return x.index === pIdx; });
       if (pool && pool.image) openMediaLightbox(pool.image, 'photo', { directUrl: true });
+      return true;
+    }
+    if (action === 'ar-eng-brief-zoom'){
+      // Open one of the Step 1 specification reference images in the
+      // existing media lightbox. All three images are public CDN URLs,
+      // so we use the directUrl branch (no signed URL lookup needed).
+      var imgUrl = target.getAttribute('data-img');
+      if (imgUrl) openMediaLightbox(imgUrl, 'photo', { directUrl: true });
       return true;
     }
     if (action === 'ar-eng-return-media-tip'){
