@@ -12856,15 +12856,23 @@ window.AR_PWA = {
 };
 window.addEventListener('beforeinstallprompt', function(e){
   // Suppress the auto-banner so we can offer a tailored install moment
-  // inside the engineer portal instead of a generic browser banner.
+  // via the top-bar Install App pill / engineer portal landing card.
   e.preventDefault();
   window.AR_PWA.deferredPrompt = e;
   window.AR_PWA.installable = true;
+  // Top-bar pill is already visible (we show it on any non-standalone
+  // device). Re-render in case it was hidden before, no-op otherwise.
+  try { if (typeof updateInstallAppButton === 'function') updateInstallAppButton(); } catch(_){}
 });
 window.addEventListener('appinstalled', function(){
   window.AR_PWA.deferredPrompt = null;
   window.AR_PWA.installable = false;
   try { sessionStorage.setItem('ar_pwa_install_resolved', '1'); } catch(_){}
+  // Remove the top-bar pill — they're now in the installed app.
+  try {
+    var existing = document.getElementById('ar2-install-btn');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  } catch(_){}
 });
 
 /* Normalize a phone number to E.164 (+<country><number>). Accepts any
@@ -16708,6 +16716,8 @@ function handleClick(e){
   // Help button — step-aware tutorial overlay
   var helpClick=e.target.closest('[data-action="show-help"]');
   if(helpClick){ showHelpModal(); return; }
+  var installAppClick=e.target.closest('[data-action="show-install-app"]');
+  if(installAppClick){ showInstallAppModal(); return; }
   // User chip — opens Sign Out menu
   var userMenuClick=e.target.closest('[data-action="user-menu"]');
   if(userMenuClick){ showUserMenu(userMenuClick); return; }
@@ -18235,8 +18245,127 @@ function injectHelpButton(){
   helpBtn.setAttribute('aria-label','Help');
   helpBtn.textContent = '?';
   // Place AFTER the New button. updateUserChip appends the chip later, so
-  // the final reading order is: Archive · New · Help · UserChip.
+  // the final reading order is: Archive · New · Help · Install · UserChip.
   actions.appendChild(helpBtn);
+}
+
+/* Install App pill — top-bar entry-point that's visible on EVERY page
+   (calculator + engineer portal + archive), so any user can install
+   the PWA without first hunting through the engineer portal landing.
+   Hidden when:
+     • Already running in standalone PWA mode (AR_PWA.isStandalone)
+     • AR_PWA module hasn't loaded yet (defensive) */
+function updateInstallAppButton(){
+  var actions = document.getElementById('ar2-bar-actions');
+  if (!actions) return;
+  var existing = document.getElementById('ar2-install-btn');
+  var pwa = window.AR_PWA;
+  // Hide when already installed
+  if (pwa && pwa.isStandalone && pwa.isStandalone()){
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  if (existing) return; // already in DOM
+  var btn = document.createElement('button');
+  btn.id = 'ar2-install-btn';
+  btn.className = 'ar-install-pill no-print';
+  btn.dataset.action = 'show-install-app';
+  btn.title = 'Install AquaRev as an app on this device';
+  btn.setAttribute('aria-label','Install AquaRev as an app');
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<rect x="6" y="2" width="12" height="20" rx="2.5"/>'
+    + '<path d="M12 6v6"/><polyline points="9 9 12 6 15 9"/>'
+    + '<path d="M11 18h2"/>'
+    + '</svg>'
+    + '<span class="ar-install-pill-lbl">Install App</span>';
+  // Place before the Help button (so order is Archive · New · Install · Help · UserChip)
+  var helpBtn = document.getElementById('ar2-help-btn');
+  if (helpBtn && helpBtn.parentNode === actions) actions.insertBefore(btn, helpBtn);
+  else actions.appendChild(btn);
+}
+
+/* Install App modal — platform-aware instructions + native prompt
+   trigger. Same visual language as showHelpModal. */
+function showInstallAppModal(){
+  var existing = document.getElementById('ar2-install-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var pwa = window.AR_PWA || {};
+  var canPrompt = !!(pwa.installable && pwa.deferredPrompt);
+  var ua = (window.navigator && window.navigator.userAgent) || '';
+  var isIos = /iPhone|iPad|iPod/i.test(ua);
+  var isAndroid = /Android/i.test(ua);
+
+  // Build the body — order platforms by likelihood for the current UA
+  // so the engineer sees the relevant instructions first.
+  function iosBlock(){
+    return '<div style="background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px">'
+      + '<div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px">iPhone / iPad (Safari or Chrome)</div>'
+      + '<ol style="margin:0;padding-left:20px;color:#cfe2eb;font-size:13px;line-height:1.65">'
+      +   '<li>Tap the <b>Share</b> icon at the bottom of your browser (square with the up-arrow).</li>'
+      +   '<li>Scroll down in the share sheet and choose <b>Add to Home Screen</b>.</li>'
+      +   '<li>Tap <b>Add</b> in the top-right.</li>'
+      + '</ol>'
+      + '<div style="margin-top:8px;font-size:11.5px;color:#7db8cc">The AquaRev icon will appear on your home screen — launch it like any other app.</div>'
+      + '</div>';
+  }
+  function androidBlock(){
+    return '<div style="background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px">'
+      + '<div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px">Android (Chrome / Edge)</div>'
+      + (canPrompt
+        ? '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:10px">Tap the button below to install AquaRev to your home screen with a single tap.</div>'
+          + '<button class="ar-pf-modal-btn primary" data-action="ar-pwa-install" style="width:100%;font-size:13px;font-weight:700;padding:12px">Install AquaRev now</button>'
+        : '<ol style="margin:0;padding-left:20px;color:#cfe2eb;font-size:13px;line-height:1.65">'
+          + '<li>Tap the <b>⋮</b> menu (top-right of Chrome).</li>'
+          + '<li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li>'
+          + '<li>Confirm in the prompt that appears.</li>'
+          + '</ol>')
+      + '</div>';
+  }
+  function desktopBlock(){
+    return '<div style="background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px">'
+      + '<div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:6px">Desktop (Chrome / Edge)</div>'
+      + (canPrompt
+        ? '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:10px">Tap the button below to install AquaRev as a desktop app.</div>'
+          + '<button class="ar-pf-modal-btn primary" data-action="ar-pwa-install" style="width:100%;font-size:13px;font-weight:700;padding:12px">Install AquaRev now</button>'
+        : '<ol style="margin:0;padding-left:20px;color:#cfe2eb;font-size:13px;line-height:1.65">'
+          + '<li>Look for the small <b>install icon</b> at the right edge of the address bar (computer-with-arrow).</li>'
+          + '<li>Click it and confirm <b>Install</b>.</li>'
+          + '<li>The AquaRev app opens in its own window and lands in your Applications / Start menu.</li>'
+          + '</ol>')
+      + '</div>';
+  }
+  var body = '';
+  if (isIos)         body = iosBlock() + androidBlock() + desktopBlock();
+  else if (isAndroid)body = androidBlock() + iosBlock() + desktopBlock();
+  else               body = desktopBlock() + androidBlock() + iosBlock();
+
+  var m = document.createElement('div');
+  m.id = 'ar2-install-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML = '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:28px 32px;max-width:520px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px">'
+    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:20px;letter-spacing:2px;color:#48cae4;text-transform:uppercase">Install AquaRev</div>'
+    +   '<button id="ar2-install-close" aria-label="Close" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cfe2eb;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;font-family:inherit;line-height:1">×</button>'
+    + '</div>'
+    + '<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">Add AquaRev to your home screen for one-tap access, faster startup, and a full-screen app feel (no browser bars).</div>'
+    + body
+    + '<div style="margin-top:14px;font-size:10.5px;color:#7db8cc;text-align:center">Need help? Call <b style="color:#cfe2eb">(832) 979-6758</b></div>'
+    + '</div>';
+  document.body.appendChild(m);
+  function close(){ if (m.parentNode) m.parentNode.removeChild(m); document.removeEventListener('keydown', onKey); }
+  function onKey(e){ if (e.key === 'Escape') close(); }
+  document.getElementById('ar2-install-close').onclick = close;
+  m.addEventListener('click', function(e){
+    if (e.target === m) return close();
+    var inst = e.target.closest && e.target.closest('[data-action="ar-pwa-install"]');
+    if (inst && window.AR_PWA){
+      AR_PWA.promote().then(function(accepted){
+        close();
+        if (accepted){ try { updateInstallAppButton(); } catch(_){} }
+      });
+    }
+  });
+  document.addEventListener('keydown', onKey);
 }
 
 /* User chip in the top bar — small avatar + name beside the New button.
@@ -18711,6 +18840,7 @@ function init(){
   var root=document.getElementById('ar2');
   if(!root)return;
   injectHelpButton();
+  try { updateInstallAppButton(); } catch(_){}
   // Cloud-mode bootstrap — try to restore an existing Supabase session before
   // deciding whether to show the gate. If session is valid, skip the modal.
   // The Supabase SDK is loaded via <script src> in the HTML; if it's not yet

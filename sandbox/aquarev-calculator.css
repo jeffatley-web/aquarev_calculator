@@ -2087,6 +2087,15 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    Sits between New and the user chip. */
 #ar2 .ar-help-icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;cursor:pointer;padding:0;line-height:1;transition:.15s;flex-shrink:0;}
 #ar2 .ar-help-icon:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.6);color:#fff;}
+/* Install App pill in the top bar — visible only when the calculator
+   isn't already running as a standalone PWA. Click opens an info
+   modal with platform-specific instructions (and fires the native
+   install prompt directly when Android Chrome has it available). */
+#ar2 .ar-install-pill{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:99px;background:linear-gradient(135deg,rgba(0,180,216,.18),rgba(72,202,228,.08));border:1px solid rgba(0,180,216,.5);color:#cfe2eb;font-family:'DM Sans',sans-serif;font-size:11.5px;font-weight:600;letter-spacing:.4px;cursor:pointer;line-height:1;transition:background .15s,border-color .15s,color .15s,transform .15s;flex-shrink:0;}
+#ar2 .ar-install-pill:hover{background:linear-gradient(135deg,rgba(0,180,216,.32),rgba(72,202,228,.14));border-color:rgba(0,180,216,.85);color:#fff;transform:translateY(-1px);}
+#ar2 .ar-install-pill svg{width:14px;height:14px;color:#48cae4;flex-shrink:0;}
+#ar2 .ar-install-pill:hover svg{color:#fff;}
+@media(max-width:780px){#ar2 .ar-install-pill-lbl{display:none;}#ar2 .ar-install-pill{padding:0 9px;}}
 /* Guided tour — 4 mask bands dim the page except the target, a teal ring
    highlights the spotlight area, and a coach-mark card carries the step copy
    + controls. Outside the bands, clicks pass through to the highlighted
