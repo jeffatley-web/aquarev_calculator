@@ -3231,6 +3231,53 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-send-card .ar-eng-btn.send-green:hover:not(:disabled){filter:brightness(1.1);}
 #ar2 .ar-eng-send-card .ar-eng-btn.send-green:disabled{background:rgba(125,184,204,.18);color:#7db8cc;cursor:not-allowed;}
 
+/* ── Custom camera overlay (getUserMedia-backed) ──────────────────
+   iOS WebKit's <input capture> launches the native camera UI but
+   frequently fails to attach a live stream — preview stays black.
+   Same issue inside iOS PWA standalone mode. Custom camera built
+   on getUserMedia() is bulletproof: we own the <video> element,
+   own the permission grant, and produce a JPEG blob the same way
+   the existing uploadMedia(file) call expects. Lives outside #ar2
+   because the overlay covers the entire viewport. */
+.ar-eng-cam{position:fixed;inset:0;z-index:1000000;background:#000;display:flex;flex-direction:column;font-family:'DM Sans',sans-serif;}
+.ar-eng-cam-stage{flex:1 1 0;min-height:0;position:relative;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+.ar-eng-cam-stage video,
+.ar-eng-cam-stage img{width:100%;height:100%;object-fit:cover;background:#000;}
+.ar-eng-cam-stage video{transform:scaleX(1);}
+/* Front-camera selfie mirror */
+.ar-eng-cam-stage video.front{transform:scaleX(-1);}
+.ar-eng-cam-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;color:#fff;text-align:center;font-size:14px;line-height:1.55;background:rgba(0,0,0,.7);}
+.ar-eng-cam-msg b{display:block;font-size:18px;margin-bottom:10px;letter-spacing:.5px;font-weight:700;}
+.ar-eng-cam-msg-sub{font-size:13px;color:#cfe2eb;max-width:340px;margin-bottom:18px;}
+.ar-eng-cam-msg .ar-eng-cam-fallback{background:rgba(0,180,216,.22);border:1px solid rgba(0,180,216,.55);color:#cfe2eb;padding:11px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.4px;}
+.ar-eng-cam-msg .ar-eng-cam-fallback:hover{background:rgba(0,180,216,.35);color:#fff;}
+
+/* Top bar — close X */
+.ar-eng-cam-top{position:absolute;top:0;left:0;right:0;padding:16px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(180deg,rgba(0,0,0,.5),rgba(0,0,0,0));z-index:5;}
+.ar-eng-cam-close{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;line-height:1;}
+.ar-eng-cam-flip{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.ar-eng-cam-flip svg{width:20px;height:20px;}
+
+/* Bottom action bar — capture shutter + library fallback */
+.ar-eng-cam-bottom{flex:0 0 auto;background:#000;padding:18px 24px calc(18px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;}
+.ar-eng-cam-pick{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;padding:9px 14px;border-radius:8px;font-family:inherit;font-size:12.5px;cursor:pointer;font-weight:500;}
+.ar-eng-cam-pick:hover{background:rgba(255,255,255,.08);}
+.ar-eng-cam-shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.5);cursor:pointer;padding:0;flex-shrink:0;transition:transform .1s;}
+.ar-eng-cam-shutter:active{transform:scale(.92);}
+.ar-eng-cam-shutter:disabled{background:rgba(255,255,255,.4);cursor:not-allowed;}
+.ar-eng-cam-side{min-width:96px;display:flex;justify-content:flex-end;}
+.ar-eng-cam-side .ar-eng-cam-pick{padding-left:10px;padding-right:10px;}
+
+/* Review state — show captured photo with retake / use buttons */
+.ar-eng-cam.is-review .ar-eng-cam-shutter{display:none;}
+.ar-eng-cam-review-actions{display:flex;gap:10px;flex:1;justify-content:center;}
+.ar-eng-cam-retake,.ar-eng-cam-use{padding:11px 20px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.3px;}
+.ar-eng-cam-retake{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;}
+.ar-eng-cam-retake:hover{background:rgba(255,255,255,.08);}
+.ar-eng-cam-use{background:linear-gradient(135deg,#16a34a,#22c55e);border:none;color:#fff;}
+.ar-eng-cam-use:hover{filter:brightness(1.08);}
+.ar-eng-cam-use:disabled{background:rgba(125,184,204,.18);color:#7db8cc;cursor:not-allowed;}
+
 #ar2 .ar-eng-signout-btn{background:transparent;border:1px solid rgba(125,184,204,.25);color:var(--mu);padding:8px 18px;border-radius:8px;font-family:inherit;font-size:12px;letter-spacing:.5px;cursor:pointer;transition:border-color .15s,color .15s;}
 #ar2 .ar-eng-signout-btn:hover{border-color:rgba(125,184,204,.5);color:#cfe2eb;}
 @media(max-width:640px){

@@ -10682,6 +10682,243 @@ window.AR2_ENGINEER = (function(){
     document.addEventListener('keydown', onKey);
   }
 
+  /* ───────────────────────────────────────────────────────────────
+     Custom camera overlay (pf-20260525q)
+     ───────────────────────────────────────────────────────────────
+     The OS-native camera path (input[type=file capture]) shows a
+     black preview on iPhone 16 Pro Max in both Safari and Chrome —
+     iOS WebKit launches the camera UI but never attaches the live
+     stream. Same bug surfaces in iOS PWA standalone mode and across
+     iOS 17+. Apple-side issue with no client-side workaround.
+
+     Custom camera bypasses the bug entirely: we drive the camera via
+     getUserMedia(), own the <video> element, and snapshot to canvas
+     → JPEG blob → uploadMedia(). The browser's standard camera
+     permission prompt grants access; once granted, the live preview
+     is reliable.
+
+     Falls back to the file-picker flow when:
+       • getUserMedia is unsupported (very old browsers)
+       • Camera permission is denied — the overlay shows a clear
+         message and a "Pick from library" button
+       • User explicitly taps "Pick from library" on the overlay
+     ─────────────────────────────────────────────────────────────── */
+
+  function _supportsGetUserMedia(){
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      && (window.isSecureContext !== false));
+  }
+
+  // Open a transient, single-shot file picker as the fallback path.
+  // Lazy-creates the hidden input so it's never affected by repaints.
+  function _engineerOpenFilePicker(mediaType){
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = mediaType === 'video' ? 'video/*' : 'image/*';
+    input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px;pointer-events:none';
+    // Android: hint to launch the rear camera. iOS: omit so the
+    // standard picker offers Photo Library / Take Photo / Choose File.
+    var ua = (window.navigator && window.navigator.userAgent) || '';
+    if (/Android/i.test(ua)) input.setAttribute('capture', 'environment');
+    document.body.appendChild(input);
+    input.addEventListener('change', function(){
+      var f = input.files && input.files[0];
+      var ctx = s._mediaPickContext;
+      if (f && ctx){
+        uploadMedia(ctx.target, f).catch(function(err){
+          alert((err && err.message) || 'Upload failed.');
+        });
+      }
+      s._mediaPickContext = null;
+      if (input.parentNode) input.parentNode.removeChild(input);
+    }, { once: true });
+    // Click on next frame so the input is in the DOM
+    setTimeout(function(){ input.click(); }, 0);
+  }
+
+  function openEngCameraOverlay(onCapture, onPickFallback){
+    // Strip any prior overlay so re-entries don't stack.
+    var prior = document.getElementById('ar-eng-cam');
+    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
+
+    var bd = document.createElement('div');
+    bd.id = 'ar-eng-cam';
+    bd.className = 'ar-eng-cam';
+    bd.innerHTML = ''
+      + '<div class="ar-eng-cam-stage" id="ar-eng-cam-stage">'
+      +   '<video id="ar-eng-cam-video" playsinline autoplay muted></video>'
+      +   '<div class="ar-eng-cam-msg" id="ar-eng-cam-msg" style="display:none"></div>'
+      +   '<div class="ar-eng-cam-top">'
+      +     '<button class="ar-eng-cam-close" id="ar-eng-cam-close" aria-label="Close" type="button">×</button>'
+      +     '<button class="ar-eng-cam-flip" id="ar-eng-cam-flip" aria-label="Flip camera" title="Flip camera" type="button">'
+      +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3.5"/><path d="M8 9l-1.5 1.5"/></svg>'
+      +     '</button>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="ar-eng-cam-bottom" id="ar-eng-cam-bottom">'
+      +   '<div class="ar-eng-cam-side"><button class="ar-eng-cam-pick" id="ar-eng-cam-pick" type="button">Library</button></div>'
+      +   '<button class="ar-eng-cam-shutter" id="ar-eng-cam-shutter" aria-label="Take photo" type="button"></button>'
+      +   '<div class="ar-eng-cam-side"></div>'
+      + '</div>';
+    document.body.appendChild(bd);
+
+    var stream = null;
+    var currentFacing = 'environment';
+    var lastBlob = null;
+    var video  = bd.querySelector('#ar-eng-cam-video');
+    var msgEl  = bd.querySelector('#ar-eng-cam-msg');
+    var closeBtn = bd.querySelector('#ar-eng-cam-close');
+    var flipBtn  = bd.querySelector('#ar-eng-cam-flip');
+    var pickBtn  = bd.querySelector('#ar-eng-cam-pick');
+    var shutter  = bd.querySelector('#ar-eng-cam-shutter');
+    var bottom   = bd.querySelector('#ar-eng-cam-bottom');
+
+    function closeOverlay(){
+      stopStream();
+      if (bd.parentNode) bd.parentNode.removeChild(bd);
+    }
+    function stopStream(){
+      try { if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); } catch(_){}
+      stream = null;
+    }
+    function showMessage(title, sub, withFallback){
+      msgEl.style.display = '';
+      msgEl.innerHTML = '<b>' + esc(title) + '</b>'
+        + '<div class="ar-eng-cam-msg-sub">' + esc(sub) + '</div>'
+        + (withFallback ? '<button class="ar-eng-cam-fallback" type="button">Pick from library instead</button>' : '');
+      if (withFallback){
+        var fb = msgEl.querySelector('.ar-eng-cam-fallback');
+        if (fb) fb.onclick = function(){
+          closeOverlay();
+          if (typeof onPickFallback === 'function') onPickFallback();
+        };
+      }
+    }
+    function hideMessage(){ msgEl.style.display = 'none'; msgEl.innerHTML = ''; }
+
+    function startCamera(facing){
+      hideMessage();
+      stopStream();
+      var constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: facing },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      };
+      navigator.mediaDevices.getUserMedia(constraints).then(function(s2){
+        stream = s2;
+        video.srcObject = s2;
+        video.classList.toggle('front', facing === 'user');
+        // Some iOS versions block .play() until after a user gesture;
+        // this whole flow IS inside a click handler, so .play() resolves.
+        try { video.play(); } catch(_){}
+      }).catch(function(err){
+        var name = (err && err.name) || '';
+        var msg = (err && err.message) || 'Camera unavailable.';
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError'){
+          showMessage('Camera permission denied',
+            'Tap Library to pick a photo from your camera roll, or grant camera access in your browser settings and reopen this page.',
+            true);
+        } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError'){
+          showMessage('No camera detected',
+            'No camera was found on this device.',
+            true);
+        } else if (name === 'NotReadableError' || name === 'TrackStartError'){
+          showMessage('Camera is busy',
+            'Another app or tab is using the camera. Close it and try again.',
+            true);
+        } else {
+          showMessage('Couldn’t start camera', msg, true);
+        }
+      });
+    }
+
+    function captureFrame(){
+      if (!stream) return;
+      var w = video.videoWidth || 1920;
+      var h = video.videoHeight || 1080;
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx2d = canvas.getContext('2d');
+      // Mirror selfie frames so the saved image matches what the user
+      // saw on screen.
+      if (currentFacing === 'user'){
+        ctx2d.translate(w, 0); ctx2d.scale(-1, 1);
+      }
+      ctx2d.drawImage(video, 0, 0, w, h);
+      canvas.toBlob(function(blob){
+        if (!blob){ alert('Capture failed. Please try again.'); return; }
+        lastBlob = blob;
+        enterReview(canvas.toDataURL('image/jpeg', 0.92));
+      }, 'image/jpeg', 0.92);
+    }
+
+    function enterReview(dataUrl){
+      bd.classList.add('is-review');
+      // Replace video with still preview
+      video.style.display = 'none';
+      stopStream();
+      var img = bd.querySelector('#ar-eng-cam-review-img');
+      if (!img){
+        img = document.createElement('img');
+        img.id = 'ar-eng-cam-review-img';
+        bd.querySelector('#ar-eng-cam-stage').appendChild(img);
+      }
+      img.src = dataUrl;
+      // Swap bottom bar to retake / use buttons
+      bottom.innerHTML = '<div class="ar-eng-cam-review-actions">'
+        + '<button class="ar-eng-cam-retake" id="ar-eng-cam-retake" type="button">Retake</button>'
+        + '<button class="ar-eng-cam-use" id="ar-eng-cam-use" type="button">Use photo</button>'
+        + '</div>';
+      bd.querySelector('#ar-eng-cam-retake').onclick = function(){
+        bd.classList.remove('is-review');
+        var imgEl = bd.querySelector('#ar-eng-cam-review-img');
+        if (imgEl && imgEl.parentNode) imgEl.parentNode.removeChild(imgEl);
+        video.style.display = '';
+        // Restore the action bar
+        bottom.innerHTML = ''
+          + '<div class="ar-eng-cam-side"><button class="ar-eng-cam-pick" id="ar-eng-cam-pick" type="button">Library</button></div>'
+          + '<button class="ar-eng-cam-shutter" id="ar-eng-cam-shutter" aria-label="Take photo" type="button"></button>'
+          + '<div class="ar-eng-cam-side"></div>';
+        bd.querySelector('#ar-eng-cam-shutter').onclick = captureFrame;
+        bd.querySelector('#ar-eng-cam-pick').onclick = pickFromLibrary;
+        startCamera(currentFacing);
+      };
+      bd.querySelector('#ar-eng-cam-use').onclick = function(){
+        var useBtn = bd.querySelector('#ar-eng-cam-use');
+        if (useBtn){ useBtn.disabled = true; useBtn.textContent = 'Saving…'; }
+        var blob = lastBlob;
+        closeOverlay();
+        if (typeof onCapture === 'function') onCapture(blob);
+      };
+    }
+
+    function pickFromLibrary(){
+      closeOverlay();
+      if (typeof onPickFallback === 'function') onPickFallback();
+    }
+
+    closeBtn.onclick = closeOverlay;
+    flipBtn.onclick  = function(){
+      currentFacing = (currentFacing === 'environment') ? 'user' : 'environment';
+      startCamera(currentFacing);
+    };
+    shutter.onclick  = captureFrame;
+    pickBtn.onclick  = pickFromLibrary;
+
+    // Esc closes
+    var onKey = function(e){ if (e.key === 'Escape') closeOverlay(); };
+    document.addEventListener('keydown', onKey);
+    bd.addEventListener('remove', function(){
+      document.removeEventListener('keydown', onKey);
+    });
+
+    // Kick off
+    startCamera(currentFacing);
+  }
+
   /* Tiny inline SVG showing the five canonical pipe diameters at scale
      (relative). Used inside the help drawer and as a tooltip on the
      return-line diameter selector. */
@@ -11522,44 +11759,56 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-media-add'){
       // Stash the pick context on module state (not the input element)
       // so a repaint between picker-open and file-pick doesn't lose
-      // the target pool/pump-room. The hidden input is just a picker
-      // trigger; its DOM identity may change across repaints.
+      // the target pool/pump-room.
       var mediaType  = target.getAttribute('data-media-type') || 'photo';
       var pumpRoomId = target.getAttribute('data-pump-room');
-      if (pumpRoomId){
-        s._mediaPickContext = { target: { kind: 'pumpRoom', id: pumpRoomId }, mediaType: mediaType };
-      } else {
-        var poolIdx = parseInt(target.getAttribute('data-pool'), 10);
-        s._mediaPickContext = { target: poolIdx, mediaType: mediaType };
-      }
-      var input = document.getElementById('ar-eng-media-input');
-      if (!input) return true;
-      // ── Camera launch strategy ────────────────────────────────
-      // capture="environment" is a hint that asks the OS to launch the
-      // rear camera app instead of the photo library picker. It works
-      // reliably on Android but has TWO broken paths we have to dodge:
-      //   1. Desktop browsers / embedded webviews — the camera feed
-      //      gets wired into the offscreen 1×1 px input element →
-      //      black viewport, no preview.
-      //   2. iOS WebKit (especially in PWA / 'Add to Home Screen'
-      //      standalone mode, and increasingly in vanilla Safari on
-      //      iOS 17+) — the camera UI launches but the live feed never
-      //      attaches, so the preview is solid black even though the
-      //      capture chrome appears. Apple's own bug.
+      var ctxTarget = pumpRoomId
+        ? { kind: 'pumpRoom', id: pumpRoomId }
+        : parseInt(target.getAttribute('data-pool'), 10);
+      s._mediaPickContext = { target: ctxTarget, mediaType: mediaType };
+
+      // ── Capture strategy (pf-20260525q rewrite) ──────────────────
+      // The previous strategy (set capture='environment' on Android,
+      // fall through to the iOS file picker on iOS) STILL produced a
+      // black camera preview on iPhone 16 Pro Max — iOS WebKit's
+      // native camera intent gets the chrome but never the stream,
+      // in both Safari and Chrome-on-iOS. Same bug regardless of how
+      // the input is configured.
       //
-      // Strategy: only set capture on Android. iOS + desktop fall back
-      // to the standard file picker; both include a "Take Photo" /
-      // "Use Camera" path that works correctly. Costs an extra tap on
-      // iOS but the camera actually shows live video.
-      input.setAttribute('accept', mediaType === 'video' ? 'video/*' : 'image/*');
-      var ua = (window.navigator && window.navigator.userAgent) || '';
-      var isAndroid = /Android/i.test(ua);
-      try {
-        if (isAndroid) input.setAttribute('capture', 'environment');
-        else           input.removeAttribute('capture');
-      } catch(_){}
-      input.value = '';   // clear so picking the same file again still fires change
-      input.click();
+      // New approach for PHOTOS: skip the OS camera intent entirely,
+      // use a getUserMedia-based custom camera overlay. We own the
+      // <video> element, request camera permission via the standard
+      // browser prompt, and capture a frame to a canvas → JPEG blob
+      // that flows into uploadMedia() the same way a picked file
+      // would. Works in Safari, Chrome-on-iOS, Android Chrome, and
+      // desktop browsers — anywhere getUserMedia is supported on
+      // HTTPS. Library-pick fallback is one tap away from the overlay.
+      //
+      // For VIDEOS: keep the existing file-picker flow. MediaRecorder
+      // for videos is doable but adds significant complexity and
+      // file-size pitfalls; the OS file picker for video works fine
+      // since iOS routes video capture through a separate code path
+      // that doesn't hit the WebKit photo-stream bug.
+      if (mediaType === 'photo' && _supportsGetUserMedia()){
+        openEngCameraOverlay(function(blob){
+          if (!blob) return;
+          // Wrap the Blob as a File so uploadMedia's compressImage
+          // path (which does new Image() + canvas downscale) works
+          // unchanged.
+          var f = new File([blob], 'capture_'+Date.now()+'.jpg', { type: 'image/jpeg' });
+          uploadMedia(ctxTarget, f).catch(function(err){
+            alert((err && err.message) || 'Upload failed.');
+          });
+          s._mediaPickContext = null;
+        }, function(){
+          // Fallback — user tapped "Pick from library" in the overlay
+          // OR getUserMedia errored. Use the file input flow.
+          _engineerOpenFilePicker(mediaType);
+        });
+        return true;
+      }
+      // Videos / no getUserMedia support → file picker
+      _engineerOpenFilePicker(mediaType);
       return true;
     }
     if (action === 'ar-eng-media-picked'){
