@@ -9809,6 +9809,11 @@ window.AR2_ENGINEER = (function(){
     s.currentStep = n;
     _persistActiveState();
     repaint();
+    // Land the engineer at the top of the calculator chrome on every
+    // step transition so they're never half-scrolled down the previous
+    // step's form. Same scrollAppTop helper the rest of the calculator
+    // uses on its own step advances.
+    if (typeof scrollAppTop === 'function') scrollAppTop();
   }
   function isStepComplete(n){
     if (n === 1) return true;  // Briefing is always considered complete (skippable)
@@ -10796,25 +10801,98 @@ window.AR2_ENGINEER = (function(){
     var mapsUrl = addr && rec.formatted_address
       ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(rec.formatted_address)
       : '';
+
+    // Status pill — mirrors the admin Submission Review modal.
+    var asgnStatus = (s.assignment && s.assignment.status) || 'pending';
+    var statusMap = {
+      pending:     'Pending',
+      in_progress: 'In progress',
+      submitted:   'Sent for review',
+      reviewed:    'Reviewed',
+      locked:      'Locked'
+    };
+    var statusLabel = statusMap[asgnStatus] || asgnStatus;
+    var assignedTxt = (s.assignment && s.assignment.assigned_at)
+      ? new Date(s.assignment.assigned_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+      : null;
+    var submittedTxt = (s.assignment && s.assignment.submitted_at)
+      ? new Date(s.assignment.submitted_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+      : null;
+
+    // KPI counts — running totals of what the engineer has captured.
+    var photoCount = (s.media || []).filter(function(m){ return m.media_type === 'photo'; }).length;
+    var videoCount = (s.media || []).filter(function(m){ return m.media_type === 'video'; }).length;
+    var pumpRoomCount = (s.pumpRooms || []).length;
+
     mount.innerHTML = ''
       + '<div class="ar-eng-wrap ar-eng-flow">'
       +   headerHtml('Step 2 of 4 · Property review')
       +   stepperHtml(2)
       +   '<div class="ar-eng-card">'
-      +     '<div class="ar-eng-eyebrow">Property</div>'
-      +     '<div class="ar-eng-h2">' + nameDisplay + '</div>'
-      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Address</span><span class="ar-eng-v">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span></div>'
-      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Pools on file</span><span class="ar-eng-v">' + (s.pools.length || '—') + '</span></div>'
-      +     '<div class="ar-eng-row-flat"><span class="ar-eng-k">Total volume (Estimate)</span><span class="ar-eng-v">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span></div>'
-      +     (s.assignment && s.assignment.assignment_notes
-          ? '<div class="ar-eng-notes"><b>Rep notes</b><div>' + esc(s.assignment.assignment_notes) + '</div></div>'
+
+      // ── Header: eyebrow + property name on the left, status pill right
+      //    (mirrors the admin Submission Review modal layout).
+      +     '<div class="ar-admin-review-head" style="margin-bottom:14px;padding-bottom:14px">'
+      +       '<div class="ar-admin-review-head-l">'
+      +         '<div class="ar-admin-review-eyebrow">Property review</div>'
+      +         '<div class="ar-admin-review-title" style="font-size:20px">' + nameDisplay + '</div>'
+      +       '</div>'
+      +       '<span class="ar-admin-review-status ' + esc(asgnStatus) + '">' + esc(statusLabel) + '</span>'
+      +     '</div>'
+
+      // ── Metadata strip — Address (with Maps link), Pools on file,
+      //    Total volume (Estimate), Assigned / Sent dates.
+      +     '<div class="ar-admin-review-meta" style="margin-bottom:14px;padding-bottom:14px">'
+      +       '<div class="ar-admin-review-meta-item" style="flex:1 1 100%">'
+      +         '<span class="ar-admin-review-meta-lbl">Address</span>'
+      +         '<span class="ar-admin-review-meta-val">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener" style="margin-left:6px">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span>'
+      +       '</div>'
+      +       '<div class="ar-admin-review-meta-item">'
+      +         '<span class="ar-admin-review-meta-lbl">Total volume</span>'
+      +         '<span class="ar-admin-review-meta-val mono">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span>'
+      +       '</div>'
+      +       (assignedTxt
+          ? '<div class="ar-admin-review-meta-item">'
+            + '<span class="ar-admin-review-meta-lbl">Assigned</span>'
+            + '<span class="ar-admin-review-meta-val">' + esc(assignedTxt) + '</span>'
+            + '</div>'
+          : '')
+      +       (submittedTxt
+          ? '<div class="ar-admin-review-meta-item">'
+            + '<span class="ar-admin-review-meta-lbl">Last submission</span>'
+            + '<span class="ar-admin-review-meta-val">' + esc(submittedTxt) + '</span>'
+            + '</div>'
+          : '')
+      +     '</div>'
+
+      // ── KPI band — running progress at a glance. Photos cell turns
+      //    amber on 0 (matches the admin review's "no media" warning).
+      +     '<div class="ar-admin-review-kpis">'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pools</div><div class="ar-admin-review-kpi-val">' + (s.pools.length || 0) + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
+      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      +     '</div>'
+
+      // ── Pump-room chips (when any have been added on Step 3 — useful
+      //    on return visits when the engineer revisits Step 2 to verify
+      //    everything before the final submit).
+      +     (pumpRoomCount
+          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
+            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
+            + '</div>'
           : '')
 
-      // Access flag — implicit on portal entry, so we don't ask the
+      // ── Rep notes block (preserved from the original) ──────────
+      +     (s.assignment && s.assignment.assignment_notes
+          ? '<div class="ar-eng-notes" style="margin:0 0 14px"><b>Rep notes</b><div>' + esc(s.assignment.assignment_notes) + '</div></div>'
+          : '')
+
+      // ── Access flag — implicit on portal entry, so we don't ask the
       // engineer to re-confirm. The toggle only surfaces if the engineer
       // actively says access is blocked, in which case the reason
       // textarea opens for them to leave a note for the rep.
-      +     '<div class="ar-eng-section-title">Property access</div>'
+      +     '<div class="ar-eng-section-title" style="margin-top:8px">Property access</div>'
       +     (pc.hasAccess === false
           ? '<div class="ar-eng-access-blocked-card">'
           +    '<div class="ar-eng-access-blocked-hd">' + svgIconWarn() + ' Access reported as blocked</div>'
