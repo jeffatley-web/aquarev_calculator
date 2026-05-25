@@ -5754,22 +5754,34 @@ function renderPortfolioReportToDOM(pName, sections, mode){
       setTimeout(function(){
         var restored = false;
         function doRestore(){ if (restored) return; restored = true; restoreApp(); }
-        if (mode === 'exp-preview'){
-          var tb = document.createElement('div');
-          tb.id = 'ar2-preview-toolbar';
-          tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
-          tb.innerHTML = '<button id="ar2-pf-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Return to Portfolio</button>'
-            + '<div style="color:#fff;font-size:13px;font-weight:600">' + escHtml(pName) + ' — Portfolio Preview</div>'
-            + '<button id="ar2-pf-prev-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Download PDF</button>';
-          document.body.appendChild(tb);
+        function _wirePfPreviewToolbar(tb, dlGreen){
+          // High z-index + pointer-events:auto belt-and-suspenders — and
+          // wire the click via THREE channels: (1) the button's own
+          // addEventListener, (2) document-level capture-phase delegate
+          // catching clicks before any other handler in any stacking
+          // context, (3) keep .onclick assignment too as a last-resort
+          // fallback for ancient browsers. Whichever fires first wins;
+          // _alreadyHandled guards against double-fire.
           rEl.style.paddingTop = '56px';
-          document.getElementById('ar2-pf-prev-back').onclick = function(){
-            document.body.removeChild(tb);
+          var alreadyHandled = false;
+          function safeRemove(node){ try { if (node && node.parentNode) node.parentNode.removeChild(node); } catch(_){} }
+          function backHandler(e){
+            if (alreadyHandled) return;
+            alreadyHandled = true;
+            if (e && e.preventDefault) e.preventDefault();
+            if (e && e.stopPropagation) e.stopPropagation();
+            document.removeEventListener('click', captureDelegate, true);
+            safeRemove(tb);
             rEl.style.paddingTop = '';
             doRestore();
-          };
-          document.getElementById('ar2-pf-prev-dl').onclick = function(){
-            document.body.removeChild(tb);
+          }
+          function dlHandler(e){
+            if (alreadyHandled) return;
+            alreadyHandled = true;
+            if (e && e.preventDefault) e.preventDefault();
+            if (e && e.stopPropagation) e.stopPropagation();
+            document.removeEventListener('click', captureDelegate, true);
+            safeRemove(tb);
             rEl.style.paddingTop = '';
             window.addEventListener('afterprint', function onAfter(){
               window.removeEventListener('afterprint', onAfter);
@@ -5777,7 +5789,36 @@ function renderPortfolioReportToDOM(pName, sections, mode){
             });
             window.print();
             setTimeout(function(){ if (!restored) doRestore(); }, 3000);
-          };
+          }
+          // Capture-phase delegate at the document root — fires BEFORE any
+          // bubbling handler / stacking-context oddity could swallow it.
+          function captureDelegate(e){
+            var t = e.target;
+            if (!t || !t.closest) return;
+            if (t.closest('#ar2-pf-prev-back')) backHandler(e);
+            else if (t.closest('#ar2-pf-prev-dl')) dlHandler(e);
+          }
+          document.addEventListener('click', captureDelegate, true);
+          var bb = document.getElementById('ar2-pf-prev-back');
+          var db = document.getElementById('ar2-pf-prev-dl');
+          if (bb){
+            bb.addEventListener('click', backHandler);
+            bb.onclick = backHandler; // legacy fallback
+          }
+          if (db){
+            db.addEventListener('click', dlHandler);
+            db.onclick = dlHandler;   // legacy fallback
+          }
+        }
+        if (mode === 'exp-preview'){
+          var tb = document.createElement('div');
+          tb.id = 'ar2-preview-toolbar';
+          tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:2147483647;box-shadow:0 2px 10px rgba(0,0,0,.4);pointer-events:auto;';
+          tb.innerHTML = '<button id="ar2-pf-prev-back" type="button" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;pointer-events:auto;position:relative;z-index:1">← Return to Portfolio</button>'
+            + '<div style="color:#fff;font-size:13px;font-weight:600;pointer-events:none">' + escHtml(pName) + ' — Portfolio Preview</div>'
+            + '<button id="ar2-pf-prev-dl" type="button" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;pointer-events:auto;position:relative;z-index:1">Download PDF</button>';
+          document.body.appendChild(tb);
+          _wirePfPreviewToolbar(tb, false);
         } else if (mode === 'exp-archive'){
           // Save to Archive — currently a stub. We still want the rep to
           // SEE the report (so they know what was archived) so we run the
@@ -5786,27 +5827,12 @@ function renderPortfolioReportToDOM(pName, sections, mode){
           alert('Portfolio report preview generated. Real archive persistence (PDF blob saved to Supabase Storage) is a follow-up; for now the preview is open so you can verify the output.');
           var tb2 = document.createElement('div');
           tb2.id = 'ar2-preview-toolbar';
-          tb2.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
-          tb2.innerHTML = '<button id="ar2-pf-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Return to Portfolio</button>'
-            + '<div style="color:#fff;font-size:13px;font-weight:600">' + escHtml(pName) + ' — Archive preview</div>'
-            + '<button id="ar2-pf-prev-dl" style="background:linear-gradient(135deg,#22c55e,#4ade80);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">Download PDF</button>';
+          tb2.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:2147483647;box-shadow:0 2px 10px rgba(0,0,0,.4);pointer-events:auto;';
+          tb2.innerHTML = '<button id="ar2-pf-prev-back" type="button" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;pointer-events:auto;position:relative;z-index:1">← Return to Portfolio</button>'
+            + '<div style="color:#fff;font-size:13px;font-weight:600;pointer-events:none">' + escHtml(pName) + ' — Archive preview</div>'
+            + '<button id="ar2-pf-prev-dl" type="button" style="background:linear-gradient(135deg,#22c55e,#4ade80);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;pointer-events:auto;position:relative;z-index:1">Download PDF</button>';
           document.body.appendChild(tb2);
-          rEl.style.paddingTop = '56px';
-          document.getElementById('ar2-pf-prev-back').onclick = function(){
-            document.body.removeChild(tb2);
-            rEl.style.paddingTop = '';
-            doRestore();
-          };
-          document.getElementById('ar2-pf-prev-dl').onclick = function(){
-            document.body.removeChild(tb2);
-            rEl.style.paddingTop = '';
-            window.addEventListener('afterprint', function onAfter(){
-              window.removeEventListener('afterprint', onAfter);
-              setTimeout(doRestore, 100);
-            });
-            window.print();
-            setTimeout(function(){ if (!restored) doRestore(); }, 3000);
-          };
+          _wirePfPreviewToolbar(tb2, true);
         } else {
           // Download mode — print directly
           window.addEventListener('afterprint', function onAfter(){
