@@ -4656,13 +4656,23 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
   var deviceTotals = {};
   for (var p0=0; p0<PIPES.length; p0++) deviceTotals[PIPES[p0].k] = 0;
   var totalGal = 0, totalPools = 0;
+  // Same savings_weight aggregation the Assessment builder uses, so both
+  // captured pages derive monthly/5-yr/payback off identical scaling.
+  // Was the source of a discrepancy where the Exec Summary used the
+  // rep's live S.savings_weight (e.g. 75% personal default) and the
+  // Assessment used a portfolio-pool-weighted average — same property
+  // showed different payback months on each page.
+  var swWeightedSum = 0, swPoolCount = 0, swPropPropSum = 0, swPropCount = 0;
   for (var i=0; i<states.length; i++){
     var sj = states[i].state_json || {};
+    var pPools = 0;
     if (sj.manualVolume){
-      totalPools += Math.max(1, Number(sj.manualPoolCount) || 1);
+      pPools = Math.max(1, Number(sj.manualPoolCount) || 1);
+      totalPools += pPools;
       totalGal += Number(sj.manualTotalGallons) || 0;
     } else if (Array.isArray(sj.bodies)){
-      totalPools += sj.bodies.length;
+      pPools = sj.bodies.length;
+      totalPools += pPools;
       for (var b=0; b<sj.bodies.length; b++){
         totalGal += (typeof bodyGallons === 'function') ? bodyGallons(sj.bodies[b]) : (Number(sj.bodies[b].gallons) || 0);
       }
@@ -4671,7 +4681,14 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
       var k = PIPES[pi].k;
       deviceTotals[k] += Number(sj[k]) || 0;
     }
+    var pSw = Number(sj.savings_weight);
+    if (!isFinite(pSw) || pSw <= 0) pSw = 1;
+    if (pPools > 0){ swWeightedSum += pSw * pPools; swPoolCount += pPools; }
+    swPropPropSum += pSw; swPropCount += 1;
   }
+  var avgSavingsWeight = swPoolCount > 0
+    ? (swWeightedSum / swPoolCount)
+    : (swPropCount > 0 ? (swPropPropSum / swPropCount) : 1);
   // Snapshot live state
   var savedS  = JSON.parse(JSON.stringify(S));
   var savedEX = JSON.parse(JSON.stringify(EX));
@@ -4690,6 +4707,9 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
     S.chlorine_pool_gallons = totalGal;
     S.co2_pool_gallons      = 0;
     S.devicesByPool         = false;
+    // Pool-weighted average savings projection — mirrors Assessment so
+    // calcROI scales monthly + 5-yr + payback identically on both pages.
+    S.savings_weight        = avgSavingsWeight;
     S.propertiesCount       = states.length;    // exec summary references this in "X Property / Y Feature Pools" copy
     for (var pi2=0; pi2<PIPES.length; pi2++){
       S[PIPES[pi2].k] = deviceTotals[PIPES[pi2].k];
