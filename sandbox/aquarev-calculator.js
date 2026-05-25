@@ -10653,7 +10653,7 @@ window.AR2_ENGINEER = (function(){
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
         + '<p><b>Start with the Pump Rooms section at the top.</b> Tap <b>+ Add Pump Room</b> for every equipment room you walked through, give each one a short ID (e.g. <i>PR-1</i>, <i>North equipment</i>), and record a quick walkthrough video. You\'ll link pools to their rooms below.</p>'
         + '<p><b>For each pool, you need three things to mark it complete:</b></p>'
-        + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Match Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
+        + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Confirm Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
         + '<p style="margin-left:14px"><b>2. Add return lines</b> — one row per pipe configuration. Use +/− for line count, the dropdown for diameter. Add multiple rows if pipe sizes vary.</p>'
         + '<p style="margin-left:14px"><b>3. Photograph the return lines</b> — required for every pool. Get one clear close-up of each pipe size showing the diameter, plus a wider shot of the full return wall. A short video panning across the lines is great for clustered piping. Cameras open automatically on mobile; photos are compressed before upload.</p>'
         + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it.</p>'
@@ -11565,7 +11565,7 @@ window.AR2_ENGINEER = (function(){
       +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
       +     '<div class="ar-eng-inline">'
       +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
-      +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Match Estimate</button>' : '')
+      +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Confirm Estimate</button>' : '')
       +     '</div>'
       +     divergenceWarning
       +   '</div>'
