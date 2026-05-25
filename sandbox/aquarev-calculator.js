@@ -11327,6 +11327,21 @@ window.AR2_ENGINEER = (function(){
         });
       })(thumbs[ti]);
     }
+    // Same pattern for walkthrough videos — sign the URL and set it
+    // as the <video> src with a #t=0.5 fragment so the browser seeks
+    // to the half-second mark (skips the black opening frame common
+    // on phone captures so the engineer sees real content, not black).
+    var vids = mount.querySelectorAll('[data-video-load]');
+    for (var vi = 0; vi < vids.length; vi++){
+      (function(el){
+        var p = el.getAttribute('data-video-load');
+        getSignedUrl(p).then(function(url){
+          if (!url) return;
+          // #t=0.5 = seek to half-second frame on load
+          el.src = url + (url.indexOf('#') === -1 ? '#t=0.5' : '');
+        });
+      })(vids[vi]);
+    }
   }
 
   /* Pump Rooms section — rendered above the pool grid in Step 3.
@@ -11382,10 +11397,25 @@ window.AR2_ENGINEER = (function(){
         + '<div class="ar-eng-pump-room-video-msg">Uploading walkthrough…</div>'
         + '</div>';
     } else if (video){
-      videoBlock = '<div class="ar-eng-pump-room-video has-video" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(video.id) + '" data-storage-path="' + esc(video.storage_path) + '" data-media-type="video" title="Play walkthrough video">'
-        + '<div class="ar-eng-pump-room-video-icon">' + svgIconVideo() + '</div>'
-        + '<div class="ar-eng-pump-room-video-msg">Walkthrough ready · tap to view</div>'
-        + '<button class="ar-eng-thumb-x" data-action="ar-eng-media-remove" data-media-id="' + esc(video.id) + '" type="button" aria-label="Remove video">' + svgIconClose() + '</button>'
+      // ── Walkthrough captured — show a real frame from the video as
+      //    a thumbnail (not just a generic video icon). Uses a native
+      //    <video preload="metadata" muted playsinline> element with
+      //    the source URL ending in #t=0.5 so the browser seeks to the
+      //    half-second mark, skipping the black initial frame common
+      //    on phone captures. Tap the preview to play in the existing
+      //    lightbox; tap the "Delete & retake" button below to remove
+      //    the video so the engineer can record a new one.
+      videoBlock = '<div class="ar-eng-pump-room-video has-video">'
+        + '<div class="ar-eng-pr-video-preview" data-action="ar-eng-media-lightbox" data-engineer-media="' + esc(video.id) + '" data-storage-path="' + esc(video.storage_path) + '" data-media-type="video" title="Play walkthrough video">'
+        +   '<video class="ar-eng-pr-video-thumb" data-video-load="' + esc(video.storage_path) + '" muted playsinline preload="metadata" tabindex="-1"></video>'
+        +   '<div class="ar-eng-pr-video-play" aria-hidden="true">'
+        +     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7-11-7z"/></svg>'
+        +   '</div>'
+        +   '<div class="ar-eng-pr-video-badge">' + svgIconCheck() + ' Walkthrough captured</div>'
+        + '</div>'
+        + '<button class="ar-eng-pr-video-redo" data-action="ar-eng-media-remove" data-media-id="' + esc(video.id) + '" type="button">'
+        +   svgIconClose() + ' <span>Delete &amp; retake</span>'
+        + '</button>'
         + '</div>';
     } else {
       videoBlock = '<button class="ar-eng-pump-room-video empty" data-action="ar-eng-media-add" data-pump-room="' + esc(r.id) + '" data-media-type="video" type="button">'
@@ -12091,6 +12121,12 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-media-remove'){
       var mid = target.getAttribute('data-media-id');
       if (!mid) return true;
+      // The "Delete & retake" walkthrough-video button is destructive of
+      // a single critical asset — confirm before nuking it. Photos +
+      // pool media stay one-tap because they're usually one of several.
+      if (target.classList && target.classList.contains('ar-eng-pr-video-redo')){
+        if (!confirm('Delete this walkthrough video? You\'ll be able to record a new one immediately after.')) return true;
+      }
       removeMedia(mid).catch(function(err){
         alert('Could not remove: ' + ((err && err.message) || err));
       });
