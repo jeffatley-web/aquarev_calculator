@@ -3285,6 +3285,31 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-pump-room-video-msg{font-size:11.5px;font-weight:600;letter-spacing:.4px;line-height:1.3;}
 #ar2 .ar-eng-pump-room-video .ar-eng-thumb-x{position:absolute;top:6px;right:6px;}
 
+/* Walkthrough video — captured state: show real video thumbnail
+   (first ~half-second frame) + obvious 'Delete & retake' control.
+   .has-video stays as the outer container; inside lives a tappable
+   preview (.ar-eng-pr-video-preview) that opens the lightbox, plus a
+   bottom-aligned delete button (.ar-eng-pr-video-redo). */
+#ar2 .ar-eng-pump-room-video.has-video{padding:0;display:flex;flex-direction:column;gap:0;overflow:hidden;background:rgba(7,22,40,.65);border:1px solid rgba(34,197,94,.45);}
+#ar2 .ar-eng-pump-room-video.has-video:hover{border-color:rgba(34,197,94,.7);background:rgba(7,22,40,.65);}
+#ar2 .ar-eng-pr-video-preview{position:relative;width:100%;aspect-ratio:16/9;min-height:120px;cursor:pointer;display:block;overflow:hidden;background:#000;}
+#ar2 .ar-eng-pr-video-thumb{display:block;width:100%;height:100%;object-fit:cover;background:#000;pointer-events:none;}
+/* Play-icon overlay — circular aqua glyph centred over the preview */
+#ar2 .ar-eng-pr-video-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+#ar2 .ar-eng-pr-video-play::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at center, rgba(0,0,0,.45) 0%, rgba(0,0,0,.15) 60%, rgba(0,0,0,0) 100%);}
+#ar2 .ar-eng-pr-video-play svg{position:relative;width:48px;height:48px;color:#fff;background:rgba(0,180,216,.92);border-radius:50%;padding:11px 9px 11px 14px;box-sizing:border-box;box-shadow:0 4px 18px rgba(0,0,0,.45);transition:transform .15s,background .15s;}
+#ar2 .ar-eng-pr-video-preview:hover .ar-eng-pr-video-play svg{background:#48cae4;transform:scale(1.05);}
+/* "Captured" green badge overlaid bottom-left of the thumbnail */
+#ar2 .ar-eng-pr-video-badge{position:absolute;bottom:8px;left:8px;display:inline-flex;align-items:center;gap:4px;padding:4px 9px;background:rgba(34,197,94,.92);color:#0a2540;border-radius:99px;font-size:10.5px;font-weight:700;letter-spacing:.4px;line-height:1;pointer-events:none;}
+#ar2 .ar-eng-pr-video-badge svg{width:11px;height:11px;}
+/* Delete & retake button — full-width bottom bar so it's impossible
+   to miss when the engineer needs to redo the walkthrough. Red-tinted
+   but not aggressive — the destructive intent is reinforced by the
+   confirm() prompt inside the existing media-remove handler. */
+#ar2 .ar-eng-pr-video-redo{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;background:rgba(239,68,68,.14);border:none;border-top:1px solid rgba(239,68,68,.32);color:#fca5a5;padding:10px 12px;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.3px;cursor:pointer;transition:background .12s,color .12s;}
+#ar2 .ar-eng-pr-video-redo:hover{background:rgba(239,68,68,.28);color:#fff;}
+#ar2 .ar-eng-pr-video-redo svg{width:13px;height:13px;}
+
 #ar2 .ar-eng-pump-room-photos{display:flex;flex-direction:column;gap:6px;}
 #ar2 .ar-eng-pump-room-photos-lbl{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#7db8cc;font-weight:600;}
 #ar2 .ar-eng-pump-room-photos .ar-eng-thumbs{display:flex;flex-wrap:wrap;gap:6px;}
