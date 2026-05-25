@@ -11283,7 +11283,7 @@ window.AR2_ENGINEER = (function(){
       +   '<div class="ar-eng-pools-section">'
       +     '<div class="ar-eng-section-hd">'
       +       '<div class="ar-eng-section-eyebrow">Pools</div>'
-      +       '<div class="ar-eng-section-sub">Verify each pool below — gallons, water type, return lines, and at least one return-line photo. Link each pool to the pump room that serves it.</div>'
+      +       '<div class="ar-eng-section-sub">Verify each pool below — gallons, water type, return lines, and at least one return-line photo. Link each pool to the pump room that serves it. It is ideal if you can also take a photo of the size stamp directly on the pipe for certainty.</div>'
       +     '</div>'
       +     lockBanner
       +     applyToolbar
