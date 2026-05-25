@@ -10023,14 +10023,22 @@ window.AR2_ENGINEER = (function(){
         });
     }, 700);
   }
-  // True when a text input / textarea inside the engineer flow has
-  // focus. Used to skip full repaints so engineers can type without
-  // losing focus + scroll position every keystroke.
+  // True when a form control inside the engineer flow has focus. Used
+  // to skip full repaints during user interaction so:
+  //   • INPUT / TEXTAREA — engineer can type without losing focus or
+  //     having the page scroll back to the top on every keystroke.
+  //   • SELECT — on mobile the native picker is a multi-step interaction
+  //     (tap to open → tap an option → change fires → picker closes).
+  //     If we repaint between the tap-to-open and the picker closing,
+  //     the select element gets detached + replaced and the value the
+  //     engineer just picked silently fails to commit (the change event
+  //     fires on a detached node). Including SELECT here keeps the live
+  //     picker attached to a stable DOM node until interaction ends.
   function _engineerFlowInputFocused(){
     var el = document.activeElement;
     if (!el || !el.tagName) return false;
     var tag = el.tagName;
-    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return false;
     // Only count fields inside the engineer flow tree.
     return !!(el.closest && el.closest('#ar2-bank'));
   }
