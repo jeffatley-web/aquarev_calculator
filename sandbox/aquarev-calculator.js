@@ -7073,10 +7073,10 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
   var titleTxt = isEng ? 'RESET ENGINEER PASSCODE' : 'RESET ACCESS CODE';
   var roleLbl  = isEng ? 'Engineer' : (role.charAt(0).toUpperCase()+role.slice(1));
   var helpTxt = isEng
-    ? 'Engineers sign in with their phone number. Enter a new phone (digits only) or generate a placeholder.'
+    ? 'Engineers sign in with a numeric passcode (often their phone number). Enter any 4+ digit code.'
     : 'User signs in with a 4-character access code. Enter a new code, or generate a random one.';
   var inputAttrs = isEng
-    ? 'type="tel" inputmode="numeric" maxlength="15" placeholder="Phone number (digits only)" autocomplete="off"'
+    ? 'type="tel" inputmode="numeric" maxlength="15" placeholder="Passcode (4+ digits)" autocomplete="off"'
     : 'type="text" maxlength="4" placeholder="New 4-char code" autocomplete="off" autocapitalize="characters"';
   var inputStyle = isEng
     ? 'letter-spacing:2px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px'
@@ -7138,7 +7138,9 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
       : raw.toUpperCase();
     var err = document.getElementById('ar2-rc-err');
     if (isEng){
-      if (code.length < 7){ err.textContent='Phone must be at least 7 digits.'; return; }
+      // Minimum 4 digits — admins may set a short numeric code for an
+      // engineer during onboarding before the real phone is collected.
+      if (code.length < 4){ err.textContent='Passcode must be at least 4 digits.'; return; }
     } else {
       if (code.length < 4){ err.textContent='Code must be at least 4 characters.'; return; }
     }
