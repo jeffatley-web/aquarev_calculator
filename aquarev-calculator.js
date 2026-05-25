@@ -10660,7 +10660,7 @@ window.AR2_ENGINEER = (function(){
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
         + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across. Set one next to the pipe for scale in your photo.</p>'
-        + '<p>If the deck has multiple identical pools, tap <b>Apply Pool 1 to remaining pools</b> — saves typing.</p>',
+        + '<p>Verify each pool individually — gallons, water type, return lines, and at least one photo per pool — so any per-pool differences make it back to your rep cleanly.</p>',
       4: ''
         + '<div class="ar-eng-help-section">Step 4 — Review and send</div>'
         + '<p>Skim the summary. Any pool missing required items (return lines, media) is flagged in amber — tap <b>Back to pools</b> to fix.</p>'
@@ -11255,16 +11255,12 @@ window.AR2_ENGINEER = (function(){
       var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
       return hasLines && poolHasMedia(p.index);
     }).length;
-    // Apply Pool 1 to Rest is only meaningful when there are 2+ pools AND
-    // Pool 1 has been documented at least partially. Hidden otherwise to
-    // avoid a confusing button on properties with one pool.
-    var canApplyToRest = s.pools.length > 1
-      && s.verifications[0]
-      && Array.isArray(s.verifications[0].return_lines)
-      && s.verifications[0].return_lines.length > 0;
-    var applyToolbar = canApplyToRest
-      ? '<div class="ar-eng-pool-toolbar"><button class="ar-eng-tiny" data-action="ar-eng-apply-pool-1" type="button">' + svgIconApplyDown() + ' Apply Pool 1 setup to remaining pools</button></div>'
-      : '';
+    // Apply Pool 1 to Rest feature was removed (per Jeff 2026-05-25)
+    // — engineers should verify each pool individually rather than
+    // bulk-copying one pool's setup, which made discrepancies easier
+    // to miss. The applyToolbar var stays defined as empty so the
+    // render template doesn't need to change shape.
+    var applyToolbar = '';
     var lockBanner = poolsUnlocked
       ? ''
       : '<div class="ar-eng-pools-locked">' + svgIconWarn() + ' <b>Pool cards are locked.</b> Add at least one pump room and attach a walkthrough video or supporting photo above before documenting pools — that\'s how the rep ties each pool back to its equipment room.</div>';
@@ -11863,10 +11859,11 @@ window.AR2_ENGINEER = (function(){
       updateVerification(piDR, { discrepancy_reason: target.value || '' }, { silent: true });
       return true;
     }
-    if (action === 'ar-eng-apply-pool-1'){
-      applyPool1ToRest();
-      return true;
-    }
+    // 'ar-eng-apply-pool-1' handler removed — the Apply Pool 1 to
+    // remaining pools feature was retired (Jeff 2026-05-25). The
+    // applyPool1ToRest() function itself stays defined upstream as
+    // dead code for now; harmless and easy to wire back if it's
+    // ever brought back.
     if (action === 'ar-eng-media-add'){
       // Stash the pick context on module state (not the input element)
       // so a repaint between picker-open and file-pick doesn't lose
