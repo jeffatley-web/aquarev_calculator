@@ -11368,7 +11368,7 @@ window.AR2_ENGINEER = (function(){
       + '<div class="ar-eng-pump-rooms-section">'
       +   '<div class="ar-eng-section-hd">'
       +     '<div class="ar-eng-section-eyebrow">Pump Rooms</div>'
-      +     '<div class="ar-eng-section-sub">One per equipment room you walked through. Capture an ID and a quick walkthrough video, then link each pool to its room below.</div>'
+      +     '<div class="ar-eng-section-sub">ID the pump room and take a quick walkthrough video, then link each pool and return pipes to the pump room below in the pools section.</div>'
       +   '</div>'
       +   (cards
           ? '<div class="ar-eng-pump-room-grid">' + cards + '</div>'
