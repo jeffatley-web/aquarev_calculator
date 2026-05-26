@@ -3159,13 +3159,30 @@ window.AR2_PF = (function(){
     if (el && el.parentNode) el.parentNode.removeChild(el);
   }
   function submitNewProperty(){
-    var pid = pfState.selectedPortfolioId;
-    if (!pid) { closeAddPropertyModal(); return; }
+    // Resolve the target portfolio id. Primary source: pfState.selectedPortfolioId
+    // (set when the rep opens a portfolio's Overview). Fallback chain catches
+    // races where the modal was opened mid-route — e.g. Save & Add Another
+    // firing before the Overview finished mounting. Without these fallbacks,
+    // a null pid would close the modal silently and the rep's typed property
+    // name would be lost. Bug audit 20260526.
+    var pid = pfState.selectedPortfolioId
+           || (pfState.loadedProperty && pfState.loadedProperty.portfolio_id)
+           || null;
     var backdrop = document.getElementById('ar-pf-add-prop-modal');
     var mode = (backdrop && backdrop.dataset.addMode) || 'new';
     var err = document.getElementById('ar-pf-add-prop-err');
     var btn = document.querySelector('[data-pf-action="add-prop-create"]');
     if (err) err.textContent = '';
+    if (!pid){
+      // Visible error instead of silent close — surfaces the dropped-context
+      // state to the rep so they know to back out and reopen the portfolio.
+      try { console.error('[AR2_PF.submitNewProperty] no portfolio id resolved; modal opened outside a portfolio context'); } catch(_){}
+      if (err) err.textContent = 'No portfolio is currently selected. Close this dialog, open the portfolio you want from the Portfolios tab, then click "Add Property" again.';
+      return;
+    }
+    // Mirror the resolved pid back into pfState so any subsequent action that
+    // reads selectedPortfolioId during this save cycle sees the same value.
+    pfState.selectedPortfolioId = pid;
     if (mode === 'existing'){
       // Copy an existing single assessment's data into a new portfolio_
       // properties row. The original assessment record is untouched.
@@ -3440,16 +3457,37 @@ window.AR2_PF = (function(){
      new name → enterProperty drops them on Map Pools with a fresh canvas.
      Smoother than Save & Close → click Add Property manually. */
   function saveAndAddAnother(){
+    // Capture the portfolio id BEFORE exitProperty clears loadedProperty.
+    // Without this snapshot the "add another" modal would open against a
+    // null target on slow networks where exitProperty's save promise resolves
+    // after loadedProperty has already been cleared.
     var pid = (pfState.loadedProperty && pfState.loadedProperty.portfolio_id)
            || pfState.selectedPortfolioId;
+    if (!pid){
+      // Defensive: refuse to proceed if we have nothing to bind the new
+      // property to. Surface the error so the rep can recover instead of
+      // ending up in a modal that silently swallows their input.
+      try { console.error('[AR2_PF.saveAndAddAnother] no portfolio id resolved before exit'); } catch(_){}
+      alert('Could not resolve which portfolio to add another property to. Please use Save & Close, then open the portfolio from the Portfolios tab and click "Add Property" there.');
+      return Promise.resolve();
+    }
     return exitProperty().then(function(){
       // exitProperty restored the rep's prior single-property session and
       // routed back to the overview. selectedPortfolioId is set on exit,
       // but reassert it defensively so openAddPropertyModal targets the
       // right portfolio even if state was stomped mid-route.
-      if (pid) pfState.selectedPortfolioId = pid;
-      // Give the overview a tick to mount before stacking the modal on top.
-      setTimeout(openAddPropertyModal, 30);
+      pfState.selectedPortfolioId = pid;
+      // Final sanity check — if anything wiped selectedPortfolioId between
+      // exit and the timer, abort with a clear error instead of opening a
+      // modal that would silently lose the rep's input.
+      setTimeout(function(){
+        if (!pfState.selectedPortfolioId){
+          try { console.error('[AR2_PF.saveAndAddAnother] selectedPortfolioId cleared after exit'); } catch(_){}
+          alert('Could not open the Add Property dialog: the portfolio context was lost during navigation. Please open the portfolio manually and click "Add Property".');
+          return;
+        }
+        openAddPropertyModal();
+      }, 30);
     });
   }
 
@@ -6385,8 +6423,160 @@ function showSaveChoiceModal(propName, dupCount, onUpdate, onSaveNew){
   m.addEventListener('click',function(e){if(e.target===m)close();});
 }
 
+/* ── Save-to-portfolio routing helper ──────────────────────────────────
+   Used by bankSaveReportImpl when window.AR2_MAP_PF_TARGET is set. Creates
+   a new portfolio_properties row in the target portfolio, hydrated with
+   the current calculator S/EX/map snapshot. On success: clears the target
+   so subsequent saves behave normally, invalidates AR2_PF caches so the
+   Overview reflects the new property immediately, and enters property
+   mode so the rep continues editing inside the portfolio context. On
+   failure: surfaces the error inline and leaves the target intact so the
+   rep can retry. */
+function _bankSaveReportToPortfolio(target){
+  if (EX.saving) return;
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){
+    alert('Cloud unavailable — cannot save to portfolio "' + (target.name || '') + '". Try again when you are back online.');
+    return;
+  }
+  // Sync Map Pools-entered name into S if it hasn't propagated yet.
+  if(!S.propertyName && window.AR2_MAP && AR2_MAP.getPropertyName){
+    var mapName = AR2_MAP.getPropertyName();
+    if (mapName) S.propertyName = mapName;
+  }
+  var propName = (S.propertyName || '').trim();
+  if (!propName){
+    var typed = prompt('A Property Name is required before saving to portfolio "' + (target.name || '') + '".\n\nEnter a name:', '');
+    if (typed == null) return;                  // user cancelled
+    propName = typed.trim();
+    if (!propName){
+      alert('Property name required to add this property to the portfolio.');
+      return;
+    }
+    S.propertyName = propName;
+    var formInput = document.querySelector('#ar2 [data-f="propertyName"]');
+    if (formInput) formInput.value = propName;
+    if (window.AR2_MAP && AR2_MAP.setPropertyName) AR2_MAP.setPropertyName(propName);
+  }
+  EX.saving = true; EX.saveStatus = null; renderDevices();
+  // Safety timeout — same as bankSaveReportImpl
+  setTimeout(function(){ if (EX.saving){ EX.saving=false; EX.saveStatus='error'; renderDevices(); } }, 15000);
+
+  // Snapshot live state. cloneJson lives inside AR2_PF's IIFE so we
+  // round-trip via JSON inline (S/EX hold plain data only).
+  var stateJson = JSON.parse(JSON.stringify(S));
+  var exJson    = JSON.parse(JSON.stringify(EX));
+  var poolMeasureJson = null;
+  try { if (window.AR2_MAP && AR2_MAP.exportSnapshot) poolMeasureJson = AR2_MAP.exportSnapshot() || null; } catch(_){}
+  var formattedAddr = '';
+  try { if (window.AR2_MAP && AR2_MAP.getFormattedAddress) formattedAddr = AR2_MAP.getFormattedAddress() || ''; } catch(_){}
+  if (propName && !stateJson.propertyName) stateJson.propertyName = propName;
+  if (formattedAddr && !stateJson.formattedAddress) stateJson.formattedAddress = formattedAddr;
+
+  // Mirror the shape that saveCurrentProperty writes so the Overview KPI
+  // rollup sees the new property's contribution immediately.
+  var R = (typeof calcROI === 'function') ? calcROI() : null;
+  var kpis = R ? {
+    total_dev:      Number(R.total_dev) || 0,
+    total_pool_gal: Number(S.pool_gallons) || 0,
+    total_mo:       Number(R.total_mo) || 0,
+    total_yr:       Number(R.total_yr) || 0,
+    inv:            Number(R.inv) || 0,
+    payback:        Number(R.payback) || 0,
+    roi5:           Number(R.roi5) || 0,
+    water_5yr:      Number(R.gal_saved_5yr) || 0,
+    disc_amt:       Number(R.disc_amt) || 0
+  } : {};
+
+  // Pick the next order_index from the cached roster (if loaded). If the
+  // cache is cold, fall back to a high number — the rep can drag-reorder
+  // later. Copy-to-Portfolio uses the same fallback.
+  var orderIdx = 999;
+  try {
+    if (window.AR2_PF && AR2_PF._state){
+      var slot = AR2_PF._state.properties[target.id];
+      if (slot && Array.isArray(slot.rows)){
+        var max = -1;
+        for (var i=0;i<slot.rows.length;i++){
+          var o = slot.rows[i].order_index;
+          if (typeof o === 'number' && o > max) max = o;
+        }
+        orderIdx = max + 1;
+      }
+    }
+  } catch(_){}
+
+  c.from('portfolio_properties').insert({
+    portfolio_id:      target.id,
+    property_name:     propName,
+    order_index:       orderIdx,
+    formatted_address: formattedAddr || null,
+    state_json:        stateJson,
+    ex_json:           exJson,
+    pool_measure_json: poolMeasureJson,
+    computed_kpis:     kpis
+  }).select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at').single()
+  .then(function(rs){
+    if (rs.error) throw new Error(rs.error.message);
+    EX.saving = false; EX.saveStatus = 'saved';
+    renderDevices(); renderResults();
+    // Invalidate caches so the Overview shows the new property + fresh rollup.
+    try {
+      if (AR2_PF._state){
+        AR2_PF._state.properties[target.id] = null;
+        AR2_PF._state.rollup[target.id]     = null;
+      }
+    } catch(_){}
+    // Clear the Map Pools picker target — subsequent saves should behave
+    // normally (single-assessment route) unless the rep re-binds the picker.
+    window.AR2_MAP_PF_TARGET = null;
+    // Clear the picker chip UI too so the rep sees the binding is gone.
+    var chip = document.getElementById('ap-pf-picker-chip');
+    if (chip) chip.classList.remove('is-active');
+    var picker = document.getElementById('ap-pf-picker');
+    if (picker) picker.classList.remove('is-active');
+    var sel = document.getElementById('ap-pf-picker-select');
+    if (sel) sel.value = '';
+    var propertyRadio = document.querySelector('input[name="ap-create-mode"][value="property"]');
+    if (propertyRadio) propertyRadio.checked = true;
+    try {
+      var originBtn = document.querySelector('[data-action="archive"],[data-save-btn],#ar2-bank-nav');
+      confettiBurst({ originEl: originBtn, count: 55 });
+    } catch(_){}
+    setTimeout(function(){ EX.saveStatus = null; renderDevices(); renderResults(); }, 3000);
+    // Enter property mode so the rep continues working inside the portfolio
+    // — autosave from this point lands on the property row they just
+    // created, not back on the assessments table.
+    try { if (window.AR2_PF && AR2_PF.enterProperty) AR2_PF.enterProperty(rs.data.id); } catch(_){}
+  })
+  .catch(function(e){
+    EX.saving = false; EX.saveStatus = 'error';
+    renderDevices(); renderResults();
+    try { console.error('[bankSaveReport → portfolio] insert failed:', e); } catch(_){}
+    alert('Could not add this property to portfolio "' + (target.name || '') + '": ' +
+          ((e && e.message) || 'unknown error') +
+          '\n\nNothing was saved. The portfolio binding is still active — fix the issue and try Save again, or click the × on the portfolio chip to drop the binding and save as a standalone assessment instead.');
+    setTimeout(function(){ EX.saveStatus = null; renderDevices(); renderResults(); }, 4000);
+  });
+}
+
 function bankSaveReportImpl(replaceIds){
   if(EX.saving)return;
+  // ── Pass-2 wiring: "Add to Portfolio" routing ─────────────────────────
+  // If the rep picked "Add to Portfolio" on the Map Pools radio and bound
+  // a target via the chip picker, the save MUST land in portfolio_properties,
+  // not the standalone assessments table. Previously this routing branch
+  // was unimplemented — the radio set window.AR2_MAP_PF_TARGET but no save
+  // path read it, so reps would pick a portfolio + trace pools + hit Save,
+  // see "Saved ✓", and find later that the property never appeared in the
+  // chosen portfolio. Bug audit 20260526.
+  var _pfTarget = window.AR2_MAP_PF_TARGET;
+  if (_pfTarget && _pfTarget.id &&
+      window.AR2_PF && AR2_PF.isEnabled && AR2_PF.isEnabled() &&
+      window.AR2_CLOUD && AR2_CLOUD.getClient){
+    _bankSaveReportToPortfolio(_pfTarget);
+    return;
+  }
   EX.saving=true; EX.saveStatus=null; renderDevices();
   // Safety timeout — reset saving state if Promise never resolves
   setTimeout(function(){if(EX.saving){EX.saving=false;EX.saveStatus='error';renderDevices();}},10000);
