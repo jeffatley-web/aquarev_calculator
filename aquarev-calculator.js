@@ -3036,9 +3036,24 @@ window.AR2_PF = (function(){
 
   function openAddPropertyModal(){
     if (document.getElementById('ar-pf-add-prop-modal')) return;
+    // Capture the target portfolio id at open-time and stash it on the
+    // modal element. This binding survives any subsequent state churn
+    // (renderArchive, viewMode flips, race conditions) so the Save
+    // handler can always resolve the right portfolio. Without it, a
+    // re-render that cleared selectedPortfolioId would silently break
+    // every property created from the modal after this point.
+    var openPid = pfState.selectedPortfolioId
+               || (pfState.loadedProperty && pfState.loadedProperty.portfolio_id)
+               || null;
+    if (!openPid){
+      try { console.error('[AR2_PF.openAddPropertyModal] no portfolio id resolved at open-time'); } catch(_){}
+      alert('No portfolio is currently selected. Open the portfolio you want from the Portfolios tab, then click "Add Property" again.');
+      return;
+    }
     var backdrop = document.createElement('div');
     backdrop.id = 'ar-pf-add-prop-modal';
     backdrop.className = 'ar-pf-modal-backdrop';
+    backdrop.dataset.portfolioId = openPid;
     // Two-mode modal: create a blank new property OR add data from an
     // existing single assessment (copy its state/ex/mapping/kpis into a
     // fresh portfolio_properties row, leaving the original assessment intact).
@@ -3159,16 +3174,15 @@ window.AR2_PF = (function(){
     if (el && el.parentNode) el.parentNode.removeChild(el);
   }
   function submitNewProperty(){
-    // Resolve the target portfolio id. Primary source: pfState.selectedPortfolioId
-    // (set when the rep opens a portfolio's Overview). Fallback chain catches
-    // races where the modal was opened mid-route — e.g. Save & Add Another
-    // firing before the Overview finished mounting. Without these fallbacks,
-    // a null pid would close the modal silently and the rep's typed property
-    // name would be lost. Bug audit 20260526.
-    var pid = pfState.selectedPortfolioId
+    var backdrop = document.getElementById('ar-pf-add-prop-modal');
+    // Resolve the target portfolio id. Primary source: the modal's own
+    // dataset (stashed at open-time by openAddPropertyModal) — survives any
+    // state churn that might happen between open and submit. Fallback chain
+    // catches the legacy callers that opened the modal outside the helper.
+    var pid = (backdrop && backdrop.dataset.portfolioId)
+           || pfState.selectedPortfolioId
            || (pfState.loadedProperty && pfState.loadedProperty.portfolio_id)
            || null;
-    var backdrop = document.getElementById('ar-pf-add-prop-modal');
     var mode = (backdrop && backdrop.dataset.addMode) || 'new';
     var err = document.getElementById('ar-pf-add-prop-err');
     var btn = document.querySelector('[data-pf-action="add-prop-create"]');
