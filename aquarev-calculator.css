@@ -2294,11 +2294,14 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
    side of the card, right-justified, green, same typographic scale as
    .ar-bank-date so the row reads as "metadata under controls". */
 /* Actions cell holds the row of buttons. Engineer-name pills are
-   anchored as an absolutely-positioned column under the hardhat icon
-   via .ar-bank-eng-anchor so the line's left edge aligns with the icon. */
+   anchored as an absolutely-positioned column under the hardhat +
+   reassign-icon group. The anchor wraps BOTH buttons so the pill row's
+   right edge lines up with the reassign icon's right edge — admins
+   asked for that vertical alignment so the row reads as a stacked
+   "engineer / reassign target" unit. */
 #ar2 .ar-bank-actions-cell{display:flex;align-items:center;justify-content:flex-end;}
-#ar2 .ar-bank-eng-anchor{position:relative;display:inline-flex;align-items:center;}
-#ar2 .ar-bank-engineer-pills{position:absolute;top:calc(100% + 4px);left:0;display:flex;flex-wrap:wrap;gap:3px;max-width:340px;z-index:2;pointer-events:auto;}
+#ar2 .ar-bank-eng-anchor{position:relative;display:inline-flex;align-items:center;gap:4px;}
+#ar2 .ar-bank-engineer-pills{position:absolute;top:calc(100% + 4px);right:0;left:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:3px;max-width:340px;z-index:2;pointer-events:auto;}
 #ar2 .ar-bank-engineer-pill{font-size:9.5px;font-weight:600;color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);border-radius:99px;padding:2px 7px;line-height:1.3;letter-spacing:.2px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:.15s;}
 #ar2 .ar-bank-engineer-pill:hover{background:rgba(34,197,94,.24);border-color:rgba(34,197,94,.6);color:#fff;}
 #ar2 .ar-bank-engineer-pill:focus-visible{outline:2px solid rgba(34,197,94,.6);outline-offset:1px;}

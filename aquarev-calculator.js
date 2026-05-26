@@ -12631,6 +12631,14 @@ function renderBank(targetId){
                 }).join('')
               + '</div>';
           }
+          // Build the reassign button inline (admin-only) so it can sit
+          // INSIDE the eng-anchor span — that puts the anchor's right edge
+          // at the reassign icon's right edge, and the absolutely-positioned
+          // engineer-pill row (right:0 of the anchor) lines up flush with
+          // the reassign icon's right edge.
+          var reassignInsideAnchor = isPortfolio
+            ? '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Reassign portfolio to another user">→</button>'
+            : '<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" title="Reassign to another user">→</button>';
           bankEngBtn = '<span class="ar-bank-eng-anchor">'
             + '<button class="' + btnCls + '" data-action="assign-engineer-bank" data-bank-scope="'+bankScope+'" data-bank-id="'+entry.id+'" data-bank-name="'+esc(entry.propertyName||subjectText)+'" title="' + esc(titleText) + '" aria-label="Assign engineer">'
             +   '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">'
@@ -12640,6 +12648,7 @@ function renderBank(targetId){
             +   '</svg>'
             +   badge
             + '</button>'
+            + reassignInsideAnchor
             + engPills
           + '</span>';
         }
@@ -12650,11 +12659,15 @@ function renderBank(targetId){
         // parity with singles (plus the new "open" + delete already wired);
         // singles get a new "Copy to Portfolio" action that opens a picker
         // letting the rep add this assessment to an existing portfolio.
+        // Reassign is wrapped INSIDE bankEngBtn for admins (so engineer
+        // pills can right-align with the reassign icon). For non-admins,
+        // bankEngBtn is empty entirely, and there's no reassign at all —
+        // so the actions row simplifies. The standalone reassignBtn var
+        // is no longer used here but kept above for back-compat.
         var actions = isPortfolio
           ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
             +bankEngBtn
-            +(isAdmin?'<button class="ar-bank-act reassign" data-bank-action="reassign" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Reassign portfolio to another user">→</button>':'')
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
           : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
@@ -12662,7 +12675,6 @@ function renderBank(targetId){
             +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
             +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
             +bankEngBtn
-            +reassignBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>';
         var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'') + (isPortfolio?' is-portfolio':'');
         // "Devices" column header is reused for property count when the row
