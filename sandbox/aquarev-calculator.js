@@ -6996,13 +6996,14 @@ function showAdminAddUserModal(){
     +'<div style="margin-bottom:12px"><label>Email <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(optional)</span></label>'
       +'<input id="ar2-au-email" type="email" placeholder="name@company.com" autocomplete="off" />'
     +'</div>'
-    // Access code: for user/admin/client roles this stays a 4-char code as
-    // before; for engineer the field accepts the normalized E.164 phone
-    // (set by the phone-row handler below). maxlength removed in favor of
-    // a per-role validator at submit time.
+    // Access code: same 4-char alphanumeric code for every role including
+    // Engineer. Previously engineers used their phone digits as the code,
+    // but admins kept getting tripped up by the phone-as-code coupling; now
+    // every account is created with an admin-set Access Code and the phone
+    // field is contact reference only.
     +'<div style="margin-bottom:12px"><label id="ar2-au-code-label">Access Code (4 chars)</label>'
-      +'<input id="ar2-au-code" type="text" placeholder="SJ01" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
-      +'<div id="ar2-au-code-hint" style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4;display:none">Engineer accounts use the phone number as the access code. The field is auto-filled when you enter the phone below.</div>'
+      +'<input id="ar2-au-code" type="text" placeholder="SJ01" maxlength="4" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center" />'
+      +'<div id="ar2-au-code-hint" style="font-size:10.5px;color:#7db8cc;margin-top:4px;line-height:1.4;display:none">Engineer signs in with this code. The phone number below is for contact reference only.</div>'
     +'</div>'
     +'<div style="margin-bottom:14px"><label>Role</label>'
       +'<select id="ar2-au-role">'
@@ -7012,11 +7013,12 @@ function showAdminAddUserModal(){
         +'<option value="engineer">Engineer — field verification portal only</option>'
       +'</select>'
     +'</div>'
-    // Phone row — only meaningful for Engineer accounts. Hidden by JS for
-    // other roles. On Engineer, phone is normalized to E.164 and mirrored
-    // into the access-code field (phone-as-password per v1 product call).
+    // Phone row — contact reference for Engineer accounts. Hidden by JS for
+    // other roles. As of 20260526 the engineer login is the admin-set Access
+    // Code above (same as every other role), not the phone — the phone is
+    // here so admins/dispatch can call/text the engineer in the field.
     +'<div id="ar2-au-phone-row" style="margin-bottom:14px;display:none">'
-      +'<label>Engineer phone <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(used for login + admin contact)</span></label>'
+      +'<label>Engineer phone <span style="font-size:10px;color:rgba(255,255,255,.55);font-weight:400">(contact reference · optional)</span></label>'
       +'<input id="ar2-au-phone" type="tel" placeholder="(832) 979-6758" autocomplete="off" />'
       +'<div id="ar2-au-phone-normalized" style="font-size:10.5px;color:#7db8cc;margin-top:4px;font-family:\'JetBrains Mono\',monospace"></div>'
     +'</div>'
@@ -7037,17 +7039,16 @@ function showAdminAddUserModal(){
   document.getElementById('ar2-au-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var codeInp=document.getElementById('ar2-au-code');
+  // Access code is now an alphanumeric 4-char code for EVERY role — same
+  // input behavior across the board. Uppercase + strip non-alphanumeric so
+  // admins can't accidentally type a space, dash, or lowercase letter.
   codeInp.addEventListener('input',function(){
-    // Engineer codes are phone numbers — preserve their case-insensitive
-    // digit-only nature. Other roles get the existing uppercase 4-char code.
-    if (roleSel.value !== 'engineer'){
-      codeInp.value = (codeInp.value || '').toUpperCase();
-    }
+    codeInp.value = (codeInp.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
 
   // Show / hide the logo upload row + phone row based on role selection.
-  // Also flip the access-code label + hint between "4 chars" (default) and
-  // "phone number" (engineer) so admins don't second-guess.
+  // Show the engineer-specific hint under the access-code field when role
+  // is engineer (so admins know the phone below is contact-only).
   var roleSel = document.getElementById('ar2-au-role');
   var logoRow = document.getElementById('ar2-au-logo-row');
   var phoneRow = document.getElementById('ar2-au-phone-row');
@@ -7060,41 +7061,25 @@ function showAdminAddUserModal(){
     var r = roleSel.value;
     logoRow.style.display  = (r === 'client')   ? '' : 'none';
     phoneRow.style.display = (r === 'engineer') ? '' : 'none';
-    if (r === 'engineer'){
-      codeLabel.textContent = 'Access code (auto-filled from phone)';
-      codeHint.style.display = '';
-      codeInp.setAttribute('maxlength', '20');
-      codeInp.setAttribute('readonly', 'readonly');
-      codeInp.style.opacity = '.6';
-      codeInp.style.letterSpacing = '2px';
-    } else {
-      codeLabel.textContent = 'Access Code (4 chars)';
-      codeHint.style.display = 'none';
-      codeInp.setAttribute('maxlength', '4');
-      codeInp.removeAttribute('readonly');
-      codeInp.style.opacity = '';
-      codeInp.style.letterSpacing = '6px';
-      // If switching away from engineer, clear the phone-derived code so
-      // admin doesn't accidentally submit a long code as a 4-char one.
-      if (codeInp.value && codeInp.value.length > 4){ codeInp.value = ''; }
-    }
+    // Code field is now uniform across roles — admin types a 4-char code.
+    // Show the engineer hint when role=engineer so the phone field's role
+    // (contact reference) is clear.
+    codeHint.style.display = (r === 'engineer') ? '' : 'none';
+    codeLabel.textContent = 'Access Code (4 chars)';
   }
   roleSel.addEventListener('change', syncRoleFields);
   syncRoleFields();
 
-  // Phone handler.
-  // Access code = digits only (no country-code prefix). This is what the
-  // engineer will type at login — same digits, any format. The phone
-  // column on app_users stores the same digit-only string for consistency
-  // with the login matcher; admins still see a readable E.164 hint below
-  // the field for clarity.
+  // Phone handler — engineer accounts only. The phone is stored on
+  // app_users.phone for contact reference; it no longer drives the access
+  // code at all. Show a normalized E.164 hint below the field so admins
+  // can verify what was captured.
   phoneInp.addEventListener('input', function(){
     var digits = (phoneInp.value || '').replace(/[^\d]/g, '');
-    var pretty = normalizePhoneE164(phoneInp.value);   // for the helper hint only
+    var pretty = normalizePhoneE164(phoneInp.value);
     phoneNormalized.textContent = digits
-      ? 'Access code: ' + digits + (pretty ? '  (E.164: ' + pretty + ')' : '')
+      ? 'Stored as: ' + digits + (pretty ? '  (E.164: ' + pretty + ')' : '')
       : '';
-    codeInp.value = digits;
   });
 
   // Capture chosen logo file as base64 dataURL on input change.
@@ -7129,23 +7114,18 @@ function showAdminAddUserModal(){
     }
     var role=roleSel.value;
     var err=document.getElementById('ar2-au-err');
-    // For engineers, the code is the DIGITS-ONLY phone (no country-code
-    // prefix). The same digits are what they'll type at login; the gate
-    // normalizes input by stripping non-digits before matching.
-    var code, phone = null;
+    // Every role — including Engineer — uses the admin-typed 4-char Access
+    // Code. Engineers used to log in with their phone number; that coupling
+    // was confusing for admins so it was retired 20260526. The phone field
+    // (engineers only) is now contact reference and is stored separately.
+    var code = (document.getElementById('ar2-au-code').value || '').trim().toUpperCase();
+    var phone = null;
     if (role === 'engineer'){
       var digits = (phoneInp.value || '').replace(/[^\d]/g, '');
-      if (!digits || digits.length < 7){
-        err.textContent = 'Enter a valid phone number (any common format).';
-        phoneInp.focus(); return;
-      }
-      code  = digits;
-      phone = digits;   // store the same digit-string in app_users.phone
-    } else {
-      code = (document.getElementById('ar2-au-code').value || '').trim().toUpperCase();
+      phone = digits || null;  // optional — engineer can be created before a phone is on file
     }
     if(!name){ err.textContent='Name is required.'; return; }
-    if(role !== 'engineer' && code.length < 4){
+    if(code.length < 4){
       err.textContent = 'Access code must be at least 4 characters.';
       return;
     }
@@ -7312,27 +7292,22 @@ function showAdminEditLogoModal(uid, uname){
 }
 
 function showAdminResetCodeModal(uid, uname, role, currentPhone){
-  // Role-aware passcode reset. User / Client / Admin sign in with a
-  // 4-char access code; Engineers sign in with their phone number.
-  // The modal adapts its input format + validation per role so an
-  // admin can reset any user's passcode from one place.
+  // Uniform passcode reset for every role. As of 20260526 engineers also
+  // sign in with the admin-set 4-char Access Code (phone-as-password was
+  // retired). The currentPhone arg is still accepted for back-compat with
+  // the older call signature; for engineers we surface it as a contact
+  // reference under the input so the admin knows who they're resetting.
   role = (role || 'user').toLowerCase();
   var existing=document.getElementById('ar2-admrc-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
   var isEng = role === 'engineer';
-  var titleTxt = isEng ? 'RESET ENGINEER PASSCODE' : 'RESET ACCESS CODE';
+  var titleTxt = 'RESET ACCESS CODE';
   var roleLbl  = isEng ? 'Engineer' : (role.charAt(0).toUpperCase()+role.slice(1));
-  var helpTxt = isEng
-    ? 'Engineers sign in with a numeric passcode (often their phone number). Enter any 4+ digit code.'
-    : 'User signs in with a 4-character access code. Enter a new code, or generate a random one.';
-  var inputAttrs = isEng
-    ? 'type="tel" inputmode="numeric" maxlength="15" placeholder="Passcode (4+ digits)" autocomplete="off"'
-    : 'type="text" maxlength="4" placeholder="New 4-char code" autocomplete="off" autocapitalize="characters"';
-  var inputStyle = isEng
-    ? 'letter-spacing:2px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px'
-    : 'text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px';
+  var helpTxt = 'Enter a new 4-character access code, or generate a random one. The user signs in with this code on the gate.';
+  var inputAttrs = 'type="text" maxlength="4" placeholder="New 4-char code" autocomplete="off" autocapitalize="characters"';
+  var inputStyle = 'text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px';
   var hintLine = isEng && currentPhone
-    ? '<div style="font-size:11px;color:#7db8cc;margin-bottom:8px">Current phone on file: <b style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace">'+esc(currentPhone)+'</b></div>'
+    ? '<div style="font-size:11px;color:#7db8cc;margin-bottom:8px">Engineer phone on file (contact reference only): <b style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace">'+esc(currentPhone)+'</b></div>'
     : '';
   var m=document.createElement('div');
   m.id='ar2-admrc-modal';
@@ -7345,7 +7320,7 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
     +'<input id="ar2-rc-code" '+inputAttrs+' style="'+inputStyle+'" />'
     +'<div style="display:flex;gap:6px;margin-bottom:10px">'
       +'<button id="ar2-rc-show" type="button" class="ar2-mb" style="flex:1;font-size:11px">Show / hide</button>'
-      +(isEng ? '' : '<button id="ar2-rc-gen" type="button" class="ar2-mb" style="flex:1;font-size:11px">Generate random</button>')
+      +'<button id="ar2-rc-gen" type="button" class="ar2-mb" style="flex:1;font-size:11px">Generate random</button>'
     +'</div>'
     +'<div id="ar2-rc-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
@@ -7358,16 +7333,14 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
   document.getElementById('ar2-rc-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
   var inp=document.getElementById('ar2-rc-code');
-  // Initially mask the new code (show as password) so it isn't visible
-  // over the admin's shoulder. Show/hide toggle lets them verify.
-  inp.type = isEng ? 'tel' : 'password';
-  if (!isEng){
-    inp.addEventListener('input',function(){ inp.value=(inp.value||'').toUpperCase().replace(/[^A-Z0-9]/g,''); });
-  } else {
-    inp.addEventListener('input',function(){ inp.value=(inp.value||'').replace(/[^0-9+\-\s().]/g,''); });
-  }
+  // Initially mask the new code so it isn't visible over the admin's
+  // shoulder. Show/hide toggle lets them verify before submitting.
+  inp.type = 'password';
+  inp.addEventListener('input',function(){
+    inp.value = (inp.value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  });
   document.getElementById('ar2-rc-show').onclick = function(){
-    inp.type = (inp.type === 'password') ? (isEng ? 'tel' : 'text') : 'password';
+    inp.type = (inp.type === 'password') ? 'text' : 'password';
     inp.focus();
   };
   var genBtn = document.getElementById('ar2-rc-gen');
@@ -7378,22 +7351,14 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
       var code = '';
       for (var i = 0; i < 4; i++) code += alphabet.charAt(Math.floor(Math.random()*alphabet.length));
       inp.value = code;
-      inp.type = isEng ? 'tel' : 'text';
+      inp.type = 'text';
     };
   }
   document.getElementById('ar2-rc-go').onclick=function(){
     var raw = (inp.value || '').trim();
-    var code = isEng
-      ? raw.replace(/[^0-9]/g, '')
-      : raw.toUpperCase();
+    var code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
     var err = document.getElementById('ar2-rc-err');
-    if (isEng){
-      // Minimum 4 digits — admins may set a short numeric code for an
-      // engineer during onboarding before the real phone is collected.
-      if (code.length < 4){ err.textContent='Passcode must be at least 4 digits.'; return; }
-    } else {
-      if (code.length < 4){ err.textContent='Code must be at least 4 characters.'; return; }
-    }
+    if (code.length < 4){ err.textContent='Code must be at least 4 characters.'; return; }
     var go=document.getElementById('ar2-rc-go');
     go.disabled=true; go.textContent='Saving…';
     AR2_CLOUD.adminResetUserCode(uid, code).then(function(){
@@ -7402,7 +7367,7 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
       try {
         var ok = document.createElement('div');
         ok.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;padding:14px 22px;border-radius:10px;font-family:"DM Sans",sans-serif;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 8px 30px rgba(0,0,0,.5);';
-        ok.innerHTML = '✓ Passcode reset for <b>'+esc(uname)+'</b>. New '+(isEng?'phone':'code')+': <b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:1.4px">'+esc(code)+'</b>';
+        ok.innerHTML = '✓ Access code reset for <b>'+esc(uname)+'</b>. New code: <b style="font-family:\'JetBrains Mono\',monospace;letter-spacing:1.4px">'+esc(code)+'</b>';
         document.body.appendChild(ok);
         setTimeout(function(){ if (ok.parentNode) ok.parentNode.removeChild(ok); }, 6000);
       } catch(_){}
