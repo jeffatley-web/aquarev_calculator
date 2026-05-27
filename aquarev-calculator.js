@@ -5036,6 +5036,15 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
     } catch(_){}
     EX.comments           = '';
     EX._captureMode       = true;
+    // Force the FLOW layout (single 2-col grid, independent column heights)
+    // instead of the CLASSIC 2-row layout. The classic layout aligns Purchase
+    // Options on the left with Monthly Savings Breakdown on the right, which
+    // leaves a tall whitespace gap below Total Investment whenever the
+    // Property Configuration roster is shorter than the right column's
+    // stack — i.e. on every portfolio with <30 properties. Flow layout lets
+    // each column hug its own content so the gap disappears and the page is
+    // packed tight.
+    EX._captureForceFlow  = true;
     window.__pfCapturedHtml = '';
     try { generateReport(); } catch(genErr){
       try { console.warn('[Portfolio Assessment] generateReport capture failed:', genErr); } catch(_){}
@@ -5044,7 +5053,10 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
     captured = window.__pfCapturedHtml || '';
   } finally {
     // Restore live state — even on capture failure
-    if (typeof EX !== 'undefined' && EX) EX._captureMode = false;
+    if (typeof EX !== 'undefined' && EX){
+      EX._captureMode = false;
+      EX._captureForceFlow = false;
+    }
     for (var dks in S){  if (S.hasOwnProperty(dks)  && !(dks in savedS))  delete S[dks]; }
     for (var sks in savedS){  if (savedS.hasOwnProperty(sks))  S[sks]  = savedS[sks]; }
     for (var dke in EX){ if (EX.hasOwnProperty(dke) && !(dke in savedEX)) delete EX[dke]; }
@@ -5076,6 +5088,20 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
   captured = captured.replace(
     /<div class="rpt-kpis(?:\s+rpt-kpis-5)?">/,
     '<div class="rpt-kpis rpt-kpis-5">' + newKpi
+  );
+
+  // (3) Mark the captured page with a portfolio-assess variant class so the
+  // print CSS knows to let it grow beyond 11in and page-break naturally
+  // when a tall property roster won't fit. Without this the .rpt has fixed
+  // height:11in + overflow:hidden which would clip property rows from view.
+  // The CSS rules at the top of the stylesheet keep page-break-inside:avoid
+  // on individual rows so we never split a row across two printed pages.
+  captured = captured.replace(
+    /^<div class="rpt(?:\s|")/,
+    function(m){
+      // Add `rpt-pf-assess` next to the existing classes on the root .rpt.
+      return m.replace('<div class="rpt', '<div class="rpt rpt-pf-assess');
+    }
   );
 
   return captured;
@@ -16151,8 +16177,17 @@ function generateReport(){
       //   Water. Each column flows its own content height so Pool
       //   Config can grow without dragging an empty Devices column
       //   down with it. (Jeff 2026-05-25 spec.)
-      +(poolRowsArr.length > 10
-        // ── FLOW layout (11+ pools) ────────────────────────────
+      //
+      //   The portfolio capture (buildPortfolioAssessmentPageHtml) sets
+      //   EX._captureForceFlow=true to force flow layout regardless of
+      //   pool count — portfolio captures inject a tall Property
+      //   Configuration roster post-capture, so even with S.bodies=[]
+      //   the left column gets long enough to need independent flow.
+      //   Without forcing flow, the classic 2-row grid pads the right
+      //   column with whitespace below Total Investment to match the
+      //   left column's stride, which was the user-visible "gap" bug.
+      +(poolRowsArr.length > 10 || (typeof EX !== 'undefined' && EX && EX._captureForceFlow)
+        // ── FLOW layout (11+ pools, OR forced by portfolio capture) ──
         ?'<div class="rpt-sec rpt-cols rpt-assess-flow">'
           // LEFT column
           +'<div>'
