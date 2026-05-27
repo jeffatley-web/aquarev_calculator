@@ -5530,9 +5530,14 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
     gtDevices    += Number(pk.total_dev) || 0;
     gtInvestment += Number(pk.inv)       || 0;
   }
-  // Paginate — ~22 rows per page in portrait (1 row tighter than before to
-  // leave headroom for the totals row on the final page).
-  var ROWS_PER_PAGE = 22;
+  // Paginate — 32 rows per page in portrait. The page is 11in tall; subtract
+  // ~1.1in of header + ~0.5in of footer + 14/22px wrap padding and the
+  // content area is roughly 880px. Each .rpt-ppl-row is ~27px (padding 6px
+  // top/bottom + 10.5px font + 1px border) so 32 rows × 27px = 864px fits
+  // with a few px to spare for the thead row and the TOTALS row on the
+  // last page. The previous 22-row cap left a third of every page blank.
+  // If the rows ever get taller (font bump, etc.), bring this down.
+  var ROWS_PER_PAGE = 32;
   var pages = [];
   var total = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
   for (var pgi=0; pgi<total; pgi++){
