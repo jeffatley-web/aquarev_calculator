@@ -3646,7 +3646,7 @@ body.pf-engineer-mode #ap2{display:none!important;}
 
 /* Property roster — list of property rows. Hover lifts each row slightly. */
 #ar2 .ar-pf-prop-list{display:flex;flex-direction:column;gap:8px;}
-#ar2 .ar-pf-prop-row{display:grid;grid-template-columns:36px 1fr 70px 90px 110px 110px 90px 30px;gap:14px;align-items:center;padding:12px 16px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;position:relative;}
+#ar2 .ar-pf-prop-row{display:grid;grid-template-columns:36px 1fr 70px 90px 110px 110px 90px 60px;gap:14px;align-items:center;padding:12px 16px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:10px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;position:relative;}
 #ar2 .ar-pf-prop-row[draggable="true"]{cursor:grab;}
 #ar2 .ar-pf-prop-row[draggable="true"]:active{cursor:grabbing;}
 #ar2 .ar-pf-prop-row.dragging{opacity:.45;}
@@ -3682,6 +3682,15 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-pf-prop-del{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;font-family:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s;padding:0;}
 #ar2 .ar-pf-prop-row:hover .ar-pf-prop-del,#ar2 .ar-pf-prop-del:focus{opacity:1;}
 #ar2 .ar-pf-prop-del:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);color:#fca5a5;}
+/* Copy-to-Assessments badge — sits to the left of the delete button.
+   Cyan to match the engineer / portfolio accent so it reads as the
+   constructive sibling to the destructive delete. Same hover-reveal
+   timing as .ar-pf-prop-del so both buttons enter together. */
+#ar2 .ar-pf-prop-acts{display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;}
+#ar2 .ar-pf-prop-copy{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(0,180,216,.28);color:#48cae4;font-family:inherit;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
+#ar2 .ar-pf-prop-row:hover .ar-pf-prop-copy,#ar2 .ar-pf-prop-copy:focus{opacity:1;}
+#ar2 .ar-pf-prop-copy:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.55);color:#fff;}
+#ar2 .ar-pf-prop-copy svg{width:13px;height:13px;}
 #ar2 .ar-pf-prop-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
 #ar2 .ar-pf-prop-idx{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:var(--mu);text-align:center;}
 #ar2 .ar-pf-prop-id{min-width:0;}
@@ -3698,7 +3707,7 @@ body.pf-engineer-mode #ap2{display:none!important;}
    row legible. Single Assessments already does similar at this breakpoint. */
 @media(max-width:860px){
   #ar2 .ar-pf-kpistrip{grid-template-columns:repeat(3,1fr);}
-  #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px 30px;}
+  #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px 60px;}
   #ar2 .ar-pf-prop-row .ar-pf-prop-kpi:not(:nth-of-type(1)){display:none;}
   #ar2 .ar-pf-ov-title{font-size:22px;}
 }

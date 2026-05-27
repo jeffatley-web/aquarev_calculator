@@ -2198,6 +2198,68 @@ window.AR2_PF = (function(){
     strip(pfState.engineerAssignmentsByAssessment);
   }
 
+  /* RFC 4122 v4 UUID. Prefers the platform's crypto.randomUUID() (Chrome 92+,
+     Safari 15.4+, Firefox 95+); falls back to Math.random for older browsers
+     and the embed-test contexts that don't expose crypto. Used by
+     copyPropertyToAssessments to mint the new assessments.id since the
+     server schema requires the client to supply the id on insert. */
+  function _pfGenUuidV4(){
+    if (window.crypto && typeof crypto.randomUUID === 'function'){
+      try { return crypto.randomUUID(); } catch(_){}
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
+      var r = (Math.random()*16)|0, v = (c === 'x') ? r : ((r & 0x3) | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  /* Copy a portfolio_properties row → a standalone single Assessment record.
+     The portfolio property STAYS INTACT — this is a duplicate, not a move.
+     The new assessment lands in the rep's Archive (the single-property
+     "Saved Assessments" list) so it can be edited, exported, or reassigned
+     independently of the portfolio.
+
+     Translation of fields:
+       portfolio_properties.computed_kpis (total_mo/total_yr/inv/...)
+         → assessments.summary (monthly/annual/inv/...)
+       portfolio_properties.state_json     → snapshot.state
+       portfolio_properties.ex_json        → snapshot.ex
+       portfolio_properties.pool_measure_json → snapshot.mapping
+       portfolio_properties.property_name  → snapshot.propertyName
+
+     Uses AR2_CLOUD.saveAssessment which wraps the assessments INSERT with
+     the right RLS / user_id / app_id stamping — same path single-property
+     uses on its own Save. */
+  function copyPropertyToAssessments(propertyId){
+    if (!propertyId) return Promise.reject(new Error('property id required'));
+    if (!(window.AR2_CLOUD && AR2_CLOUD.saveAssessment)){
+      return Promise.reject(new Error('cloud unavailable'));
+    }
+    return fetchPropertyFull(propertyId).then(function(prop){
+      if (!prop) throw new Error('property not found');
+      var kpis = prop.computed_kpis || {};
+      var summary = {
+        inv:         Number(kpis.inv) || 0,
+        monthly:     Number(kpis.total_mo) || 0,
+        annual:      Number(kpis.total_yr) || 0,
+        devices:     Number(kpis.total_dev) || 0,
+        poolGallons: Number(kpis.total_pool_gal) || 0,
+        payback:     Number(kpis.payback) || 0
+      };
+      var newId = _pfGenUuidV4();
+      var snap = {
+        id:           newId,
+        propertyName: prop.property_name || 'Imported from portfolio',
+        savedAt:      new Date().toISOString(),
+        summary:      summary,
+        state:        prop.state_json || {},
+        ex:           prop.ex_json || {},
+        mapping:      prop.pool_measure_json || null
+      };
+      return AR2_CLOUD.saveAssessment(snap).then(function(){ return snap; });
+    });
+  }
+
   /* Delete a single property from a portfolio. Hard-delete (no soft-delete
      column in portfolio_properties today). Invalidates the property cache
      and rollup so the overview re-fetches fresh totals on next render. */
@@ -2590,7 +2652,15 @@ window.AR2_PF = (function(){
           +   '<div class="ar-pf-prop-status' + (incomplete ? ' incomplete' : ' ready') + '">'
           +     (incomplete ? 'Incomplete' : 'Ready')
           +   '</div>'
-          +   '<button class="ar-pf-prop-del" data-pf-action="delete-property" data-pf-property="' + prop.id + '" type="button" aria-label="Delete property" title="Delete property">&times;</button>'
+          +   '<div class="ar-pf-prop-acts">'
+          +     '<button class="ar-pf-prop-copy" data-pf-action="copy-property-to-assessments" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Copy to Assessments" title="Copy as a standalone Assessment record">'
+          +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          +         '<rect x="8" y="8" width="12" height="12" rx="2"/>'
+          +         '<path d="M4 16V6a2 2 0 0 1 2-2h10"/>'
+          +       '</svg>'
+          +     '</button>'
+          +     '<button class="ar-pf-prop-del" data-pf-action="delete-property" data-pf-property="' + prop.id + '" type="button" aria-label="Delete property" title="Delete property">&times;</button>'
+          +   '</div>'
           + '</div>';
       }).join('');
       roster = '<div class="ar-pf-prop-list">' + rows + '</div>';
@@ -3811,6 +3881,7 @@ window.AR2_PF = (function(){
     refreshProperties: refreshProperties,
     createProperty: createProperty,
     deletePortfolioProperty: deletePortfolioProperty,
+    copyPropertyToAssessments: copyPropertyToAssessments,
     getRollup: getRollup,
     openAddPropertyModal: openAddPropertyModal,
     closeAddPropertyModal: closeAddPropertyModal,
@@ -17285,6 +17356,34 @@ function handleClick(e){
         var asgnName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
         if (!asgnPid) return;
         AR2_PF.openAssignEngineerModal({ kind: 'property', id: asgnPid, name: asgnName });
+        return;
+      }
+      // Copy a portfolio property → a standalone single Assessment record.
+      // The portfolio property STAYS INTACT — this duplicates state/ex/map
+      // /KPIs into a fresh assessments row that lives in the rep's Archive
+      // alongside their other single-property records. Useful when a
+      // property needs to be edited / exported / reassigned independently
+      // of the portfolio. stopPropagation prevents the row's click handler
+      // (open property) from firing.
+      if (act === 'copy-property-to-assessments'){
+        e.stopPropagation();
+        var cpyId = pfAct.getAttribute('data-pf-property');
+        var cpyName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
+        if (!cpyId) return;
+        if (!confirm('Copy "' + cpyName + '" to your Assessments?\n\nThis creates a standalone single-assessment record. The portfolio property stays intact.')) return;
+        AR2_PF.copyPropertyToAssessments(cpyId).then(function(snap){
+          // Toast (matches the styling used by the admin Reset-passcode
+          // success path so the visual language is consistent).
+          try {
+            var ok = document.createElement('div');
+            ok.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;padding:14px 22px;border-radius:10px;font-family:"DM Sans",sans-serif;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:520px;';
+            ok.innerHTML = '✓ Copied <b>' + ((snap && snap.propertyName) ? snap.propertyName : 'property') + '</b> to your Assessments — switch tabs to find it under Saved Assessments.';
+            document.body.appendChild(ok);
+            setTimeout(function(){ if (ok.parentNode) ok.parentNode.removeChild(ok); }, 5000);
+          } catch(_){}
+        }).catch(function(err){
+          alert('Copy failed: ' + ((err && err.message) || err));
+        });
         return;
       }
       // Delete a single property from a portfolio. Stops propagation via
