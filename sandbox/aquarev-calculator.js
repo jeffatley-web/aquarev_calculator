@@ -3239,7 +3239,15 @@ window.AR2_PF = (function(){
         if (pfState.rollup)     pfState.rollup[pid]     = null;
         if (pfState.propertyStates) pfState.propertyStates[pid] = null;
         closeAddPropertyModal();
-        if (typeof renderArchive === 'function') renderArchive();
+        // Land the rep IN the newly-imported property so they can verify
+        // the copied pools / devices / KPIs. Same UX as Create-new — the
+        // modal closing back to the overview made the import feel inert.
+        var newId = rs2 && rs2.data && rs2.data.id;
+        if (newId && typeof enterProperty === 'function'){
+          enterProperty(newId);
+        } else if (typeof renderArchive === 'function') {
+          renderArchive();
+        }
       }).catch(function(e){
         // Surface failures in DevTools so silent errors (RLS, schema,
         // network) are diagnosable without rebuilding the bundle.
@@ -3255,9 +3263,20 @@ window.AR2_PF = (function(){
     var name = input.value.trim();
     if (!name) { if (err) err.textContent = 'Name is required.'; input.focus(); return; }
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-    createProperty(pid, name).then(function(){
+    createProperty(pid, name).then(function(newRow){
       closeAddPropertyModal();
-      if (typeof renderArchive === 'function') renderArchive();
+      // Drop the rep INTO the freshly-created property so they immediately
+      // start the workflow at the Map Pools step. enterProperty() hydrates
+      // S/EX from the row's (empty) state_json → calculator boots on step 0
+      // with a clean canvas, breadcrumb subbar live, autosave wired. Without
+      // this jump the rep would be stranded on the portfolio overview and
+      // would have to click into the new row themselves, which felt like
+      // "the modal didn't do anything".
+      if (newRow && newRow.id && typeof enterProperty === 'function'){
+        enterProperty(newRow.id);
+      } else if (typeof renderArchive === 'function') {
+        renderArchive();
+      }
     }).catch(function(e){
       try { console.error('[Create new property] save failed:', e); } catch(_){}
       if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
