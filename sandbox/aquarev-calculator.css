@@ -654,12 +654,18 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report.is-preview .rpt-foot{flex:0 0 auto!important;}
 #ar2-report.is-preview .rpt-foot{margin-top:auto!important;}
 
-/* Engineer verification PDF — minimal additions on top of existing .rpt-* chrome. */
-#ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;}
-#ar2-report .rpt-eng-photo{break-inside:avoid;page-break-inside:avoid;}
-#ar2-report .rpt-eng-photo img{width:100%;height:auto;border-radius:6px;border:1px solid #ddd;display:block;}
-#ar2-report .rpt-eng-photo-missing{padding:24px;background:#f5f5f5;color:#888;font-size:10px;text-align:center;border-radius:6px;}
-#ar2-report .rpt-eng-photo-cap{font-size:10px;color:#666;margin-top:4px;font-style:italic;}
+/* Engineer verification PDF — photo grid (2026-05-26: tightened so every
+   card on a page is the same height regardless of source photo aspect
+   ratio, and the grid as a whole page-breaks without splitting cards).
+     • aspect-ratio 4/3 + object-fit cover  → all cards uniform height
+     • grid-auto-rows: 1fr                  → multi-row grids stay even
+     • orphans: 1 / widows: 1               → caption + image never split
+*/
+#ar2-report .rpt-eng-photos{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:max-content;gap:12px 10px;margin-top:8px;}
+#ar2-report .rpt-eng-photo{break-inside:avoid!important;page-break-inside:avoid!important;display:flex;flex-direction:column;orphans:2;widows:2;}
+#ar2-report .rpt-eng-photo img{width:100%;aspect-ratio:4/3;object-fit:cover;background:#f0f0f0;border-radius:6px;border:1px solid #ddd;display:block;}
+#ar2-report .rpt-eng-photo-missing{aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;background:#f5f5f5;color:#888;font-size:10px;text-align:center;border-radius:6px;border:1px dashed #ccc;padding:0 8px;}
+#ar2-report .rpt-eng-photo-cap{font-size:10px;color:#444;margin-top:5px;font-style:italic;line-height:1.35;text-align:center;min-height:1.4em;}
 #ar2-report .rpt-eng-videos{margin-top:10px;font-size:11px;color:#555;}
 #ar2-report .rpt-eng-discrepancy{margin-top:14px;padding:10px 12px;background:#fff4dc;border-left:3px solid #f0a500;border-radius:4px;font-size:11.5px;color:#5a3c00;line-height:1.5;}
 @media print{
@@ -748,6 +754,18 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt.rpt-pf-assess .rpt-row{page-break-inside:avoid;break-inside:avoid;}
   #ar2-report .rpt.rpt-pf-assess .rpt-stitle{page-break-after:avoid;break-after:avoid;}
   #ar2-report .rpt.rpt-pf-assess .rpt-sbox{page-break-inside:avoid;break-inside:avoid;}
+  /* Engineer Report pages — same growth + break treatment so a pool with
+     a lot of photos paginates onto a continuation page instead of being
+     clipped. Photo CARDS keep page-break-inside:avoid (set in their own
+     rule) so an individual card never splits across pages. */
+  #ar2-report .rpt.rpt-eng-page{min-height:11in!important;max-height:none!important;height:auto!important;overflow:visible!important;}
+  #ar2-report .rpt.rpt-eng-page > .rpt-body{flex:1 1 auto!important;min-height:0!important;overflow:visible!important;}
+  #ar2-report .rpt.rpt-eng-page .rpt-row{page-break-inside:avoid;break-inside:avoid;}
+  #ar2-report .rpt.rpt-eng-page .rpt-stitle{page-break-after:avoid;break-after:avoid;}
+  #ar2-report .rpt.rpt-eng-page .rpt-eng-photos{break-before:avoid;}
+  /* Photo grid header + first row always stay together so a section
+     never opens with just a title at the bottom of a page. */
+  #ar2-report .rpt.rpt-eng-page .rpt-eng-photo{break-inside:avoid!important;page-break-inside:avoid!important;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
   /* Exec Summary page — kept page-break-before / inside-avoid for
      visual integrity but the hard height clamp was causing the same
@@ -2034,21 +2052,31 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-corp-col-title small{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:.3px;text-transform:none;color:var(--mu);font-weight:500;}
 #ar2 .ar-corp-empty{font-size:12.5px;color:var(--mu);padding:18px 14px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.22);border-radius:9px;line-height:1.5;}
 
-#ar2 .ar-corp-eng-card,#ar2 .ar-corp-port-card{display:flex;flex-direction:column;gap:10px;padding:14px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.16);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:background .15s,border-color .15s,transform .12s;}
-#ar2 .ar-corp-eng-card:hover,#ar2 .ar-corp-port-card:hover{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.42);transform:translateY(-1px);}
-#ar2 .ar-corp-eng-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
-#ar2 .ar-corp-eng-name{font-size:14px;font-weight:600;color:#fff;}
-#ar2 .ar-corp-eng-phone{font-size:11px;color:#7db8cc;font-family:'JetBrains Mono',monospace;letter-spacing:.5px;}
-#ar2 .ar-corp-eng-stats{display:flex;gap:14px;flex-wrap:wrap;}
-#ar2 .ar-corp-eng-stat{font-size:11.5px;color:#cfe2eb;display:inline-flex;align-items:center;gap:6px;}
+#ar2 .ar-corp-eng-card,#ar2 .ar-corp-port-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;background:linear-gradient(140deg,rgba(13,45,74,.55),rgba(8,28,48,.42));border:1px solid rgba(0,180,216,.22);border-radius:11px;cursor:pointer;margin-bottom:9px;transition:background .15s,border-color .15s,transform .12s,box-shadow .15s;position:relative;}
+#ar2 .ar-corp-eng-card:hover,#ar2 .ar-corp-port-card:hover{background:linear-gradient(140deg,rgba(0,180,216,.14),rgba(0,180,216,.06));border-color:rgba(0,180,216,.55);transform:translateY(-1px);box-shadow:0 6px 18px rgba(4,15,30,.32);}
+#ar2 .ar-corp-eng-card::after,#ar2 .ar-corp-port-card::after{
+  content:'';position:absolute;top:50%;right:14px;transform:translateY(-50%);
+  width:18px;height:18px;border-radius:50%;background:rgba(0,180,216,.12);
+  display:flex;align-items:center;justify-content:center;
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2348cae4' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:center;background-size:11px;
+  opacity:.7;transition:opacity .15s,background-color .15s;
+}
+#ar2 .ar-corp-eng-card:hover::after,#ar2 .ar-corp-port-card:hover::after{opacity:1;background-color:rgba(0,180,216,.32);}
+#ar2 .ar-corp-eng-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-right:24px;}
+#ar2 .ar-corp-eng-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:.2px;}
+#ar2 .ar-corp-eng-phone{font-size:12px;color:#a3d4e8;font-family:'JetBrains Mono',monospace;letter-spacing:.5px;}
+#ar2 .ar-corp-eng-stats{display:flex;gap:16px;flex-wrap:wrap;padding-right:24px;}
+#ar2 .ar-corp-eng-stat{font-size:12px;color:#e0f0f6;display:inline-flex;align-items:center;gap:7px;font-weight:500;}
+#ar2 .ar-corp-eng-stat b{color:#fff;font-weight:700;font-family:'JetBrains Mono',monospace;}
 #ar2 .ar-corp-eng-stat .dot{display:inline-block;width:8px;height:8px;border-radius:50%;}
 #ar2 .ar-corp-eng-stat .dot.amber{background:#f0a500;box-shadow:0 0 6px rgba(240,165,0,.6);}
 #ar2 .ar-corp-eng-stat .dot.cyan{background:#48cae4;box-shadow:0 0 6px rgba(0,180,216,.6);}
 #ar2 .ar-corp-eng-stat .dot.green{background:#4ade80;box-shadow:0 0 6px rgba(34,197,94,.6);}
 
-#ar2 .ar-corp-port-name{font-size:14px;font-weight:600;color:#fff;}
-#ar2 .ar-corp-port-stats{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--mu);align-items:center;}
-#ar2 .ar-corp-port-stats b{color:#cfe2eb;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-corp-port-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:.2px;padding-right:24px;}
+#ar2 .ar-corp-port-stats{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:#e0f0f6;align-items:center;padding-right:24px;font-weight:500;}
+#ar2 .ar-corp-port-stats b{color:#fff;font-weight:700;font-family:'JetBrains Mono',monospace;}
 #ar2 .ar-corp-port-status{margin-left:auto;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;padding:3px 8px;border-radius:99px;border:1px solid transparent;}
 #ar2 .ar-corp-port-status.status-draft{background:rgba(240,165,0,.14);color:#f0a500;border-color:rgba(240,165,0,.4);}
 #ar2 .ar-corp-port-status.status-active,#ar2 .ar-corp-port-status.status-ready{background:rgba(34,197,94,.16);color:#4ade80;border-color:rgba(34,197,94,.5);}
@@ -3744,8 +3772,7 @@ body.pf-engineer-mode #ap2{display:none!important;}
 .ar2-modal-card .ar-eng-assign-row-x{background:transparent;border:1px solid rgba(239,68,68,.32);color:#fca5a5;width:24px;height:24px;border-radius:6px;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:background .12s,color .12s;}
 .ar2-modal-card .ar-eng-assign-row-x:hover{background:rgba(239,68,68,.18);color:#fff;}
 
-#ar2 .ar-pf-prop-del{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;font-family:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s;padding:0;}
-#ar2 .ar-pf-prop-row:hover .ar-pf-prop-del,#ar2 .ar-pf-prop-del:focus{opacity:1;}
+#ar2 .ar-pf-prop-del{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;font-family:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s;padding:0;}
 #ar2 .ar-pf-prop-del:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);color:#fca5a5;}
 /* Property row action badges — sit in the last column of the grid as
    a flex cluster. Three buttons:
@@ -3756,30 +3783,25 @@ body.pf-engineer-mode #ap2{display:none!important;}
    All three share the hover-reveal pattern (opacity:0 → 1 on row hover)
    so they don't add visual noise when the rep is scanning the roster. */
 #ar2 .ar-pf-prop-acts{display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;}
-#ar2 .ar-pf-prop-copy{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(0,180,216,.28);color:#48cae4;font-family:inherit;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
-#ar2 .ar-pf-prop-row:hover .ar-pf-prop-copy,#ar2 .ar-pf-prop-copy:focus{opacity:1;}
+#ar2 .ar-pf-prop-copy{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(0,180,216,.28);color:#48cae4;font-family:inherit;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
 #ar2 .ar-pf-prop-copy:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.55);color:#fff;}
 #ar2 .ar-pf-prop-copy svg{width:13px;height:13px;}
-#ar2 .ar-pf-prop-prev{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(34,197,94,.32);color:#4ade80;font-family:inherit;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
-#ar2 .ar-pf-prop-row:hover .ar-pf-prop-prev,#ar2 .ar-pf-prop-prev:focus{opacity:1;}
+#ar2 .ar-pf-prop-prev{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(34,197,94,.32);color:#4ade80;font-family:inherit;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
 #ar2 .ar-pf-prop-prev:hover{background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.6);color:#fff;}
 #ar2 .ar-pf-prop-prev svg{width:14px;height:14px;}
 /* Snapshot drawer trigger — opens an inline card below the row with the
    property's KPI summary + per-pool engineer verification status. Purple
    accent reads as "view / preview", separate from the green PDF preview. */
-#ar2 .ar-pf-prop-snap{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(168,85,247,.32);color:#c4b5fd;font-family:inherit;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
-#ar2 .ar-pf-prop-row:hover .ar-pf-prop-snap,#ar2 .ar-pf-prop-snap:focus{opacity:1;}
+#ar2 .ar-pf-prop-snap{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(168,85,247,.32);color:#c4b5fd;font-family:inherit;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
 #ar2 .ar-pf-prop-snap:hover,#ar2 .ar-pf-prop-snap.is-open{background:rgba(168,85,247,.22);border-color:rgba(168,85,247,.6);color:#fff;}
 #ar2 .ar-pf-prop-snap svg{width:14px;height:14px;}
 /* Engineer Review trigger — amber accent (matches the .pending engineer
    status pill used elsewhere). Admin-only. */
-#ar2 .ar-pf-prop-eng-review{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(240,165,0,.38);color:#f0a500;font-family:inherit;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
-#ar2 .ar-pf-prop-row:hover .ar-pf-prop-eng-review,#ar2 .ar-pf-prop-eng-review:focus{opacity:1;}
+#ar2 .ar-pf-prop-eng-review{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(240,165,0,.38);color:#f0a500;font-family:inherit;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
 #ar2 .ar-pf-prop-eng-review:hover{background:rgba(240,165,0,.22);border-color:rgba(240,165,0,.65);color:#fff;}
 #ar2 .ar-pf-prop-eng-review svg{width:14px;height:14px;}
 /* Engineer Report trigger — gold accent. Admin-only. */
-#ar2 .ar-pf-prop-eng-report{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(234,179,8,.4);color:#eab308;font-family:inherit;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
-#ar2 .ar-pf-prop-row:hover .ar-pf-prop-eng-report,#ar2 .ar-pf-prop-eng-report:focus{opacity:1;}
+#ar2 .ar-pf-prop-eng-report{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(234,179,8,.4);color:#eab308;font-family:inherit;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
 #ar2 .ar-pf-prop-eng-report:hover{background:rgba(234,179,8,.24);border-color:rgba(234,179,8,.7);color:#fff;}
 #ar2 .ar-pf-prop-eng-report svg{width:14px;height:14px;}
 

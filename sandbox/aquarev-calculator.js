@@ -1746,14 +1746,19 @@ window.AR2_PF = (function(){
      don't N+1 the database. */
 
   function _loadActiveEngineers(){
-    // Returns an array of {id, name, phone} for active engineer accounts.
-    // Cached on pfState to avoid refetching every modal open.
+    // Returns active engineer + corp_engineer accounts as a single roster.
+    // Each row carries {id, name, phone, role} so callers can distinguish
+    // a regular engineer from an oversight corp engineer when needed (the
+    // assign-engineer dropdown filters to role='engineer'; the Archive
+    // name-map uses everyone so corp engineer assignees on assessment
+    // rows render with their real name instead of falling through to the
+    // generic 'Engineer' placeholder).
     if (pfState.activeEngineers) return Promise.resolve(pfState.activeEngineers);
     var c = client();
     if (!c) return Promise.resolve([]);
     return c.from('app_users')
-      .select('id,name,phone')
-      .eq('role', 'engineer')
+      .select('id,name,phone,role')
+      .in('role', ['engineer','corp_engineer'])
       .eq('active', true)
       .order('name', { ascending: true })
       .then(function(rs){
@@ -2027,7 +2032,7 @@ window.AR2_PF = (function(){
         : '';
       return '<div class="ar-eng-assign-row">'
         +   '<div class="ar-eng-assign-row-main">'
-        +     '<div class="ar-eng-assign-row-name">👷 ' + esc(name) + '</div>'
+        +     '<div class="ar-eng-assign-row-name"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true" style="margin-right:6px;vertical-align:-1px"><path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/><rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/><rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/></svg>' + esc(name) + '</div>'
         +     '<div class="ar-eng-assign-row-meta">' + esc(_statusLabel(a.status)) + fanSuffix + (a.assignment_notes ? ' · ' + esc(a.assignment_notes) : '') + '</div>'
         +   '</div>'
         +   '<button class="ar-eng-assign-row-x" data-eng-assign-action="remove-row" data-assignment-id="' + esc(a.id) + '"' + idsAttr + ' type="button" aria-label="Remove">×</button>'
@@ -2038,23 +2043,31 @@ window.AR2_PF = (function(){
   function _refreshEngineerDropdown(engineers){
     var sel = document.getElementById('ar-eng-assign-select');
     if (!sel) return;
-    if (!engineers || !engineers.length){
-      sel.innerHTML = '<option value="">— No active engineers — create one in User Management —</option>';
-      return;
-    }
-    // Hide engineers already on this record from the dropdown so admins
-    // don't accidentally double-assign.
+    // Group regular engineers + corp engineers. Both are valid
+    // engineer_assignments.engineer_user_id targets, but the dropdown
+    // separates them so admins can clearly see what they're assigning
+    // to (a field engineer vs. an oversight corp engineer).
     var assignedIds = {};
     _getScopeAssignments().forEach(function(a){ assignedIds[a.engineer_user_id] = true; });
-    var available = engineers.filter(function(e){ return !assignedIds[e.id]; });
+    var available = (engineers || []).filter(function(e){ return !assignedIds[e.id]; });
     if (!available.length){
       sel.innerHTML = '<option value="">— All active engineers are already assigned —</option>';
       return;
     }
-    sel.innerHTML = '<option value="">— Select an engineer —</option>' + available.map(function(e){
+    var engs  = available.filter(function(e){ return e.role !== 'corp_engineer'; });
+    var corps = available.filter(function(e){ return e.role === 'corp_engineer'; });
+    function optionFor(e){
       var label = esc(e.name) + (e.phone ? ' · ' + esc(e.phone) : '');
       return '<option value="' + esc(e.id) + '">' + label + '</option>';
-    }).join('');
+    }
+    var html = '<option value="">— Select an engineer —</option>';
+    if (engs.length){
+      html += '<optgroup label="Engineers">' + engs.map(optionFor).join('') + '</optgroup>';
+    }
+    if (corps.length){
+      html += '<optgroup label="Corp Engineers (oversight)">' + corps.map(optionFor).join('') + '</optgroup>';
+    }
+    sel.innerHTML = html;
   }
 
   /* Add a new engineer assignment to the current scope. Each Add creates
@@ -2657,11 +2670,14 @@ window.AR2_PF = (function(){
                           : topStatus === 'locked'      ? 'gray'
                           : 'amber';
             var label;
+            // Hardhat SVG (same glyph used on the .ar-bank-act-engineer
+            // button + the engineer-assignment chip on the property row).
+            var _hatSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" style="margin-right:5px;vertical-align:-1px"><path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/><rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/><rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/></svg>';
             if (asgns.length === 1){
               var engName1 = engNameById[asgns[0].engineer_user_id] || 'Engineer';
-              label = '👷 ' + esc(engName1);
+              label = _hatSvg + esc(engName1);
             } else {
-              label = '👷 ' + asgns.length + ' engineers';
+              label = _hatSvg + asgns.length + ' engineers';
             }
             var titleAttr = asgns.map(function(a){
               var nm = engNameById[a.engineer_user_id] || 'Engineer';
@@ -2880,7 +2896,7 @@ window.AR2_PF = (function(){
       quoteRow = '<div class="ar-toggle-row" style="align-items:center;opacity:.92">'
         + '<label style="flex:1;line-height:1.3">'
           + '<div>Portfolio Quote</div>'
-          + '<div style="font-size:11px;color:var(--mu);font-weight:400;margin-top:2px;display:flex;align-items:center;gap:8px">🔒 Locked <button class="ar-pf-exp-unlock" type="button" data-pf-action="open-quote">Unlock &amp; Configure →</button></div>'
+          + '<div style="font-size:11px;color:var(--mu);font-weight:400;margin-top:2px;display:flex;align-items:center;gap:8px"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg> Locked <button class="ar-pf-exp-unlock" type="button" data-pf-action="open-quote">Unlock &amp; Configure →</button></div>'
         + '</label>'
         + '<div class="ar-sw-track" style="opacity:.45;pointer-events:none" aria-disabled="true"><div class="ar-sw-thumb"></div></div>'
       + '</div>';
@@ -9104,7 +9120,7 @@ function _engineerReport_renderHtml(bundle){
       divergence = '<div class="rpt-eng-discrepancy"><b>Discrepancy noted by engineer:</b> ' + esc(v.discrepancy_reason) + '</div>';
     }
 
-    return '<div class="rpt">'
+    return '<div class="rpt rpt-eng-page">'
       + '<div class="rpt-head">'
       +   '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Engineer Verification</div></div>'
       +   '<div class="rpt-head-right"><div class="rpt-prop-name rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
@@ -9158,7 +9174,7 @@ function _engineerReport_renderHtml(bundle){
   // Cover page — switched to .rpt-head-left/right + .rpt-logo + .rpt-prop-name
   // classes so colors and typography MATCH the standard AquaRev report.
   var coverHtml = ''
-    + '<div class="rpt">'
+    + '<div class="rpt rpt-eng-page">'
     +   '<div class="rpt-head">'
     +     '<div class="rpt-head-left"><div class="rpt-logo">AQUAREV WATER</div><div class="rpt-logo-sub">Engineer Verification</div></div>'
     +     '<div class="rpt-head-right"><div class="rpt-prop-name rpt-eng-prop-name">' + esc(rec.property_name || 'Property') + '</div><div class="rpt-prop-date">' + esc(today) + '</div><span class="rpt-nsf-badge">NSF/ANSI 50 · IAPMO</span></div>'
@@ -10068,9 +10084,9 @@ function renderCorpEngineerDashboard(mountEl){
           +     (a.engineer_phone ? '<div class="ar-corp-eng-phone">' + esc(a.engineer_phone) + '</div>' : '')
           +   '</div>'
           +   '<div class="ar-corp-eng-stats">'
-          +     '<div class="ar-corp-eng-stat"><span class="dot amber"></span>' + pend + ' active</div>'
-          +     '<div class="ar-corp-eng-stat"><span class="dot cyan"></span>' + sub + ' submitted</div>'
-          +     '<div class="ar-corp-eng-stat"><span class="dot green"></span>' + rev + ' reviewed</div>'
+          +     '<div class="ar-corp-eng-stat"><span class="dot amber"></span><b>' + pend + '</b> active</div>'
+          +     '<div class="ar-corp-eng-stat"><span class="dot cyan"></span><b>' + sub + '</b> submitted</div>'
+          +     '<div class="ar-corp-eng-stat"><span class="dot green"></span><b>' + rev + '</b> reviewed</div>'
           +   '</div>'
           + '</div>';
       }).join('');
@@ -13419,7 +13435,11 @@ function renderBank(targetId){
         if (needsEngFetch){
           var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
           if (c){
-            jobs.push(c.from('app_users').select('id,name,phone').eq('role','engineer').eq('active',true).then(function(rs){
+            // Include corp engineers too — they show up as assignees on
+            // portfolio-scope engineer_assignments and need to resolve to
+            // their real name in the Archive row pill (otherwise they'd
+            // fall through to the generic "Engineer" placeholder).
+            jobs.push(c.from('app_users').select('id,name,phone,role').in('role',['engineer','corp_engineer']).eq('active',true).then(function(rs){
               pfState_.activeEngineers = (rs && rs.data) || [];
             }));
           }
