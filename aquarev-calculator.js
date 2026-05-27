@@ -2653,18 +2653,45 @@ window.AR2_PF = (function(){
           +     (incomplete ? 'Incomplete' : 'Ready')
           +   '</div>'
           +   '<div class="ar-pf-prop-acts">'
+          // Snapshot — opens an inline drawer below the row with a
+          // KPI card + per-pool engineer verification status.
+          +     '<button class="ar-pf-prop-snap" data-pf-action="open-snapshot" data-pf-property="' + prop.id + '" type="button" aria-label="Open snapshot drawer" title="Property Snapshot — KPI card + engineer verification status">'
+          +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          +         '<path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/>'
+          +       '</svg>'
+          +     '</button>'
+          // Preview PDF (existing) — portrait Assessment + Pool Profile cards.
           +     '<button class="ar-pf-prop-prev" data-pf-action="preview-property-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Preview PDF report" title="Preview Assessment + Pool Profile PDF (portrait, cards)">'
           +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
           +         '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>'
           +         '<circle cx="12" cy="12" r="3"/>'
           +       '</svg>'
           +     '</button>'
+          // Copy to Assessments (existing) — fork as standalone single record.
           +     '<button class="ar-pf-prop-copy" data-pf-action="copy-property-to-assessments" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Copy to Assessments" title="Copy as a standalone Assessment record">'
           +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
           +         '<rect x="8" y="8" width="12" height="12" rx="2"/>'
           +         '<path d="M4 16V6a2 2 0 0 1 2-2h10"/>'
           +       '</svg>'
           +     '</button>'
+          // Admin-only: Engineer Review (assignment review modal) +
+          // Engineer Report (PDF preview built from engineer verifications).
+          +     (isAdminForChips
+              ? '<button class="ar-pf-prop-eng-review" data-pf-action="open-engineer-review" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Open engineer review" title="Engineer Review — open assignment review modal">'
+              +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+              +     '<path d="M5 14 Q5 7 12 7 Q19 7 19 14 Z"/>'
+              +     '<path d="M3 14h18v2H3z"/>'
+              +     '<circle cx="12" cy="18" r="2"/>'
+              +   '</svg>'
+              + '</button>'
+              + '<button class="ar-pf-prop-eng-report" data-pf-action="open-engineer-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Open engineer report" title="Engineer Report — preview + download PDF">'
+              +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+              +     '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+              +     '<path d="M14 2v6h6"/>'
+              +     '<path d="M9 13h6M9 17h6"/>'
+              +   '</svg>'
+              + '</button>'
+              : '')
           +     '<button class="ar-pf-prop-del" data-pf-action="delete-property" data-pf-property="' + prop.id + '" type="button" aria-label="Delete property" title="Delete property">&times;</button>'
           +   '</div>'
           + '</div>';
@@ -4298,6 +4325,185 @@ function submitImportCsv(){
     var errEl3 = document.getElementById('ar-csv-err');
     if (errEl3) errEl3.textContent = (err && err.message) || 'Import failed.';
   });
+}
+
+/* ── Portfolio property Snapshot drawer ───────────────────────────
+   Slide-down inline card below a property row. Shows a polished
+   KPI tile grid + per-pool engineer verification status (green/orange
+   /red pills). NOT a report generator — quick look at the data
+   without taking the rep out of the portfolio overview.
+
+   Toggles open/closed on the snapshot badge click. Data is fetched
+   lazily on first open via two parallel Supabase reads:
+     1. portfolio_properties (full row incl. state_json + computed_kpis)
+     2. engineer_assignments + engineer_verifications  (per-pool status)
+*/
+function togglePfPropertySnapshot(propertyId){
+  if (!propertyId) return;
+  var row = document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]');
+  if (!row) return;
+  var drawerId = 'ar-pf-prop-snap-' + propertyId;
+  var existing = document.getElementById(drawerId);
+  var trigger = row.querySelector('.ar-pf-prop-snap');
+  if (existing){
+    // Toggle closed — drop the .open class, let the CSS transition run,
+    // then remove the node so we don't accumulate stale drawers across
+    // re-renders of the property list.
+    existing.classList.remove('open');
+    if (trigger) trigger.classList.remove('is-open');
+    setTimeout(function(){
+      if (existing.parentNode && !existing.classList.contains('open')){
+        existing.parentNode.removeChild(existing);
+      }
+    }, 320);
+    return;
+  }
+  var drawer = document.createElement('div');
+  drawer.id = drawerId;
+  drawer.className = 'ar-pf-prop-snap-drawer';
+  drawer.innerHTML = '<div class="ar-pf-snap-loading">Loading snapshot…</div>';
+  row.parentNode.insertBefore(drawer, row.nextSibling);
+  if (trigger) trigger.classList.add('is-open');
+  // Fire the open transition on the next animation frame so the
+  // browser registers the initial closed state first; otherwise the
+  // height/opacity change would be instantaneous.
+  requestAnimationFrame(function(){ drawer.classList.add('open'); });
+  _pfLoadPropertySnapshot(propertyId).then(function(data){
+    // Guard — if the user clicked snapshot again between fetch start
+    // and resolve, the drawer may have been removed. Bail quietly.
+    if (!document.getElementById(drawerId)) return;
+    drawer.innerHTML = _pfRenderSnapshotCard(data, propertyId);
+  }, function(err){
+    if (!document.getElementById(drawerId)) return;
+    drawer.innerHTML = '<div class="ar-pf-snap-err">Could not load snapshot: ' + esc((err && err.message) || String(err)) + '</div>';
+  });
+}
+
+function _pfLoadPropertySnapshot(propertyId){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c) return Promise.reject(new Error('cloud not ready'));
+  var propP = c.from('portfolio_properties')
+    .select('id,portfolio_id,property_name,formatted_address,country,state_json,computed_kpis,updated_at')
+    .eq('id', propertyId).single().then(function(r){ if (r.error) throw r.error; return r.data; });
+  // engineer_assignments for this property — pulled fresh rather than
+  // relying on pfState cache so the drawer is always current.
+  var asgnP = c.from('engineer_assignments')
+    .select('id,engineer_user_id,status,assigned_at,submitted_at,reviewed_at')
+    .eq('property_id', propertyId)
+    .order('assigned_at', { ascending: false })
+    .then(function(r){ return r.data || []; });
+  return Promise.all([propP, asgnP]).then(function(arr){
+    var prop = arr[0];
+    var asgns = arr[1];
+    if (!asgns.length){
+      return { prop: prop, asgn: null, verifs: [] };
+    }
+    // First assignment (most recent) is the canonical one for the
+    // snapshot. If we later support multi-engineer per property the
+    // drawer can be extended to show all of them.
+    var asgn = asgns[0];
+    return c.from('engineer_verifications')
+      .select('id,pool_index,confirmed_gallons,has_discrepancy,return_lines,updated_at')
+      .eq('assignment_id', asgn.id)
+      .order('pool_index', { ascending: true })
+      .then(function(r){
+        return { prop: prop, asgn: asgn, verifs: r.data || [] };
+      });
+  });
+}
+
+function _pfRenderSnapshotCard(data, propertyId){
+  var prop = data.prop || {};
+  var asgn = data.asgn;
+  var verifs = data.verifs || [];
+  var verifByIdx = {};
+  for (var v = 0; v < verifs.length; v++){
+    var vp = verifs[v];
+    verifByIdx[Number(vp.pool_index)] = vp;
+  }
+  var sj = prop.state_json || {};
+  var bodies = sj.bodies || [];
+  var kpis = prop.computed_kpis || {};
+  var inv = Number(kpis.inv) || 0;
+  var mo  = Number(kpis.total_mo) || 0;
+  var yr  = Number(kpis.total_yr) || (mo * 12);
+  var dev = Number(kpis.total_dev) || 0;
+  var pb  = Number(kpis.payback) || 0;
+  var net5 = mo ? (mo * 60 - inv) : 0;
+  var totalGal = 0;
+  for (var b = 0; b < bodies.length; b++){
+    totalGal += (typeof bodyGallons === 'function')
+      ? bodyGallons(bodies[b])
+      : (Number(bodies[b].gallons) || 0);
+  }
+  if (!totalGal && sj.manualVolume) totalGal = Number(sj.manualTotalGallons) || 0;
+  if (!totalGal) totalGal = Number(kpis.total_pool_gal) || 0;
+
+  function poolStatusPill(idx){
+    var v = verifByIdx[idx];
+    if (v && v.has_discrepancy){
+      return '<span class="ar-pf-snap-pool-status discrepancy" title="Engineer flagged a discrepancy">Discrepancy</span>';
+    }
+    if (v){
+      return '<span class="ar-pf-snap-pool-status verified" title="Verified by engineer ' + esc(v.updated_at || '') + '">Verified</span>';
+    }
+    return '<span class="ar-pf-snap-pool-status unverified" title="Not yet verified by engineer">Pending</span>';
+  }
+
+  var poolRows = bodies.map(function(body, idx){
+    var label = body.label || ('Pool ' + (idx + 1));
+    var g = (typeof bodyGallons === 'function') ? bodyGallons(body) : (Number(body.gallons) || 0);
+    var ptype = body.poolType === 'saltwater' ? 'Saltwater' : 'Chlorine';
+    return '<div class="ar-pf-snap-pool-row">'
+      + '<span class="ar-pf-snap-pool-name">' + esc(label) + '</span>'
+      + '<span class="ar-pf-snap-pool-type">' + esc(ptype) + '</span>'
+      + '<span class="ar-pf-snap-pool-gal">' + fn(Math.round(g)) + ' gal</span>'
+      + poolStatusPill(idx)
+    + '</div>';
+  }).join('');
+  if (!poolRows){
+    poolRows = '<div class="ar-pf-snap-empty">No pools captured yet for this property.</div>';
+  }
+
+  // Verification roll-up — count verified vs. total so the section header
+  // surfaces an at-a-glance ratio without the user scanning every row.
+  var verifiedCount = 0, totalForRollup = bodies.length;
+  for (var bi = 0; bi < bodies.length; bi++){
+    var vv = verifByIdx[bi];
+    if (vv && !vv.has_discrepancy) verifiedCount++;
+  }
+  var verifSubtitle = totalForRollup
+    ? verifiedCount + ' / ' + totalForRollup + ' verified'
+    : 'No pools to verify';
+
+  var asgnStatusCls = (asgn && asgn.status) ? String(asgn.status).toLowerCase() : 'none';
+  var asgnLabel     = asgn ? (asgn.status || 'assigned').replace(/_/g, ' ') : 'No engineer assigned';
+
+  return '<div class="ar-pf-snap-card">'
+    + '<div class="ar-pf-snap-head">'
+      + '<div class="ar-pf-snap-head-left">'
+        + '<div class="ar-pf-snap-eyebrow">Property Snapshot</div>'
+        + '<div class="ar-pf-snap-name">' + esc(prop.property_name || 'Property') + '</div>'
+        + (prop.formatted_address ? '<div class="ar-pf-snap-sub">' + esc(prop.formatted_address) + '</div>' : '')
+      + '</div>'
+      + '<div class="ar-pf-snap-head-right">'
+        + '<span class="ar-pf-snap-asgn-pill ' + esc(asgnStatusCls) + '">' + esc(asgnLabel) + '</span>'
+        + '<button class="ar-pf-snap-close" data-pf-action="open-snapshot" data-pf-property="' + esc(propertyId) + '" aria-label="Close snapshot" title="Close">×</button>'
+      + '</div>'
+    + '</div>'
+    + '<div class="ar-pf-snap-kpis">'
+      + '<div class="ar-pf-snap-kpi"><div class="lbl">Pool Volume</div><div class="val">' + fn(Math.round(totalGal)) + '</div><div class="unit">gal</div></div>'
+      + '<div class="ar-pf-snap-kpi"><div class="lbl">Devices</div><div class="val">' + (dev ? String(dev) : '—') + '</div><div class="unit">units</div></div>'
+      + '<div class="ar-pf-snap-kpi"><div class="lbl">Total Investment</div><div class="val">' + (inv ? fc(inv, 0) : '—') + '</div><div class="unit">USD</div></div>'
+      + '<div class="ar-pf-snap-kpi"><div class="lbl">Monthly Savings</div><div class="val pos">' + (mo ? fc(mo, 0) : '—') + '</div><div class="unit">/mo</div></div>'
+      + '<div class="ar-pf-snap-kpi"><div class="lbl">Payback</div><div class="val">' + (pb ? (Math.round(pb) + ' mo') : '—') + '</div><div class="unit">months</div></div>'
+      + '<div class="ar-pf-snap-kpi"><div class="lbl">5-Year Net</div><div class="val pos">' + (mo ? fc(net5, 0) : '—') + '</div><div class="unit">USD</div></div>'
+    + '</div>'
+    + '<div>'
+      + '<div class="ar-pf-snap-section-title">Pools &amp; Engineer Verification <small>' + esc(verifSubtitle) + '</small></div>'
+      + '<div class="ar-pf-snap-pool-list">' + poolRows + '</div>'
+    + '</div>'
+  + '</div>';
 }
 
 function openCopyToPortfolioModal(assessmentId){
@@ -17399,6 +17605,87 @@ function handleClick(e){
         AR2_PF.openAssignEngineerModal({ kind: 'property', id: asgnPid, name: asgnName });
         return;
       }
+      // Open / toggle the property's Snapshot drawer. The badge also acts
+      // as the close button via the same action — the drawer's "×" button
+      // re-fires this handler so opening + closing share one code path.
+      if (act === 'open-snapshot'){
+        e.stopPropagation();
+        var snapId = pfAct.getAttribute('data-pf-property');
+        if (!snapId) return;
+        if (typeof togglePfPropertySnapshot === 'function') togglePfPropertySnapshot(snapId);
+        return;
+      }
+
+      // Engineer Review (admin only) — opens the existing Engineer
+      // Submissions review modal pre-filtered to the assignment for this
+      // property. If no assignment exists, surface a quick guidance alert
+      // rather than silently doing nothing.
+      if (act === 'open-engineer-review'){
+        e.stopPropagation();
+        var revId = pfAct.getAttribute('data-pf-property');
+        if (!revId) return;
+        var revName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
+        var revAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
+          ? AR2_PF.engineerAssignmentsForProperty(revId) : [];
+        if (!revAsgns.length){
+          alert('No engineer assignment exists for "' + revName + '" yet.\n\nClick "+ Assign engineer" on the property row to assign one first.');
+          return;
+        }
+        var revAsgnId = revAsgns[0].id;
+        if (typeof openAdminReviewModal !== 'function'){
+          alert('Review modal not loaded — refresh the page and try again.');
+          return;
+        }
+        // openAdminReviewModal reads from window.AR2_ADMIN_ENG which is
+        // populated only when the Engineer Submissions tab has been
+        // visited. Prime the cache if it's empty, then re-open.
+        if (!window.AR2_ADMIN_ENG && typeof populateAdminEngineerSubmissions === 'function'){
+          window.AR2_ADMIN_ENG_PENDING_OPEN = revAsgnId;
+          populateAdminEngineerSubmissions();
+          var revTries = 0;
+          var revIv = setInterval(function(){
+            if (window.AR2_ADMIN_ENG || revTries > 60){
+              clearInterval(revIv);
+              if (window.AR2_ADMIN_ENG_PENDING_OPEN){
+                var openId = window.AR2_ADMIN_ENG_PENDING_OPEN;
+                window.AR2_ADMIN_ENG_PENDING_OPEN = null;
+                try { openAdminReviewModal(openId); } catch(err){ alert('Could not open review: ' + ((err && err.message) || err)); }
+              }
+            }
+            revTries++;
+          }, 60);
+        } else {
+          try { openAdminReviewModal(revAsgnId); }
+          catch(err){ alert('Could not open review: ' + ((err && err.message) || err)); }
+        }
+        return;
+      }
+
+      // Engineer Report (admin) — generate the engineer's verification PDF
+      // preview for the property's assignment. Same generateEngineerReport
+      // path the Engineer Submissions tab + Step 6 use. If no assignment,
+      // alert the rep so they know nothing's missing — there's just no
+      // engineer data yet.
+      if (act === 'open-engineer-report'){
+        e.stopPropagation();
+        var rptId = pfAct.getAttribute('data-pf-property');
+        if (!rptId) return;
+        var rptName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
+        var rptAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
+          ? AR2_PF.engineerAssignmentsForProperty(rptId) : [];
+        if (!rptAsgns.length){
+          alert('No engineer assignment exists for "' + rptName + '" yet.\n\nThe Engineer Report is built from the engineer\'s on-site verifications — assign an engineer first.');
+          return;
+        }
+        if (typeof generateEngineerReport !== 'function'){
+          alert('Engineer report generator not loaded — refresh the page and try again.');
+          return;
+        }
+        try { generateEngineerReport(rptAsgns[0].id, { previewOnly: true }); }
+        catch(err){ alert('Could not generate engineer report: ' + ((err && err.message) || err)); }
+        return;
+      }
+
       // Preview a single property's PDF report (Assessment + Pool Profile
       // cards, portrait layout) without leaving the portfolio. Routes via
       // AR2_PF.enterProperty() so the calculator's S/EX get hydrated from
