@@ -2005,6 +2005,59 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Engineer role pill — green, signaling field/verification status distinct
    from rep (teal/blue), admin (gold), or client (purple). */
 #ar2 .ar-admin-role.role-engineer{background:rgba(34,197,94,.12);color:#4ade80;border:1px solid rgba(34,197,94,.32);}
+/* Corp Engineer — distinct teal-violet hybrid so it reads as "oversight"
+   (cooler than the green operations colour, warmer than the cyan user). */
+#ar2 .ar-admin-role.role-corp-engineer{background:rgba(125,211,252,.14);color:#7dd3fc;border:1px solid rgba(125,211,252,.45);}
+
+/* ── Corp Engineer Dashboard ────────────────────────────────────────
+   Polished oversight surface mounted at #ar2-bank when role=corp_engineer.
+   Hero band, KPI strip, two-column body (engineers + portfolios).
+   Tries to match the visual weight of the Portfolio Overview so reps
+   moving between tabs feel continuity. */
+#ar2 .ar-corp-shell{padding:18px 22px 28px;color:#cfe2eb;}
+#ar2 .ar-corp-hero{margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid rgba(125,211,252,.22);}
+#ar2 .ar-corp-eyebrow{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:3.5px;color:#7dd3fc;text-transform:uppercase;margin-bottom:6px;}
+#ar2 .ar-corp-title{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:#fff;line-height:1.1;margin-bottom:6px;}
+#ar2 .ar-corp-sub{font-size:12.5px;color:var(--mu);max-width:720px;line-height:1.5;}
+#ar2 .ar-corp-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:22px;}
+#ar2 .ar-corp-kpi{background:linear-gradient(140deg,rgba(8,28,48,.85),rgba(13,45,74,.65));border:1px solid rgba(125,211,252,.22);border-radius:10px;padding:12px 14px;}
+#ar2 .ar-corp-kpi .lbl{font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);font-weight:600;margin-bottom:6px;}
+#ar2 .ar-corp-kpi .val{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:#fff;line-height:1.0;}
+#ar2 .ar-corp-kpi .val.amber{color:#f0a500;}
+#ar2 .ar-corp-kpi .val.cyan{color:#48cae4;}
+#ar2 .ar-corp-kpi .val.green{color:#4ade80;}
+#ar2 .ar-corp-kpi-skel{grid-column:1/-1;color:var(--mu);font-size:12px;padding:14px;}
+
+#ar2 .ar-corp-body{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+#ar2 .ar-corp-col{min-width:0;}
+#ar2 .ar-corp-col-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid rgba(0,180,216,.18);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+#ar2 .ar-corp-col-title small{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:.3px;text-transform:none;color:var(--mu);font-weight:500;}
+#ar2 .ar-corp-empty{font-size:12.5px;color:var(--mu);padding:18px 14px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.22);border-radius:9px;line-height:1.5;}
+
+#ar2 .ar-corp-eng-card,#ar2 .ar-corp-port-card{display:flex;flex-direction:column;gap:10px;padding:14px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.16);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-corp-eng-card:hover,#ar2 .ar-corp-port-card:hover{background:rgba(0,180,216,.08);border-color:rgba(0,180,216,.42);transform:translateY(-1px);}
+#ar2 .ar-corp-eng-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+#ar2 .ar-corp-eng-name{font-size:14px;font-weight:600;color:#fff;}
+#ar2 .ar-corp-eng-phone{font-size:11px;color:#7db8cc;font-family:'JetBrains Mono',monospace;letter-spacing:.5px;}
+#ar2 .ar-corp-eng-stats{display:flex;gap:14px;flex-wrap:wrap;}
+#ar2 .ar-corp-eng-stat{font-size:11.5px;color:#cfe2eb;display:inline-flex;align-items:center;gap:6px;}
+#ar2 .ar-corp-eng-stat .dot{display:inline-block;width:8px;height:8px;border-radius:50%;}
+#ar2 .ar-corp-eng-stat .dot.amber{background:#f0a500;box-shadow:0 0 6px rgba(240,165,0,.6);}
+#ar2 .ar-corp-eng-stat .dot.cyan{background:#48cae4;box-shadow:0 0 6px rgba(0,180,216,.6);}
+#ar2 .ar-corp-eng-stat .dot.green{background:#4ade80;box-shadow:0 0 6px rgba(34,197,94,.6);}
+
+#ar2 .ar-corp-port-name{font-size:14px;font-weight:600;color:#fff;}
+#ar2 .ar-corp-port-stats{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--mu);align-items:center;}
+#ar2 .ar-corp-port-stats b{color:#cfe2eb;font-family:'JetBrains Mono',monospace;}
+#ar2 .ar-corp-port-status{margin-left:auto;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;padding:3px 8px;border-radius:99px;border:1px solid transparent;}
+#ar2 .ar-corp-port-status.status-draft{background:rgba(240,165,0,.14);color:#f0a500;border-color:rgba(240,165,0,.4);}
+#ar2 .ar-corp-port-status.status-active,#ar2 .ar-corp-port-status.status-ready{background:rgba(34,197,94,.16);color:#4ade80;border-color:rgba(34,197,94,.5);}
+#ar2 .ar-corp-port-status.status-archived,#ar2 .ar-corp-port-status.status-locked{background:rgba(125,184,204,.14);color:#cfe2eb;border-color:rgba(125,184,204,.45);}
+
+@media(max-width:860px){
+  #ar2 .ar-corp-kpis{grid-template-columns:repeat(2,1fr);}
+  #ar2 .ar-corp-body{grid-template-columns:1fr;}
+}
 #ar2 .ar-admin-disabled{display:inline-block;font-size:9px;color:var(--re);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);padding:1px 6px;border-radius:99px;margin-left:6px;letter-spacing:.5px;text-transform:uppercase;}
 /* ── Admin modal styling ────────────────────────────────────────────
    Admin pop-up modals are appended to <body>, OUTSIDE the #ar2 root, so
