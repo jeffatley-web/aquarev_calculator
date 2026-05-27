@@ -2653,6 +2653,12 @@ window.AR2_PF = (function(){
           +     (incomplete ? 'Incomplete' : 'Ready')
           +   '</div>'
           +   '<div class="ar-pf-prop-acts">'
+          +     '<button class="ar-pf-prop-prev" data-pf-action="preview-property-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Preview PDF report" title="Preview Assessment + Pool Profile PDF (portrait, cards)">'
+          +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          +         '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>'
+          +         '<circle cx="12" cy="12" r="3"/>'
+          +       '</svg>'
+          +     '</button>'
           +     '<button class="ar-pf-prop-copy" data-pf-action="copy-property-to-assessments" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Copy to Assessments" title="Copy as a standalone Assessment record">'
           +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
           +         '<rect x="8" y="8" width="12" height="12" rx="2"/>'
@@ -17391,6 +17397,87 @@ function handleClick(e){
         var asgnName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
         if (!asgnPid) return;
         AR2_PF.openAssignEngineerModal({ kind: 'property', id: asgnPid, name: asgnName });
+        return;
+      }
+      // Preview a single property's PDF report (Assessment + Pool Profile
+      // cards, portrait layout) without leaving the portfolio. Routes via
+      // AR2_PF.enterProperty() so the calculator's S/EX get hydrated from
+      // the property's saved state, then sets the EX flags that select the
+      // portrait + cards report shape, then fires generateReport() in
+      // preview mode (existing toolbar with Return + Download PDF).
+      //
+      // When the rep clicks Return or completes the Download print job,
+      // we auto-exit property mode (skipSave:true) so they land back on
+      // the Portfolio Overview instead of being stranded inside the
+      // calculator. exitProperty restores the rep's prior single-property
+      // S/EX from pfState.savedSnapshot (snapshotted by enterProperty).
+      if (act === 'preview-property-report'){
+        e.stopPropagation();
+        var prevId = pfAct.getAttribute('data-pf-property');
+        if (!prevId) return;
+        // Stash a flag so we can recognize this preview session was
+        // initiated from the portfolio overview and should auto-exit on
+        // close (versus the in-property-mode "Preview Assessment" button
+        // which leaves the rep in property mode by design).
+        window.__pfPreviewAutoExit = true;
+        AR2_PF.enterProperty(prevId).then(function(){
+          // Configure the report shape the user asked for.
+          if (typeof EX === 'undefined' || !EX){
+            try { console.warn('[Preview property report] EX missing'); } catch(_){}
+            window.__pfPreviewAutoExit = false;
+            return;
+          }
+          EX.layout              = 'portrait';
+          EX.inclPoolProfiles    = true;
+          EX.poolProfilesLayout  = 'cards';
+          EX.previewing          = true;
+          try { generateReport(); } catch(err){
+            window.__pfPreviewAutoExit = false;
+            alert('Could not generate preview: ' + ((err && err.message) || err));
+            try { AR2_PF.exitProperty({ skipSave: true }); } catch(_){}
+            return;
+          }
+          // Hook the preview toolbar's Return / Download buttons so the
+          // rep lands back on the Portfolio Overview after they close
+          // the preview. generateReport mounts the toolbar inside its
+          // own setTimeout(500), so wait a hair longer before patching.
+          setTimeout(function(){
+            function autoExit(){
+              if (!window.__pfPreviewAutoExit) return;
+              window.__pfPreviewAutoExit = false;
+              try { AR2_PF.exitProperty({ skipSave: true }); } catch(_){}
+            }
+            var backBtn = document.getElementById('ar2-preview-back');
+            if (backBtn){
+              var prevBack = backBtn.onclick;
+              backBtn.onclick = function(ev){
+                if (typeof prevBack === 'function'){ try { prevBack.call(backBtn, ev); } catch(_){} }
+                // restoreApp inside generateReport fires synchronously
+                // when the user clicks Return; give it a tick to finish
+                // before we exit property mode.
+                setTimeout(autoExit, 120);
+              };
+            }
+            var dlBtn = document.getElementById('ar2-preview-dl');
+            if (dlBtn){
+              var prevDl = dlBtn.onclick;
+              dlBtn.onclick = function(ev){
+                if (typeof prevDl === 'function'){ try { prevDl.call(dlBtn, ev); } catch(_){} }
+                // Download path: restoreApp runs after the afterprint
+                // event. Wait for that, then exit. Belt-and-suspenders
+                // timeout in case afterprint never fires (cancelled dialog).
+                window.addEventListener('afterprint', function onAfter(){
+                  window.removeEventListener('afterprint', onAfter);
+                  setTimeout(autoExit, 200);
+                });
+                setTimeout(function(){ if (window.__pfPreviewAutoExit) autoExit(); }, 3200);
+              };
+            }
+          }, 700);
+        }).catch(function(err){
+          window.__pfPreviewAutoExit = false;
+          alert('Could not load property: ' + ((err && err.message) || err));
+        });
         return;
       }
       // Copy a portfolio property → a standalone single Assessment record.
