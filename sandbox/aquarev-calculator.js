@@ -7700,23 +7700,47 @@ function showAdminEditLogoModal(uid, uname){
   };
 }
 
-function showAdminResetCodeModal(uid, uname, role, currentPhone){
+function showAdminResetCodeModal(uid, uname, role, currentPhone, currentCode){
   // Uniform passcode reset for every role. As of 20260526 engineers also
   // sign in with the admin-set 4-char Access Code (phone-as-password was
-  // retired). The currentPhone arg is still accepted for back-compat with
-  // the older call signature; for engineers we surface it as a contact
-  // reference under the input so the admin knows who they're resetting.
+  // retired). currentPhone is surfaced for engineer / corp_engineer contact
+  // reference; currentCode is the cleartext gate code on file (admin
+  // recovery feature — NULL for legacy rows created before the
+  // gate_code_plain column landed).
   role = (role || 'user').toLowerCase();
   var existing=document.getElementById('ar2-admrc-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
   var isEng = role === 'engineer';
+  var roleNiceCase = role === 'corp_engineer' ? 'Corp Engineer'
+                  : (role.charAt(0).toUpperCase() + role.slice(1));
   var titleTxt = 'RESET ACCESS CODE';
-  var roleLbl  = isEng ? 'Engineer' : (role.charAt(0).toUpperCase()+role.slice(1));
+  var roleLbl  = roleNiceCase;
   var helpTxt = 'Enter a new 4-character access code, or generate a random one. The user signs in with this code on the gate.';
   var inputAttrs = 'type="text" maxlength="4" placeholder="New 4-char code" autocomplete="off" autocapitalize="characters"';
   var inputStyle = 'text-transform:uppercase;letter-spacing:6px;font-family:\'JetBrains Mono\',monospace;text-align:center;margin-bottom:8px;font-size:18px';
-  var hintLine = isEng && currentPhone
-    ? '<div style="font-size:11px;color:#7db8cc;margin-bottom:8px">Engineer phone on file (contact reference only): <b style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace">'+esc(currentPhone)+'</b></div>'
+  // Current code panel — primary admin-recovery affordance. Shows the
+  // cleartext gate_code_plain pulled from app_users. For legacy users
+  // who pre-date the column, currentCode is empty and we render an
+  // explanatory fallback instead. JetBrains Mono lock-up so the code is
+  // easy to read aloud.
+  var currentCodePanel;
+  if (currentCode){
+    currentCodePanel = ''
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;margin-bottom:12px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.32);border-radius:8px">'
+      +   '<div style="min-width:0;flex:1">'
+      +     '<div style="font-size:9.5px;letter-spacing:1.6px;color:#7db8cc;text-transform:uppercase;font-weight:700;margin-bottom:4px">Current Access Code</div>'
+      +     '<div id="ar2-rc-current-val" style="font-family:\'JetBrains Mono\',monospace;font-size:18px;font-weight:700;letter-spacing:5px;color:#48cae4">' + esc(currentCode) + '</div>'
+      +   '</div>'
+      +   '<button id="ar2-rc-current-copy" type="button" class="ar2-mb" style="padding:7px 12px;font-size:11px;letter-spacing:.5px" title="Copy code to clipboard">Copy</button>'
+      + '</div>';
+  } else {
+    currentCodePanel = ''
+      + '<div style="padding:10px 14px;margin-bottom:12px;background:rgba(125,184,204,.08);border:1px dashed rgba(125,184,204,.32);border-radius:8px;font-size:11.5px;color:#7db8cc;line-height:1.45">'
+      +   'No cleartext on file for this account (legacy record — pre-dates the recovery feature). Set a new code below and it\'ll be retrievable next time.'
+      + '</div>';
+  }
+  var hintLine = (isEng || role === 'corp_engineer') && currentPhone
+    ? '<div style="font-size:11px;color:#7db8cc;margin-bottom:8px">Phone on file (contact reference only): <b style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace">'+esc(currentPhone)+'</b></div>'
     : '';
   var m=document.createElement('div');
   m.id='ar2-admrc-modal';
@@ -7724,6 +7748,7 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
   m.innerHTML='<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:10px;padding:24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.5);">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:16px;letter-spacing:2px;color:#48cae4;margin-bottom:6px">'+titleTxt+'</div>'
     +'<div style="font-size:13px;color:#cfe2eb;margin-bottom:6px">For: <b style="color:#fff">'+esc(uname)+'</b> <span style="font-size:10.5px;color:#7db8cc;letter-spacing:1.2px;text-transform:uppercase;margin-left:6px">'+esc(roleLbl)+'</span></div>'
+    +currentCodePanel
     +'<div style="font-size:11.5px;color:#7db8cc;margin-bottom:10px;line-height:1.55">'+helpTxt+'</div>'
     +hintLine
     +'<input id="ar2-rc-code" '+inputAttrs+' style="'+inputStyle+'" />'
@@ -7741,6 +7766,47 @@ function showAdminResetCodeModal(uid, uname, role, currentPhone){
   function close(){ if(m.parentNode) m.parentNode.removeChild(m); }
   document.getElementById('ar2-rc-cancel').onclick=close;
   m.addEventListener('click',function(e){ if(e.target===m) close(); });
+  // Copy-to-clipboard button on the current-code panel. async clipboard API
+  // first; fallback to selectText + execCommand for older WebKit / Safari
+  // contexts (PWA standalone tends to be restrictive). Flashes a small
+  // green confirmation pill that reverts to "Copy" after 1.5s.
+  var copyBtn = document.getElementById('ar2-rc-current-copy');
+  if (copyBtn && currentCode){
+    copyBtn.onclick = function(){
+      var ok = function(){
+        copyBtn.textContent = 'Copied ✓';
+        copyBtn.style.color = '#4ade80';
+        copyBtn.style.borderColor = 'rgba(34,197,94,.55)';
+        setTimeout(function(){
+          if (!copyBtn) return;
+          copyBtn.textContent = 'Copy';
+          copyBtn.style.color = '';
+          copyBtn.style.borderColor = '';
+        }, 1500);
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(currentCode).then(ok, function(){ legacyCopy(); });
+        } else {
+          legacyCopy();
+        }
+      } catch(_){ legacyCopy(); }
+      function legacyCopy(){
+        try {
+          var span = document.getElementById('ar2-rc-current-val');
+          if (!span) return;
+          var range = document.createRange();
+          range.selectNodeContents(span);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          document.execCommand('copy');
+          sel.removeAllRanges();
+          ok();
+        } catch(_){}
+      }
+    };
+  }
   var inp=document.getElementById('ar2-rc-code');
   // Initially mask the new code so it isn't visible over the admin's
   // shoulder. Show/hide toggle lets them verify before submitting.
@@ -8047,7 +8113,7 @@ function populateAdminDashboard(){
             + '<td class="num">'+u.login_count+'</td>'
             + '<td class="muted">'+lastLogin+'</td>'
             + '<td class="actions">'
-              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+esc(u.role||'')+'" data-uphone="'+esc(u.phone||'')+'" title="Reset access code">Reset</button>'
+              + '<button class="ar-admin-row-act" data-action="admin-reset-code" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+esc(u.role||'')+'" data-uphone="'+esc(u.phone||'')+'" data-ucurrentcode="'+esc(u.gate_code_plain||'')+'" title="Reset access code">Reset</button>'
               + '<button class="ar-admin-row-act" data-action="admin-change-role" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-urole="'+u.role+'" title="Change role">Role</button>'
               + '<button class="ar-admin-row-act" data-action="admin-edit-email" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uemail="'+esc(hasRealEmail?u.email:'')+'" title="Edit email">Email</button>'
               // Logo button — only Clients use logos. Show for any role so admin
@@ -17959,7 +18025,8 @@ function handleClick(e){
       resetCodeClick.dataset.uid,
       resetCodeClick.dataset.uname,
       resetCodeClick.dataset.urole || '',
-      resetCodeClick.dataset.uphone || ''
+      resetCodeClick.dataset.uphone || '',
+      resetCodeClick.dataset.ucurrentcode || ''
     );
     return;
   }
