@@ -5383,6 +5383,11 @@ function buildPropertyProfilesPages(pName, states, today, layout){
         + '</tr>';
       }
     }
+    // Spacer row pushes data to the top + footer to the bottom by
+    // absorbing remaining height in the flex-stretched table. Without it
+    // a short country list leaves a white slab between the last data row
+    // and the page footer.
+    rowsHtml += '<tr class="rpt-ppl-spacer"><td colspan="5"></td></tr>';
     return ['<div class="rpt-pp-page">'
       + ppHeader('List by Country')
       + '<div class="rpt-ppl-wrap" style="flex:1 1 0;min-height:0;overflow:hidden;padding:14px 22px;">'
@@ -5531,6 +5536,13 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
     // via inline styles since we don't want to mint a new CSS class for one
     // use site. The Device Size cell is intentionally blank — sizes vary by
     // pool so a single value would be misleading.
+    // Spacer row — absorbs the remaining vertical space so the data + totals
+    // sit flush at the bottom of the page above the footer (rather than the
+    // table being top-aligned with a white gap below). Inserted on EVERY
+    // page (before the totals on the last page, after the data rows on
+    // earlier pages). CSS gives this row `height:100%` so it takes all
+    // available slack inside the flex-stretched table.
+    rowsHtml += '<tr class="rpt-ppl-spacer"><td colspan="6"></td></tr>';
     if (pgi === total - 1){
       rowsHtml += '<tr style="border-top:2px solid #48cae4;font-weight:700;background:#f5fbff">'
         + '<td style="font-family:\'Bebas Neue\',sans-serif;letter-spacing:1.5px;color:#0a2540">TOTALS · ' + gtPools + ' pool' + (gtPools===1?'':'s') + '</td>'

@@ -3605,7 +3605,7 @@ body.pf-engineer-mode #ap2{display:none!important;}
    and the Property Profiles List-by-Country view. Mirrors the visual
    weight of the existing report (Bebas Neue headers, navy accents) so
    it doesn't look foreign next to the card pages. */
-#ar2-report .rpt-ppl-tbl{width:100%;border-collapse:collapse;font-size:10.5px;color:#222;background:#fff;}
+#ar2-report .rpt-ppl-tbl{width:100%;border-collapse:collapse;font-size:10.5px;color:#222;background:#fff;height:100%;}
 #ar2-report .rpt-ppl-tbl thead th{font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:1.5px;color:#0a2540;text-align:left;padding:7px 10px;background:#f5fbff;border-bottom:1.5px solid #48cae4;text-transform:uppercase;}
 #ar2-report .rpt-ppl-tbl thead th.num{text-align:right;}
 #ar2-report .rpt-ppl-tbl tbody td{padding:6px 10px;border-bottom:1px solid #eef4f7;vertical-align:top;}
@@ -3613,7 +3613,14 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2-report .rpt-ppl-country-row td{background:#f0fbff;font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1.5px;color:#0a2540;padding:6px 10px;font-weight:700;text-transform:uppercase;border-top:1px solid #cce8f1;border-bottom:1px solid #cce8f1;}
 #ar2-report .rpt-ppl-row td{font-size:10.5px;}
 #ar2-report .rpt-ppl-addr{font-size:9.5px;color:#666;margin-top:1px;}
-#ar2-report .rpt-ppl-wrap{background:#fff;}
+#ar2-report .rpt-ppl-wrap{background:#fff;display:flex;flex-direction:column;}
+/* Spacer row — absorbs remaining vertical space inside the list table so
+   the bottom of the data sits flush with the footer instead of leaving a
+   white gap on under-filled pages. Paired with `.rpt-ppl-tbl{height:100%}`
+   on the table and the flex column above on the wrap. The cell has no
+   borders / no padding so it reads as continuous whitespace, but the
+   `height:100%` forces the browser to give it whatever room is left. */
+#ar2-report .rpt-ppl-spacer td{height:100%;padding:0;border:none;background:#fff;}
 /* Portfolio Overview action group — pinned right via margin-left:auto so
    Quote / Export / + Property sit as a unit on the right side of the hero,
    regardless of how long the portfolio title runs. */
