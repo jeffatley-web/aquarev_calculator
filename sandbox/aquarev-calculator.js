@@ -1116,12 +1116,14 @@ var Cloud = (function(){
       });
     },
     listAllPortfoliosForAdmin: function(){
-      // Admin-visible roster of portfolios (id + name) for the assignment
-      // picker. RLS already returns everything for admins, scoped lists
-      // for other roles.
+      // Admin-visible roster of portfolios (id + name + status) for the
+      // assignment picker. RLS already returns everything for admins,
+      // scoped lists for other roles.
+      // NB: do NOT request updated_at — the portfolios table doesn't
+      // carry that column. Asking for it 400s the whole SELECT.
       var c = getClient();
       if(!c || !user) return Promise.reject(new Error('not_signed_in'));
-      return c.from('portfolios').select('id,name,status,updated_at').order('name')
+      return c.from('portfolios').select('id,name,status').order('name')
         .then(function(r){ if(r.error) throw r.error; return r.data || []; });
     },
     // Adds optional phone parameter for engineer accounts. Backend
@@ -8164,6 +8166,18 @@ function showCorpEngineerPortfoliosModal(corpId, corpName){
       }
       // Re-render list now that we have portfolio names resolved.
       return loadAssignments();
+    }, function(err){
+      // Surface the error in the modal instead of silently leaving the
+      // dropdown stuck on 'Loading…'. Also log the underlying response
+      // so we can diagnose RLS / column-missing issues without rebuilding.
+      try { console.error('[CorpEng Portfolios] load failed:', err); } catch(_){}
+      var sel = document.getElementById('ar2-corp-pf-pick');
+      if (sel){
+        sel.disabled = true;
+        sel.innerHTML = '<option value="">— Could not load portfolios —</option>';
+      }
+      var errEl = document.getElementById('ar2-corp-pf-err');
+      if (errEl) errEl.textContent = 'Could not load portfolios: ' + ((err && err.message) || String(err));
     });
   }
   document.getElementById('ar2-corp-pf-add').onclick = function(){
