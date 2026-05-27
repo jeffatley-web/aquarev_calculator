@@ -5253,6 +5253,24 @@ function buildPortfolioAssessmentPageHtml_OLD_DELETED(pName, states, roll, today
   return '<div class="rpt">' + head + kpis + body + cta + foot + '</div>';
 }
 
+/* Last-resort country derivation when the DB row's `country` column is
+   null/empty — typically a property loaded into the in-memory cache
+   BEFORE the 2026-05-26 trigger/backfill landed, or a record that was
+   imported with formatted_address only. Mirrors the SQL helper
+   derive_country_from_address(): the last comma-separated trimmed token
+   of the address ("…, Mexico" → "Mexico", "…, USA" → "USA"). Returns
+   empty string when neither source has a usable value. */
+function _pfDeriveCountry(prop){
+  if (!prop) return '';
+  var direct = prop.country ? String(prop.country).trim() : '';
+  if (direct) return direct;
+  var addr = prop.formatted_address ? String(prop.formatted_address).trim() : '';
+  if (!addr) return '';
+  var idx = addr.lastIndexOf(',');
+  if (idx < 0) return '';
+  return addr.slice(idx + 1).trim();
+}
+
 /* P7+: Portfolio Property Profiles page(s).
    Two layouts:
      • cards          — one card per property (image stand-in + KPIs)
@@ -5297,7 +5315,7 @@ function buildPropertyProfilesPages(pName, states, today, layout){
     // at line ~9649: (total_yr * 5) - inv. Falls back to total_mo*60 - inv
     // if total_yr wasn't persisted (older records).
     var net5 = (yr ? yr * 5 : mo * 60) - inv;
-    var country = p.country || '';
+    var country = _pfDeriveCountry(p);
     var addr = p.formatted_address || '';
     // Property image — first non-empty source wins:
     //   1) p.image_urls[0]      → canonical Supabase Storage URL (string)
@@ -5354,7 +5372,10 @@ function buildPropertyProfilesPages(pName, states, today, layout){
     var byCountry = {};
     var order = [];
     for (var i=0; i<states.length; i++){
-      var c = (states[i].country && String(states[i].country).trim()) || 'Other';
+      // Use the shared derive helper so cached rows without an explicit
+      // country column still group correctly (parses tail-of-address as
+      // a fallback). Only falls back to 'Other' when no address either.
+      var c = _pfDeriveCountry(states[i]) || 'Other';
       if (!byCountry[c]){ byCountry[c] = []; order.push(c); }
       byCountry[c].push(states[i]);
     }
@@ -5476,7 +5497,7 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
     var sj = p.state_json || {};
     var bodies = sj.bodies || [];
     var poolCount = bodies.length;
-    items.push({ kind:'property', name:p.property_name||'Property', count:poolCount, country:p.country||'' });
+    items.push({ kind:'property', name:p.property_name||'Property', count:poolCount, country:_pfDeriveCountry(p) });
     if (bodies.length){
       for (var b=0; b<bodies.length; b++){
         var body = bodies[b];
