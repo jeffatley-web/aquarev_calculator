@@ -1078,6 +1078,52 @@ var Cloud = (function(){
         if(r.error) throw r.error;
       });
     },
+    // ── Corp Engineer ↔ Portfolio assignments ────────────────────
+    // A corp engineer can be the engineer_user_id on a portfolio-scope
+    // engineer_assignments row. These helpers wrap the direct table reads/
+    // writes (RLS already gates admin writes + corp-engineer self-reads).
+    listCorpEngineerPortfolioAssignments: function(corpId){
+      var c = getClient();
+      if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+      return c.from('engineer_assignments')
+        .select('id,portfolio_id,status,assigned_at,assignment_notes')
+        .eq('engineer_user_id', corpId)
+        .not('portfolio_id', 'is', null)
+        .is('property_id', null)
+        .order('assigned_at', { ascending: false })
+        .then(function(r){ if(r.error) throw r.error; return r.data || []; });
+    },
+    assignCorpEngineerToPortfolio: function(corpId, portfolioId, notes){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.from('engineer_assignments').insert({
+        engineer_user_id: corpId,
+        portfolio_id: portfolioId,
+        property_id: null,
+        assessment_id: null,
+        status: 'pending',
+        assignment_notes: notes || null
+      }).select('id,portfolio_id,status,assigned_at').single().then(function(r){
+        if(r.error) throw r.error;
+        return r.data;
+      });
+    },
+    unassignCorpEngineerFromPortfolio: function(assignmentId){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.from('engineer_assignments').delete().eq('id', assignmentId).then(function(r){
+        if(r.error) throw r.error;
+      });
+    },
+    listAllPortfoliosForAdmin: function(){
+      // Admin-visible roster of portfolios (id + name) for the assignment
+      // picker. RLS already returns everything for admins, scoped lists
+      // for other roles.
+      var c = getClient();
+      if(!c || !user) return Promise.reject(new Error('not_signed_in'));
+      return c.from('portfolios').select('id,name,status,updated_at').order('name')
+        .then(function(r){ if(r.error) throw r.error; return r.data || []; });
+    },
     // Adds optional phone parameter for engineer accounts. Backend
     // admin_create_user accepts (name, code, role, logo_data, phone, email).
     // For non-engineer roles, phone is ignored server-side. Email is
@@ -7558,12 +7604,20 @@ function showAdminAddUserModal(){
     var go=document.getElementById('ar2-au-go');
     go.disabled=true; go.textContent='Creating…';
     var logoArg = (role === 'client' && pendingLogoDataUrl) ? pendingLogoDataUrl : null;
-    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone, email).then(function(){
+    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone, email).then(function(newUserId){
       close();
       // Force the dashboard to refresh stats
       var dashEl=document.getElementById('ar-admin-dash');
       if(dashEl) dashEl.dataset.loaded='';
       populateAdminDashboard();
+      // Corp Engineer — auto-open the Portfolios assignment modal so the
+      // admin can wire portfolios immediately without having to find the
+      // user's row and click 'Portfolios' as a second step. This is the
+      // 'assign at create time' half of the spec; the row button covers
+      // 'assign after'. Same modal, same flow, no duplication.
+      if (role === 'corp_engineer' && newUserId && typeof showCorpEngineerPortfoliosModal === 'function'){
+        setTimeout(function(){ showCorpEngineerPortfoliosModal(newUserId, name); }, 80);
+      }
     }).catch(function(e){
       err.textContent = (e && e.message) ? e.message : 'Failed to create user.';
       go.disabled=false; go.textContent='Create User';
@@ -8006,6 +8060,149 @@ function showCorpEngineerAffiliationsModal(corpId, corpName){
   loadEngineerPicker();
 }
 
+/* Admin-only: manage which Portfolios a Corp Engineer is assigned to.
+   Each pick becomes an engineer_assignments row with portfolio_id set +
+   property_id null (portfolio-scope oversight). Used in two places:
+     • Auto-opens after creating a corp engineer in the Add User modal
+       (so the admin can wire portfolios immediately).
+     • Reachable later via the 'Portfolios' button on corp_engineer rows
+       in the User Activity table.
+   Single source of truth so the create-time + after flows are identical. */
+function showCorpEngineerPortfoliosModal(corpId, corpName){
+  if (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())){
+    alert('Admin only.');
+    return;
+  }
+  var existing = document.getElementById('ar2-corp-pf-modal');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+  var m = document.createElement('div');
+  m.id = 'ar2-corp-pf-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+  m.innerHTML =
+      '<div class="ar2-modal-card" style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(125,211,252,.36);border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.55);">'
+    +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:18px;letter-spacing:2px;color:#7dd3fc;margin-bottom:4px">CORP ENGINEER · PORTFOLIO ASSIGNMENTS</div>'
+    +   '<div style="font-size:13px;color:#cfe2eb;margin-bottom:10px">For: <b style="color:#fff">' + esc(corpName) + '</b></div>'
+    +   '<div style="font-size:11.5px;color:#7db8cc;margin-bottom:14px;line-height:1.55">Assign one or more portfolios to this Corp Engineer for oversight. Their dashboard surfaces every assigned portfolio with read-only access to properties, KPIs, and engineer verifications.</div>'
+    +   '<div id="ar2-corp-pf-list" style="margin-bottom:14px;min-height:60px"><div style="font-size:12px;color:var(--mu);padding:8px 0">Loading assignments…</div></div>'
+    +   '<div style="border-top:1px solid rgba(125,211,252,.22);padding-top:14px;margin-bottom:10px">'
+    +     '<label style="display:block;font-size:11px;color:var(--mu);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Assign a portfolio</label>'
+    +     '<div style="display:flex;gap:8px">'
+    +       '<select id="ar2-corp-pf-pick" style="flex:1"><option value="">— Loading portfolios… —</option></select>'
+    +       '<button id="ar2-corp-pf-add" class="ar2-mb primary" style="padding:8px 14px">Add</button>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div id="ar2-corp-pf-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
+    +   '<div style="display:flex;justify-content:flex-end">'
+    +     '<button id="ar2-corp-pf-close" class="ar2-mb">Close</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(m);
+  function close(){ if (m.parentNode) m.parentNode.removeChild(m); }
+  document.getElementById('ar2-corp-pf-close').onclick = close;
+  m.addEventListener('click', function(e){ if (e.target === m) close(); });
+  document.addEventListener('keydown', function onKey(e){ if (e.key === 'Escape'){ close(); document.removeEventListener('keydown', onKey); } });
+
+  // Cache loaded portfolios so we can resolve names without an extra round-trip.
+  var allPortfolios = [];
+  var portfolioById = {};
+  function renderList(rows){
+    var listEl = document.getElementById('ar2-corp-pf-list');
+    if (!listEl) return;
+    if (!rows || !rows.length){
+      listEl.innerHTML = '<div style="font-size:12.5px;color:var(--mu);padding:12px;background:rgba(0,180,216,.05);border:1px dashed rgba(0,180,216,.22);border-radius:8px;text-align:center">No portfolios assigned yet. Use the picker below to add one.</div>';
+      return;
+    }
+    listEl.innerHTML = '<div style="display:flex;flex-direction:column;gap:6px">' + rows.map(function(r){
+      var p = portfolioById[r.portfolio_id];
+      var name = (p && p.name) || 'Portfolio';
+      var statusPill = r.status ? '<span style="font-size:9.5px;color:#7dd3fc;letter-spacing:1px;text-transform:uppercase;margin-left:8px;padding:2px 7px;background:rgba(125,211,252,.12);border:1px solid rgba(125,211,252,.32);border-radius:99px;font-weight:600">' + esc(String(r.status).replace(/_/g,' ')) + '</span>' : '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(125,211,252,.06);border:1px solid rgba(125,211,252,.28);border-radius:8px">'
+        + '<div style="min-width:0;flex:1">'
+          + '<div style="font-size:13px;font-weight:600;color:#fff">' + esc(name) + statusPill + '</div>'
+          + (p && p.status ? '<div style="font-size:11px;color:#7db8cc;margin-top:2px">Portfolio status: ' + esc(p.status) + '</div>' : '')
+        + '</div>'
+        + '<button class="ar2-mb" data-pf-asgn-remove="' + esc(r.id) + '" title="Remove portfolio assignment" style="background:transparent;border:1px solid rgba(239,68,68,.4);color:#fca5a5;width:30px;height:30px;border-radius:6px;font-size:15px;line-height:1;padding:0;cursor:pointer">×</button>'
+      + '</div>';
+    }).join('') + '</div>';
+  }
+  function loadAssignments(){
+    return AR2_CLOUD.listCorpEngineerPortfolioAssignments(corpId).then(function(rows){
+      renderList(rows);
+      return rows;
+    }, function(err){
+      var listEl = document.getElementById('ar2-corp-pf-list');
+      if (listEl) listEl.innerHTML = '<div style="font-size:12px;color:#fca5a5;padding:8px 0">Could not load assignments: ' + esc((err && err.message) || String(err)) + '</div>';
+      return [];
+    });
+  }
+  function loadPortfolioPicker(){
+    return Promise.all([
+      AR2_CLOUD.listAllPortfoliosForAdmin(),
+      AR2_CLOUD.listCorpEngineerPortfolioAssignments(corpId)
+    ]).then(function(arr){
+      allPortfolios = arr[0] || [];
+      portfolioById = {};
+      allPortfolios.forEach(function(p){ portfolioById[p.id] = p; });
+      var taken = {};
+      (arr[1] || []).forEach(function(a){ taken[a.portfolio_id] = true; });
+      var available = allPortfolios.filter(function(p){ return !taken[p.id]; });
+      var sel = document.getElementById('ar2-corp-pf-pick');
+      if (!sel) return;
+      if (!allPortfolios.length){
+        sel.innerHTML = '<option value="">— No portfolios exist yet —</option>';
+        sel.disabled = true;
+      } else if (!available.length){
+        sel.innerHTML = '<option value="">— Every portfolio already assigned —</option>';
+        sel.disabled = true;
+      } else {
+        sel.disabled = false;
+        sel.innerHTML = '<option value="">— Select a portfolio —</option>' + available.map(function(p){
+          var statusTag = p.status ? '  ·  ' + p.status : '';
+          return '<option value="' + esc(p.id) + '">' + esc(p.name || 'Portfolio') + esc(statusTag) + '</option>';
+        }).join('');
+      }
+      // Re-render list now that we have portfolio names resolved.
+      return loadAssignments();
+    });
+  }
+  document.getElementById('ar2-corp-pf-add').onclick = function(){
+    var sel = document.getElementById('ar2-corp-pf-pick');
+    var errEl = document.getElementById('ar2-corp-pf-err');
+    if (errEl) errEl.textContent = '';
+    if (!sel || !sel.value){
+      if (errEl) errEl.textContent = 'Pick a portfolio to assign.';
+      return;
+    }
+    var portfolioId = sel.value;
+    var btn = document.getElementById('ar2-corp-pf-add');
+    if (btn){ btn.disabled = true; btn.textContent = 'Adding…'; }
+    AR2_CLOUD.assignCorpEngineerToPortfolio(corpId, portfolioId).then(function(){
+      if (btn){ btn.disabled = false; btn.textContent = 'Add'; }
+      loadPortfolioPicker();
+    }, function(err){
+      if (btn){ btn.disabled = false; btn.textContent = 'Add'; }
+      if (errEl) errEl.textContent = (err && err.message) || 'Could not add assignment.';
+    });
+  };
+  document.getElementById('ar2-corp-pf-list').addEventListener('click', function(e){
+    var rm = e.target.closest('[data-pf-asgn-remove]');
+    if (!rm) return;
+    var asgnId = rm.getAttribute('data-pf-asgn-remove');
+    if (!asgnId) return;
+    rm.disabled = true;
+    AR2_CLOUD.unassignCorpEngineerFromPortfolio(asgnId).then(function(){
+      loadPortfolioPicker();
+    }, function(err){
+      rm.disabled = false;
+      var errEl = document.getElementById('ar2-corp-pf-err');
+      if (errEl) errEl.textContent = (err && err.message) || 'Could not remove assignment.';
+    });
+  });
+
+  loadPortfolioPicker();
+}
+
 function showAdminChangeRoleModal(uid, uname, currentRole){
   var existing=document.getElementById('ar2-admro-modal');
   if(existing&&existing.parentNode) existing.parentNode.removeChild(existing);
@@ -8143,6 +8340,7 @@ function populateAdminDashboard(){
               // rows so non-corp users don't see an irrelevant action.
               + (u.role === 'corp_engineer'
                 ? '<button class="ar-admin-row-act" data-action="admin-corp-eng-affiliations" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Manage which engineers this Corp Engineer oversees">Affiliations</button>'
+                  + '<button class="ar-admin-row-act" data-action="admin-corp-eng-portfolios" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Assign / unassign portfolios this Corp Engineer oversees">Portfolios</button>'
                 : '')
               + '<button class="ar-admin-row-act'+(u.active?' danger':' enable')+'" data-action="admin-toggle-active" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uactive="'+u.active+'" title="'+toggleLabel+' user">'+toggleLabel+'</button>'
               // Delete button — admin-only hard delete. Hidden on the
@@ -18081,6 +18279,11 @@ function handleClick(e){
   var corpAffClick=e.target.closest('[data-action="admin-corp-eng-affiliations"]');
   if(corpAffClick){
     showCorpEngineerAffiliationsModal(corpAffClick.dataset.uid, corpAffClick.dataset.uname);
+    return;
+  }
+  var corpPfClick=e.target.closest('[data-action="admin-corp-eng-portfolios"]');
+  if(corpPfClick){
+    showCorpEngineerPortfoliosModal(corpPfClick.dataset.uid, corpPfClick.dataset.uname);
     return;
   }
   // Corp Engineer Dashboard — engineer-card click drills into that
