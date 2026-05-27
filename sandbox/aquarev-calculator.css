@@ -736,6 +736,18 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   #ar2-report .rpt-pp-page,#ar2-report .rpt-pp-page *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
   #ar2-report .rpt-pp-grid{flex:1 1 auto;align-content:start;}
   #ar2-report .rpt-pp-card{page-break-inside:avoid;break-inside:avoid;}
+  /* ── Portfolio Assessment page — opt out of the 11in clamp ──
+     Tall portfolio captures (lots of properties) need to flow across
+     multiple printed pages rather than getting clipped at 11in. The .rpt
+     variant carries `.rpt-pf-assess` (added by buildPortfolioAssessmentPageHtml)
+     and these rules let it grow vertically + page-break naturally. The
+     row-level rules below keep individual data rows + section titles
+     intact across page breaks so a row never splits in half. */
+  #ar2-report .rpt.rpt-pf-assess{min-height:11in!important;max-height:none!important;height:auto!important;overflow:visible!important;}
+  #ar2-report .rpt.rpt-pf-assess > .rpt-body{flex:1 1 auto!important;min-height:0!important;overflow:visible!important;}
+  #ar2-report .rpt.rpt-pf-assess .rpt-row{page-break-inside:avoid;break-inside:avoid;}
+  #ar2-report .rpt.rpt-pf-assess .rpt-stitle{page-break-after:avoid;break-after:avoid;}
+  #ar2-report .rpt.rpt-pf-assess .rpt-sbox{page-break-inside:avoid;break-inside:avoid;}
   /* ── Exec Summary pages — locked to 100vh, no bleed ── */
   /* Exec Summary page — kept page-break-before / inside-avoid for
      visual integrity but the hard height clamp was causing the same
