@@ -2062,13 +2062,32 @@ window.AR2_PF = (function(){
     var assignments = _getScopeAssignments();
     var engs = pfState.activeEngineers || [];
     var engNameById = {};
-    engs.forEach(function(e){ engNameById[e.id] = e.name; });
+    var engRoleById = {};
+    engs.forEach(function(e){
+      engNameById[e.id] = e.name;
+      engRoleById[e.id] = e.role || 'engineer';
+    });
     if (!assignments.length){
       listEl.innerHTML = '<div style="padding:10px 12px;background:rgba(0,0,0,.16);border:1px dashed rgba(0,180,216,.18);border-radius:8px;color:var(--mu);font-size:12px">No engineers assigned yet — add one below.</div>';
       return;
     }
     listEl.innerHTML = assignments.map(function(a){
       var name = engNameById[a.engineer_user_id] || 'Engineer';
+      var role = engRoleById[a.engineer_user_id] || 'engineer';
+      // Role designation pill — distinguishes a regular field engineer
+      // from a corp engineer doing oversight. Same teal-violet hue used
+      // on the User Activity 'Corp Eng.' pill so the two surfaces read
+      // consistently. Field engineers get the green operations colour
+      // already used on .ar-bank-act-engineer to reinforce the role pair.
+      var roleLabel, rolePillStyle;
+      if (role === 'corp_engineer'){
+        roleLabel = 'Corp Eng.';
+        rolePillStyle = 'background:rgba(125,211,252,.14);color:#7dd3fc;border:1px solid rgba(125,211,252,.45);';
+      } else {
+        roleLabel = 'Engineer';
+        rolePillStyle = 'background:rgba(34,197,94,.14);color:#4ade80;border:1px solid rgba(34,197,94,.4);';
+      }
+      var rolePill = '<span style="' + rolePillStyle + 'font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:2px 7px;border-radius:99px;margin-left:8px;line-height:1.4;display:inline-block;vertical-align:1px">' + roleLabel + '</span>';
       // For portfolio scope, the row aggregates N property-assignments.
       // Show the count alongside status so admins know how broadly the
       // engineer is assigned. data-property-ids carries the full id
@@ -2080,7 +2099,7 @@ window.AR2_PF = (function(){
         : '';
       return '<div class="ar-eng-assign-row">'
         +   '<div class="ar-eng-assign-row-main">'
-        +     '<div class="ar-eng-assign-row-name"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true" style="margin-right:6px;vertical-align:-1px"><path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/><rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/><rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/></svg>' + esc(name) + '</div>'
+        +     '<div class="ar-eng-assign-row-name"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true" style="margin-right:6px;vertical-align:-1px"><path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/><rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/><rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/></svg>' + esc(name) + rolePill + '</div>'
         +     '<div class="ar-eng-assign-row-meta">' + esc(_statusLabel(a.status)) + fanSuffix + (a.assignment_notes ? ' · ' + esc(a.assignment_notes) : '') + '</div>'
         +   '</div>'
         +   '<button class="ar-eng-assign-row-x" data-eng-assign-action="remove-row" data-assignment-id="' + esc(a.id) + '"' + idsAttr + ' type="button" aria-label="Remove">×</button>'
