@@ -9481,12 +9481,19 @@ function openAdminReviewModal(assignmentId){
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-download-pdf" type="button" title="Generate engineer verification PDF">↓ PDF</button>'
     +   '<button class="ar-pf-modal-btn primary outline" data-action="admin-review-open-portal" type="button" title="Open the engineer\'s 4-step portal for this record">Review in Portal</button>'
-    +   (asgn.status === 'locked'
-        ? '<button class="ar-pf-modal-btn" data-action="admin-review-unlock" type="button">Unlock</button>'
-        : '<button class="ar-pf-modal-btn danger" data-action="admin-review-lock" type="button">Lock Now</button>')
-    +   (asgn.status !== 'reviewed' && asgn.status !== 'locked'
-        ? '<button class="ar-pf-modal-btn primary" data-action="admin-review-mark-reviewed" type="button">Mark Reviewed</button>'
-        : '')
+    +   // Write actions (Lock / Unlock / Mark Reviewed) are admin-only.
+    +   // Corp engineers see the review surface as read-only — gate the
+    +   // buttons client-side too (RLS would reject server-side anyway).
+    +   (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())
+        ? ''
+        : (asgn.status === 'locked'
+            ? '<button class="ar-pf-modal-btn" data-action="admin-review-unlock" type="button">Unlock</button>'
+            : '<button class="ar-pf-modal-btn danger" data-action="admin-review-lock" type="button">Lock Now</button>'))
+    +   (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())
+        ? ''
+        : (asgn.status !== 'reviewed' && asgn.status !== 'locked'
+            ? '<button class="ar-pf-modal-btn primary" data-action="admin-review-mark-reviewed" type="button">Mark Reviewed</button>'
+            : ''))
     + '</div>'
   + '</div>';
   document.body.appendChild(bd);
@@ -10590,13 +10597,23 @@ window.AR2_ENGINEER = (function(){
     s.loading = false;
     s.loadError = null;
     _clearPersistedState();
-    // Admins who opened the portal via "Review in portal" should return
-    // to the archive (where their normal admin chrome lives), not the
-    // engineer assignment list (which is empty for them).
+    // Reviewers (admins + corp engineers) who opened the portal via
+    // "Review in Portal" should return to their launch context — the
+    // archive (admins) or the Corp Engineer dashboard (corp engineers).
+    // Without this they're stranded on an empty engineer assignment list
+    // since neither role has assignments of their own.
     var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
-    if (isAdminViewing){
+    var isCorpViewing  = !!(window.AR2_CLOUD && AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer());
+    if (isAdminViewing || isCorpViewing){
       document.body.classList.remove('pf-engineer-mode');
-      if (typeof showView === 'function') { showView('bank'); return; }
+      if (typeof showView === 'function'){
+        showView('bank');
+        // renderArchive routes corp_engineer to the dashboard automatically,
+        // so a fresh call here ensures the corp engineer lands back on
+        // their dashboard instead of an empty list.
+        if (typeof renderArchive === 'function') renderArchive();
+        return;
+      }
     }
     repaint();
     // Land at top of the assignment list on every return.
@@ -11690,14 +11707,20 @@ window.AR2_ENGINEER = (function(){
       savedNote = '<span class="ar-eng-saved">Saved ' + (secs < 5 ? 'just now' : secs + 's ago') + '</span>';
     }
     var isAdminViewing = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
-    var backLabel = isAdminViewing ? 'Back to Archive' : 'All assignments';
-    // Admin Review Mode chip — compact aqua pill + info button.
-    // Replaces the old wordy 2-line banner. Full explanation lives in
-    // a popover (showEngInfoModal) opened by the info icon.
-    var adminBanner = isAdminViewing
+    var isCorpViewing  = !!(window.AR2_CLOUD && AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer());
+    var isReviewerViewing = isAdminViewing || isCorpViewing;
+    var backLabel = isAdminViewing ? 'Back to Archive'
+                  : isCorpViewing  ? 'Back to Dashboard'
+                  : 'All assignments';
+    // Reviewer chip — compact aqua pill + info button. Replaces the old
+    // wordy 2-line banner. Full explanation lives in a popover. Label
+    // adapts to the viewer's role so corp engineers see 'Oversight
+    // Review Mode' rather than the admin-specific copy.
+    var bannerLabel = isAdminViewing ? 'Admin Review Mode' : 'Oversight Review Mode';
+    var adminBanner = isReviewerViewing
       ? '<div class="ar-eng-admin-chip">'
         +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z"/></svg>'
-        +   '<span>Admin Review Mode</span>'
+        +   '<span>' + bannerLabel + '</span>'
         +   '<button class="ar-eng-admin-chip-info" data-action="ar-eng-admin-mode-info" type="button" aria-label="What does this mean?" title="What does this mean?">'
         +     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="7.5" r=".7" fill="currentColor"/></svg>'
         +   '</button>'
