@@ -3929,9 +3929,12 @@ body.pf-engineer-mode #ap2{display:none!important;}
 /* 3-column flex layout: breadcrumb (flex:1, ellipsizes) · status pill ·
    actions cluster. Replaces the old single-flex row where the property
    name shoved the actions off-screen on long names. */
-.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
+/* Horizontal padding intentionally matches .ar-layout's `padding:0 20px`
+   so the sub-bar's left/right content edges line up with the calculator
+   form columns below. Bumping this introduces a visible misalignment. */
+.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
 @media(max-width:860px){
-  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:10px 16px;}
+  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:10px 20px;}
   .ar-pf-sub-crumb{order:1;flex:1 1 100%;min-width:0;}
   .ar-pf-sub-cluster{order:2;flex:1 1 100%;justify-content:space-between;}
 }
