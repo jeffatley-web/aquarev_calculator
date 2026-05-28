@@ -1096,13 +1096,18 @@ var Cloud = (function(){
     assignCorpEngineerToPortfolio: function(corpId, portfolioId, notes){
       var c = getClient();
       if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      // assigned_by_user_id is NOT NULL on engineer_assignments — stamp
+      // the current admin's user id so the audit trail records who made
+      // the assignment. Missing this column 23502'd the insert with
+      // 'null value … violates not-null constraint'.
       return c.from('engineer_assignments').insert({
-        engineer_user_id: corpId,
-        portfolio_id: portfolioId,
-        property_id: null,
-        assessment_id: null,
-        status: 'pending',
-        assignment_notes: notes || null
+        engineer_user_id:     corpId,
+        portfolio_id:         portfolioId,
+        property_id:          null,
+        assessment_id:        null,
+        status:               'pending',
+        assignment_notes:     notes || null,
+        assigned_by_user_id:  user.id
       }).select('id,portfolio_id,status,assigned_at').single().then(function(r){
         if(r.error) throw r.error;
         return r.data;
