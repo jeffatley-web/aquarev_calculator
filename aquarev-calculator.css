@@ -3924,17 +3924,21 @@ body.pf-engineer-mode #ap2{display:none!important;}
      outer  → background full-width, no horizontal padding
      inner  → max-width 1320px, centered, 20px horizontal padding
               (matches .ar-layout) */
-#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.97),rgba(7,22,40,.97));border-bottom:1px solid rgba(0,180,216,.28);padding:0;box-shadow:0 4px 14px rgba(4,15,30,.32);position:relative;z-index:5;}
+/* Outer = full-bleed background + 20px horizontal padding (mirrors .ar-bar
+   on line 43). The header above uses identical padding so its inner
+   content edges land in the same place. Without the 20px outer padding,
+   the sub-bar's content sat hard against the viewport edge while the
+   header + .ar-layout sat 20px in — visible misalignment.
+
+   The INNER then carries vertical padding only; horizontal alignment is
+   inherited from the outer padding above. Same arrangement as
+   .ar-bar / .ar-bar-inner, so all three rows (header / sub-bar / form
+   columns) share identical X coordinates. */
+#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.97),rgba(7,22,40,.97));border-bottom:1px solid rgba(0,180,216,.28);padding:0 20px;box-shadow:0 4px 14px rgba(4,15,30,.32);position:relative;z-index:5;box-sizing:border-box;}
 #ar2-pf-subbar.is-active{display:block;}
-/* 3-column flex layout: breadcrumb (flex:1, ellipsizes) · status pill ·
-   actions cluster. Replaces the old single-flex row where the property
-   name shoved the actions off-screen on long names. */
-/* Horizontal padding intentionally matches .ar-layout's `padding:0 20px`
-   so the sub-bar's left/right content edges line up with the calculator
-   form columns below. Bumping this introduces a visible misalignment. */
-.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
+.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:12px 0;display:flex;align-items:center;gap:14px;flex-wrap:nowrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
 @media(max-width:860px){
-  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:10px 20px;}
+  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:10px 0;}
   .ar-pf-sub-crumb{order:1;flex:1 1 100%;min-width:0;}
   .ar-pf-sub-cluster{order:2;flex:1 1 100%;justify-content:space-between;}
 }
