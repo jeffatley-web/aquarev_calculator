@@ -4061,21 +4061,33 @@ body.pf-engineer-mode #ap2{display:none!important;}
      outer  → background full-width, no horizontal padding
      inner  → max-width 1320px, centered, 20px horizontal padding
               (matches .ar-layout) */
-/* Outer = full-bleed background + 20px horizontal padding (mirrors .ar-bar
-   on line 43). The header above uses identical padding so its inner
-   content edges land in the same place. Without the 20px outer padding,
-   the sub-bar's content sat hard against the viewport edge while the
-   header + .ar-layout sat 20px in — visible misalignment.
+/* Sub-bar rebuilt 2026-05-28 as a self-contained ROUNDED CARD instead
+   of a full-bleed strip. Why: the calculator's surrounding chrome
+   (Webflow page nav, .ar-bar header, .ar-layout form) all sit inside
+   container widths that vary by viewport AND embed-wrapper. A full-
+   bleed sub-bar that tries to match those chrome edges keeps drifting
+   wider than them. The card pattern sidesteps the problem entirely:
+   max-width:1320px + margin:0 auto + padding:0 20px mirrors .ar-layout
+   EXACTLY, so the card always sits in the same horizontal gutter as
+   the form columns below it, regardless of Webflow wrapper width.
 
-   The INNER then carries vertical padding only; horizontal alignment is
-   inherited from the outer padding above. Same arrangement as
-   .ar-bar / .ar-bar-inner, so all three rows (header / sub-bar / form
-   columns) share identical X coordinates. */
-#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.97),rgba(7,22,40,.97));border-bottom:1px solid rgba(0,180,216,.28);padding:0 20px;box-shadow:0 4px 14px rgba(4,15,30,.32);position:relative;z-index:5;box-sizing:border-box;}
+   Outer = invisible positioning wrapper that mirrors .ar-layout's box.
+   Inner = the actual card chrome (gradient + border + radius + shadow). */
+#ar2-pf-subbar{display:none;max-width:1320px;margin:8px auto 4px;padding:0 20px;background:transparent;border:none;box-shadow:none;position:relative;z-index:5;box-sizing:border-box;}
 #ar2-pf-subbar.is-active{display:block;}
-.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:12px 0;display:flex;align-items:center;gap:14px;flex-wrap:nowrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
+.ar-pf-sub-inner{
+  display:flex;align-items:center;gap:14px;flex-wrap:nowrap;
+  font-family:'DM Sans',sans-serif;
+  width:100%;box-sizing:border-box;
+  padding:13px 18px;
+  background:linear-gradient(140deg,rgba(13,45,74,.92),rgba(7,22,40,.92));
+  border:1px solid rgba(0,180,216,.32);
+  border-radius:12px;
+  box-shadow:0 6px 22px rgba(4,15,30,.38), inset 0 1px 0 rgba(125,211,252,.08);
+}
 @media(max-width:860px){
-  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:10px 0;}
+  #ar2-pf-subbar{margin:6px auto 2px;padding:0 12px;}
+  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:11px 14px;}
   .ar-pf-sub-crumb{order:1;flex:1 1 100%;min-width:0;}
   .ar-pf-sub-cluster{order:2;flex:1 1 100%;justify-content:space-between;}
 }
