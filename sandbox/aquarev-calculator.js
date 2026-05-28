@@ -2775,13 +2775,13 @@ window.AR2_PF = (function(){
           +   '<div class="ar-pf-prop-acts">'
           // Snapshot — opens an inline drawer below the row with a
           // KPI card + per-pool engineer verification status.
-          +     '<button class="ar-pf-prop-snap" data-pf-action="open-snapshot" data-pf-property="' + prop.id + '" type="button" aria-label="Open snapshot drawer" title="Property Snapshot — KPI card + engineer verification status">'
+          +     '<button class="ar-pf-prop-snap" data-pf-action="open-snapshot" data-pf-property="' + prop.id + '" type="button" aria-label="Open snapshot drawer" data-pf-tip="Snapshot" data-pf-tip-tone="purple">'
           +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
           +         '<path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/>'
           +       '</svg>'
           +     '</button>'
           // Preview PDF (existing) — portrait Assessment + Pool Profile cards.
-          +     '<button class="ar-pf-prop-prev" data-pf-action="preview-property-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Preview PDF report" title="Preview Assessment + Pool Profile PDF (portrait, cards)">'
+          +     '<button class="ar-pf-prop-prev" data-pf-action="preview-property-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Preview PDF report" data-pf-tip="Preview PDF" data-pf-tip-tone="green">'
           +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
           +         '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>'
           +         '<circle cx="12" cy="12" r="3"/>'
@@ -2793,7 +2793,7 @@ window.AR2_PF = (function(){
           // single Assessments archive.
           +     ((window.AR2_CLOUD && AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer())
               ? ''
-              : '<button class="ar-pf-prop-copy" data-pf-action="copy-property-to-assessments" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Copy to Assessments" title="Copy as a standalone Assessment record">'
+              : '<button class="ar-pf-prop-copy" data-pf-action="copy-property-to-assessments" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Copy to Assessments" data-pf-tip="Copy to Assessments" data-pf-tip-tone="cyan">'
               +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
               +     '<rect x="8" y="8" width="12" height="12" rx="2"/>'
               +     '<path d="M4 16V6a2 2 0 0 1 2-2h10"/>'
@@ -2802,14 +2802,14 @@ window.AR2_PF = (function(){
           // Admin-only: Engineer Review (assignment review modal) +
           // Engineer Report (PDF preview built from engineer verifications).
           +     (isAdminForChips
-              ? '<button class="ar-pf-prop-eng-review" data-pf-action="open-engineer-review" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Open engineer review" title="Engineer Review — open assignment review modal">'
+              ? '<button class="ar-pf-prop-eng-review" data-pf-action="open-engineer-review" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Open engineer review" data-pf-tip="Engineer Review" data-pf-tip-tone="amber">'
               +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
               +     '<path d="M5 14 Q5 7 12 7 Q19 7 19 14 Z"/>'
               +     '<path d="M3 14h18v2H3z"/>'
               +     '<circle cx="12" cy="18" r="2"/>'
               +   '</svg>'
               + '</button>'
-              + '<button class="ar-pf-prop-eng-report" data-pf-action="open-engineer-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Open engineer report" title="Engineer Report — preview + download PDF">'
+              + '<button class="ar-pf-prop-eng-report" data-pf-action="open-engineer-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Open engineer report" data-pf-tip="Engineer Report" data-pf-tip-tone="gold">'
               +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
               +     '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
               +     '<path d="M14 2v6h6"/>'
@@ -2817,7 +2817,7 @@ window.AR2_PF = (function(){
               +   '</svg>'
               + '</button>'
               : '')
-          +     '<button class="ar-pf-prop-del" data-pf-action="delete-property" data-pf-property="' + prop.id + '" type="button" aria-label="Delete property" title="Delete property">&times;</button>'
+          +     '<button class="ar-pf-prop-del" data-pf-action="delete-property" data-pf-property="' + prop.id + '" type="button" aria-label="Delete property" data-pf-tip="Delete" data-pf-tip-tone="red">&times;</button>'
           +   '</div>'
           + '</div>';
       }).join('');

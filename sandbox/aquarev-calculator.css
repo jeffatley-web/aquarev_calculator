@@ -3795,15 +3795,121 @@ body.pf-engineer-mode #ap2{display:none!important;}
 
 #ar2 .ar-pf-prop-del{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(239,68,68,.25);color:#f87171;font-family:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s;padding:0;}
 #ar2 .ar-pf-prop-del:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.5);color:#fca5a5;}
-/* Property row action badges — sit in the last column of the grid as
-   a flex cluster. Three buttons:
-     • Preview PDF (green)  — generates portrait Assessment + Pool
-                              Profile cards preview with Download PDF
-     • Copy to Assessments  (cyan) — fork as standalone single record
-     • Delete                (red) — remove from portfolio
-   All three share the hover-reveal pattern (opacity:0 → 1 on row hover)
-   so they don't add visual noise when the rep is scanning the roster. */
+/* Property row action badges — six buttons (Snapshot · Preview PDF ·
+   Copy · Engineer Review · Engineer Report · Delete). Always-visible.
+   Hover state is tactile (1px lift + accent glow) and tooltips below
+   are custom-styled (instant pop, brand colours, colour-matched to
+   each badge's icon hue) so the cluster reads as polished + responsive
+   instead of relying on the slow browser default title tooltip. */
 #ar2 .ar-pf-prop-acts{display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;}
+
+/* Tactile hover + active feedback applied to every badge variant. The
+   per-badge :hover rules below still own background/border colour;
+   this just adds the lift + active press uniformly. */
+#ar2 .ar-pf-prop-acts > button{
+  transition:background .12s ease, border-color .12s ease, color .12s ease,
+             transform .08s ease, box-shadow .12s ease;
+}
+#ar2 .ar-pf-prop-acts > button:hover{
+  transform:translateY(-1px);
+}
+#ar2 .ar-pf-prop-acts > button:active{
+  transform:translateY(0);
+  filter:brightness(.92);
+}
+/* Accent glow on hover — each variant inherits its own colour via
+   currentColor (the icon stroke colour also drives the glow). */
+#ar2 .ar-pf-prop-snap:hover{box-shadow:0 4px 14px rgba(168,85,247,.32);}
+#ar2 .ar-pf-prop-prev:hover{box-shadow:0 4px 14px rgba(34,197,94,.32);}
+#ar2 .ar-pf-prop-copy:hover{box-shadow:0 4px 14px rgba(0,180,216,.32);}
+#ar2 .ar-pf-prop-eng-review:hover{box-shadow:0 4px 14px rgba(240,165,0,.32);}
+#ar2 .ar-pf-prop-eng-report:hover{box-shadow:0 4px 14px rgba(234,179,8,.32);}
+#ar2 .ar-pf-prop-del:hover{box-shadow:0 4px 14px rgba(239,68,68,.32);}
+
+/* ── Brand-aligned hover tooltips ─────────────────────────────────
+   Pure-CSS pseudo-element tooltips on any badge with [data-pf-tip].
+   Pops instantly (140ms transition, no browser-default 700ms delay).
+   Bubble uses the calculator's navy gradient + an accent border keyed
+   to the badge's own colour via [data-pf-tip-tone].
+*/
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]{position:relative;}
+/* Hidden default. Hover reveal is fast: opacity 60ms linear + 80ms
+   transform ease-out. That's an order of magnitude quicker than the
+   browser's ~700ms title-tooltip delay so the cluster feels live. */
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]::before,
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]::after{
+  position:absolute;
+  pointer-events:none;
+  opacity:0;
+  visibility:hidden;
+  transition:opacity .06s linear, transform .08s ease-out, visibility .06s;
+  z-index:100;
+  left:50%;
+}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]::before{
+  content:attr(data-pf-tip);
+  bottom:calc(100% + 10px);
+  transform:translateX(-50%) translateY(3px);
+  background:linear-gradient(155deg,#0a2540 0%,#061a30 60%,#040f1e 100%);
+  color:#fff;
+  font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;
+  font-size:11.5px;
+  font-weight:600;
+  letter-spacing:.35px;
+  white-space:nowrap;
+  padding:8px 13px;
+  border-radius:8px;
+  border:1px solid rgba(0,180,216,.55);
+  /* Two-stop shadow + inset top highlight for the glass-panel feel
+     that matches the rest of the calculator chrome. */
+  box-shadow:0 12px 28px rgba(4,15,30,.6),
+             0 0 0 1px rgba(0,180,216,.08),
+             inset 0 1px 0 rgba(255,255,255,.06);
+  text-shadow:0 1px 2px rgba(4,15,30,.4);
+}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]::after{
+  content:'';
+  bottom:calc(100% + 4px);
+  transform:translateX(-50%) translateY(3px);
+  width:0;height:0;
+  border-left:6px solid transparent;
+  border-right:6px solid transparent;
+  border-top:6px solid rgba(0,180,216,.55);
+  filter:drop-shadow(0 2px 3px rgba(4,15,30,.5));
+}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:hover::before,
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:focus-visible::before,
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:hover::after,
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:focus-visible::after{
+  opacity:1;
+  visibility:visible;
+  transform:translateX(-50%) translateY(0);
+  transition-delay:0s;
+}
+/* Per-badge tooltip accent — matches the icon hue so the cluster reads
+   as a coordinated set. Used via [data-pf-tip-tone="<name>"]. */
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="purple"]::before{border-color:rgba(168,85,247,.6);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="purple"]::after {border-top-color:rgba(168,85,247,.6);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="green"]::before {border-color:rgba(34,197,94,.62);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="green"]::after  {border-top-color:rgba(34,197,94,.62);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="cyan"]::before  {border-color:rgba(0,180,216,.62);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="cyan"]::after   {border-top-color:rgba(0,180,216,.62);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="amber"]::before {border-color:rgba(240,165,0,.62);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="amber"]::after  {border-top-color:rgba(240,165,0,.62);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="gold"]::before  {border-color:rgba(234,179,8,.64);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="gold"]::after   {border-top-color:rgba(234,179,8,.64);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="red"]::before   {border-color:rgba(239,68,68,.6);}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip-tone="red"]::after    {border-top-color:rgba(239,68,68,.6);}
+/* Edge guard — when the badge sits near the right edge of the row,
+   the centered tooltip overflows. Last-two badges anchor the bubble
+   to the RIGHT edge of the icon so it stays on-screen. */
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:nth-last-child(-n+2)::before{
+  left:auto;right:0;transform:translateY(4px);
+}
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:nth-last-child(-n+2):hover::before,
+#ar2 .ar-pf-prop-acts > button[data-pf-tip]:nth-last-child(-n+2):focus-visible::before{
+  transform:translateY(0);
+}
 #ar2 .ar-pf-prop-copy{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid rgba(0,180,216,.28);color:#48cae4;font-family:inherit;line-height:1;cursor:pointer;opacity:1;transition:opacity .15s,background .15s,border-color .15s,color .15s;padding:0;}
 #ar2 .ar-pf-prop-copy:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.55);color:#fff;}
 #ar2 .ar-pf-prop-copy svg{width:13px;height:13px;}
