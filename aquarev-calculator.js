@@ -3948,28 +3948,45 @@ window.AR2_PF = (function(){
     if (pos && pos.total > 1){
       var prevDisabled = pos.idx === 0;
       var nextDisabled = pos.idx === pos.total - 1;
-      navHtml = '<div class="ar-pf-sub-nav">'
+      var _navArrow = function(dir){
+        // dir: 'l' or 'r'. Mirror the path for the right arrow.
+        var d = dir === 'l' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6';
+        return '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
+      };
+      navHtml = '<div class="ar-pf-sub-nav" title="Navigate properties in this portfolio">'
         + '<button class="ar-pf-sub-navbtn" data-pf-action="prev-property" type="button" aria-label="Previous property"'
-        +   (prevDisabled ? ' disabled' : '') + '>&#x2190;</button>'
-        + '<span class="ar-pf-sub-navpos">' + (pos.idx + 1) + ' of ' + pos.total + '</span>'
+        +   (prevDisabled ? ' disabled' : '') + '>' + _navArrow('l') + '</button>'
+        + '<span class="ar-pf-sub-navpos">' + (pos.idx + 1) + ' / ' + pos.total + '</span>'
         + '<button class="ar-pf-sub-navbtn" data-pf-action="next-property" type="button" aria-label="Next property"'
-        +   (nextDisabled ? ' disabled' : '') + '>&#x2192;</button>'
+        +   (nextDisabled ? ' disabled' : '') + '>' + _navArrow('r') + '</button>'
         + '</div>';
     }
-    bar.innerHTML = '<div class="ar-pf-sub-inner">'
-      + '<button class="ar-pf-sub-back" data-pf-action="exit-property" type="button" aria-label="Back to portfolio">'
-      +   '&#x2190; ' + esc(pfName)
-      + '</button>'
-      + '<span class="ar-pf-sub-sep">/</span>'
-      + '<span class="ar-pf-sub-prop">' + esc(propName) + '</span>'
-      + navHtml
-      + statusHtml
-      + '<div class="ar-pf-sub-actions">'
-      +   '<button class="ar-pf-sub-act" data-pf-action="save-property" type="button">Save</button>'
-      +   '<button class="ar-pf-sub-act" data-pf-action="save-and-add-another" type="button" title="Save this property and immediately start adding another to this portfolio">Save &amp; Add Another</button>'
-      +   '<button class="ar-pf-sub-act primary" data-pf-action="save-and-close" type="button">Save &amp; Close</button>'
-      + '</div>'
+    // 3-zone layout — crumb (back chip + property name) on the left,
+    // cluster (pager + save-status + actions) on the right. Inner wrap
+    // uses justify-content via the .ar-pf-sub-cluster auto-margin-left.
+    var crumbHtml =
+        '<div class="ar-pf-sub-crumb">'
+      +   '<button class="ar-pf-sub-back" data-pf-action="exit-property" type="button" aria-label="Back to portfolio overview" title="Back to ' + esc(pfName) + '">'
+      +     '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>'
+      +     esc(pfName)
+      +   '</button>'
+      +   '<span class="ar-pf-sub-sep">/</span>'
+      +   '<div class="ar-pf-sub-prop-wrap">'
+      +     '<span class="ar-pf-sub-prop-lbl">Property</span>'
+      +     '<span class="ar-pf-sub-prop">' + esc(propName) + '</span>'
+      +   '</div>'
       + '</div>';
+    var clusterHtml =
+        '<div class="ar-pf-sub-cluster" style="margin-left:auto">'
+      +   navHtml
+      +   statusHtml
+      +   '<div class="ar-pf-sub-actions">'
+      +     '<button class="ar-pf-sub-act" data-pf-action="save-property" type="button" title="Save changes without leaving this property">Save</button>'
+      +     '<button class="ar-pf-sub-act outline" data-pf-action="save-and-add-another" type="button" title="Save this property and immediately start another in this portfolio">+ Add Another</button>'
+      +     '<button class="ar-pf-sub-act primary" data-pf-action="save-and-close" type="button" title="Save and return to the Portfolio Overview">Save &amp; Close</button>'
+      +   '</div>'
+      + '</div>';
+    bar.innerHTML = '<div class="ar-pf-sub-inner">' + crumbHtml + clusterHtml + '</div>';
   }
   function _toggleSubbar(show){
     var bar = document.getElementById('ar2-pf-subbar');

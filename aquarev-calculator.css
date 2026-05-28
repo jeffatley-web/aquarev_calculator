@@ -3924,29 +3924,48 @@ body.pf-engineer-mode #ap2{display:none!important;}
      outer  → background full-width, no horizontal padding
      inner  → max-width 1320px, centered, 20px horizontal padding
               (matches .ar-layout) */
-#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.95),rgba(7,22,40,.95));border-bottom:1px solid rgba(0,180,216,.22);padding:0;}
+#ar2-pf-subbar{display:none;background:linear-gradient(180deg,rgba(13,45,74,.97),rgba(7,22,40,.97));border-bottom:1px solid rgba(0,180,216,.28);padding:0;box-shadow:0 4px 14px rgba(4,15,30,.32);position:relative;z-index:5;}
 #ar2-pf-subbar.is-active{display:block;}
-.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
-.ar-pf-sub-back{background:rgba(0,180,216,.10);border:1px solid rgba(0,180,216,.28);color:var(--t);font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 11px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;}
-.ar-pf-sub-back:hover{background:rgba(0,180,216,.18);border-color:rgba(0,180,216,.5);}
-.ar-pf-sub-sep{color:#7db8cc;font-size:14px;opacity:.6;}
-.ar-pf-sub-prop{font-size:13px;font-weight:600;color:#e0f4fa;letter-spacing:.3px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ar-pf-sub-status{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;padding:4px 9px;border-radius:7px;font-weight:700;}
-.ar-pf-sub-status.saving{background:rgba(125,184,204,.18);color:#7db8cc;}
-.ar-pf-sub-status.saved {background:rgba(34,197,94,.18);color:var(--gr);}
-.ar-pf-sub-status.error {background:rgba(239,68,68,.18);color:#f87171;cursor:help;}
-/* Prev/Next property navigation (Phase 1d) — sits between the property
-   name and the save status. Disabled at the boundaries (first / last). */
-.ar-pf-sub-nav{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.18);border-radius:7px;}
-.ar-pf-sub-navbtn{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--t);font-size:14px;cursor:pointer;border-radius:4px;transition:background .12s,color .12s;font-family:inherit;}
-.ar-pf-sub-navbtn:hover:not(:disabled){background:rgba(0,180,216,.16);}
-.ar-pf-sub-navbtn:disabled{color:#3a5b6a;cursor:not-allowed;opacity:.5;}
-.ar-pf-sub-navpos{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;min-width:48px;text-align:center;}
-.ar-pf-sub-actions{display:flex;gap:6px;}
-.ar-pf-sub-act{background:transparent;border:1px solid rgba(0,180,216,.22);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.5px;padding:7px 12px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}
-.ar-pf-sub-act:hover{background:rgba(0,180,216,.10);border-color:rgba(0,180,216,.4);color:var(--t);}
-.ar-pf-sub-act.primary{background:linear-gradient(135deg,var(--t),var(--aq));border-color:transparent;color:var(--nv);}
-.ar-pf-sub-act.primary:hover{filter:brightness(1.1);}
+/* 3-column flex layout: breadcrumb (flex:1, ellipsizes) · status pill ·
+   actions cluster. Replaces the old single-flex row where the property
+   name shoved the actions off-screen on long names. */
+.ar-pf-sub-inner{max-width:1320px;margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:14px;flex-wrap:nowrap;font-family:'DM Sans',sans-serif;width:100%;box-sizing:border-box;}
+@media(max-width:860px){
+  .ar-pf-sub-inner{flex-wrap:wrap;gap:10px;padding:10px 16px;}
+  .ar-pf-sub-crumb{order:1;flex:1 1 100%;min-width:0;}
+  .ar-pf-sub-cluster{order:2;flex:1 1 100%;justify-content:space-between;}
+}
+/* Crumb cluster — back chip + chevron + property name */
+.ar-pf-sub-crumb{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;}
+.ar-pf-sub-back{display:inline-flex;align-items:center;gap:6px;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.38);color:#7dd3fc;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.4px;padding:7px 12px 7px 10px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+.ar-pf-sub-back svg{flex-shrink:0;}
+.ar-pf-sub-back:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.6);color:#fff;}
+.ar-pf-sub-sep{color:#48cae4;font-size:14px;opacity:.5;font-weight:300;flex-shrink:0;}
+.ar-pf-sub-prop-wrap{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto;}
+.ar-pf-sub-prop-lbl{font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:#7db8cc;font-weight:700;}
+.ar-pf-sub-prop{font-size:14px;font-weight:700;color:#fff;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* Cluster — pager + status + action buttons, right-anchored */
+.ar-pf-sub-cluster{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.ar-pf-sub-status{display:inline-flex;align-items:center;gap:5px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;padding:5px 10px;border-radius:99px;font-weight:700;line-height:1;border:1px solid transparent;}
+.ar-pf-sub-status::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;}
+.ar-pf-sub-status.saving{background:rgba(125,184,204,.16);color:#7db8cc;border-color:rgba(125,184,204,.32);}
+.ar-pf-sub-status.saved {background:rgba(34,197,94,.16); color:#4ade80; border-color:rgba(34,197,94,.42);}
+.ar-pf-sub-status.error {background:rgba(239,68,68,.18); color:#f87171; border-color:rgba(239,68,68,.5);  cursor:help;}
+/* Prev/Next pager */
+.ar-pf-sub-nav{display:inline-flex;align-items:center;gap:2px;padding:3px 4px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.25);border-radius:8px;}
+.ar-pf-sub-navbtn{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;color:#7dd3fc;font-size:14px;cursor:pointer;border-radius:5px;transition:background .12s,color .12s;font-family:inherit;}
+.ar-pf-sub-navbtn:hover:not(:disabled){background:rgba(0,180,216,.2);color:#fff;}
+.ar-pf-sub-navbtn:disabled{color:#3a5b6a;cursor:not-allowed;}
+.ar-pf-sub-navpos{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;color:#cfe2eb;letter-spacing:.4px;min-width:46px;text-align:center;padding:0 4px;border-left:1px solid rgba(0,180,216,.2);border-right:1px solid rgba(0,180,216,.2);}
+/* Action buttons — subtle vertical separator before the cluster */
+.ar-pf-sub-actions{display:flex;gap:6px;padding-left:12px;margin-left:2px;border-left:1px solid rgba(0,180,216,.2);}
+.ar-pf-sub-act{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid rgba(125,184,204,.28);color:#cfe2eb;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.4px;padding:7px 13px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s,color .15s,filter .15s,transform .08s;line-height:1;white-space:nowrap;}
+.ar-pf-sub-act:hover{background:rgba(0,180,216,.12);border-color:rgba(0,180,216,.5);color:#fff;}
+.ar-pf-sub-act:active{transform:translateY(1px);}
+.ar-pf-sub-act.outline{border-color:rgba(0,180,216,.45);color:#7dd3fc;}
+.ar-pf-sub-act.outline:hover{background:rgba(0,180,216,.16);border-color:rgba(0,180,216,.7);color:#fff;}
+.ar-pf-sub-act.primary{background:linear-gradient(135deg,#22c55e,#4ade80);border-color:transparent;color:#040f1e;font-weight:700;box-shadow:0 2px 10px rgba(34,197,94,.32);}
+.ar-pf-sub-act.primary:hover{filter:brightness(1.08);background:linear-gradient(135deg,#16a34a,#22c55e);color:#040f1e;}
 
 /* Property mode — single-assessment-only chrome is hidden. The "New"
    button doesn't apply (use Add Property in the overview instead);
