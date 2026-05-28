@@ -9733,9 +9733,12 @@ function openAdminReviewModal(assignmentId){
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-close" type="button">Close</button>'
     +   '<button class="ar-pf-modal-btn" data-action="admin-review-download-pdf" type="button" title="Generate engineer verification PDF">↓ PDF</button>'
     +   '<button class="ar-pf-modal-btn primary outline" data-action="admin-review-open-portal" type="button" title="Open the engineer\'s 4-step portal for this record">Review in Portal</button>'
-    +   // Write actions (Lock / Unlock / Mark Reviewed) are admin-only.
-    +   // Corp engineers see the review surface as read-only — gate the
-    +   // buttons client-side too (RLS would reject server-side anyway).
+    // Write actions (Lock / Unlock / Mark Reviewed) — admin only.
+    // Corp engineers see this surface as read-only; RLS would reject the
+    // write anyway, but hiding the buttons avoids confusion. NB: the
+    // inline `+ // comment` form caused a 'NaN' to render between the
+    // buttons because JS parses the trailing `+` as unary plus on the
+    // next operand. Comments now live OUTSIDE the concatenation chain.
     +   (!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin())
         ? ''
         : (asgn.status === 'locked'
@@ -11858,6 +11861,7 @@ window.AR2_ENGINEER = (function(){
     bd.className = 'ar-eng-lightbox-backdrop';
     bd.id = 'ar-eng-lightbox';
     bd.innerHTML = '<button class="ar-eng-lightbox-close" data-action="ar-eng-lightbox-close" type="button" aria-label="Close">' + svgIconClose() + '</button>'
+      + (mediaType !== 'video' ? '<div class="ar-eng-lightbox-hint">Click photo to zoom · scroll / pinch for fine control · drag to pan</div>' : '')
       + '<div class="ar-eng-lightbox-content"><div style="padding:30px;color:#7db8cc;font-size:13px">Loading…</div></div>';
     document.body.appendChild(bd);
     // Backdrop-click closes only when the click target IS the backdrop
@@ -11888,6 +11892,125 @@ window.AR2_ENGINEER = (function(){
         content.innerHTML = '<video src="' + esc(url) + '" controls playsinline autoplay></video>';
       } else {
         content.innerHTML = '<img src="' + esc(url) + '" alt="" />';
+        // Wire pan + zoom on the image so admins can inspect pipe sizes,
+        // measuring tapes, NSF stamps, etc. Single click toggles 1× ↔
+        // 2.5× (centred on the click point); wheel/pinch scales smoothly
+        // 1×–6×; mouse-drag pans when zoomed. Below 1× falls back to fit.
+        var img = content.querySelector('img');
+        if (img){
+          img.style.maxWidth = '90vw';
+          img.style.maxHeight = '90vh';
+          img.style.transformOrigin = 'center center';
+          img.style.transition = 'transform .18s ease';
+          img.style.userSelect = 'none';
+          img.draggable = false;
+          var sc = 1, tx = 0, ty = 0;
+          var drag = false, dragSX = 0, dragSY = 0, dragTx0 = 0, dragTy0 = 0, didDrag = false;
+          function apply(){
+            img.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sc + ')';
+            img.style.cursor = sc > 1 ? (drag ? 'grabbing' : 'grab') : 'zoom-in';
+          }
+          function reset(){ sc = 1; tx = 0; ty = 0; apply(); }
+          apply();
+          img.addEventListener('click', function(e){
+            // Swallow the click so the backdrop-close handler can't see it.
+            e.stopPropagation();
+            if (didDrag){ didDrag = false; return; }
+            if (sc === 1){
+              sc = 2.5;
+              var r = img.getBoundingClientRect();
+              var cx = e.clientX - r.left - r.width / 2;
+              var cy = e.clientY - r.top  - r.height / 2;
+              tx = -cx * (sc - 1);
+              ty = -cy * (sc - 1);
+            } else {
+              reset();
+              return;
+            }
+            apply();
+          });
+          img.addEventListener('wheel', function(e){
+            e.preventDefault();
+            // Disable transition during wheel for responsiveness.
+            img.style.transition = 'none';
+            var prev = sc;
+            sc = Math.max(1, Math.min(6, sc + (e.deltaY < 0 ? 0.3 : -0.3)));
+            if (sc === 1){ reset(); }
+            else {
+              // Keep cursor anchor stable while zooming.
+              var r = img.getBoundingClientRect();
+              var cx = e.clientX - r.left - r.width / 2;
+              var cy = e.clientY - r.top  - r.height / 2;
+              tx += -cx * (sc - prev) / prev;
+              ty += -cy * (sc - prev) / prev;
+              apply();
+            }
+            // Re-enable for click toggles.
+            setTimeout(function(){ img.style.transition = 'transform .18s ease'; }, 40);
+          }, { passive: false });
+          img.addEventListener('mousedown', function(e){
+            if (sc <= 1) return;
+            e.preventDefault();
+            drag = true; didDrag = false;
+            dragSX = e.clientX; dragSY = e.clientY;
+            dragTx0 = tx; dragTy0 = ty;
+            img.style.transition = 'none';
+            apply();
+          });
+          document.addEventListener('mousemove', function(e){
+            if (!drag) return;
+            tx = dragTx0 + (e.clientX - dragSX);
+            ty = dragTy0 + (e.clientY - dragSY);
+            if (Math.abs(e.clientX - dragSX) + Math.abs(e.clientY - dragSY) > 4) didDrag = true;
+            apply();
+          });
+          document.addEventListener('mouseup', function(){
+            if (!drag) return;
+            drag = false;
+            img.style.transition = 'transform .18s ease';
+            apply();
+          });
+          // Touch pinch + pan
+          var t0d = 0, t0sc = 1, t0tx = 0, t0ty = 0;
+          img.addEventListener('touchstart', function(e){
+            if (e.touches.length === 2){
+              t0d = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+              );
+              t0sc = sc; t0tx = tx; t0ty = ty;
+              img.style.transition = 'none';
+            } else if (e.touches.length === 1 && sc > 1){
+              drag = true; didDrag = false;
+              dragSX = e.touches[0].clientX; dragSY = e.touches[0].clientY;
+              dragTx0 = tx; dragTy0 = ty;
+              img.style.transition = 'none';
+            }
+          });
+          img.addEventListener('touchmove', function(e){
+            if (e.touches.length === 2 && t0d){
+              e.preventDefault();
+              var d = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+              );
+              sc = Math.max(1, Math.min(6, t0sc * (d / t0d)));
+              apply();
+            } else if (drag && e.touches.length === 1){
+              e.preventDefault();
+              tx = dragTx0 + (e.touches[0].clientX - dragSX);
+              ty = dragTy0 + (e.touches[0].clientY - dragSY);
+              didDrag = true;
+              apply();
+            }
+          }, { passive: false });
+          img.addEventListener('touchend', function(){
+            t0d = 0; drag = false;
+            img.style.transition = 'transform .18s ease';
+            if (sc <= 1.02) reset();
+            else apply();
+          });
+        }
       }
     });
   }
@@ -13481,6 +13604,11 @@ window.AR2_ENGINEER = (function(){
       return true;
     }
     if (action === 'ar-eng-media-remove'){
+      // Belt-and-suspenders: stop the click from bubbling so it can't
+      // also trigger the parent thumbnail's lightbox open. closest()
+      // should resolve the X first regardless, but a fast double-tap
+      // on touch devices has been observed to fire both handlers.
+      try { if (window.event) window.event.stopPropagation(); } catch(_){}
       var mid = target.getAttribute('data-media-id');
       if (!mid) return true;
       // The "Delete & retake" walkthrough-video button is destructive of

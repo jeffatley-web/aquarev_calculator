@@ -1946,8 +1946,13 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* One row per pool — column grid that actually applies now that we
    dropped the #ar2 prefix. Designed for the 720px modal. */
 .ar-admin-review-table{display:flex;flex-direction:column;font-size:12px;background:rgba(7,22,40,.35);border:1px solid rgba(0,180,216,.18);border-radius:8px;overflow:hidden;}
+/* Grid sums to ~600px min + 60px gaps = 660px, fits comfortably inside
+   the 760px modal (-50px padding = 710px content). Previous template
+   summed to 705px and the rightmost .col-flag column got clipped on
+   the right edge of the card. Tightened P/V + room + flag widths,
+   moved Pool name to flex (minmax 90px,1fr) so long names ellipsize. */
 .ar-admin-review-thead,
-.ar-admin-review-trow{display:grid;grid-template-columns:minmax(120px,1.4fr) 70px 95px minmax(160px,1.7fr) 70px minmax(80px,1fr) 50px;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid rgba(0,180,216,.08);}
+.ar-admin-review-trow{display:grid;grid-template-columns:minmax(90px,1.3fr) 64px 80px minmax(140px,1.5fr) 56px minmax(70px,.9fr) 36px;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid rgba(0,180,216,.08);}
 .ar-admin-review-trow:last-child{border-bottom:none;}
 .ar-admin-review-thead{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;background:rgba(0,180,216,.07);border-bottom:1px solid rgba(0,180,216,.25);}
 .ar-admin-review-trow{color:#cfe2eb;transition:background .12s;}
@@ -3139,6 +3144,10 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 .ar-eng-lightbox-content video{max-width:90vw;max-height:90vh;display:block;}
 .ar-eng-lightbox-close{position:fixed;top:18px;right:18px;background:rgba(7,22,40,.85);border:1px solid rgba(0,180,216,.4);color:#cfe2eb;width:42px;height:42px;border-radius:50%;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:9999991;}
 .ar-eng-lightbox-close:hover{background:rgba(0,180,216,.2);border-color:rgba(0,180,216,.7);color:#fff;}
+/* Subtle hint pill so admins know the photo zooms — auto-fades after
+   a couple seconds so it doesn't fight the photo content. */
+.ar-eng-lightbox-hint{position:fixed;top:24px;left:50%;transform:translateX(-50%);background:rgba(7,22,40,.85);border:1px solid rgba(0,180,216,.32);color:#a3d4e8;font-family:'DM Sans',sans-serif;font-size:11.5px;letter-spacing:.4px;padding:6px 14px;border-radius:99px;z-index:9999991;pointer-events:none;animation:ar-eng-lb-hint-fade 4s ease forwards;}
+@keyframes ar-eng-lb-hint-fade{0%{opacity:0;transform:translate(-50%,-6px);}10%{opacity:1;transform:translate(-50%,0);}75%{opacity:1;}100%{opacity:0;transform:translate(-50%,-6px);}}
 
 /* Action bar */
 #ar2 .ar-eng-actions{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;margin-top:18px;}
@@ -3365,7 +3374,13 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-pump-room-head{display:flex;align-items:center;gap:8px;}
 #ar2 .ar-eng-pump-room-label{flex:1;background:transparent;border:none;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;padding:4px 6px;border-radius:5px;outline:none;min-width:0;}
 #ar2 .ar-eng-pump-room-label:hover,#ar2 .ar-eng-pump-room-label:focus{background:rgba(0,180,216,.08);}
-#ar2 .ar-eng-pump-room-card .ar-eng-thumb-x{position:static;width:24px;height:24px;flex-shrink:0;}
+/* Pump-room delete button (in the pump-room-head row) is rendered as
+   .ar-eng-thumb-x because it shares the close-X look. It's NOT a
+   thumbnail though — needs to be static in the flex header row, not
+   absolute. Scope the override to the head row only, otherwise photo-
+   thumbnail X buttons inside .ar-eng-pump-room-photos collapse to the
+   middle of each thumb + collide with the lightbox tap target. */
+#ar2 .ar-eng-pump-room-head > .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;opacity:1;}
 
 /* Walkthrough video tile — full-width inside the card. Three states:
    empty (click to record), uploading (spinner), has-video (click to view). */
