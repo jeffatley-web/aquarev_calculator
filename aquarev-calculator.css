@@ -3984,11 +3984,38 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-pf-snap-section-title{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid rgba(0,180,216,.18);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
 #ar2 .ar-pf-snap-section-title small{font-family:'DM Sans',sans-serif;font-size:11px;color:var(--mu);letter-spacing:.3px;text-transform:none;font-weight:500;}
 #ar2 .ar-pf-snap-pool-list{display:flex;flex-direction:column;gap:6px;}
-#ar2 .ar-pf-snap-pool-row{display:grid;grid-template-columns:1.4fr 90px 110px 130px;gap:14px;align-items:center;padding:8px 12px;background:rgba(4,15,30,.42);border:1px solid rgba(0,180,216,.12);border-radius:8px;transition:border-color .12s,background .12s;}
+/* 6-column grid:
+     1) pool name   (flex)
+     2) type        (90px)
+     3) gallons     (110px) right-aligned
+     4) devices     (1.2fr) chip cluster
+     5) photo/video (110px) chip
+     6) status pill (130px) right-aligned
+   Header row uses the same grid so cell edges align with the data rows. */
+#ar2 .ar-pf-snap-pool-row{display:grid;grid-template-columns:minmax(140px,1.5fr) 80px 100px minmax(140px,1.3fr) 110px 130px;gap:12px;align-items:center;padding:9px 12px;background:rgba(4,15,30,.42);border:1px solid rgba(0,180,216,.12);border-radius:8px;transition:border-color .12s,background .12s;}
 #ar2 .ar-pf-snap-pool-row:hover{background:rgba(0,180,216,.06);border-color:rgba(0,180,216,.32);}
+#ar2 .ar-pf-snap-pool-head{display:grid;grid-template-columns:minmax(140px,1.5fr) 80px 100px minmax(140px,1.3fr) 110px 130px;gap:12px;align-items:center;padding:4px 12px 6px;font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;}
+#ar2 .ar-pf-snap-pool-head span:nth-child(3),
+#ar2 .ar-pf-snap-pool-head span:nth-child(5){text-align:right;}
+#ar2 .ar-pf-snap-pool-head span:nth-child(6){text-align:right;}
 #ar2 .ar-pf-snap-pool-name{font-size:12.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 #ar2 .ar-pf-snap-pool-type{font-size:10.5px;color:var(--mu);letter-spacing:.5px;text-transform:uppercase;font-weight:600;}
 #ar2 .ar-pf-snap-pool-gal{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#cfe2eb;text-align:right;}
+/* Devices column — chip cluster (e.g. [2× 2"] [1× 4"]) */
+#ar2 .ar-pf-snap-pool-dev{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}
+#ar2 .ar-pf-snap-dev-chip{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;font-weight:600;letter-spacing:.2px;color:#cfe2eb;background:rgba(0,180,216,.10);border:1px solid rgba(0,180,216,.28);padding:2px 7px;border-radius:99px;font-family:'JetBrains Mono',monospace;line-height:1.45;}
+#ar2 .ar-pf-snap-dev-chip b{color:#fff;font-weight:700;}
+#ar2 .ar-pf-snap-dev-chip span{opacity:.55;font-size:9px;margin:0 1px;}
+/* Media column — photo+video count chip with inline SVG icons */
+#ar2 .ar-pf-snap-pool-media{justify-self:end;}
+#ar2 .ar-pf-snap-media-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#cfe2eb;background:rgba(168,85,247,.10);border:1px solid rgba(168,85,247,.32);padding:3px 9px;border-radius:99px;font-family:'JetBrains Mono',monospace;line-height:1.3;}
+#ar2 .ar-pf-snap-media-chip b{color:#fff;font-weight:700;}
+#ar2 .ar-pf-snap-media-chip svg{color:#c4b5fd;flex-shrink:0;}
+#ar2 .ar-pf-snap-media-sep{opacity:.4;font-size:10px;}
+#ar2 .ar-pf-snap-cell-muted{color:#5b7a8a;font-size:11px;font-weight:500;}
+/* Footer totals row — visually distinct from data rows */
+#ar2 .ar-pf-snap-totals-row{background:rgba(0,180,216,.05);border-style:dashed;border-color:rgba(0,180,216,.25);margin-top:4px;}
+#ar2 .ar-pf-snap-totals-row .ar-pf-snap-pool-name{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7dd3fc;font-weight:700;}
 #ar2 .ar-pf-snap-pool-status{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:5px 10px;border-radius:99px;border:1px solid transparent;justify-self:end;line-height:1;}
 #ar2 .ar-pf-snap-pool-status::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;}
 #ar2 .ar-pf-snap-pool-status.verified{background:rgba(34,197,94,.16);color:#4ade80;border-color:rgba(34,197,94,.5);}
@@ -4012,8 +4039,12 @@ body.pf-engineer-mode #ap2{display:none!important;}
   #ar2 .ar-pf-kpistrip{grid-template-columns:repeat(3,1fr);}
   #ar2 .ar-pf-prop-row{grid-template-columns:32px 1fr 90px 180px;}
   #ar2 .ar-pf-snap-kpis{grid-template-columns:repeat(2,1fr);}
-  #ar2 .ar-pf-snap-pool-row{grid-template-columns:1fr 110px;row-gap:4px;}
-  #ar2 .ar-pf-snap-pool-type,#ar2 .ar-pf-snap-pool-gal{grid-column:1/-1;}
+  #ar2 .ar-pf-snap-pool-head{display:none;}
+  #ar2 .ar-pf-snap-pool-row{grid-template-columns:1fr 110px;row-gap:6px;}
+  #ar2 .ar-pf-snap-pool-type,
+  #ar2 .ar-pf-snap-pool-gal,
+  #ar2 .ar-pf-snap-pool-dev,
+  #ar2 .ar-pf-snap-pool-media{grid-column:1/-1;}
   #ar2 .ar-pf-prop-row .ar-pf-prop-kpi:not(:nth-of-type(1)){display:none;}
   #ar2 .ar-pf-ov-title{font-size:22px;}
 }

@@ -4538,19 +4538,30 @@ function _pfLoadPropertySnapshot(propertyId){
     var prop = arr[0];
     var asgns = arr[1];
     if (!asgns.length){
-      return { prop: prop, asgn: null, verifs: [] };
+      return { prop: prop, asgn: null, verifs: [], media: [] };
     }
     // First assignment (most recent) is the canonical one for the
     // snapshot. If we later support multi-engineer per property the
     // drawer can be extended to show all of them.
     var asgn = asgns[0];
-    return c.from('engineer_verifications')
-      .select('id,pool_index,confirmed_gallons,has_discrepancy,return_lines,updated_at')
-      .eq('assignment_id', asgn.id)
-      .order('pool_index', { ascending: true })
-      .then(function(r){
-        return { prop: prop, asgn: asgn, verifs: r.data || [] };
-      });
+    return Promise.all([
+      c.from('engineer_verifications')
+        .select('id,pool_index,confirmed_gallons,has_discrepancy,return_lines,updated_at')
+        .eq('assignment_id', asgn.id)
+        .order('pool_index', { ascending: true })
+        .then(function(r){ return r.data || []; }, function(){ return []; }),
+      // Pool-level media counts (photo + video). pump_room_id is non-null
+      // for walkthrough/pump-room media — we filter to per-pool only so
+      // the snapshot's per-pool row reflects what the engineer captured
+      // FOR THAT POOL specifically.
+      c.from('engineer_media')
+        .select('id,pool_index,media_type')
+        .eq('assignment_id', asgn.id)
+        .not('pool_index', 'is', null)
+        .then(function(r){ return r.data || []; }, function(){ return []; })
+    ]).then(function(both){
+      return { prop: prop, asgn: asgn, verifs: both[0], media: both[1] };
+    });
   });
 }
 
@@ -4558,10 +4569,22 @@ function _pfRenderSnapshotCard(data, propertyId){
   var prop = data.prop || {};
   var asgn = data.asgn;
   var verifs = data.verifs || [];
+  var media = data.media || [];
   var verifByIdx = {};
   for (var v = 0; v < verifs.length; v++){
     var vp = verifs[v];
     verifByIdx[Number(vp.pool_index)] = vp;
+  }
+  // Tally media per pool_index — { idx: {photo:N, video:M} }. Walkthrough
+  // (pump-room) media was already filtered out at the query (pool_index
+  // IS NOT NULL), so every row here is bound to a specific pool.
+  var mediaByIdx = {};
+  for (var mi = 0; mi < media.length; mi++){
+    var mm = media[mi];
+    var pidx = Number(mm.pool_index);
+    if (!mediaByIdx[pidx]) mediaByIdx[pidx] = { photo: 0, video: 0 };
+    if (mm.media_type === 'photo') mediaByIdx[pidx].photo++;
+    else if (mm.media_type === 'video') mediaByIdx[pidx].video++;
   }
   var sj = prop.state_json || {};
   var bodies = sj.bodies || [];
@@ -4592,17 +4615,75 @@ function _pfRenderSnapshotCard(data, propertyId){
     return '<span class="ar-pf-snap-pool-status unverified" title="Not yet verified by engineer">Pending</span>';
   }
 
+  // Property-wide device totals (used when devicesByPool is FALSE — the
+  // property records one shared device set, not per-pool counts).
+  var devicesByPool = !!sj.devicesByPool;
+  function _deviceChipsFor(source){
+    var chips = [];
+    var total = 0;
+    if (typeof PIPES === 'undefined' || !source) return { html: '<span class="ar-pf-snap-cell-muted">—</span>', total: 0 };
+    for (var pi = 0; pi < PIPES.length; pi++){
+      var spec = PIPES[pi];
+      var cnt = Number(source[spec.k]) || 0;
+      if (cnt > 0){
+        total += cnt;
+        chips.push('<span class="ar-pf-snap-dev-chip"><b>' + cnt + '</b><span>×</span>' + esc(spec.sz) + '</span>');
+      }
+    }
+    if (!chips.length) return { html: '<span class="ar-pf-snap-cell-muted">—</span>', total: 0 };
+    return { html: chips.join(''), total: total };
+  }
+
   var poolRows = bodies.map(function(body, idx){
     var label = body.label || ('Pool ' + (idx + 1));
     var g = (typeof bodyGallons === 'function') ? bodyGallons(body) : (Number(body.gallons) || 0);
     var ptype = body.poolType === 'saltwater' ? 'Saltwater' : 'Chlorine';
+    // Device breakdown — per-pool when devicesByPool is true, otherwise
+    // 'Property-wide' note pointing to the aggregated row at the table
+    // foot (rendered below the per-pool list).
+    var devCellHtml;
+    if (devicesByPool){
+      devCellHtml = _deviceChipsFor(body).html;
+    } else {
+      devCellHtml = '<span class="ar-pf-snap-cell-muted" title="This property records devices at the property level, not per-pool. See the totals row below.">Property-wide</span>';
+    }
+    var mc = mediaByIdx[idx] || { photo: 0, video: 0 };
+    var mediaCellHtml = (mc.photo + mc.video) === 0
+      ? '<span class="ar-pf-snap-cell-muted" title="No media captured for this pool yet">—</span>'
+      : '<span class="ar-pf-snap-media-chip" title="' + mc.photo + ' photo' + (mc.photo===1?'':'s') + ' · ' + mc.video + ' video' + (mc.video===1?'':'s') + '">'
+        + '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><circle cx="12" cy="12.5" r="3"/><path d="M8 6l1.5-2h5L16 6"/></svg>'
+        + '<b>' + mc.photo + '</b>'
+        + '<span class="ar-pf-snap-media-sep">/</span>'
+        + '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>'
+        + '<b>' + mc.video + '</b>'
+      + '</span>';
     return '<div class="ar-pf-snap-pool-row">'
       + '<span class="ar-pf-snap-pool-name">' + esc(label) + '</span>'
       + '<span class="ar-pf-snap-pool-type">' + esc(ptype) + '</span>'
       + '<span class="ar-pf-snap-pool-gal">' + fn(Math.round(g)) + ' gal</span>'
+      + '<span class="ar-pf-snap-pool-dev">' + devCellHtml + '</span>'
+      + '<span class="ar-pf-snap-pool-media">' + mediaCellHtml + '</span>'
       + poolStatusPill(idx)
     + '</div>';
   }).join('');
+
+  // Property-wide device totals row — only when devicesByPool is FALSE
+  // (per-pool device data isn't captured, so we show the property-level
+  // aggregate below the pool list as a single subtle footer row).
+  var propWideDevRow = '';
+  if (bodies.length && !devicesByPool){
+    var pwDev = _deviceChipsFor(sj);
+    if (pwDev.total > 0){
+      propWideDevRow = '<div class="ar-pf-snap-pool-row ar-pf-snap-totals-row">'
+        + '<span class="ar-pf-snap-pool-name">Property-wide devices</span>'
+        + '<span></span>'
+        + '<span></span>'
+        + '<span class="ar-pf-snap-pool-dev">' + pwDev.html + '</span>'
+        + '<span></span>'
+        + '<span class="ar-pf-snap-cell-muted" style="text-align:right;font-size:10.5px">' + pwDev.total + ' total</span>'
+      + '</div>';
+    }
+  }
   if (!poolRows){
     poolRows = '<div class="ar-pf-snap-empty">No pools captured yet for this property.</div>';
   }
@@ -4643,7 +4724,8 @@ function _pfRenderSnapshotCard(data, propertyId){
     + '</div>'
     + '<div>'
       + '<div class="ar-pf-snap-section-title">Pools &amp; Engineer Verification <small>' + esc(verifSubtitle) + '</small></div>'
-      + '<div class="ar-pf-snap-pool-list">' + poolRows + '</div>'
+      + (bodies.length ? '<div class="ar-pf-snap-pool-head"><span>Pool</span><span>Type</span><span>Gallons</span><span>Devices</span><span>Media (P / V)</span><span>Status</span></div>' : '')
+      + '<div class="ar-pf-snap-pool-list">' + poolRows + propWideDevRow + '</div>'
     + '</div>'
   + '</div>';
 }
