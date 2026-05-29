@@ -4506,13 +4506,21 @@ function submitImportCsv(){
      1. portfolio_properties (full row incl. state_json + computed_kpis)
      2. engineer_assignments + engineer_verifications  (per-pool status)
 */
-function togglePfPropertySnapshot(propertyId){
+function togglePfPropertySnapshot(propertyId, anchorEl){
   if (!propertyId) return;
-  var row = document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]');
+  // Two call patterns:
+  //   • Admin portfolio overview — anchor not passed; look up the matching
+  //     .ar-pf-prop-row by data-pf-property.
+  //   • Corp engineer dashboard drawer — explicit .ar-corp-port-prop row
+  //     is passed so the snapshot drawer mounts immediately below the
+  //     row the rep clicked. Without this fallback the snapshot never
+  //     fired from the corp dashboard (the admin row doesn't exist
+  //     there).
+  var row = anchorEl || document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]');
   if (!row) return;
   var drawerId = 'ar-pf-prop-snap-' + propertyId;
   var existing = document.getElementById(drawerId);
-  var trigger = row.querySelector('.ar-pf-prop-snap');
+  var trigger = row.querySelector('.ar-pf-prop-snap, [data-action="corp-prop-snapshot"]');
   if (existing){
     // Toggle closed — drop the .open class, let the CSS transition run,
     // then remove the node so we don't accumulate stale drawers across
@@ -10395,13 +10403,13 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
         +   '</div>'
         +   '<span class="ar-corp-port-prop-status ' + esc(st) + '">' + esc(stLabel) + '</span>'
         +   '<div class="ar-corp-port-prop-acts">'
-        +     '<button class="ar-corp-port-prop-act snap" data-action="corp-prop-snapshot" data-property-id="' + esc(p.id) + '" type="button" title="Property Snapshot — KPI card + engineer verification status">'
+        +     '<button class="ar-corp-port-prop-act snap" data-action="corp-prop-snapshot" data-property-id="' + esc(p.id) + '" type="button" data-pf-tip="Snapshot" data-pf-tip-tone="purple">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
         +     '</button>'
-        +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" title="Preview Assessment + Pool Profile PDF (portrait, cards)">'
+        +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="Preview PDF" data-pf-tip-tone="green">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
         +     '</button>'
-        +     '<button class="ar-corp-port-prop-act eng" data-action="corp-prop-eng-report" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" title="Engineer Report — preview + download PDF">'
+        +     '<button class="ar-corp-port-prop-act eng" data-action="corp-prop-eng-report" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="Engineer Report" data-pf-tip-tone="gold">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>'
         +     '</button>'
         +   '</div>'
@@ -18904,12 +18912,15 @@ function handleClick(e){
     return;
   }
   // Corp Eng — open snapshot drawer for a property listed inside a
-  // portfolio drawer. Reuses the existing snapshot drawer helper.
+  // portfolio drawer. Pass the corp-row as anchor so the snapshot
+  // mounts immediately below the row the rep clicked (the admin-side
+  // .ar-pf-prop-row doesn't exist in this surface).
   var corpPropSnap = e.target.closest('[data-action="corp-prop-snapshot"]');
   if (corpPropSnap){
     var snapPid = corpPropSnap.getAttribute('data-property-id');
+    var snapRow = corpPropSnap.closest('.ar-corp-port-prop');
     if (snapPid && typeof togglePfPropertySnapshot === 'function'){
-      togglePfPropertySnapshot(snapPid);
+      togglePfPropertySnapshot(snapPid, snapRow);
     }
     return;
   }
