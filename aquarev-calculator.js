@@ -10484,7 +10484,7 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
         +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="Preview PDF" data-pf-tip-tone="green">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
         +     '</button>'
-        +     '<button class="ar-corp-port-prop-act eng" data-action="corp-prop-eng-report" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="Engineer Report" data-pf-tip-tone="gold">'
+        +     '<button class="ar-corp-port-prop-act eng" data-action="corp-prop-eng-report" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" data-assignment-id="' + esc((a && a.id) || '') + '" type="button" data-pf-tip="Engineer Report" data-pf-tip-tone="gold">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>'
         +     '</button>'
         +   '</div>'
@@ -19035,19 +19035,50 @@ function handleClick(e){
     return;
   }
   // Corp Eng — open engineer report PDF preview for a property.
+  // Three lookup paths (fastest first):
+  //   1) Assignment id embedded on the button when the drawer rendered.
+  //      The drawer already resolved the assignment per property, so
+  //      this is always the correct + freshest pointer.
+  //   2) AR2_PF cache — works after the admin opens the portfolio.
+  //   3) Fresh DB query — last-resort fallback so the button never
+  //      fails outright if the cache wasn't primed.
   var corpPropEng = e.target.closest('[data-action="corp-prop-eng-report"]');
   if (corpPropEng){
     var engPid = corpPropEng.getAttribute('data-property-id');
     var engPname = corpPropEng.getAttribute('data-property-name') || 'this property';
-    var engAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
-      ? AR2_PF.engineerAssignmentsForProperty(engPid) : [];
-    if (!engAsgns.length){
+    var embeddedAsgnId = corpPropEng.getAttribute('data-assignment-id') || '';
+    function _fireEngReport(asgnId){
+      if (typeof generateEngineerReport === 'function'){
+        generateEngineerReport(asgnId, { previewOnly: true });
+      }
+    }
+    function _noEng(){
       alert('No engineer assignment for "' + engPname + '" yet — no engineer report exists to preview.');
+    }
+    if (embeddedAsgnId){
+      _fireEngReport(embeddedAsgnId);
       return;
     }
-    if (typeof generateEngineerReport === 'function'){
-      generateEngineerReport(engAsgns[0].id, { previewOnly: true });
+    var engAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
+      ? AR2_PF.engineerAssignmentsForProperty(engPid) : [];
+    if (engAsgns.length){
+      _fireEngReport(engAsgns[0].id);
+      return;
     }
+    // Last resort — fetch from DB. RLS lets corp engineers see
+    // assignments for engineers in their affiliated/overlapping pool.
+    var cClient = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+    if (!cClient){ _noEng(); return; }
+    cClient.from('engineer_assignments')
+      .select('id,engineer_user_id,status,submitted_at')
+      .eq('property_id', engPid)
+      .order('submitted_at', { ascending: false, nullsLast: true })
+      .limit(1)
+      .then(function(rs){
+        var rows = (rs && rs.data) || [];
+        if (!rows.length){ _noEng(); return; }
+        _fireEngReport(rows[0].id);
+      }, function(){ _noEng(); });
     return;
   }
   var editLogoClick=e.target.closest('[data-action="admin-edit-logo"]');
