@@ -4540,23 +4540,29 @@ function _pfLoadPropertySnapshot(propertyId){
     if (!asgns.length){
       return { prop: prop, asgn: null, verifs: [], media: [] };
     }
-    // First assignment (most recent) is the canonical one for the
-    // snapshot. If we later support multi-engineer per property the
-    // drawer can be extended to show all of them.
+    // A property can have multiple engineer_assignments over time
+    // (re-assignment, multi-engineer collaboration). Aggregate
+    // verifications + media across ALL of them so the snapshot shows
+    // the engineer's actual on-the-ground work regardless of which
+    // assignment is technically 'most recent'. Picking just one
+    // assignment caused the previous bug where the newest 'pending'
+    // assignment hid the older 'in_progress' assignment's 14 media
+    // rows. The summary status pill keeps showing the most-recent
+    // assignment's status (asgn[0]).
     var asgn = asgns[0];
+    var asgnIds = asgns.map(function(a){ return a.id; });
     return Promise.all([
       c.from('engineer_verifications')
-        .select('id,pool_index,confirmed_gallons,has_discrepancy,return_lines,updated_at')
-        .eq('assignment_id', asgn.id)
+        .select('id,assignment_id,pool_index,confirmed_gallons,has_discrepancy,return_lines,updated_at')
+        .in('assignment_id', asgnIds)
         .order('pool_index', { ascending: true })
         .then(function(r){ return r.data || []; }, function(){ return []; }),
-      // Pool-level media counts (photo + video). pump_room_id is non-null
-      // for walkthrough/pump-room media — we filter to per-pool only so
-      // the snapshot's per-pool row reflects what the engineer captured
-      // FOR THAT POOL specifically.
+      // Pool-level media (photo + video). Walkthrough/pump-room media
+      // has pool_index NULL — exclude so we only count what was captured
+      // FOR THE POOL itself.
       c.from('engineer_media')
-        .select('id,pool_index,media_type')
-        .eq('assignment_id', asgn.id)
+        .select('id,assignment_id,pool_index,media_type')
+        .in('assignment_id', asgnIds)
         .not('pool_index', 'is', null)
         .then(function(r){ return r.data || []; }, function(){ return []; })
     ]).then(function(both){
@@ -4573,7 +4579,13 @@ function _pfRenderSnapshotCard(data, propertyId){
   var verifByIdx = {};
   for (var v = 0; v < verifs.length; v++){
     var vp = verifs[v];
-    verifByIdx[Number(vp.pool_index)] = vp;
+    var k = Number(vp.pool_index);
+    // Multiple assignments can have a verification row for the same
+    // pool_index — keep the most-recently-updated one.
+    var prev = verifByIdx[k];
+    if (!prev || (vp.updated_at && (!prev.updated_at || vp.updated_at > prev.updated_at))){
+      verifByIdx[k] = vp;
+    }
   }
   // Tally media per pool_index — { idx: {photo:N, video:M} }. Walkthrough
   // (pump-room) media was already filtered out at the query (pool_index
