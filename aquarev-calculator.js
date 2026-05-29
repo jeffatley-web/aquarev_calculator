@@ -8579,7 +8579,7 @@ function populateAdminDashboard(){
               // self-delete as a defense-in-depth).
               + (u.user_id === AR2_CLOUD.user().id
                 ? ''
-                : '<button class="ar-admin-row-act danger" data-action="admin-delete-user" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-utotal="'+(u.records_total||0)+'" title="Permanently delete user">Delete</button>')
+                : '<button class="ar-admin-row-act danger ar-admin-row-act-x" data-action="admin-delete-user" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-utotal="'+(u.records_total||0)+'" title="Permanently delete user" aria-label="Delete user">&times;</button>')
             + '</td>'
           + '</tr>';
         }).join('')

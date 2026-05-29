@@ -2431,6 +2431,17 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-admin-row-act.danger:hover{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.4);}
 #ar2 .ar-admin-row-act.enable{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.28);color:var(--gr);}
 #ar2 .ar-admin-row-act.enable:hover{background:rgba(34,197,94,.18);}
+/* Icon-only × variant — applied to Delete to save horizontal space in
+   the User Activity actions cluster. Square shape, larger glyph, same
+   red tone as .danger. Stays accessible via aria-label + title. */
+#ar2 .ar-admin-row-act.ar-admin-row-act-x{
+  width:24px;height:24px;
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:0;
+  font-size:16px;font-weight:600;line-height:1;
+  letter-spacing:0;
+}
+#ar2 .ar-admin-row-act.ar-admin-row-act-x:hover{transform:scale(1.05);}
 #ar2 .ar-admin-chart{background:rgba(0,0,0,.16);border:1px solid rgba(0,180,216,.14);border-radius:10px;padding:12px 14px;}
 #ar2 .ar-admin-chart-title{font-size:11px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;margin-bottom:6px;}
 #ar2 .ar-admin-chart svg{width:100%;height:auto;display:block;}
