@@ -2031,13 +2031,23 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 /* Corp Engineer — distinct teal-violet hybrid so it reads as "oversight"
    (cooler than the green operations colour, warmer than the cyan user). */
 #ar2 .ar-admin-role.role-corp-engineer{background:rgba(125,211,252,.14);color:#7dd3fc;border:1px solid rgba(125,211,252,.45);}
+/* Calc Access toggle pill on corp_engineer User Activity rows. Green
+   when granted, dashed-grey when off. Click flips state via RPC + the
+   row re-renders. */
+#ar2 .ar-corp-calc-badge.on{background:rgba(34,197,94,.16)!important;border-color:rgba(34,197,94,.55)!important;color:#4ade80!important;}
+#ar2 .ar-corp-calc-badge.on:hover{background:rgba(34,197,94,.28)!important;border-color:rgba(34,197,94,.75)!important;color:#fff!important;}
+#ar2 .ar-corp-calc-badge.off{background:transparent!important;border:1px dashed rgba(125,184,204,.4)!important;color:#7db8cc!important;}
+#ar2 .ar-corp-calc-badge.off:hover{background:rgba(0,180,216,.12)!important;border-color:rgba(0,180,216,.5)!important;border-style:solid!important;color:#fff!important;}
 
 /* ── Corp Engineer Dashboard ────────────────────────────────────────
    Polished oversight surface mounted at #ar2-bank when role=corp_engineer.
    Hero band, KPI strip, two-column body (engineers + portfolios).
-   Tries to match the visual weight of the Portfolio Overview so reps
-   moving between tabs feel continuity. */
-#ar2 .ar-corp-shell{padding:18px 22px 28px;color:#cfe2eb;}
+   Width matches .ar-layout (max-width 1320px + 20px gutter) so the
+   dashboard sits in the same horizontal slot as the form columns + the
+   sub-bar card. Without this the shell sprawled to the full viewport
+   in the web build (mobile/PWA was fine because there's no extra
+   chrome around it). */
+#ar2 .ar-corp-shell{max-width:1320px;margin:0 auto;padding:18px 20px 28px;color:#cfe2eb;box-sizing:border-box;}
 #ar2 .ar-corp-hero{margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid rgba(125,211,252,.22);}
 #ar2 .ar-corp-eyebrow{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:3.5px;color:#7dd3fc;text-transform:uppercase;margin-bottom:6px;}
 #ar2 .ar-corp-title{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:#fff;line-height:1.1;margin-bottom:6px;}
@@ -4141,6 +4151,11 @@ body.pf-property-mode #ar2 #ar2-bar-actions{display:none!important;}
    Help tutorial icon, stepper) since engineers only use the field
    verification portal. The user chip + notification bell remain visible
    via id-specific exceptions so engineers can still sign out. */
+/* Corp engineers without calculator access — hide the New button
+   (launches the calc) so the only navigation option is their dashboard
+   (still reachable via the Archive nav button which routes corp_engineer
+   to renderCorpEngineerDashboard). */
+body.pf-corp-eng-no-calc #ar2 #ar2-bar-actions [data-action="reset-app"]{display:none!important;}
 body.pf-engineer-mode #ar2 #ar2-bank-nav,
 body.pf-engineer-mode #ar2 #ar2-bar-actions [data-action="reset-app"],
 body.pf-engineer-mode #ar2 #ar2-help-btn,

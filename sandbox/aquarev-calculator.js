@@ -657,12 +657,22 @@ var Cloud = (function(){
           if(user && b.app) user.appRole = b.app.role;
           try { localStorage.setItem(ENABLED_KEY, '1'); } catch(_){}
           installStorageAdapter();
-          // Increment login count on every successful gate-login (counts as a "session load")
-          // Use .then(noop,noop) instead of .catch — Supabase's PostgrestBuilder
-          // is thenable but doesn't expose .catch directly; calling .catch on
-          // it throws "is not a function". This pattern guarantees the chain
-          // resolves regardless of RPC success/failure.
+          // Increment login count on every successful gate-login.
           try { c.rpc('track_login').then(function(){}, function(){}); } catch(_){}
+          // Corp engineers need their calc-access flag for nav gating.
+          // Edge function doesn't return it (no migration risk to redeploy),
+          // so fetch it client-side. RLS allows self-select.
+          if (user && user.role === 'corp_engineer'){
+            return c.from('app_users').select('corp_eng_calc_access').eq('id', user.id).maybeSingle().then(function(rsX){
+              user.corpEngCalcAccess = !!(rsX && rsX.data && rsX.data.corp_eng_calc_access);
+              return user;
+            }, function(){
+              user.corpEngCalcAccess = false;
+              return user;
+            });
+          }
+          // Non-corp roles always have calc access.
+          if (user) user.corpEngCalcAccess = true;
           return user;
         });
     });
@@ -677,7 +687,7 @@ var Cloud = (function(){
       // Look up app_user row to get role/name (RLS allows self-read).
       // logo_data is fetched too so Client branding (header text + PDF logo)
       // applies on the very first render after a restored session.
-      return c.from('app_users').select('id,email,name,role,active,logo_data').eq('id', sess.user.id).maybeSingle().then(function(rs){
+      return c.from('app_users').select('id,email,name,role,active,logo_data,corp_eng_calc_access').eq('id', sess.user.id).maybeSingle().then(function(rs){
         if(rs.error || !rs.data) return null;
         if(!rs.data.active) { c.auth.signOut(); return null; }
         user = {
@@ -686,7 +696,12 @@ var Cloud = (function(){
           email: rs.data.email,
           role: rs.data.role,
           // Only Clients have logos. Other roles get null for consistency.
-          logo_data: rs.data.role === 'client' ? (rs.data.logo_data || null) : null
+          logo_data: rs.data.role === 'client' ? (rs.data.logo_data || null) : null,
+          // Corp Engineers default to NO calculator access. Flag drives the
+          // top-bar nav (New button hidden when false) + gate inside
+          // showView so 'form' / 'export' / etc. routes redirect to the
+          // dashboard. Admin flips this via User Activity row.
+          corpEngCalcAccess: !!rs.data.corp_eng_calc_access
         };
         installStorageAdapter();
         // NOTE: track_login is intentionally NOT called here. Cloud mode
@@ -1136,7 +1151,7 @@ var Cloud = (function(){
     // For non-engineer roles, phone is ignored server-side. Email is
     // optional; when omitted the row gets an aqr-…@aquarev.local
     // placeholder (matches legacy behavior).
-    adminCreateUser: function(name, code, role, logoDataUrl, phone, email){
+    adminCreateUser: function(name, code, role, logoDataUrl, phone, email, corpEngCalcAccess){
       var c = getClient();
       if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
       return c.rpc('admin_create_user', {
@@ -1145,10 +1160,21 @@ var Cloud = (function(){
         p_role: role,
         p_logo_data: logoDataUrl || null,
         p_phone: phone || null,
-        p_email: email || null
+        p_email: email || null,
+        // Corp engineer accounts default to NO calculator access. The
+        // backend ignores this param for non-corp roles (always grants
+        // calc access there).
+        p_corp_eng_calc_access: !!corpEngCalcAccess
       }).then(function(r){
         if(r.error) throw r.error;
         return r.data;
+      });
+    },
+    adminSetCorpEngineerCalcAccess: function(uid, access){
+      var c = getClient();
+      if(!c || !user || user.role !== 'admin') return Promise.reject(new Error('not_admin'));
+      return c.rpc('admin_set_corp_engineer_calc_access', { p_user_id: uid, p_access: !!access }).then(function(r){
+        if(r.error) throw r.error;
       });
     },
     // Admin-only email update. Pass null/'' to clear (reverts to a
@@ -6852,6 +6878,13 @@ function seedFirstPropertyFromMapPools(newPortfolio){
     if (enabled && AR2_PF.loadPortfolios){
       try { AR2_PF.loadPortfolios(); } catch(_){}
     }
+    // Corp engineers without calculator access — hide the 'New' button
+    // (which opens a fresh calculator session) and any other calc-only
+    // chrome. The dashboard becomes the entire surface. Granted corp
+    // engineers see normal chrome + their dashboard via the Archive nav.
+    var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
+    var corpNoCalc = !!(u && u.role === 'corp_engineer' && !u.corpEngCalcAccess);
+    document.body.classList.toggle('pf-corp-eng-no-calc', corpNoCalc);
   }
   // Poll for cloud-ready every 500ms (up to ~2 min cap). The moment the
   // user finishes gateLogin, AR2_CLOUD.isReady() flips true; we then call
@@ -7631,6 +7664,19 @@ function showAdminAddUserModal(){
       +'<input id="ar2-au-logo" type="file" accept="image/png,image/jpeg,image/svg+xml" />'
       +'<div id="ar2-au-logo-preview" style="display:none;margin-top:8px;padding:8px;background:rgba(0,180,216,.05);border:1px dashed rgba(0,180,216,.25);border-radius:6px;text-align:center"></div>'
     +'</div>'
+    // Corp Engineer calculator-access toggle. Default OFF — the corp
+    // engineer sees only their oversight dashboard. Flip ON to also give
+    // them the regular calculator chrome (form + archive). Hidden for
+    // every other role.
+    +'<div id="ar2-au-corp-calc-row" style="margin-bottom:14px;display:none">'
+      +'<label style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.32);border-radius:8px;cursor:pointer">'
+        +'<input id="ar2-au-corp-calc" type="checkbox" style="width:16px;height:16px;flex-shrink:0;accent-color:#48cae4" />'
+        +'<span style="font-size:12px;color:#cfe2eb;line-height:1.4">'
+          +'<b style="color:#c4b5fd">Grant calculator access</b>'
+          +'<br><span style="font-size:11px;color:#7db8cc">Off by default. Corp Engineers see only their oversight dashboard unless this is on.</span>'
+        +'</span>'
+      +'</label>'
+    +'</div>'
     +'<div id="ar2-au-err" style="font-size:11.5px;color:#fca5a5;min-height:14px;margin-bottom:10px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
       +'<button id="ar2-au-cancel" class="ar2-mb">Cancel</button>'
@@ -7674,6 +7720,9 @@ function showAdminAddUserModal(){
         : 'Engineer signs in with this code. The phone number below is for contact reference only.';
     }
     codeLabel.textContent = 'Access Code (4 chars)';
+    // Calc access toggle — only relevant for corp_engineer.
+    var corpCalcRow = document.getElementById('ar2-au-corp-calc-row');
+    if (corpCalcRow) corpCalcRow.style.display = (r === 'corp_engineer') ? '' : 'none';
   }
   roleSel.addEventListener('change', syncRoleFields);
   syncRoleFields();
@@ -7741,7 +7790,9 @@ function showAdminAddUserModal(){
     var go=document.getElementById('ar2-au-go');
     go.disabled=true; go.textContent='Creating…';
     var logoArg = (role === 'client' && pendingLogoDataUrl) ? pendingLogoDataUrl : null;
-    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone, email).then(function(newUserId){
+    var corpCalcChk = document.getElementById('ar2-au-corp-calc');
+    var corpCalcVal = !!(corpCalcChk && corpCalcChk.checked);
+    AR2_CLOUD.adminCreateUser(name, code, role, logoArg, phone, email, corpCalcVal).then(function(newUserId){
       close();
       // Force the dashboard to refresh stats
       var dashEl=document.getElementById('ar-admin-dash');
@@ -8490,6 +8541,10 @@ function populateAdminDashboard(){
               + (u.role === 'corp_engineer'
                 ? '<button class="ar-admin-row-act" data-action="admin-corp-eng-affiliations" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Manage which engineers this Corp Engineer oversees">Affiliations</button>'
                   + '<button class="ar-admin-row-act" data-action="admin-corp-eng-portfolios" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" title="Assign / unassign portfolios this Corp Engineer oversees">Portfolios</button>'
+                  // Calc Access badge — colour-coded on/off pill that toggles via RPC.
+                  // Green = granted (sees the calculator chrome). Outline-grey = off
+                  // (dashboard-only). Click flips the state.
+                  + '<button class="ar-admin-row-act ar-corp-calc-badge ' + (u.corp_eng_calc_access ? 'on' : 'off') + '" data-action="admin-corp-eng-toggle-calc" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-ucurrent="'+(u.corp_eng_calc_access?'1':'0')+'" title="' + (u.corp_eng_calc_access ? 'Calculator access GRANTED — click to revoke' : 'Calculator access OFF — click to grant') + '">Calc: ' + (u.corp_eng_calc_access ? 'On' : 'Off') + '</button>'
                 : '')
               + '<button class="ar-admin-row-act'+(u.active?' danger':' enable')+'" data-action="admin-toggle-active" data-uid="'+u.user_id+'" data-uname="'+esc(u.name)+'" data-uactive="'+u.active+'" title="'+toggleLabel+' user">'+toggleLabel+'</button>'
               // Delete button — admin-only hard delete. Hidden on the
@@ -10295,22 +10350,87 @@ function showCorpEngineerEngineerDrillModal(engineerId, engineerName){
         listEl.innerHTML = '<div style="font-size:12.5px;color:var(--mu);padding:18px 14px;background:rgba(0,180,216,.05);border:1px dashed rgba(0,180,216,.22);border-radius:8px;text-align:center">This engineer has no assignments yet.</div>';
         return;
       }
-      listEl.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + rows.map(function(a){
-        var st = (a.status || 'pending').toLowerCase();
-        var scope = a.portfolio_id ? 'Portfolio' : (a.property_id ? 'Property' : 'Assessment');
-        var when = a.submitted_at ? ('Submitted ' + new Date(a.submitted_at).toLocaleDateString())
-                 : a.assigned_at  ? ('Assigned '  + new Date(a.assigned_at).toLocaleDateString())
-                 : '';
-        return ''
-          + '<div data-action="corp-drill-row" data-assignment-id="' + esc(a.id) + '" style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.16);border-radius:9px;cursor:pointer;transition:background .15s,border-color .15s">'
-          +   '<div style="min-width:0;flex:1">'
-          +     '<div style="font-size:12px;color:#7db8cc;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px">' + esc(scope) + '</div>'
-          +     '<div style="font-size:13px;font-weight:600;color:#cfe2eb">' + esc(when) + '</div>'
-          +     (a.assignment_notes ? '<div style="font-size:11px;color:var(--mu);margin-top:4px">' + esc(a.assignment_notes) + '</div>' : '')
-          +   '</div>'
-          +   '<span class="ar-admin-review-status ' + esc(st) + '" style="flex-shrink:0">' + esc(st.replace(/_/g,' ')) + '</span>'
-          + '</div>';
-      }).join('') + '</div>';
+      // Resolve property + portfolio names in parallel so the drill list
+      // can show 'Hard Rock Cancun · PAM Hotels' instead of just 'Property'.
+      var propIds = []; var pfIds = []; var asIds = [];
+      rows.forEach(function(a){
+        if (a.property_id)    propIds.push(a.property_id);
+        if (a.portfolio_id)   pfIds.push(a.portfolio_id);
+        if (a.assessment_id)  asIds.push(a.assessment_id);
+      });
+      function _uniq(arr){ var s={}; arr.forEach(function(x){ if(x) s[x]=1; }); return Object.keys(s); }
+      Promise.all([
+        propIds.length ? c.from('portfolio_properties').select('id,property_name,portfolio_id').in('id', _uniq(propIds)).then(function(rs){ return rs.data || []; }, function(){ return []; }) : Promise.resolve([]),
+        pfIds.length   ? c.from('portfolios').select('id,name').in('id', _uniq(pfIds.concat(propIds))).then(function(rs){ return rs.data || []; }, function(){ return []; }) : Promise.resolve([]),
+        asIds.length   ? c.from('assessments').select('id,property_name').in('id', _uniq(asIds)).then(function(rs){ return rs.data || []; }, function(){ return []; }) : Promise.resolve([])
+      ]).then(function(arr){
+        var propById = {}; (arr[0]||[]).forEach(function(p){ propById[p.id] = p; });
+        var pfById   = {}; (arr[1]||[]).forEach(function(p){ pfById[p.id]   = p; });
+        var asById   = {}; (arr[2]||[]).forEach(function(p){ asById[p.id]   = p; });
+        // Backfill: a property row carries its portfolio_id — pull that
+        // portfolio's name into pfById too so the property pill can show
+        // 'Property · in Portfolio Name'.
+        Object.keys(propById).forEach(function(k){
+          var pp = propById[k];
+          if (pp.portfolio_id && !pfById[pp.portfolio_id]){
+            // Fall back — if pf wasn't in our initial fetch (because no
+            // assignment was portfolio-scoped) we won't have its name.
+            // That's fine; the row just won't show the portfolio suffix.
+          }
+        });
+        // Need a separate fetch for any portfolio_ids only referenced
+        // via property_id linkage that weren't in pfIds.
+        var extraPfIds = [];
+        Object.keys(propById).forEach(function(k){
+          var pp = propById[k];
+          if (pp.portfolio_id && !pfById[pp.portfolio_id]) extraPfIds.push(pp.portfolio_id);
+        });
+        var pfBackfill = extraPfIds.length
+          ? c.from('portfolios').select('id,name').in('id', _uniq(extraPfIds)).then(function(rs){
+              (rs.data || []).forEach(function(p){ pfById[p.id] = p; });
+            }, function(){})
+          : Promise.resolve();
+        return pfBackfill.then(function(){ return { propById:propById, pfById:pfById, asById:asById }; });
+      }).then(function(maps){
+        var html = '<div style="display:flex;flex-direction:column;gap:8px">' + rows.map(function(a){
+          var st = (a.status || 'pending').toLowerCase();
+          var scope, name, sub;
+          if (a.property_id){
+            var pp = maps.propById[a.property_id];
+            scope = 'Property';
+            name = (pp && pp.property_name) || '(property removed)';
+            var pfx = pp && pp.portfolio_id ? maps.pfById[pp.portfolio_id] : null;
+            sub = pfx ? ('in ' + (pfx.name || 'Portfolio')) : '';
+          } else if (a.portfolio_id){
+            var pfo = maps.pfById[a.portfolio_id];
+            scope = 'Portfolio';
+            name = (pfo && pfo.name) || '(portfolio removed)';
+            sub = 'entire portfolio';
+          } else if (a.assessment_id){
+            var asx = maps.asById[a.assessment_id];
+            scope = 'Assessment';
+            name = (asx && asx.property_name) || '(assessment removed)';
+            sub = '';
+          } else {
+            scope = 'Assignment'; name = '(no target)'; sub = '';
+          }
+          var when = a.submitted_at ? ('Submitted ' + new Date(a.submitted_at).toLocaleDateString())
+                   : a.assigned_at  ? ('Assigned '  + new Date(a.assigned_at).toLocaleDateString())
+                   : '';
+          return ''
+            + '<div data-action="corp-drill-row" data-assignment-id="' + esc(a.id) + '" style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:rgba(13,45,74,.45);border:1px solid rgba(0,180,216,.2);border-radius:9px;cursor:pointer;transition:background .15s,border-color .15s,transform .08s">'
+            +   '<div style="min-width:0;flex:1">'
+            +     '<div style="font-size:9.5px;color:#7dd3fc;letter-spacing:1.4px;text-transform:uppercase;margin-bottom:4px;font-weight:700">' + esc(scope) + (sub ? ' <span style="color:#7db8cc;font-weight:500">· ' + esc(sub) + '</span>' : '') + '</div>'
+            +     '<div style="font-size:14px;font-weight:700;color:#fff;line-height:1.2;margin-bottom:4px">' + esc(name) + '</div>'
+            +     (when ? '<div style="font-size:11px;color:#a3d4e8;font-family:\'JetBrains Mono\',monospace">' + esc(when) + '</div>' : '')
+            +     (a.assignment_notes ? '<div style="font-size:11px;color:var(--mu);margin-top:4px;line-height:1.4">' + esc(a.assignment_notes) + '</div>' : '')
+            +   '</div>'
+            +   '<span class="ar-admin-review-status ' + esc(st) + '" style="flex-shrink:0">' + esc(st.replace(/_/g,' ')) + '</span>'
+            + '</div>';
+        }).join('') + '</div>'
+        + '<div style="font-size:10.5px;color:#7db8cc;letter-spacing:.3px;text-align:center;padding:10px 0 2px">Tap any assignment to open the engineer\'s submission review portal.</div>';
+        listEl.innerHTML = html;
+      });
       // Hover affordance + click → open review modal.
       listEl.addEventListener('click', function(ev){
         var row = ev.target.closest('[data-action="corp-drill-row"]');
@@ -10378,8 +10498,12 @@ function renderCorpEngineerDashboard(mountEl){
       .order('assigned_at', { ascending: false })
       .then(function(r){ return r.data || []; }, function(){ return []; }),
     // Portfolios visible to this corp engineer (RLS limits to their
-    // direct portfolio assignments).
-    c.from('portfolios').select('id,name,status,total_pools,total_devices,total_inv,total_mo,updated_at').then(function(r){ return r.data || []; }, function(){ return []; })
+    // direct portfolio assignments). Real columns only — total_pools /
+    // total_devices / total_inv / total_mo / updated_at don't exist on
+    // the portfolios table (they live on the portfolio_rollup() RPC's
+    // output). Asking for them 400s the SELECT and the card stays
+    // empty. Aggregates can be added later via per-portfolio rollup.
+    c.from('portfolios').select('id,name,status,last_modified_at').then(function(r){ return r.data || []; }, function(){ return []; })
   ]).then(function(arr){
     var affs = arr[0] || [];
     var asgns = arr[1] || [];
@@ -10454,13 +10578,14 @@ function renderCorpEngineerDashboard(mountEl){
     } else {
       portsCol = '<div class="ar-corp-col"><div class="ar-corp-col-title">My Portfolio Assignments <small>' + ports.length + ' total</small></div>';
       portsCol += ports.map(function(p){
+        var modAt = p.last_modified_at
+          ? 'Updated ' + new Date(p.last_modified_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+          : '';
         return ''
           + '<div class="ar-corp-port-card" data-action="corp-portfolio-open" data-portfolio-id="' + esc(p.id) + '">'
           +   '<div class="ar-corp-port-name">' + esc(p.name || 'Portfolio') + '</div>'
           +   '<div class="ar-corp-port-stats">'
-          +     '<span><b>' + (p.total_pools || 0) + '</b> pools</span>'
-          +     '<span><b>' + (p.total_devices || 0) + '</b> devices</span>'
-          +     '<span><b>' + (typeof fc === 'function' ? fc(p.total_inv || 0, 0) : (p.total_inv || 0)) + '</b> inv</span>'
+          +     (modAt ? '<span>' + esc(modAt) + '</span>' : '')
           +     '<span class="ar-corp-port-status status-' + esc(p.status || 'draft') + '">' + esc(p.status || 'draft') + '</span>'
           +   '</div>'
           + '</div>';
@@ -18561,6 +18686,28 @@ function handleClick(e){
   var corpPfClick=e.target.closest('[data-action="admin-corp-eng-portfolios"]');
   if(corpPfClick){
     showCorpEngineerPortfoliosModal(corpPfClick.dataset.uid, corpPfClick.dataset.uname);
+    return;
+  }
+  var corpCalcToggle=e.target.closest('[data-action="admin-corp-eng-toggle-calc"]');
+  if(corpCalcToggle){
+    var ccUid = corpCalcToggle.dataset.uid;
+    var ccName = corpCalcToggle.dataset.uname || 'this Corp Engineer';
+    var ccCurrent = corpCalcToggle.dataset.ucurrent === '1';
+    var ccNext = !ccCurrent;
+    var verb = ccNext ? 'Grant' : 'Revoke';
+    if (!confirm(verb + ' calculator access for ' + ccName + '?\n\n' + (ccNext
+      ? 'They\'ll see the regular calculator chrome AND their oversight dashboard.'
+      : 'They\'ll see only their oversight dashboard.'))) return;
+    corpCalcToggle.disabled = true;
+    AR2_CLOUD.adminSetCorpEngineerCalcAccess(ccUid, ccNext).then(function(){
+      // Force a User Activity refresh so the badge re-renders with the new state.
+      var dashEl = document.getElementById('ar-admin-dash');
+      if (dashEl) dashEl.dataset.loaded = '';
+      populateAdminDashboard();
+    }, function(err){
+      corpCalcToggle.disabled = false;
+      alert(verb + ' failed: ' + ((err && err.message) || err));
+    });
     return;
   }
   // Corp Engineer Dashboard — engineer-card click drills into that
