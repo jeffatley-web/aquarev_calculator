@@ -281,7 +281,7 @@ function showCalcPasswordModal(onUnlock){
     : 'Enter the passcode to access the calculator.';
   m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:36px 32px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;">'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:30px;letter-spacing:5px;color:#fff;margin-bottom:4px">AQUAREV WATER</div>'
-    +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">ROI Calculator'+(cloudMode?' · Cloud':'')+'</div>'
+    +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">Assessment Portal</div>'
     +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">'+subtitle+'</div>'
     // 4-char access code: maxlength=4 + tracking-widened input keeps the
     // tight pin-style feel even though we accept alphanumerics now (HDC1).
@@ -10617,7 +10617,7 @@ function renderEngineerPortalShell(mountEl){
     var subEl = document.querySelector('#ar2 .ar-bs');
     if (subEl){
       if (subEl.dataset.origText == null) subEl.dataset.origText = subEl.textContent;
-      subEl.textContent = 'Engineering Review';
+      subEl.textContent = 'Engineering';
     }
   } else {
     document.body.classList.remove('pf-engineer-mode');
