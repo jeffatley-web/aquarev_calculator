@@ -10367,39 +10367,91 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
     drawer.innerHTML = '<div class="ar-corp-port-drawer-head">Cloud unavailable.</div>';
     return;
   }
-  // Pull properties + engineer assignments in parallel. Engineer status
-  // tells us the verification state per property.
-  Promise.all([
-    c.from('portfolio_properties').select('id,property_name,country,formatted_address,computed_kpis').eq('portfolio_id', portfolioId).order('order_index', { ascending: true }).then(function(r){ return r.data || []; }, function(){ return []; }),
-    c.from('engineer_assignments').select('id,property_id,status,submitted_at,reviewed_at').eq('portfolio_id', portfolioId).then(function(r){ return r.data || []; }, function(){ return []; })
-  ]).then(function(arr){
-    if (!document.getElementById(drawerId)) return; // closed mid-fetch
-    var props = arr[0] || [];
-    var asgns = arr[1] || [];
-    // Newest-first assignment per property → status pill source.
-    var asgnByProp = {};
-    asgns.forEach(function(a){
-      if (!a.property_id) return;
-      var prev = asgnByProp[a.property_id];
-      if (!prev) { asgnByProp[a.property_id] = a; return; }
-      var prevWhen = prev.submitted_at || prev.reviewed_at || '';
-      var thisWhen = a.submitted_at || a.reviewed_at || '';
-      if (thisWhen > prevWhen) asgnByProp[a.property_id] = a;
-    });
+  // First pull properties so we know which property_ids to query for
+  // property-scoped engineer_assignments (Stanly Ranch et al. carry
+  // their engineer at the PROPERTY scope, not portfolio scope — the
+  // old portfolio_id-only filter missed those entirely → 'no engineer'
+  // pill leaked through).
+  c.from('portfolio_properties').select('id,property_name,country,formatted_address,computed_kpis').eq('portfolio_id', portfolioId).order('order_index', { ascending: true }).then(function(rs){
+    return rs.data || [];
+  }, function(){ return []; }).then(function(props){
     if (!props.length){
+      if (!document.getElementById(drawerId)) return;
       drawer.innerHTML = '<div class="ar-corp-port-drawer-head">No properties in this portfolio yet.</div>';
       return;
     }
-    var rows = props.map(function(p){
-      var a = asgnByProp[p.id];
-      var st = a ? (a.status || 'pending').toLowerCase() : 'none';
-      var stLabel = a ? st.replace(/_/g,' ') : 'no engineer';
-      var sub = p.formatted_address || p.country || '';
-      return ''
+    var propIds = props.map(function(p){ return p.id; });
+    // Pull BOTH portfolio-scope AND property-scope assignments + engineer
+    // names in parallel. The OR filter ('portfolio_id.eq.X,property_id.in.(...)')
+    // catches assignments at either scope so the status pill always finds
+    // an engineer when one exists.
+    return Promise.all([
+      c.from('engineer_assignments')
+        .select('id,engineer_user_id,property_id,portfolio_id,status,submitted_at,reviewed_at')
+        .or('portfolio_id.eq.' + portfolioId + ',property_id.in.(' + propIds.map(function(x){ return '"' + x + '"'; }).join(',') + ')')
+        .then(function(r){ return r.data || []; }, function(){ return []; }),
+      // Engineer name map — use the already-cached pfState.activeEngineers
+      // when available (admin/corp eng dashboards have it primed). Otherwise
+      // fetch fresh from app_users (RLS lets corp engineers see affiliated
+      // + portfolio-shared engineers via the corp_engineer policies).
+      (function(){
+        var cached = (window.AR2_PF && AR2_PF._state && AR2_PF._state.activeEngineers) || null;
+        if (cached && cached.length) return Promise.resolve(cached);
+        return c.from('app_users').select('id,name,role').in('role',['engineer','corp_engineer']).eq('active', true)
+          .then(function(r){ return r.data || []; }, function(){ return []; });
+      })()
+    ]).then(function(arr){
+      if (!document.getElementById(drawerId)) return;
+      var asgns = arr[0] || [];
+      var engs  = arr[1] || [];
+      var engNameById = {};
+      engs.forEach(function(e){ engNameById[e.id] = e.name; });
+      // Per-property assignment: prefer property-scope, fall back to
+      // portfolio-scope (which applies to every property in it). Newest
+      // wins when multiple exist.
+      var asgnByProp = {};
+      asgns.forEach(function(a){
+        if (a.property_id){
+          var prev = asgnByProp[a.property_id];
+          var prevWhen = (prev && (prev.submitted_at || prev.reviewed_at)) || '';
+          var thisWhen = a.submitted_at || a.reviewed_at || '';
+          if (!prev || thisWhen > prevWhen) asgnByProp[a.property_id] = a;
+        }
+      });
+      var portfolioScopeAsgn = null;
+      asgns.forEach(function(a){
+        if (a.portfolio_id && !a.property_id){
+          portfolioScopeAsgn = a; // last one wins (rare to have multiple)
+        }
+      });
+      // Apply portfolio-scope to any property without its own assignment.
+      if (portfolioScopeAsgn){
+        props.forEach(function(p){
+          if (!asgnByProp[p.id]) asgnByProp[p.id] = portfolioScopeAsgn;
+        });
+      }
+      var rows = props.map(function(p){
+        var a = asgnByProp[p.id];
+        var st = a ? (a.status || 'pending').toLowerCase() : 'none';
+        var stLabel = a ? st.replace(/_/g,' ') : 'no engineer';
+        var engName = (a && a.engineer_user_id && engNameById[a.engineer_user_id]) || (a ? 'Engineer' : '');
+        var sub = p.formatted_address || p.country || '';
+        // Build name cell: property name + engineer-name pill on a line
+        // below the address. Engineer pill uses green hardhat-style chip
+        // matching the other engineer surfaces.
+        var engChip = '';
+        if (a){
+          engChip = '<div class="ar-corp-port-prop-eng">'
+            + '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true" style="margin-right:5px;vertical-align:-1px"><path d="M5 15 Q5 6 12 6 Q19 6 19 15 Z"/><rect x="2.5" y="15" width="19" height="2.6" rx="1.3"/><rect x="11" y="6.5" width="2" height="9.5" rx="0.7"/></svg>'
+            + esc(engName)
+          + '</div>';
+        }
+        return ''
         + '<div class="ar-corp-port-prop">'
         +   '<div style="min-width:0">'
         +     '<div class="ar-corp-port-prop-name">' + esc(p.property_name || 'Property') + '</div>'
         +     (sub ? '<div class="ar-corp-port-prop-sub">' + esc(sub) + '</div>' : '')
+        +     engChip
         +   '</div>'
         +   '<span class="ar-corp-port-prop-status ' + esc(st) + '">' + esc(stLabel) + '</span>'
         +   '<div class="ar-corp-port-prop-acts">'
@@ -10415,12 +10467,13 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
         +   '</div>'
         + '</div>';
     }).join('');
-    drawer.innerHTML = '<div class="ar-corp-port-drawer-head">' + esc(portfolioName) + ' · ' + props.length + ' propert' + (props.length===1?'y':'ies') + '</div>' + rows;
-    // Prime the engineer-assignment cache so the property eng report
-    // badge can look up engineer assignments without a refetch.
-    if (window.AR2_PF && AR2_PF.loadAssignmentsForPortfolio){
-      try { AR2_PF.loadAssignmentsForPortfolio(portfolioId); } catch(_){}
-    }
+      drawer.innerHTML = '<div class="ar-corp-port-drawer-head">' + esc(portfolioName) + ' · ' + props.length + ' propert' + (props.length===1?'y':'ies') + '</div>' + rows;
+      // Prime the engineer-assignment cache so the property eng report
+      // badge can look up engineer assignments without a refetch.
+      if (window.AR2_PF && AR2_PF.loadAssignmentsForPortfolio){
+        try { AR2_PF.loadAssignmentsForPortfolio(portfolioId); } catch(_){}
+      }
+    });  // close inner Promise.all().then(arr)
   }, function(err){
     if (!document.getElementById(drawerId)) return;
     drawer.innerHTML = '<div class="ar-corp-port-drawer-head" style="color:#fca5a5">Could not load: ' + esc((err && err.message) || String(err)) + '</div>';
