@@ -2067,9 +2067,12 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-corp-col-title small{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:.3px;text-transform:none;color:var(--mu);font-weight:500;}
 #ar2 .ar-corp-empty{font-size:12.5px;color:var(--mu);padding:18px 14px;background:rgba(0,180,216,.04);border:1px dashed rgba(0,180,216,.22);border-radius:9px;line-height:1.5;}
 
-#ar2 .ar-corp-eng-card,#ar2 .ar-corp-port-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;background:linear-gradient(140deg,rgba(13,45,74,.55),rgba(8,28,48,.42));border:1px solid rgba(0,180,216,.22);border-radius:11px;cursor:pointer;margin-bottom:9px;transition:background .15s,border-color .15s,transform .12s,box-shadow .15s;position:relative;}
-#ar2 .ar-corp-eng-card:hover,#ar2 .ar-corp-port-card:hover{background:linear-gradient(140deg,rgba(0,180,216,.14),rgba(0,180,216,.06));border-color:rgba(0,180,216,.55);transform:translateY(-1px);box-shadow:0 6px 18px rgba(4,15,30,.32);}
-#ar2 .ar-corp-eng-card::after,#ar2 .ar-corp-port-card::after{
+/* Engineer cards stay clickable (drill into engineer's assignments).
+   Portfolio cards are now NON-clickable containers — actions inside
+   handle navigation so the card itself isn't a giant click target. */
+#ar2 .ar-corp-eng-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;background:linear-gradient(140deg,rgba(13,45,74,.55),rgba(8,28,48,.42));border:1px solid rgba(0,180,216,.22);border-radius:11px;cursor:pointer;margin-bottom:9px;transition:background .15s,border-color .15s,transform .12s,box-shadow .15s;position:relative;}
+#ar2 .ar-corp-eng-card:hover{background:linear-gradient(140deg,rgba(0,180,216,.14),rgba(0,180,216,.06));border-color:rgba(0,180,216,.55);transform:translateY(-1px);box-shadow:0 6px 18px rgba(4,15,30,.32);}
+#ar2 .ar-corp-eng-card::after{
   content:'';position:absolute;top:50%;right:14px;transform:translateY(-50%);
   width:18px;height:18px;border-radius:50%;background:rgba(0,180,216,.12);
   display:flex;align-items:center;justify-content:center;
@@ -2077,7 +2080,50 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
   background-repeat:no-repeat;background-position:center;background-size:11px;
   opacity:.7;transition:opacity .15s,background-color .15s;
 }
-#ar2 .ar-corp-eng-card:hover::after,#ar2 .ar-corp-port-card:hover::after{opacity:1;background-color:rgba(0,180,216,.32);}
+#ar2 .ar-corp-eng-card:hover::after{opacity:1;background-color:rgba(0,180,216,.32);}
+/* Portfolio cards on the corp dashboard — stacked header + meta +
+   action buttons; an expandable property drawer renders BELOW the
+   card via JS. No giant click-target on the card itself. */
+#ar2 .ar-corp-port-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;background:linear-gradient(140deg,rgba(13,45,74,.55),rgba(8,28,48,.42));border:1px solid rgba(0,180,216,.22);border-radius:11px;margin-bottom:9px;position:relative;transition:border-color .15s;}
+#ar2 .ar-corp-port-card.is-expanded{border-color:rgba(0,180,216,.55);background:linear-gradient(140deg,rgba(0,180,216,.10),rgba(8,28,48,.55));}
+#ar2 .ar-corp-port-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
+#ar2 .ar-corp-port-meta{font-size:11px;color:#a3d4e8;font-family:'JetBrains Mono',monospace;letter-spacing:.3px;}
+#ar2 .ar-corp-port-actions{display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;}
+#ar2 .ar-corp-port-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(0,180,216,.10);border:1px solid rgba(0,180,216,.32);color:#7dd3fc;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.3px;padding:7px 12px;border-radius:7px;cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .08s;}
+#ar2 .ar-corp-port-btn:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.6);color:#fff;}
+#ar2 .ar-corp-port-btn:active{transform:translateY(1px);}
+#ar2 .ar-corp-port-btn.primary{background:linear-gradient(135deg,rgba(168,85,247,.20),rgba(168,85,247,.10));border-color:rgba(168,85,247,.45);color:#c4b5fd;}
+#ar2 .ar-corp-port-btn.primary:hover{background:linear-gradient(135deg,rgba(168,85,247,.32),rgba(168,85,247,.18));border-color:rgba(168,85,247,.7);color:#fff;}
+/* Inline property drawer under the portfolio card — slides open with
+   a tight list of property rows. Each row carries name + status pill
+   + small action badges (snapshot / preview / eng-report). */
+#ar2 .ar-corp-port-drawer{background:linear-gradient(140deg,rgba(8,28,48,.85),rgba(13,45,74,.55));border:1px solid rgba(0,180,216,.22);border-top:none;border-radius:0 0 11px 11px;overflow:hidden;max-height:0;opacity:0;transition:max-height .25s ease, opacity .18s ease .04s, padding .25s ease;margin:-9px 0 9px;}
+#ar2 .ar-corp-port-drawer.open{max-height:1200px;opacity:1;padding:8px 12px 12px;}
+#ar2 .ar-corp-port-drawer-head{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;padding:8px 6px 6px;}
+#ar2 .ar-corp-port-prop{display:grid;grid-template-columns:1.6fr 100px auto;gap:12px;align-items:center;padding:9px 12px;background:rgba(4,15,30,.42);border:1px solid rgba(0,180,216,.12);border-radius:8px;margin-bottom:6px;transition:border-color .12s,background .12s;}
+#ar2 .ar-corp-port-prop:hover{background:rgba(0,180,216,.06);border-color:rgba(0,180,216,.32);}
+#ar2 .ar-corp-port-prop-name{font-size:12.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2 .ar-corp-port-prop-sub{font-size:11px;color:#7db8cc;font-family:'JetBrains Mono',monospace;margin-top:2px;letter-spacing:.3px;}
+#ar2 .ar-corp-port-prop-status{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;padding:3px 8px;border-radius:99px;border:1px solid transparent;font-weight:700;text-align:center;justify-self:center;}
+#ar2 .ar-corp-port-prop-status.pending{background:rgba(240,165,0,.14);color:#f0a500;border-color:rgba(240,165,0,.4);}
+#ar2 .ar-corp-port-prop-status.in_progress{background:rgba(250,204,21,.14);color:#facc15;border-color:rgba(250,204,21,.4);}
+#ar2 .ar-corp-port-prop-status.submitted{background:rgba(0,180,216,.18);color:#48cae4;border-color:rgba(0,180,216,.45);}
+#ar2 .ar-corp-port-prop-status.reviewed{background:rgba(34,197,94,.16);color:#4ade80;border-color:rgba(34,197,94,.5);}
+#ar2 .ar-corp-port-prop-status.none{background:rgba(125,184,204,.10);color:#7db8cc;border-color:rgba(125,184,204,.28);border-style:dashed;}
+#ar2 .ar-corp-port-prop-acts{display:inline-flex;gap:5px;justify-self:end;}
+#ar2 .ar-corp-port-prop-act{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent;border:1px solid;font-family:inherit;line-height:1;cursor:pointer;padding:0;transition:background .12s,border-color .12s,color .12s,transform .08s;}
+#ar2 .ar-corp-port-prop-act svg{width:14px;height:14px;}
+#ar2 .ar-corp-port-prop-act:active{transform:translateY(1px);}
+#ar2 .ar-corp-port-prop-act.snap{border-color:rgba(168,85,247,.36);color:#c4b5fd;}
+#ar2 .ar-corp-port-prop-act.snap:hover{background:rgba(168,85,247,.22);border-color:rgba(168,85,247,.6);color:#fff;}
+#ar2 .ar-corp-port-prop-act.prev{border-color:rgba(34,197,94,.36);color:#4ade80;}
+#ar2 .ar-corp-port-prop-act.prev:hover{background:rgba(34,197,94,.22);border-color:rgba(34,197,94,.6);color:#fff;}
+#ar2 .ar-corp-port-prop-act.eng{border-color:rgba(234,179,8,.44);color:#eab308;}
+#ar2 .ar-corp-port-prop-act.eng:hover{background:rgba(234,179,8,.24);border-color:rgba(234,179,8,.7);color:#fff;}
+@media(max-width:860px){
+  #ar2 .ar-corp-port-prop{grid-template-columns:1fr;row-gap:6px;}
+  #ar2 .ar-corp-port-prop-status,#ar2 .ar-corp-port-prop-acts{justify-self:start;}
+}
 #ar2 .ar-corp-eng-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding-right:24px;}
 #ar2 .ar-corp-eng-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:.2px;}
 #ar2 .ar-corp-eng-phone{font-size:12px;color:#a3d4e8;font-family:'JetBrains Mono',monospace;letter-spacing:.5px;}

@@ -6885,6 +6885,17 @@ function seedFirstPropertyFromMapPools(newPortfolio){
     var u = (window.AR2_CLOUD && AR2_CLOUD.user) ? AR2_CLOUD.user() : null;
     var corpNoCalc = !!(u && u.role === 'corp_engineer' && !u.corpEngCalcAccess);
     document.body.classList.toggle('pf-corp-eng-no-calc', corpNoCalc);
+    // Auto-route corp engineers to their dashboard on first cloud-ready
+    // tick after login. Without this, they land on the calculator form
+    // view by default. Only fire ONCE per session — track via a window
+    // flag so a later applyPfBody (triggered by view-bank click) doesn't
+    // bounce them back to the dashboard if they navigated away.
+    if (u && u.role === 'corp_engineer' && !window.__corpEngRouted){
+      window.__corpEngRouted = true;
+      if (typeof showView === 'function'){
+        try { showView('bank'); } catch(_){}
+      }
+    }
   }
   // Poll for cloud-ready every 500ms (up to ~2 min cap). The moment the
   // user finishes gateLogin, AR2_CLOUD.isReady() flips true; we then call
@@ -10313,6 +10324,134 @@ function renderArchive(){
    dashboard. Each row opens the existing Engineer Submission Review
    modal (same modal admins use), giving corp engineers identical
    read-only context on the engineer's verification work. */
+/* Corp Eng dashboard — toggle an inline property drawer under a
+   portfolio card. Lists each property with name + status pill (driven
+   by engineer-assignment status) + small action badges (Snapshot,
+   Preview PDF, Engineer Report). Lazy-loads properties on first open;
+   cached per portfolio via pfState.properties. */
+function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
+  if (!portfolioId) return;
+  var card = (triggerBtn && triggerBtn.closest) ? triggerBtn.closest('.ar-corp-port-card') : document.querySelector('.ar-corp-port-card[data-portfolio-id="' + portfolioId + '"]');
+  if (!card) return;
+  var drawerId = 'ar-corp-port-drawer-' + portfolioId;
+  var existing = document.getElementById(drawerId);
+  if (existing){
+    var opening = !existing.classList.contains('open');
+    existing.classList.toggle('open', opening);
+    card.classList.toggle('is-expanded', opening);
+    if (!opening){
+      setTimeout(function(){
+        if (existing.parentNode && !existing.classList.contains('open')) existing.parentNode.removeChild(existing);
+      }, 320);
+    }
+    return;
+  }
+  var drawer = document.createElement('div');
+  drawer.id = drawerId;
+  drawer.className = 'ar-corp-port-drawer';
+  drawer.innerHTML = '<div class="ar-corp-port-drawer-head">Loading properties…</div>';
+  card.parentNode.insertBefore(drawer, card.nextSibling);
+  card.classList.add('is-expanded');
+  requestAnimationFrame(function(){ drawer.classList.add('open'); });
+
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){
+    drawer.innerHTML = '<div class="ar-corp-port-drawer-head">Cloud unavailable.</div>';
+    return;
+  }
+  // Pull properties + engineer assignments in parallel. Engineer status
+  // tells us the verification state per property.
+  Promise.all([
+    c.from('portfolio_properties').select('id,property_name,country,formatted_address,computed_kpis').eq('portfolio_id', portfolioId).order('order_index', { ascending: true }).then(function(r){ return r.data || []; }, function(){ return []; }),
+    c.from('engineer_assignments').select('id,property_id,status,submitted_at,reviewed_at').eq('portfolio_id', portfolioId).then(function(r){ return r.data || []; }, function(){ return []; })
+  ]).then(function(arr){
+    if (!document.getElementById(drawerId)) return; // closed mid-fetch
+    var props = arr[0] || [];
+    var asgns = arr[1] || [];
+    // Newest-first assignment per property → status pill source.
+    var asgnByProp = {};
+    asgns.forEach(function(a){
+      if (!a.property_id) return;
+      var prev = asgnByProp[a.property_id];
+      if (!prev) { asgnByProp[a.property_id] = a; return; }
+      var prevWhen = prev.submitted_at || prev.reviewed_at || '';
+      var thisWhen = a.submitted_at || a.reviewed_at || '';
+      if (thisWhen > prevWhen) asgnByProp[a.property_id] = a;
+    });
+    if (!props.length){
+      drawer.innerHTML = '<div class="ar-corp-port-drawer-head">No properties in this portfolio yet.</div>';
+      return;
+    }
+    var rows = props.map(function(p){
+      var a = asgnByProp[p.id];
+      var st = a ? (a.status || 'pending').toLowerCase() : 'none';
+      var stLabel = a ? st.replace(/_/g,' ') : 'no engineer';
+      var sub = p.formatted_address || p.country || '';
+      return ''
+        + '<div class="ar-corp-port-prop">'
+        +   '<div style="min-width:0">'
+        +     '<div class="ar-corp-port-prop-name">' + esc(p.property_name || 'Property') + '</div>'
+        +     (sub ? '<div class="ar-corp-port-prop-sub">' + esc(sub) + '</div>' : '')
+        +   '</div>'
+        +   '<span class="ar-corp-port-prop-status ' + esc(st) + '">' + esc(stLabel) + '</span>'
+        +   '<div class="ar-corp-port-prop-acts">'
+        +     '<button class="ar-corp-port-prop-act snap" data-action="corp-prop-snapshot" data-property-id="' + esc(p.id) + '" type="button" title="Property Snapshot — KPI card + engineer verification status">'
+        +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
+        +     '</button>'
+        +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" title="Preview Assessment + Pool Profile PDF (portrait, cards)">'
+        +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
+        +     '</button>'
+        +     '<button class="ar-corp-port-prop-act eng" data-action="corp-prop-eng-report" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" title="Engineer Report — preview + download PDF">'
+        +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>'
+        +     '</button>'
+        +   '</div>'
+        + '</div>';
+    }).join('');
+    drawer.innerHTML = '<div class="ar-corp-port-drawer-head">' + esc(portfolioName) + ' · ' + props.length + ' propert' + (props.length===1?'y':'ies') + '</div>' + rows;
+    // Prime the engineer-assignment cache so the property eng report
+    // badge can look up engineer assignments without a refetch.
+    if (window.AR2_PF && AR2_PF.loadAssignmentsForPortfolio){
+      try { AR2_PF.loadAssignmentsForPortfolio(portfolioId); } catch(_){}
+    }
+  }, function(err){
+    if (!document.getElementById(drawerId)) return;
+    drawer.innerHTML = '<div class="ar-corp-port-drawer-head" style="color:#fca5a5">Could not load: ' + esc((err && err.message) || String(err)) + '</div>';
+  });
+}
+
+/* Corp Eng dashboard — preview the Portfolio Assessment report with
+   preset sections enabled (Cover · Assessment · Property Profiles cards
+   · Pool Profiles list · Back cover). Wraps buildPortfolioReportPreview
+   with EX-state mutation so corp engineers don't have to navigate into
+   the portfolio overview's Export panel to flip section toggles. */
+function previewCorpPortfolioAssessment(portfolioId){
+  if (!portfolioId) return;
+  if (!(window.AR2_PF && AR2_PF.getExportState)){
+    alert('Portfolio module not loaded — refresh the page and try again.');
+    return;
+  }
+  // Apply the corp eng preset: every section flag the user listed gets
+  // flipped on; quote stays off (no admin quote configuration here).
+  var st = AR2_PF.getExportState(portfolioId);
+  st.cover               = true;
+  st.assessment          = true;  // Portfolio Assessment summary page
+  st.propertyProfile     = true;  // per-property cards
+  st.poolProfiles        = true;  // pool profile pages
+  st.poolProfilesLayout  = 'list';
+  st.propertyProfileLayout = 'cards';
+  st.backCover           = true;
+  st.water               = true;  // water conservation block in assessment
+  // Quote section requires admin / quote-builder workflow — skip for corp.
+  st.quote = false;
+  if (typeof buildPortfolioReportPreview !== 'function'){
+    alert('Portfolio preview generator not loaded.');
+    return;
+  }
+  buildPortfolioReportPreview(portfolioId, 'exp-preview').catch(function(err){
+    alert('Could not build portfolio preview: ' + ((err && err.message) || 'unknown error'));
+  });
+}
+
 function showCorpEngineerEngineerDrillModal(engineerId, engineerName){
   var existing = document.getElementById('ar2-corp-drill-modal');
   if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
@@ -10581,12 +10720,26 @@ function renderCorpEngineerDashboard(mountEl){
         var modAt = p.last_modified_at
           ? 'Updated ' + new Date(p.last_modified_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
           : '';
+        // Re-shaped card: top row = name + status, bottom row = two
+        // action buttons + chevron toggle. Click chevron toggles inline
+        // property drawer below the card. Click 'Preview' button fires
+        // the portfolio assessment preview with preset sections.
         return ''
-          + '<div class="ar-corp-port-card" data-action="corp-portfolio-open" data-portfolio-id="' + esc(p.id) + '">'
-          +   '<div class="ar-corp-port-name">' + esc(p.name || 'Portfolio') + '</div>'
-          +   '<div class="ar-corp-port-stats">'
-          +     (modAt ? '<span>' + esc(modAt) + '</span>' : '')
+          + '<div class="ar-corp-port-card" data-portfolio-id="' + esc(p.id) + '">'
+          +   '<div class="ar-corp-port-head">'
+          +     '<div class="ar-corp-port-name">' + esc(p.name || 'Portfolio') + '</div>'
           +     '<span class="ar-corp-port-status status-' + esc(p.status || 'draft') + '">' + esc(p.status || 'draft') + '</span>'
+          +   '</div>'
+          +   (modAt ? '<div class="ar-corp-port-meta">' + esc(modAt) + '</div>' : '')
+          +   '<div class="ar-corp-port-actions">'
+          +     '<button class="ar-corp-port-btn" data-action="corp-port-toggle-props" data-portfolio-id="' + esc(p.id) + '" data-portfolio-name="' + esc(p.name || 'Portfolio') + '" type="button">'
+          +       '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>'
+          +       '<span>View Properties</span>'
+          +     '</button>'
+          +     '<button class="ar-corp-port-btn primary" data-action="corp-port-preview-assessment" data-portfolio-id="' + esc(p.id) + '" data-portfolio-name="' + esc(p.name || 'Portfolio') + '" type="button" title="Preview Portfolio Assessment with Cover + Assessment + Property cards + Pool profile (list) + Back cover">'
+          +       '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
+          +       '<span>Preview Assessment</span>'
+          +     '</button>'
           +   '</div>'
           + '</div>';
       }).join('');
@@ -18727,6 +18880,86 @@ function handleClick(e){
     var portId = corpPortOpen.getAttribute('data-portfolio-id');
     if (portId && window.AR2_PF && AR2_PF.openPortfolio){
       try { AR2_PF.openPortfolio(portId); } catch(err){ alert('Could not open portfolio: ' + ((err && err.message) || err)); }
+    }
+    return;
+  }
+  // Corp Eng — toggle inline property drawer below a portfolio card.
+  var corpPortToggle = e.target.closest('[data-action="corp-port-toggle-props"]');
+  if (corpPortToggle){
+    var togId = corpPortToggle.getAttribute('data-portfolio-id');
+    var togName = corpPortToggle.getAttribute('data-portfolio-name') || 'Portfolio';
+    if (togId && typeof toggleCorpPortfolioPropsDrawer === 'function'){
+      toggleCorpPortfolioPropsDrawer(togId, togName, corpPortToggle);
+    }
+    return;
+  }
+  // Corp Eng — preview the Portfolio Assessment with preset sections
+  // (cover + assessment + property cards + pool profile list + back).
+  var corpPortPrev = e.target.closest('[data-action="corp-port-preview-assessment"]');
+  if (corpPortPrev){
+    var ppId = corpPortPrev.getAttribute('data-portfolio-id');
+    if (ppId && typeof previewCorpPortfolioAssessment === 'function'){
+      previewCorpPortfolioAssessment(ppId);
+    }
+    return;
+  }
+  // Corp Eng — open snapshot drawer for a property listed inside a
+  // portfolio drawer. Reuses the existing snapshot drawer helper.
+  var corpPropSnap = e.target.closest('[data-action="corp-prop-snapshot"]');
+  if (corpPropSnap){
+    var snapPid = corpPropSnap.getAttribute('data-property-id');
+    if (snapPid && typeof togglePfPropertySnapshot === 'function'){
+      togglePfPropertySnapshot(snapPid);
+    }
+    return;
+  }
+  // Corp Eng — preview a single property's PDF report (portrait + cards).
+  // Mirrors the admin-side preview-property-report action.
+  var corpPropPrev = e.target.closest('[data-action="corp-prop-preview"]');
+  if (corpPropPrev){
+    var prevPid = corpPropPrev.getAttribute('data-property-id');
+    var prevPname = corpPropPrev.getAttribute('data-property-name') || 'this property';
+    if (prevPid && window.AR2_PF && AR2_PF.enterProperty){
+      // Same gated-flow as the portfolio overview Preview PDF badge.
+      window.__pfPreviewAutoExit = true;
+      AR2_PF.enterProperty(prevPid).then(function(){
+        if (typeof EX === 'undefined' || !EX){ window.__pfPreviewAutoExit = false; return; }
+        EX.layout = 'portrait';
+        EX.inclPoolProfiles = true;
+        EX.poolProfilesLayout = 'cards';
+        EX.previewing = true;
+        try { generateReport(); } catch(errG){ alert('Could not generate preview: ' + ((errG && errG.message) || errG)); }
+        setTimeout(function(){
+          function _exitAuto(){
+            if (!window.__pfPreviewAutoExit) return;
+            window.__pfPreviewAutoExit = false;
+            try { AR2_PF.exitProperty({ skipSave: true }); } catch(_){}
+          }
+          var bb = document.getElementById('ar2-preview-back');
+          if (bb){ var ob = bb.onclick; bb.onclick = function(ev){ if (typeof ob === 'function') try { ob.call(bb, ev); } catch(_){} setTimeout(_exitAuto, 120); }; }
+          var dd = document.getElementById('ar2-preview-dl');
+          if (dd){ var od = dd.onclick; dd.onclick = function(ev){ if (typeof od === 'function') try { od.call(dd, ev); } catch(_){} window.addEventListener('afterprint', function af(){ window.removeEventListener('afterprint', af); setTimeout(_exitAuto, 200); }); setTimeout(function(){ if (window.__pfPreviewAutoExit) _exitAuto(); }, 3200); }; }
+        }, 700);
+      }, function(errE){
+        window.__pfPreviewAutoExit = false;
+        alert('Could not load property: ' + ((errE && errE.message) || errE));
+      });
+    }
+    return;
+  }
+  // Corp Eng — open engineer report PDF preview for a property.
+  var corpPropEng = e.target.closest('[data-action="corp-prop-eng-report"]');
+  if (corpPropEng){
+    var engPid = corpPropEng.getAttribute('data-property-id');
+    var engPname = corpPropEng.getAttribute('data-property-name') || 'this property';
+    var engAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
+      ? AR2_PF.engineerAssignmentsForProperty(engPid) : [];
+    if (!engAsgns.length){
+      alert('No engineer assignment for "' + engPname + '" yet — no engineer report exists to preview.');
+      return;
+    }
+    if (typeof generateEngineerReport === 'function'){
+      generateEngineerReport(engAsgns[0].id, { previewOnly: true });
     }
     return;
   }
