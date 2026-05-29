@@ -10410,10 +10410,25 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
       })()
     ]).then(function(arr){
       if (!document.getElementById(drawerId)) return;
-      var asgns = arr[0] || [];
+      var asgnsRaw = arr[0] || [];
       var engs  = arr[1] || [];
       var engNameById = {};
-      engs.forEach(function(e){ engNameById[e.id] = e.name; });
+      var engRoleById = {};
+      engs.forEach(function(e){
+        engNameById[e.id] = e.name;
+        engRoleById[e.id] = e.role || 'engineer';
+      });
+      // The property rows on the dashboard surface FIELD ENGINEERS only —
+      // not corp engineers. A corp engineer assigned at the portfolio
+      // scope is implicit (this dashboard IS theirs); surfacing their
+      // name on every property row would be redundant. Filter the
+      // assignment pool to role='engineer' before the per-property
+      // mapping; corp_engineer assignments are intentionally ignored
+      // here.
+      var asgns = asgnsRaw.filter(function(a){
+        var role = engRoleById[a.engineer_user_id];
+        return role === 'engineer';
+      });
       // Per-property assignment: prefer property-scope, fall back to
       // portfolio-scope (which applies to every property in it). Newest
       // wins when multiple exist.
