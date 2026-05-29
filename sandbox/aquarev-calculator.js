@@ -10481,7 +10481,7 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
         +     '<button class="ar-corp-port-prop-act snap" data-action="corp-prop-snapshot" data-property-id="' + esc(p.id) + '" type="button" data-pf-tip="Snapshot" data-pf-tip-tone="purple">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
         +     '</button>'
-        +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="Preview PDF" data-pf-tip-tone="green">'
+        +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="View Assessment" data-pf-tip-tone="green">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
         +     '</button>'
         +     '<button class="ar-corp-port-prop-act eng" data-action="corp-prop-eng-report" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" data-assignment-id="' + esc((a && a.id) || '') + '" type="button" data-pf-tip="Engineer Report" data-pf-tip-tone="gold">'
@@ -10745,15 +10745,33 @@ function renderCorpEngineerDashboard(mountEl){
       if (statusCounts[st] !== undefined) statusCounts[st]++;
     });
 
-    // KPI strip — at-a-glance totals.
+    // KPI strip — at-a-glance totals. "Portfolio Properties" is the total
+    // number of properties living inside every portfolio this corp engineer
+    // is assigned to. We fetch the count async (one query, head:true so the
+    // payload is just a count header) and patch the cell in once it lands.
     var kpiHtml =
         '<div class="ar-corp-kpi"><div class="lbl">Affiliated Engineers</div><div class="val">' + affs.length + '</div></div>'
-      + '<div class="ar-corp-kpi"><div class="lbl">Assigned Portfolios</div><div class="val">' + ports.length + '</div></div>'
+      + '<div class="ar-corp-kpi"><div class="lbl">Portfolio Properties</div><div class="val" id="ar-corp-kpi-props">' + (ports.length ? '…' : '0') + '</div></div>'
       + '<div class="ar-corp-kpi"><div class="lbl">Pending</div><div class="val amber">' + (statusCounts.pending + statusCounts.in_progress) + '</div></div>'
       + '<div class="ar-corp-kpi"><div class="lbl">Submitted</div><div class="val cyan">' + statusCounts.submitted + '</div></div>'
       + '<div class="ar-corp-kpi"><div class="lbl">Reviewed</div><div class="val green">' + statusCounts.reviewed + '</div></div>';
     var kpiEl = mountEl.querySelector('.ar-corp-kpis');
     if (kpiEl) kpiEl.innerHTML = kpiHtml;
+
+    // Async fill — total properties across all assigned portfolios.
+    if (ports.length){
+      var __portIds = ports.map(function(p){ return p.id; });
+      c.from('portfolio_properties')
+        .select('id', { count: 'exact', head: true })
+        .in('portfolio_id', __portIds)
+        .then(function(r){
+          var cell = document.getElementById('ar-corp-kpi-props');
+          if (cell) cell.textContent = (typeof r.count === 'number') ? String(r.count) : '0';
+        }, function(){
+          var cell = document.getElementById('ar-corp-kpi-props');
+          if (cell) cell.textContent = '—';
+        });
+    }
 
     // LEFT — Affiliated Engineers cards.
     var engineersCol;
@@ -10820,9 +10838,9 @@ function renderCorpEngineerDashboard(mountEl){
           +       '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>'
           +       '<span>View Properties</span>'
           +     '</button>'
-          +     '<button class="ar-corp-port-btn primary" data-action="corp-port-preview-assessment" data-portfolio-id="' + esc(p.id) + '" data-portfolio-name="' + esc(p.name || 'Portfolio') + '" type="button" title="Preview Portfolio Assessment with Cover + Assessment + Property cards + Pool profile (list) + Back cover">'
+          +     '<button class="ar-corp-port-btn primary" data-action="corp-port-preview-assessment" data-portfolio-id="' + esc(p.id) + '" data-portfolio-name="' + esc(p.name || 'Portfolio') + '" type="button" title="View Portfolio Assessment with Cover + Assessment + Property cards + Pool profile (list) + Back cover">'
           +       '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
-          +       '<span>Preview Assessment</span>'
+          +       '<span>View Portfolio Assessment</span>'
           +     '</button>'
           +   '</div>'
           + '</div>';
@@ -18245,7 +18263,16 @@ function generateReport(){
           var tb=document.createElement('div');
           tb.id='ar2-preview-toolbar';
           tb.style.cssText='position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);';
-          tb.innerHTML='<button id="ar2-preview-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">\u2190 Return to Calculator</button>'
+          // Label flexes by role \u2014 corp engineers + engineers return to their
+          // portal surface (no calculator to return to), reps/admins return
+          // to the calculator step they were on.
+          var __previewBackLabel = '\u2190 Return to Calculator';
+          try {
+            if (window.AR2_CLOUD && ((AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer()) || (AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()))) {
+              __previewBackLabel = '\u2190 Return to Portal';
+            }
+          } catch(_){}
+          tb.innerHTML='<button id="ar2-preview-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">' + __previewBackLabel + '</button>'
             +'<div style="color:#fff;font-size:13px;font-weight:600">PDF Preview</div>'
             +'<button id="ar2-preview-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Download PDF</button>';
           document.body.appendChild(tb);
@@ -20359,10 +20386,38 @@ var HELP_CONTENT = {
        +'<li><b>90-Day Chart</b> — daily records created, broken out per user, in EST.</li>'
        +'<li><b>Created By column</b> — every record shows who saved it. Use the orange ⇒ button to reassign records between users.</li>'
      +'</ul>'
+  },
+  'corp-engineer-dashboard': {
+    title: 'Corp Engineer · Oversight Dashboard',
+    body:
+      '<p>Read-only oversight of the engineers affiliated to you and the portfolios you\'ve been assigned to. Everything here pulls live from your engineers\' field verifications.</p>'
+     +'<ul>'
+       +'<li><b>KPI strip</b> — Affiliated Engineers · Portfolio Properties · Pending · Submitted · Reviewed. Portfolio Properties totals every property across all portfolios assigned to you. Pending counts both <i>pending</i> and <i>in-progress</i> assignments.</li>'
+       +'<li><b>My Affiliated Engineers</b> (left column) — one card per engineer linked to you. Each card shows active / submitted / reviewed counts. Tap a card to drill into that engineer\'s assignments.</li>'
+       +'<li><b>My Portfolio Assignments</b> (right column) — every portfolio you\'ve been assigned to directly. Tap <b>View Properties</b> to expand the inline drawer of properties in that portfolio.</li>'
+       +'<li><b>View Portfolio Assessment</b> — opens the portfolio-level assessment view (Cover · Assessment · Property cards · Pool profile list · Back cover).</li>'
+     +'</ul>'
+     +'<p style="margin-top:14px"><b>Per-property actions</b> (inside the View Properties drawer):</p>'
+     +'<ul>'
+       +'<li><b>Snapshot (purple)</b> — opens a compact panel below the row with pool count, device counts by pipe size, photo/video counts, and the engineer name pill.</li>'
+       +'<li><b>View Assessment (green)</b> — opens the single-property assessment view for that record.</li>'
+       +'<li><b>Engineer Report (amber)</b> — opens the engineer\'s field verification report with return-pipe configuration, on-site photos, and notes. Photos are signed-URL fetched from the engineer-media bucket.</li>'
+     +'</ul>'
+     +'<p style="color:var(--mu);font-size:11px;margin-top:14px">All access is governed by RLS — you only see engineers affiliated to you and portfolios you\'ve been assigned to. The Calculator surface is hidden by default; admins can grant calc access per user if needed.</p>'
   }
 };
 
 function helpKeyForCurrentView(){
+  // Corp Engineer dashboard trumps everything — they have no calculator,
+  // and their primary surface is the oversight grid. Detect by role +
+  // presence of the dashboard shell in the DOM (not by the calculator
+  // step state, which they don't use).
+  try {
+    if (window.AR2_CLOUD && AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer()
+        && document.querySelector('.ar-corp-shell')){
+      return 'corp-engineer-dashboard';
+    }
+  } catch(_){}
   // Portfolio surfaces take precedence — the rep is inside a portfolio context.
   try {
     if (window.AR2_PF && AR2_PF.viewMode){
@@ -20489,6 +20544,20 @@ var TOUR_STEPS = {
       body:'Standard Terms (short, prints on Quote page). Purchase Terms (long-form, prints on its own page). Notes (internal only).' },
     { selector:'[data-pf-action="quote-save-return"]', title:'Save & Return',
       body:'Writes to the portfolio quote table and drops you back at Export with the Quote section now toggleable on.' }
+  ],
+  'corp-engineer-dashboard': [
+    { selector:'.ar-corp-hero',             title:'Your oversight surface',
+      body:'Welcome. Everything you can see is read-only — the field engineers do the data entry; you review what they\'ve submitted.' },
+    { selector:'.ar-corp-kpis',             title:'KPI strip',
+      body:'At-a-glance totals: Affiliated Engineers · Portfolio Properties · Pending · Submitted · Reviewed. Portfolio Properties totals every property across all portfolios assigned to you. Pending merges pending + in-progress.' },
+    { selector:'.ar-corp-body .ar-corp-col:first-child', title:'My Affiliated Engineers',
+      body:'One card per engineer linked to you. Each card shows their active / submitted / reviewed counts. Tap a card to drill into that engineer\'s assignments.' },
+    { selector:'.ar-corp-body .ar-corp-col:last-child',  title:'My Portfolio Assignments',
+      body:'Every portfolio assigned to you directly. Click View Properties to expand the inline drawer of properties — that\'s where the snapshot / preview / engineer-report actions live.' },
+    { selector:'[data-action="corp-port-preview-assessment"]', title:'View Portfolio Assessment',
+      body:'Opens the portfolio-level assessment view (Cover · Assessment · Property cards · Pool profile list · Back cover).' },
+    { selector:'[data-action="corp-port-toggle-props"]', title:'View Properties',
+      body:'Expands the inline drawer below the card. From there you get per-property actions: snapshot, View Assessment, and Engineer Report.' }
   ]
 };
 
@@ -20511,6 +20580,9 @@ function maybeShowWelcomeModal(){
     if (document.getElementById('ar2-tour-root')) return;
     if (document.getElementById('ar2-welcome-modal')) return;
     if (document.getElementById('ar2-help-modal')) return;
+    // Engineers run a fully scripted step-1 briefing video on login — never
+    // overlay the calc/oversight welcome on top of that.
+    if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()) return;
     var ver = '';
     try { ver = localStorage.getItem('ar_app_version') || ''; } catch(_){}
     if (!ver) return; // version-stamp poller hasn't run yet
@@ -20523,13 +20595,25 @@ function maybeShowWelcomeModal(){
 
 function showWelcomeTutorialModal(isUpdate, currentVer){
   if (document.getElementById('ar2-welcome-modal')) return;
+  // Role-aware copy. Corp engineers see an oversight-flavored intro that
+  // matches their actual surface; reps/admins see the calculator intro.
+  var isCorpEng = !!(window.AR2_CLOUD && AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer());
   var m = document.createElement('div');
   m.id = 'ar2-welcome-modal';
   m.style.cssText = 'position:fixed;inset:0;background:rgba(4,15,30,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:999998;display:flex;align-items:center;justify-content:center;padding:20px;font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
-  var headline = isUpdate ? 'What\'s new in this update' : 'Welcome to AquaRev ROI Calculator';
-  var lede = isUpdate
-    ? 'The calculator was just updated with new features for portfolios, bulk imports, and a cleaner export flow. Want a quick tour of what changed and where things live?'
-    : 'Want a guided walkthrough of the calculator? A short interactive tour highlights each section and shows you how to enter data step by step.';
+  var headline;
+  var lede;
+  if (isCorpEng){
+    headline = isUpdate ? 'What\'s new in this update' : 'Welcome to AquaRev Oversight';
+    lede = isUpdate
+      ? 'Your oversight dashboard was just updated. Want a quick tour of what changed — affiliated engineers, portfolio assignments, engineer reports, and snapshot views?'
+      : 'Want a guided walkthrough of your dashboard? A short interactive tour shows you where your affiliated engineers, portfolio assignments, and engineer verification reports live.';
+  } else {
+    headline = isUpdate ? 'What\'s new in this update' : 'Welcome to the AquaRev Assessment Portal';
+    lede = isUpdate
+      ? 'The Assessment Portal was just updated with new features for portfolios, engineer verifications, and a cleaner export flow. Want a quick tour of what changed and where things live?'
+      : 'Want a guided walkthrough of the portal? A short interactive tour highlights each section and shows you how to build an assessment step by step.';
+  }
   m.innerHTML =
       '<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.4);border-radius:14px;padding:28px 30px;max-width:480px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.6);">'
     +   '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:14px;letter-spacing:3px;color:#48cae4;text-transform:uppercase;margin-bottom:6px">' + (isUpdate?'New build • ' + esc(currentVer):'Hello') + '</div>'
