@@ -2061,7 +2061,11 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2 .ar-corp-kpi .val.green{color:#4ade80;}
 #ar2 .ar-corp-kpi-skel{grid-column:1/-1;color:var(--mu);font-size:12px;padding:14px;}
 
-#ar2 .ar-corp-body{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+/* 2 / 5 + 3 / 5 split — affiliated engineer cards stay compact while
+   portfolio cards (which carry expandable property drawers + action
+   buttons) get the wider half so the property rows + drawer chips
+   don't squish. Mobile breakpoint below flattens to a single column. */
+#ar2 .ar-corp-body{display:grid;grid-template-columns:2fr 3fr;gap:22px;}
 #ar2 .ar-corp-col{min-width:0;}
 #ar2 .ar-corp-col-title{font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2.5px;color:#48cae4;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid rgba(0,180,216,.18);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
 #ar2 .ar-corp-col-title small{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:.3px;text-transform:none;color:var(--mu);font-weight:500;}

@@ -4508,19 +4508,27 @@ function submitImportCsv(){
 */
 function togglePfPropertySnapshot(propertyId, anchorEl){
   if (!propertyId) return;
-  // Two call patterns:
-  //   • Admin portfolio overview — anchor not passed; look up the matching
-  //     .ar-pf-prop-row by data-pf-property.
-  //   • Corp engineer dashboard drawer — explicit .ar-corp-port-prop row
-  //     is passed so the snapshot drawer mounts immediately below the
-  //     row the rep clicked. Without this fallback the snapshot never
-  //     fired from the corp dashboard (the admin row doesn't exist
-  //     there).
-  var row = anchorEl || document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]');
-  if (!row) return;
+  // CHECK FOR EXISTING DRAWER FIRST so the close-X always works
+  // regardless of which surface opened the drawer. The close button
+  // inside the drawer fires this same toggle with no anchor → the
+  // old code bailed out at the row lookup and the × did nothing.
   var drawerId = 'ar-pf-prop-snap-' + propertyId;
   var existing = document.getElementById(drawerId);
-  var trigger = row.querySelector('.ar-pf-prop-snap, [data-action="corp-prop-snapshot"]');
+  // Two call patterns when CREATING a fresh drawer:
+  //   • Admin portfolio overview — anchor not passed; look up .ar-pf-prop-row.
+  //   • Corp engineer dashboard drawer — explicit .ar-corp-port-prop row.
+  var row = anchorEl
+         || document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]')
+         || document.querySelector('.ar-corp-port-prop [data-property-id="' + propertyId + '"]')
+         || null;
+  if (row && row.closest) row = row.closest('.ar-pf-prop-row, .ar-corp-port-prop') || row;
+  // If we have no existing drawer AND no anchor, we can't open. But
+  // closing only needs the existing drawer reference — no anchor needed.
+  if (!existing && !row) return;
+  // Find the trigger badge to keep its visual open/closed state in sync
+  // when a row exists. Safe when row is null (close path) — trigger
+  // simply stays unchanged.
+  var trigger = row ? row.querySelector('.ar-pf-prop-snap, [data-action="corp-prop-snapshot"]') : null;
   if (existing){
     // Toggle closed — drop the .open class, let the CSS transition run,
     // then remove the node so we don't accumulate stale drawers across
