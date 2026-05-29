@@ -4255,11 +4255,20 @@ body.pf-property-mode #ar2 #ar2-bar-actions{display:none!important;}
    Help tutorial icon, stepper) since engineers only use the field
    verification portal. The user chip + notification bell remain visible
    via id-specific exceptions so engineers can still sign out. */
-/* Corp engineers without calculator access — hide the New button
-   (launches the calc) so the only navigation option is their dashboard
-   (still reachable via the Archive nav button which routes corp_engineer
-   to renderCorpEngineerDashboard). */
+/* Corp engineers without calculator access — hide every top-bar
+   affordance that leads INTO the calculator surface. Dashboard is
+   the only surface they should ever see.
+     • 'New' button → resets to a fresh calc session
+     • 'Calculator' (Archive nav) button → on the bank view this
+        button label flips to '← Calculator' and routes them out
+        of the dashboard. Hide it so the dashboard is permanent.
+     • Stepper → only relevant on the form view; hidden anyway when
+       the bank view is active, but we add a defensive rule here
+       in case any code accidentally shows it.
+*/
 body.pf-corp-eng-no-calc #ar2 #ar2-bar-actions [data-action="reset-app"]{display:none!important;}
+body.pf-corp-eng-no-calc #ar2 #ar2-bank-nav{display:none!important;}
+body.pf-corp-eng-no-calc #ar2 #ar2-stepper{display:none!important;}
 body.pf-engineer-mode #ar2 #ar2-bank-nav,
 body.pf-engineer-mode #ar2 #ar2-bar-actions [data-action="reset-app"],
 body.pf-engineer-mode #ar2 #ar2-help-btn,
