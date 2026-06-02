@@ -3656,18 +3656,36 @@ window.AR2_PF = (function(){
       pfState.loadedProperty = prop;
       pfState.saveStatus = 'idle';
       pfState.saveError = null;
+      // Suppress autosave until engineer hydration completes. Without this
+      // guard, the render() below fires scheduleAutosave() which 600ms later
+      // writes S.bodies back to state_json — but S.bodies at this point holds
+      // only the rep's older pipe values, not the engineer's overrides (those
+      // get merged in by loadEngineerVerifiedPoolsForRecord which is async).
+      // Letting that initial autosave fire would clobber the engineer's data
+      // on every viewer page load.
+      pfState.hydrating = true;
       _renderSubbar();
       _toggleSubbar(true);
       // Show calculator (hide archive), then re-render with new S.
       if (typeof showView === 'function') showView('form');
       if (typeof render === 'function') render();
       if (typeof scrollAppTop === 'function') scrollAppTop();
-      // Side-load engineer verification status for this property so the
-      // body cards can surface the green "Verified" pill where the
-      // engineer has fully documented a pool.
-      if (typeof window.loadEngineerVerifiedPoolsForRecord === 'function'){
-        window.loadEngineerVerifiedPoolsForRecord(propertyId, 'property');
-      }
+      // Side-load engineer verification status for this property + merge the
+      // engineer's return_lines INTO S.bodies. Once it completes we clear the
+      // hydrating flag so subsequent user edits trigger normal autosaves with
+      // the engineer-merged state.
+      var __hydration = (typeof window.loadEngineerVerifiedPoolsForRecord === 'function')
+        ? (window.loadEngineerVerifiedPoolsForRecord(propertyId, 'property') || Promise.resolve())
+        : Promise.resolve();
+      __hydration.then(function(){
+        pfState.hydrating = false;
+      }, function(){
+        // Clear the flag even on failure so saves aren't blocked forever —
+        // worst case: engineer data isn't merged this load and the rep sees
+        // pre-engineer pipe values. Acceptable degradation; better than a
+        // permanently un-saveable property.
+        pfState.hydrating = false;
+      });
       // Restore Map Pools state (polygons, boundary, centre, property name).
       // Done AFTER render() so the persistent #ap2 mount has finished its
       // own paint cycle and is ready to accept the snapshot.
@@ -3802,6 +3820,34 @@ window.AR2_PF = (function(){
     if (!pfState.propertyMode || !pfState.loadedProperty){
       return Promise.reject(new Error('not in property mode'));
     }
+    // Defense-in-depth: if engineer verifications are tracked for this
+    // property (_engineerVerifiedPools has entries) but the bodies don't
+    // carry any engineer-shaped pipe overrides yet, the merge hasn't run.
+    // Saving now would write rep-shaped data and erase the engineer's
+    // overrides on the DB row. Refuse and warn.
+    try {
+      var evMap = (S && S._engineerVerifiedPools) || {};
+      var evKeys = Object.keys(evMap);
+      if (evKeys.length && Array.isArray(S.bodies) && S.bodies.length){
+        var anyEngineerMerged = false;
+        for (var i = 0; i < evKeys.length; i++){
+          var poolIdx = parseInt(evKeys[i], 10);
+          var b = S.bodies[poolIdx];
+          var ev = evMap[evKeys[i]];
+          if (!b || !ev || !Array.isArray(ev.return_lines)) continue;
+          // Expected pipe_2in count for this body from engineer's spec
+          var expected = 0;
+          ev.return_lines.forEach(function(line){
+            if (parseInt(line.diameter, 10) === 2) expected += (parseInt(line.count, 10) || 0);
+          });
+          if (expected > 0 && (b.pipe_2in|0) === expected){ anyEngineerMerged = true; break; }
+        }
+        if (!anyEngineerMerged){
+          try { console.warn('[AR2_PF] saveCurrentProperty aborted — engineer verifications present but not merged into S.bodies (would clobber DB engineer overrides)'); } catch(_){}
+          return Promise.reject(new Error('engineer hydration not complete — save aborted to prevent data loss'));
+        }
+      }
+    } catch(_){ /* never block save on a guard failure */ }
     // Cancel any pending debounced autosave — we're saving now, so the
     // pending one is redundant and would risk double-fire after exit.
     if (pfState.saveTimer){ clearTimeout(pfState.saveTimer); pfState.saveTimer = null; }
@@ -3897,8 +3943,15 @@ window.AR2_PF = (function(){
   // Debounced autosave — call from render() and on field changes. The
   // debounce window collapses bursts of edits (typing, slider drag) into
   // a single save once activity quiets down.
+  //
+  // Hydration guard: enterProperty() sets pfState.hydrating=true before its
+  // initial render() and clears it after the engineer verification merge
+  // completes. While hydrating, autosaves are skipped — saving here would
+  // persist un-hydrated state (rep's pre-engineer pipe values), wiping the
+  // engineer's overrides from the DB.
   function scheduleAutosave(){
     if (!pfState.propertyMode) return;
+    if (pfState.hydrating) return;
     if (pfState.saveTimer) clearTimeout(pfState.saveTimer);
     pfState.saveTimer = setTimeout(function(){
       pfState.saveTimer = null;
@@ -7389,10 +7442,26 @@ function bankDeleteReport(id){
 }
 
 /* Loads engineer verifications + pump rooms for the record currently
-   being viewed by the rep, and populates S._engineerVerifiedPools so
-   the body-card renderer can display a green "Verified" pill on pools
-   the engineer has fully documented (return lines + at least one
-   media file). Best-effort — silent on RLS denial / network failure. */
+   being viewed by the rep, populates S._engineerVerifiedPools (for the
+   green "Verified" pill), AND merges engineer return_lines + pool name
+   overrides INTO S.bodies so the in-memory state matches what the
+   engineer specified.
+
+   The merge is the critical fix for a data-loss bug where a non-engineer
+   viewer (admin / corp engineer previewer) would open a property, the
+   calculator would hydrate S.bodies from state_json (containing the
+   rep's older pipe values), render() would fire scheduleAutosave(), and
+   600ms later saveCurrentProperty() would write S.bodies back to
+   state_json — clobbering the engineer's overrides that lived in the
+   engineer_verifications table but never made it into S.
+
+   Now: every body whose pool_index has a verification with return_lines
+   has its pipe_*in counts replaced with the engineer's spec, and its
+   label replaced with pool_name_override (if set). Root pipe_*in
+   aggregates are recomputed from the per-body totals. Any subsequent
+   autosave preserves the engineer's data instead of erasing it.
+
+   Best-effort — silent on RLS denial / network failure. */
 function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
   S._engineerVerifiedPools = {};
   var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
@@ -7404,7 +7473,7 @@ function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
     var assignIds = (r1.data || []).map(function(a){ return a.id; });
     if (!assignIds.length) return null;
     return Promise.all([
-      c.from('engineer_verifications').select('assignment_id,pool_index,return_lines,confirmed_gallons,pump_room_id,pool_type').in('assignment_id', assignIds),
+      c.from('engineer_verifications').select('assignment_id,pool_index,return_lines,confirmed_gallons,pump_room_id,pool_type,pool_name_override').in('assignment_id', assignIds),
       c.from('engineer_media').select('pool_index').in('assignment_id', assignIds).not('pool_index','is',null),
       c.from('engineer_pump_rooms').select('id,label').in('assignment_id', assignIds)
     ]).then(function(arr){
@@ -7414,6 +7483,11 @@ function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
       var roomsById = {}; rooms.forEach(function(r){ roomsById[r.id] = r.label; });
       var mediaCountByPool = {};
       media.forEach(function(m){ mediaCountByPool[m.pool_index] = (mediaCountByPool[m.pool_index]||0) + 1; });
+
+      // Pass 1 — build _engineerVerifiedPools metadata. The green "Verified"
+      // pill requires BOTH return_lines AND ≥1 media file. Now also carries
+      // the return_lines payload so downstream renderers don't need a 2nd
+      // DB fetch to display the engineer's pipe spec.
       verifs.forEach(function(v){
         var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
         var hasMedia = (mediaCountByPool[v.pool_index] || 0) > 0;
@@ -7422,10 +7496,45 @@ function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
             assignment_id:    v.assignment_id,
             confirmed_gallons: v.confirmed_gallons,
             pool_type:         v.pool_type,
-            pump_room_label:   v.pump_room_id ? (roomsById[v.pump_room_id] || '') : ''
+            pump_room_label:   v.pump_room_id ? (roomsById[v.pump_room_id] || '') : '',
+            return_lines:      v.return_lines
           };
         }
       });
+
+      // Pass 2 — merge engineer return_lines + label override INTO S.bodies.
+      // Fires for ANY verification with return_lines (media not required) —
+      // the engineer's return-line spec is authoritative for the pipe count
+      // even if photos haven't been uploaded yet.
+      if (Array.isArray(S.bodies) && S.bodies.length){
+        var pipeSizes = [2,3,4,6,8,10];
+        verifs.forEach(function(v){
+          var body = S.bodies[v.pool_index];
+          if (!body) return;
+          if (Array.isArray(v.return_lines) && v.return_lines.length){
+            // Zero out all sizes on this body, then apply engineer's spec
+            pipeSizes.forEach(function(sz){ body['pipe_'+sz+'in'] = 0; });
+            v.return_lines.forEach(function(line){
+              var sz = parseInt(line.diameter, 10);
+              var cnt = parseInt(line.count, 10);
+              if (pipeSizes.indexOf(sz) >= 0 && cnt > 0){
+                body['pipe_'+sz+'in'] = (body['pipe_'+sz+'in']|0) + cnt;
+              }
+            });
+          }
+          if (v.pool_name_override && String(v.pool_name_override).trim()){
+            body.label = String(v.pool_name_override).trim();
+          }
+        });
+        // Recompute root pipe_*in aggregates from per-body totals so the
+        // calculator's top-level device counts always match the merged bodies.
+        pipeSizes.forEach(function(sz){
+          var key = 'pipe_'+sz+'in';
+          var total = 0;
+          S.bodies.forEach(function(b){ total += (b && b[key]) ? (Number(b[key])|0) : 0; });
+          S[key] = total;
+        });
+      }
     });
   }).then(function(){
     if (typeof render === 'function') render();
