@@ -7934,6 +7934,22 @@ function showAdminAddUserModal(){
       var dashEl=document.getElementById('ar-admin-dash');
       if(dashEl) dashEl.dataset.loaded='';
       populateAdminDashboard();
+      // ── Invalidate the cached engineer/corp-eng list so the new user is
+      //    immediately visible in:
+      //      • Engineer-assignment dropdown on portfolios + properties
+      //      • Corp Engineer affiliations picker
+      //      • Bank/archive engineer-name pills
+      //      • Reassign-records target picker
+      //    Without this, the cache (pfState.activeEngineers, populated once
+      //    per session) holds the OLD list and the new user is invisible
+      //    until the browser is reloaded. The cache is gated by
+      //    `if (pfState.activeEngineers) return …`, so setting to null
+      //    forces the next consumer to re-fetch from app_users.
+      try {
+        if (window.AR2_PF && AR2_PF._state){
+          AR2_PF._state.activeEngineers = null;
+        }
+      } catch(_){}
       // Corp Engineer — auto-open the Portfolios assignment modal so the
       // admin can wire portfolios immediately without having to find the
       // user's row and click 'Portfolios' as a second step. This is the
@@ -8021,6 +8037,10 @@ function showAdminDeleteUserModal(uid, uname, totalRecords){
       var dashEl = document.getElementById('ar-admin-dash');
       if(dashEl) dashEl.dataset.loaded = '';
       populateAdminDashboard();
+      // Invalidate cached engineer/corp-eng list — same rationale as create.
+      // The deleted user must vanish from assignment dropdowns immediately,
+      // not on next page reload.
+      try { if (window.AR2_PF && AR2_PF._state) AR2_PF._state.activeEngineers = null; } catch(_){}
       // Also refresh archive list so reassigned records reflect new owners.
       try { renderBank(); } catch(_){}
     }).catch(function(e){
@@ -8565,7 +8585,11 @@ function showAdminChangeRoleModal(uid, uname, currentRole){
     var newRole=document.getElementById('ar2-ro-sel').value;
     if(newRole===currentRole){ close(); return; }
     AR2_CLOUD.adminSetUserRole(uid, newRole).then(function(){
-      close(); populateAdminDashboard();
+      close();
+      // Invalidate cached engineer/corp-eng list — a role change adds or
+      // removes the user from the list, so dropdowns must re-fetch.
+      try { if (window.AR2_PF && AR2_PF._state) AR2_PF._state.activeEngineers = null; } catch(_){}
+      populateAdminDashboard();
     }).catch(function(e){ alert('Role change failed: '+(e.message||e)); });
   };
 }
@@ -19239,6 +19263,10 @@ function handleClick(e){
     var verb = wasActive ? 'Disable' : 'Enable';
     if(!confirm(verb+' '+uname+'? '+(wasActive?'They won\'t be able to sign in. Their archive stays intact.':''))) return;
     AR2_CLOUD.adminSetUserActive(uid, !wasActive).then(function(){
+      // Invalidate cached engineer/corp-eng list — disable/enable filters
+      // active=true; the cache must refresh to drop/restore this user from
+      // assignment dropdowns immediately.
+      try { if (window.AR2_PF && AR2_PF._state) AR2_PF._state.activeEngineers = null; } catch(_){}
       populateAdminDashboard();
     }).catch(function(e){ alert(verb+' failed: '+(e.message||e)); });
     return;
