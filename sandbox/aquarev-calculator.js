@@ -70,6 +70,11 @@ var EX={
   inclQuote:false,        // include the Quote / Order page
   inclQuoteTerms:false,   // include the Purchase Terms page
   inclQuotePayment:false, // include the Payment Form page
+  // Receipt page — printed from the Payments ledger built on the Quote step.
+  // Shows header + buyer + payment history table + total paid / balance due.
+  // Can be bundled into the main PDF via this toggle OR downloaded on its
+  // own via the standalone "Download Receipt Only" button below.
+  inclReceipt:false,      // include the Receipt / Payment Ledger page
   images:[],              // [{id, data, comment}]
   ytEntries:[],           // [{id, url, videoId, comment}]
   showYtDrawer:false,
@@ -202,6 +207,12 @@ var Q={
   termsText:QUOTE_DEFAULT_TERMS,
   // Payment Form
   paymentMethod:'',        // '' | 'cc' | 'wire' | 'check'
+  // Payments received ledger — drives the Receipt card on Step 3 and the
+  // Receipt PDF page in the Export bundle. Each entry:
+  //   { id, amount, date (ISO), type, confirmation, notes }
+  // Balance outstanding = quote total - sum(payments.amount).
+  // Order preserved as inserted (chronological on the PDF).
+  payments:[],
 };
 
 /* ── View state ('form' | 'bank') ── */
@@ -7370,6 +7381,7 @@ function bankSaveReportImpl(replaceIds){
       inclLsCover:EX.inclLsCover, inclLsExecSummary:EX.inclLsExecSummary, inclLsP2Col3Photos:EX.inclLsP2Col3Photos, lsP2Col3Photos:EX.lsP2Col3Photos, inclLsBackCover:EX.inclLsBackCover,
       // Quote / Order Form toggles (Step 3)
       inclQuote:EX.inclQuote, inclQuoteTerms:EX.inclQuoteTerms, inclQuotePayment:EX.inclQuotePayment,
+      inclReceipt:EX.inclReceipt,
       comments:EX.comments, ytEntries:EX.ytEntries,
       images:EX.images,
     },
@@ -7574,11 +7586,16 @@ function bankRecall(snapshot, recordId){
   EX.inclQuote=!!snapshot.ex.inclQuote;
   EX.inclQuoteTerms=!!snapshot.ex.inclQuoteTerms;
   EX.inclQuotePayment=!!snapshot.ex.inclQuotePayment;
+  EX.inclReceipt=!!snapshot.ex.inclReceipt;
   // Quote configuration (S.quote-equivalent — held in module-level Q).
   // Pre-v Quote snapshots won't have a quote field; default Q stays untouched.
   if (snapshot.quote && typeof snapshot.quote === 'object') {
     Object.keys(snapshot.quote).forEach(function(k){ Q[k] = snapshot.quote[k]; });
   }
+  // Back-compat: snapshots saved before the Payments ledger existed won't
+  // carry a Q.payments array. Normalize to an empty array so downstream
+  // renderers + PDF page don't have to null-check every access.
+  if (!Array.isArray(Q.payments)) Q.payments = [];
   EX.execCustomTitle=snapshot.ex.execCustomTitle||'';
   EX.execCustomCopy=snapshot.ex.execCustomCopy||'';
   EX.comments=snapshot.ex.comments;
@@ -16251,14 +16268,133 @@ function renderStepQuote(){
       +'<button class="ar-btn '+(Q.paymentMethod==='check'?'primary':'ghost')+'" data-q-pay="check" style="flex:1;min-width:120px">Check</button>'
     +'</div>'
   +'</div>';
+  // Receipts / Payments ledger card — sits below Terms in Col B so it reads
+  // top-down as: Line Items → Totals → Terms → Payments (the closing act
+  // of the sales cycle). Rendered by renderPaymentsCard() so the same
+  // markup can be re-used by the inline "Add Payment" mini-form update
+  // without re-rendering the whole Quote step.
+  var receipts = renderPaymentsCard();
   // Two-column form. Col A holds the identity/contact/fulfillment chain
   // (Doc Type → Header → Buyer → Ship-To → Payment Method) — "who is this
   // for?". Col B holds the deal stack (Line Items → Totals → Standard
-  // Terms → Purchase Terms and Conditions) which mirrors the rendered
-  // PDF order, so the form reads top-down like the document itself.
+  // Terms → Purchase Terms and Conditions → Payments) which mirrors the
+  // rendered PDF order, so the form reads top-down like the document itself.
   return '<div class="ar-quote-form-grid">'
     + '<div class="ar-quote-col-a">' + kindToggle + hdr + buyer + ship + pay + '</div>'
-    + '<div class="ar-quote-col-b">' + lineItems + totals + stdTerms + rte + '</div>'
+    + '<div class="ar-quote-col-b">' + lineItems + totals + stdTerms + rte + receipts + '</div>'
+  +'</div>';
+}
+
+/* ── Payments / Receipt card (Quote step) ────────────────────────────
+   Lists every payment recorded against this assessment, shows total paid
+   + balance outstanding vs the current quote total, and offers an inline
+   Add Payment form. Balance auto-updates live as the rep enters new
+   payments or edits quote line items upstream.
+
+   Payment shape: { id, amount (number), date (ISO 'YYYY-MM-DD'), type
+   ('Wire'|'ACH'|'Check'|'Credit Card'|'Cash'|'Other'), confirmation (str),
+   notes (str, optional) }. Persisted through Q → snapshot.quote already
+   (deep-cloned by the existing save path — no new persistence wiring). */
+function _quoteTotalNumber(){
+  try {
+    var t = buildQuoteTotals();
+    // buildQuoteTotals() returns an object with .total keyed as a number.
+    return (t && typeof t.total === 'number') ? t.total : Number(t && t.total) || 0;
+  } catch(_){ return 0; }
+}
+function _paymentsSum(){
+  var arr = (Q.payments || []);
+  var sum = 0;
+  for (var i=0;i<arr.length;i++){
+    var n = Number(arr[i] && arr[i].amount);
+    if (isFinite(n)) sum += n;
+  }
+  return sum;
+}
+function _paymentsBalance(){
+  var bal = _quoteTotalNumber() - _paymentsSum();
+  // Show 0 (not negative) if overpaid — Balance Outstanding shouldn't go red
+  // for an overpayment; that's a separate reporting concern.
+  return bal;
+}
+function _paymentTypeOptions(current){
+  var opts = ['Wire','ACH','Check','Credit Card','Cash','Other'];
+  return opts.map(function(o){
+    return '<option value="'+o+'"'+(o===current?' selected':'')+'>'+o+'</option>';
+  }).join('');
+}
+function renderPaymentsCard(){
+  var pmts = (Q.payments || []);
+  var totalPaid = _paymentsSum();
+  var balance = _paymentsBalance();
+  var quoteTotal = _quoteTotalNumber();
+  var fmt = function(v){ return (typeof fc==='function') ? fc(v||0, 2) : ('$'+(v||0).toFixed(2)); };
+  var todayISO = (function(){
+    var d = new Date();
+    var m = String(d.getMonth()+1).padStart(2,'0');
+    var day = String(d.getDate()).padStart(2,'0');
+    return d.getFullYear()+'-'+m+'-'+day;
+  })();
+  var isOverpaid = balance < 0;
+  var isPaidInFull = Math.abs(balance) < 0.005 && quoteTotal > 0;
+  var badgeColor = isPaidInFull ? '#4ade80'
+                : isOverpaid    ? '#c4b5fd'
+                : (pmts.length ? '#f0a500' : 'var(--mu)');
+  var badgeText  = isPaidInFull ? 'PAID IN FULL'
+                : isOverpaid    ? 'OVERPAID'
+                : (pmts.length  ? 'PARTIAL'    : 'UNPAID');
+  var rowsHtml = pmts.length ? pmts.map(function(p, idx){
+    var amt  = Number(p.amount) || 0;
+    var conf = p.confirmation ? esc(p.confirmation) : '<span style="color:var(--mu)">—</span>';
+    var note = p.notes ? '<div style="font-size:10px;color:var(--mu);margin-top:2px;font-style:italic">'+esc(p.notes)+'</div>' : '';
+    return '<div class="ar-pmt-row" style="display:grid;grid-template-columns:88px 82px 1fr 100px 26px;gap:8px;align-items:center;padding:8px 10px;background:rgba(4,15,30,.4);border:1px solid rgba(0,180,216,.14);border-radius:8px;margin-bottom:6px;font-size:11.5px">'
+      +'<div style="color:#cfe2eb;font-family:\'JetBrains Mono\',monospace;font-size:11px">'+esc(p.date||'')+'</div>'
+      +'<div style="color:#48cae4;font-weight:600">'+esc(p.type||'')+'</div>'
+      +'<div><div style="color:#fff">Conf: '+conf+'</div>'+note+'</div>'
+      +'<div style="text-align:right;color:#4ade80;font-weight:700;font-family:\'JetBrains Mono\',monospace">'+fmt(amt)+'</div>'
+      +'<button class="ar-pmt-del" data-action="delete-payment" data-pmt-id="'+esc(p.id||'')+'" title="Delete payment" style="background:transparent;border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:5px;width:24px;height:24px;line-height:1;font-size:14px;cursor:pointer;padding:0" type="button">×</button>'
+    +'</div>';
+  }).join('') : '<div style="color:var(--mu);font-size:11px;padding:12px;text-align:center;background:rgba(4,15,30,.3);border:1px dashed rgba(0,180,216,.18);border-radius:8px;margin-bottom:8px">No payments recorded yet</div>';
+
+  return '<div class="ar-card ar-fu" style="animation-delay:.18s">'
+    +'<div class="ar-card-title-row" style="display:flex;justify-content:space-between;align-items:center">'
+      +'<div class="ar-card-title">Payments Received <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">Ledger → Receipt page</span></div>'
+      +'<span style="font-family:\'Bebas Neue\',sans-serif;font-size:11px;letter-spacing:1.6px;color:'+badgeColor+';padding:3px 10px;border:1px solid '+badgeColor+';border-radius:99px">'+badgeText+'</span>'
+    +'</div>'
+    // Summary bar — Quote Total / Total Paid / Balance Outstanding
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0 12px">'
+      +'<div style="background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.22);border-radius:8px;padding:9px 11px">'
+        +'<div style="font-size:9.5px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;font-weight:600">Quote Total</div>'
+        +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:700;color:#fff;margin-top:2px">'+fmt(quoteTotal)+'</div>'
+      +'</div>'
+      +'<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.22);border-radius:8px;padding:9px 11px">'
+        +'<div style="font-size:9.5px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;font-weight:600">Total Paid</div>'
+        +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:700;color:#4ade80;margin-top:2px">'+fmt(totalPaid)+'</div>'
+      +'</div>'
+      +'<div style="background:rgba(240,165,0,.10);border:1px solid rgba(240,165,0,.30);border-radius:8px;padding:9px 11px">'
+        +'<div style="font-size:9.5px;letter-spacing:1.4px;color:var(--mu);text-transform:uppercase;font-weight:600">Balance Outstanding</div>'
+        +'<div style="font-family:\'JetBrains Mono\',monospace;font-size:15px;font-weight:700;color:'+(balance>0?'#f0a500':balance<0?'#c4b5fd':'#4ade80')+';margin-top:2px">'+fmt(balance)+'</div>'
+      +'</div>'
+    +'</div>'
+    // Ledger rows
+    +'<div id="ar2-pmt-rows">'+rowsHtml+'</div>'
+    // Add-payment inline form
+    +'<div style="border-top:1px dashed rgba(0,180,216,.22);margin-top:12px;padding-top:12px">'
+      +'<div style="font-size:10.5px;letter-spacing:1.2px;color:var(--mu);text-transform:uppercase;font-weight:600;margin-bottom:8px">Add Payment</div>'
+      +'<div style="display:grid;grid-template-columns:120px 130px 1fr 140px auto;gap:8px;align-items:end">'
+        +'<div><label style="display:block;font-size:9.5px;letter-spacing:1px;color:var(--mu);text-transform:uppercase;margin-bottom:3px">Date</label>'
+          +'<input type="date" id="ar2-pmt-date" value="'+todayISO+'" class="ar-inp" style="width:100%;padding:7px 8px;font-size:12px;background:rgba(4,15,30,.5);border:1px solid rgba(0,180,216,.28);color:#fff;border-radius:6px" /></div>'
+        +'<div><label style="display:block;font-size:9.5px;letter-spacing:1px;color:var(--mu);text-transform:uppercase;margin-bottom:3px">Type</label>'
+          +'<select id="ar2-pmt-type" class="ar-inp" style="width:100%;padding:7px 8px;font-size:12px;background:rgba(4,15,30,.5);border:1px solid rgba(0,180,216,.28);color:#fff;border-radius:6px">'+_paymentTypeOptions('Wire')+'</select></div>'
+        +'<div><label style="display:block;font-size:9.5px;letter-spacing:1px;color:var(--mu);text-transform:uppercase;margin-bottom:3px">Confirmation #</label>'
+          +'<input type="text" id="ar2-pmt-conf" placeholder="e.g. WIRE-88421 / Check #1092" class="ar-inp" style="width:100%;padding:7px 8px;font-size:12px;background:rgba(4,15,30,.5);border:1px solid rgba(0,180,216,.28);color:#fff;border-radius:6px" autocomplete="off" /></div>'
+        +'<div><label style="display:block;font-size:9.5px;letter-spacing:1px;color:var(--mu);text-transform:uppercase;margin-bottom:3px">Amount</label>'
+          +'<input type="number" step="0.01" min="0" id="ar2-pmt-amt" placeholder="0.00" class="ar-inp" style="width:100%;padding:7px 8px;font-size:12px;background:rgba(4,15,30,.5);border:1px solid rgba(0,180,216,.28);color:#fff;border-radius:6px;font-family:\'JetBrains Mono\',monospace" autocomplete="off" /></div>'
+        +'<button class="ar-btn primary" data-action="add-payment" type="button" style="padding:8px 16px;font-size:12px;font-weight:700;letter-spacing:1px">+ Add</button>'
+      +'</div>'
+      +'<div style="margin-top:8px"><label style="display:block;font-size:9.5px;letter-spacing:1px;color:var(--mu);text-transform:uppercase;margin-bottom:3px">Notes <span style="color:var(--mu);font-weight:400;letter-spacing:0;text-transform:none">(optional)</span></label>'
+        +'<input type="text" id="ar2-pmt-notes" placeholder="e.g. Deposit for equipment, invoice #INV-2026-042" class="ar-inp" style="width:100%;padding:6px 8px;font-size:11px;background:rgba(4,15,30,.5);border:1px solid rgba(0,180,216,.28);color:#fff;border-radius:6px" autocomplete="off" /></div>'
+    +'</div>'
   +'</div>';
 }
 
@@ -16998,7 +17134,84 @@ function buildQuoteHtml(){
       + qFooter
     + '</div>';
   }
-  return pageOrder + pageTerms + pagePay;
+  // ── Page 4: Receipt / Payment Ledger ──
+  // Renders when EX.inclReceipt is on, regardless of Quote-page toggles —
+  // reps commonly want to send just a Receipt to a customer without
+  // re-issuing the whole Quote / Order Form. Standalone "Download Receipt
+  // Only" button (Export step) flips only this toggle for its render pass.
+  var pageReceipt = '';
+  if (EX.inclReceipt){
+    var pmts = (Q.payments || []);
+    var totalPaid = 0;
+    for (var pi=0; pi<pmts.length; pi++){ var pn = Number(pmts[pi] && pmts[pi].amount); if (isFinite(pn)) totalPaid += pn; }
+    var quoteTotalPdf = (typeof _quoteTotalNumber === 'function') ? _quoteTotalNumber() : ((buildQuoteTotals() || {}).total || 0);
+    var balanceDue = quoteTotalPdf - totalPaid;
+    var fmtPdf = function(v){ return (typeof fc==='function') ? fc(v||0, 2) : ('$'+(v||0).toFixed(2)); };
+    var receiptStatus = (Math.abs(balanceDue) < 0.005 && quoteTotalPdf > 0) ? 'PAID IN FULL'
+                       : (balanceDue < 0) ? 'OVERPAID' : (pmts.length ? 'PARTIAL PAYMENT' : 'UNPAID');
+    var receiptStatusColor = (receiptStatus === 'PAID IN FULL') ? '#22a06b'
+                            : (receiptStatus === 'OVERPAID')    ? '#8b5cf6' : '#c77300';
+    var receiptDate = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+    var rowsPdf = pmts.length
+      ? pmts.map(function(p, i){
+          var amt = Number(p.amount) || 0;
+          return '<tr'+(i%2?' style="background:#f8fbfc"':'')+'>'
+            + '<td style="padding:9px 10px;border-bottom:1px solid #e2ecf1;font-family:\'JetBrains Mono\',monospace;font-size:10.5px">'+esc(p.date||'')+'</td>'
+            + '<td style="padding:9px 10px;border-bottom:1px solid #e2ecf1;font-weight:600">'+esc(p.type||'')+'</td>'
+            + '<td style="padding:9px 10px;border-bottom:1px solid #e2ecf1;font-family:\'JetBrains Mono\',monospace;font-size:10.5px">'+esc(p.confirmation||'—')+'</td>'
+            + '<td style="padding:9px 10px;border-bottom:1px solid #e2ecf1;color:#4b5b66;font-style:italic;font-size:10px">'+esc(p.notes||'')+'</td>'
+            + '<td style="padding:9px 10px;border-bottom:1px solid #e2ecf1;text-align:right;font-family:\'JetBrains Mono\',monospace;font-weight:700;color:#22a06b">'+fmtPdf(amt)+'</td>'
+          + '</tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="padding:20px;text-align:center;color:#7d8a96;font-style:italic">No payments recorded.</td></tr>';
+    pageReceipt = '<div class="rpt-es-page rpt-q-page rpt-q-page-receipt">'
+      + qHeader.replace('<div class="rpt-es-logo">' + docKindLabel + '</div>', '<div class="rpt-es-logo">RECEIPT</div>')
+      + '<div class="rpt-q-body" style="display:flex;flex-direction:column;gap:12px">'
+        + quoteTopRowHtml('Receipt of Payment')
+        // Buyer + issue block — Receipt header shows who the receipt is for
+        + '<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px">'
+          + '<div style="background:#f8fbfc;border:1px solid #e2ecf1;border-radius:6px;padding:12px 14px">'
+            + '<div style="font-size:9px;letter-spacing:1.4px;color:#7d8a96;text-transform:uppercase;font-weight:700;margin-bottom:6px">Receipt Issued To</div>'
+            + '<div style="font-size:13px;font-weight:700;color:#0a2540">'+esc(Q.buyerName || S.propertyName || 'Customer')+'</div>'
+            + ((Q.buyerAddr) ? '<div style="font-size:10.5px;color:#4b5b66;margin-top:3px;white-space:pre-line">'+esc(Q.buyerAddr)+'</div>' : '')
+            + ((Q.buyerContact) ? '<div style="font-size:10.5px;color:#4b5b66;margin-top:3px">Attn: '+esc(Q.buyerContact)+'</div>' : '')
+            + ((Q.buyerEmail) ? '<div style="font-size:10.5px;color:#4b5b66;margin-top:2px">'+esc(Q.buyerEmail)+'</div>' : '')
+            + ((Q.buyerPhone) ? '<div style="font-size:10.5px;color:#4b5b66;margin-top:2px">'+esc(Q.buyerPhone)+'</div>' : '')
+          + '</div>'
+          + '<div style="background:#f8fbfc;border:1px solid #e2ecf1;border-radius:6px;padding:12px 14px">'
+            + '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:10.5px"><span style="color:#7d8a96">Issued</span><b style="color:#0a2540">'+receiptDate+'</b></div>'
+            + '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:10.5px"><span style="color:#7d8a96">Reference</span><b style="color:#0a2540;font-family:\'JetBrains Mono\',monospace">'+esc(Q.quoteId || '—')+'</b></div>'
+            + ((Q.po) ? '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:10.5px"><span style="color:#7d8a96">Buyer PO#</span><b style="color:#0a2540;font-family:\'JetBrains Mono\',monospace">'+esc(Q.po)+'</b></div>' : '')
+            + '<div style="display:flex;justify-content:space-between;padding:6px 0 2px;font-size:10.5px;border-top:1px solid #e2ecf1;margin-top:6px"><span style="color:#7d8a96">Status</span><b style="color:'+receiptStatusColor+'">'+receiptStatus+'</b></div>'
+          + '</div>'
+        + '</div>'
+        // Payment ledger table
+        + '<div>'
+          + '<div style="font-size:10px;letter-spacing:1.5px;color:#7d8a96;text-transform:uppercase;font-weight:700;margin-bottom:6px">Payment History</div>'
+          + '<table style="width:100%;border-collapse:collapse;font-size:11px;background:#fff;border:1px solid #e2ecf1;border-radius:6px;overflow:hidden">'
+            + '<thead><tr style="background:#0a2540;color:#fff">'
+              + '<th style="padding:9px 10px;text-align:left;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">Date</th>'
+              + '<th style="padding:9px 10px;text-align:left;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">Method</th>'
+              + '<th style="padding:9px 10px;text-align:left;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">Confirmation #</th>'
+              + '<th style="padding:9px 10px;text-align:left;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">Notes</th>'
+              + '<th style="padding:9px 10px;text-align:right;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">Amount</th>'
+            + '</tr></thead>'
+            + '<tbody>'+rowsPdf+'</tbody>'
+          + '</table>'
+        + '</div>'
+        // Totals summary
+        + '<div style="margin-left:auto;width:52%;background:#f8fbfc;border:1px solid #e2ecf1;border-radius:6px;padding:12px 16px">'
+          + '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px"><span style="color:#4b5b66">Quote Total</span><b style="font-family:\'JetBrains Mono\',monospace;color:#0a2540">'+fmtPdf(quoteTotalPdf)+'</b></div>'
+          + '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px"><span style="color:#4b5b66">Total Paid</span><b style="font-family:\'JetBrains Mono\',monospace;color:#22a06b">'+fmtPdf(totalPaid)+'</b></div>'
+          + '<div style="display:flex;justify-content:space-between;padding:8px 0 2px;font-size:12.5px;border-top:2px solid #0a2540;margin-top:6px"><span style="color:#0a2540;font-weight:700">Balance Outstanding</span><b style="font-family:\'JetBrains Mono\',monospace;color:'+(balanceDue>0.005?'#c77300':balanceDue<-0.005?'#8b5cf6':'#22a06b')+'">'+fmtPdf(balanceDue)+'</b></div>'
+        + '</div>'
+        // Footer note
+        + '<div style="margin-top:auto;padding-top:10px;border-top:1px solid #e2ecf1;font-size:9.5px;color:#7d8a96;text-align:center;line-height:1.5">Thank you for your payment. This receipt confirms payment(s) received against the referenced Quote / Order. Retain for your records. Questions? Contact AquaRev Water — water@AquaRevWater.us</div>'
+      + '</div>'
+      + qFooter
+    + '</div>';
+  }
+  return pageOrder + pageTerms + pagePay + pageReceipt;
 }
 
 function generateReport(){
@@ -18617,6 +18830,13 @@ function renderExportSection(){
           +'<div class="ar-toggle-row"><label>Include Payment Form Page</label>'
             +'<div class="ar-sw-track'+(EX.inclQuotePayment?' on':'')+'" data-ex-sw="inclQuotePayment"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
+          // Receipt toggle — bundles the payment ledger + balance-outstanding
+          // page into the unified PDF. Only relevant when payments have been
+          // recorded on the Quote step; toggle still renders when empty so the
+          // rep can see the option exists.
+          +'<div class="ar-toggle-row"><label>Include Receipt Page <span style="font-size:9px;color:var(--mu);letter-spacing:.5px">('+((Q.payments||[]).length)+' payment'+(((Q.payments||[]).length)===1?'':'s')+' recorded)</span></label>'
+            +'<div class="ar-sw-track'+(EX.inclReceipt?' on':'')+'" data-ex-sw="inclReceipt"><div class="ar-sw-thumb"></div></div>'
+          +'</div>'
           +'<p class="ar-export-note" style="margin-top:4px">Configure quote details on Step 4 (Quote). Each page is appended independently in the unified PDF.</p>'
         +'</div>';
     })()
@@ -18658,6 +18878,16 @@ function renderExportSection(){
       +'<button class="ar-gen-btn" data-action="gen-report"'+(EX.exporting?' disabled':'')+'>Download</button>'
       +'<button class="ar-gen-btn" data-action="save-report" style="background:linear-gradient(135deg,var(--gr),#4ade80);color:var(--nv)"'+(EX.saving?' disabled':'')+'>Save</button>'
     +'</div>'
+    // Standalone "Receipt only" download \u2014 dimmed until at least one payment
+    // is recorded. Triggers the same generateReport() pipeline but with all
+    // sections OFF except inclReceipt, producing a single-page Receipt PDF
+    // for the customer.
+    +(function(){
+      var hasPayments = (Q.payments || []).length > 0;
+      return '<button class="ar-gen-btn" data-action="download-receipt-only" type="button"'+(hasPayments?'':' disabled')+' style="width:100%;margin-top:8px;background:'+(hasPayments?'linear-gradient(135deg,#a855f7,#c084fc)':'rgba(4,15,30,.5)')+';color:'+(hasPayments?'#fff':'var(--mu)')+';border:1px solid '+(hasPayments?'transparent':'rgba(0,180,216,.15)')+';font-weight:700;letter-spacing:1px">'
+        +(hasPayments ? '\u2193 Download Receipt Only' : 'Add a payment on Step 4 to enable Receipt download')
+      +'</button>';
+    })()
     +'<div class="ar-save-toast'+(EX.saveStatus?(' show'+(EX.saveStatus==='error'?' err':'')):'')+'">'+I.check+' '+(EX.saveStatus==='error'?'Save failed \u2014 try again':'Saved to Archive')+'</div>'
   +'</div>';
 }
@@ -18799,6 +19029,26 @@ function handleClick(e){
   if(genBtn){ generateReport(); return; }
   var prevBtn=e.target.closest('[data-action="preview-report"]');
   if(prevBtn){ EX.previewing=true; generateReport(); return; }
+  // Download Receipt Only — snapshot every EX.incl* toggle, force only
+  // inclReceipt=true, run generateReport(), then restore the original
+  // toggles. This delivers a single-page Receipt PDF without disturbing
+  // the rep's other export configuration.
+  var receiptOnlyBtn=e.target.closest('[data-action="download-receipt-only"]');
+  if(receiptOnlyBtn){
+    if (!Array.isArray(Q.payments) || Q.payments.length === 0){ return; }
+    var _snapKeys = ['inclCover','inclFactSheet','inclBackCover','inclPoolProfiles','inclExecSummary',
+                     'inclLsCover','inclLsExecSummary','inclLsP2Col3Photos','inclLsBackCover',
+                     'inclQuote','inclQuoteTerms','inclQuotePayment','inclReceipt','inclWater'];
+    var _snap = {};
+    _snapKeys.forEach(function(k){ _snap[k] = EX[k]; });
+    _snapKeys.forEach(function(k){ EX[k] = false; });
+    EX.inclReceipt = true;
+    try { generateReport(); }
+    finally {
+      _snapKeys.forEach(function(k){ EX[k] = _snap[k]; });
+    }
+    return;
+  }
   // Quote step Preview button — auto-enables the 3 quote-page toggles so
   // the rep doesn't have to bounce to Export and toggle each one. Other
   // export toggles stay as-is so the preview shows whatever bundle is
@@ -19827,6 +20077,43 @@ function handleClick(e){
   // Quote step — payment method radio
   var qPay=e.target.closest('[data-q-pay]');
   if(qPay){ Q.paymentMethod=(Q.paymentMethod===qPay.dataset.qPay?'':qPay.dataset.qPay); renderForm(); return; }
+  // Quote step — Payments ledger: Add Payment button reads the 5 inline
+  // inputs, validates amount > 0, appends to Q.payments, and re-renders
+  // the Quote form so the ledger + balance chips update immediately.
+  var addPmt=e.target.closest('[data-action="add-payment"]');
+  if(addPmt){
+    var dateEl  = document.getElementById('ar2-pmt-date');
+    var typeEl  = document.getElementById('ar2-pmt-type');
+    var confEl  = document.getElementById('ar2-pmt-conf');
+    var amtEl   = document.getElementById('ar2-pmt-amt');
+    var notesEl = document.getElementById('ar2-pmt-notes');
+    var amt = amtEl ? parseFloat(amtEl.value) : 0;
+    if (!isFinite(amt) || amt <= 0){
+      if (amtEl){ amtEl.focus(); amtEl.style.borderColor = '#ef4444'; setTimeout(function(){ amtEl.style.borderColor=''; }, 1200); }
+      return;
+    }
+    if (!Array.isArray(Q.payments)) Q.payments = [];
+    Q.payments.push({
+      id: 'pmt_' + Math.random().toString(36).slice(2,10) + '_' + (Q.payments.length+1),
+      amount: Math.round(amt * 100) / 100,
+      date:   (dateEl && dateEl.value) || '',
+      type:   (typeEl && typeEl.value) || 'Other',
+      confirmation: (confEl && confEl.value.trim()) || '',
+      notes:  (notesEl && notesEl.value.trim()) || ''
+    });
+    renderForm();
+    return;
+  }
+  // Quote step — Payments ledger: delete a specific payment row.
+  var delPmt=e.target.closest('[data-action="delete-payment"]');
+  if(delPmt){
+    var pid = delPmt.dataset.pmtId;
+    if (Array.isArray(Q.payments) && pid){
+      Q.payments = Q.payments.filter(function(p){ return p && p.id !== pid; });
+      renderForm();
+    }
+    return;
+  }
   // Quote step — Rich-text editor toolbar. The companion mousedown handler
   // (registered separately) preventDefaults so the click doesn't move focus
   // out of the contenteditable div, preserving the selection for execCommand.
