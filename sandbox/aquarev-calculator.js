@@ -15360,6 +15360,26 @@ function patchBodyGallons(bodyId){
   if(totEl) totEl.textContent=fn(S.pool_gallons)+' gal';
 }
 
+/* ── Effective discount (single source of truth) ────────────────────
+   The Pricing step slider (S.discount) is the default. The Quote step can
+   override it per-quote via Q.discountPct (null = inherit). Every consumer
+   — calcROI() (ROI / payback / investment for the summary, KPIs, exec
+   summary, PDF, portfolio roll-up), buildQuoteTotals() (quote math) and
+   the Quote form display — MUST resolve the discount through this helper
+   so a quote-level override recalculates the whole assessment, not just
+   the quote page. Previously calcROI() read S.discount directly, so a
+   discount entered on the Quote step never reached ROI / summary totals. */
+function effectiveDiscount(){
+  var q = (typeof Q !== 'undefined') ? Q.discountPct : null;
+  if (q === null || q === undefined || q === '') return Number(S.discount)||0;
+  var n = Number(q);
+  return isFinite(n) ? Math.min(1, Math.max(0, n)) : (Number(S.discount)||0);
+}
+function discountSourceLabel(){
+  var q = (typeof Q !== 'undefined') ? Q.discountPct : null;
+  return (q === null || q === undefined || q === '') ? 'Pricing slider' : 'Quote override';
+}
+
 /* ── Calculation (derived from types.ts structure + ResultsDashboard output fields) ── */
 function calcROI(){
   // Exactly mirrors calc.ts / Excel workbook formulas
@@ -15372,7 +15392,9 @@ function calcROI(){
   // ── Devices & investment ──
   var total_dev=S.pipe_2in+S.pipe_3in+S.pipe_4in+S.pipe_6in+S.pipe_8in+S.pipe_10in;
   var inv_full=S.pipe_2in*2995+S.pipe_3in*4495+S.pipe_4in*6495+S.pipe_6in*14995+S.pipe_8in*29995+S.pipe_10in*74995;
-  var disc=Number(S.discount)||0;
+  // Resolve through effectiveDiscount() so a Quote-step override flows into
+  // investment → payback → ROI → net5 (and everything downstream that reads R).
+  var disc=effectiveDiscount();
   var disc_amt=inv_full*disc;
   var inv=inv_full-disc_amt;
 
@@ -15975,7 +15997,7 @@ function renderStep2(){
     +'</div>'
     +'<div class="ar-review-section">'
       +'<div class="ar-review-hd">Pricing &amp; Settings <span class="ar-review-edit" data-goto="1">Edit</span></div>'
-      +'<div class="ar-review-row"><span>Discount</span><span>'+Math.round(S.discount*100)+'%</span></div>'
+      +'<div class="ar-review-row"><span>Discount</span><span>'+(effectiveDiscount()*100).toFixed(2).replace(/\.?0+$/,'')+'% <span style="color:var(--mu);font-size:10px">('+discountSourceLabel()+')</span></span></div>'
       +'<div class="ar-review-row"><span>Savings Weight</span><span>'+Math.round(S.savings_weight*100)+'%</span></div>'
       +'<div class="ar-review-row"><span>Water Cost</span><span>$'+fd(S.water_cost_per_gal,4)+'/gal</span></div>'
     +'</div>'
@@ -16051,9 +16073,7 @@ function buildQuoteTotals(){
   // overrides it in the Quote form. Stored as a fraction (0..1). Applied
   // ONLY to the equipment subtotal — add-ons / services / shipping never
   // get discounted.
-  var discPct = (Q.discountPct === null || Q.discountPct === undefined)
-    ? (Number(S.discount)||0)
-    : (Number(Q.discountPct)||0);
+  var discPct = effectiveDiscount();
   var discAmt = equipSubTotal * discPct;
   var taxableAfter=Math.max(0,taxable-discAmt);
   var other=Number(Q.otherFee)||0;
@@ -16128,9 +16148,7 @@ function renderStepQuote(){
   // prints "INCLUDED" on the rendered Quote and excludes the row from the
   // totals math.
   var qTotals=buildQuoteTotals();
-  var discPctVal = (Q.discountPct === null || Q.discountPct === undefined)
-    ? (Number(S.discount)||0)*100
-    : (Number(Q.discountPct)||0)*100;
+  var discPctVal = effectiveDiscount()*100;
   var discPctSourceLabel = (Q.discountPct === null || Q.discountPct === undefined)
     ? 'auto from Pricing slider'
     : 'manual override';
@@ -16202,13 +16220,14 @@ function renderStepQuote(){
   +'</div>';
   // Totals card (no longer holds the discount input — that lives in Line
   // Items directly under Equipment). Just shows the math + deposit / balance.
+  // Display rows are wrapped in ids so patchQuoteTotals() can refresh them
+  // in place when the discount / other fee / deposit change — without
+  // re-rendering the whole form (which would steal focus from the input).
   var totals='<div class="ar-card ar-fu" style="animation-delay:.10s">'
     +'<div class="ar-card-title">Totals</div>'
-    +'<div class="ar-q-tot-row"><span>Sub-Total</span><b>'+fc(qTotals.subTotal,0)+'</b></div>'
-    +(qTotals.discount>0?'<div class="ar-q-tot-row" style="color:var(--gr)"><span>Discount ('+(qTotals.discountPct*100).toFixed(2)+'% of Equipment)</span><b>-'+fc(qTotals.discount,0)+'</b></div>':'')
-    +'<div class="ar-q-tot-row"><span>Tax Due (sum of per-line)</span><b>'+fc(qTotals.taxDue,0)+'</b></div>'
+    +'<div id="ar2-q-totals-top">'+renderQuoteTotalsTop(qTotals)+'</div>'
     +'<div class="ar-form-row" style="margin-top:8px"><label>Other Fee ($)</label><input type="number" step="0.01" class="ar-inp" data-q="otherFee" value="'+(Number(Q.otherFee)||0)+'"></div>'
-    +'<div class="ar-q-tot-row strong"><span>TOTAL</span><span>'+fc(qTotals.total,0)+'</span></div>'
+    +'<div id="ar2-q-totals-total">'+renderQuoteTotalsTotal(qTotals)+'</div>'
     +'<div class="ar-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
       +'<div><label>Deposit (%)</label><input type="number" step="1" min="0" max="100" class="ar-inp" data-q="depositPct" value="'+(Number(Q.depositPct)||0)+'"></div>'
       +'<div><label>Deposit Due Date</label><input type="date" class="ar-inp" data-q="depositDueDate" value="'+esc(Q.depositDueDate)+'"></div>'
@@ -16323,6 +16342,41 @@ function _paymentTypeOptions(current){
     return '<option value="'+o+'"'+(o===current?' selected':'')+'>'+o+'</option>';
   }).join('');
 }
+/* ── Quote totals display rows + in-place refreshers ─────────────────
+   renderStepQuote() builds the Totals card from these two helpers and
+   wraps them in #ar2-q-totals-top / #ar2-q-totals-total. The discount /
+   other-fee / deposit input handlers call patchQuoteTotals() so the math
+   updates live without a full form re-render (keeps input focus). */
+function renderQuoteTotalsTop(t){
+  return '<div class="ar-q-tot-row"><span>Sub-Total</span><b>'+fc(t.subTotal,0)+'</b></div>'
+    +(t.discount>0?'<div class="ar-q-tot-row" style="color:var(--gr)"><span>Discount ('+(t.discountPct*100).toFixed(2)+'% of Equipment)</span><b>-'+fc(t.discount,0)+'</b></div>':'')
+    +'<div class="ar-q-tot-row"><span>Tax Due (sum of per-line)</span><b>'+fc(t.taxDue,0)+'</b></div>';
+}
+function renderQuoteTotalsTotal(t){
+  return '<div class="ar-q-tot-row strong"><span>TOTAL</span><span>'+fc(t.total,0)+'</span></div>';
+}
+function patchQuoteTotals(){
+  var top=document.getElementById('ar2-q-totals-top');
+  var tot=document.getElementById('ar2-q-totals-total');
+  if(!top && !tot) return;
+  var t=buildQuoteTotals();
+  if(top) top.innerHTML=renderQuoteTotalsTop(t);
+  if(tot) tot.innerHTML=renderQuoteTotalsTotal(t);
+}
+/* Re-render the Payments card in place (balance outstanding depends on the
+   quote total). Preserves any half-typed Add Payment inputs. */
+function patchPaymentsCard(){
+  var el=document.getElementById('ar2-payments-card');
+  if(!el) return;
+  var keep={};
+  ['ar2-pmt-date','ar2-pmt-type','ar2-pmt-conf','ar2-pmt-amt','ar2-pmt-notes'].forEach(function(id){
+    var i=document.getElementById(id); if(i) keep[id]=i.value;
+  });
+  el.outerHTML=renderPaymentsCard();
+  Object.keys(keep).forEach(function(id){
+    var i=document.getElementById(id); if(i && keep[id]!=='') i.value=keep[id];
+  });
+}
 function renderPaymentsCard(){
   var pmts = (Q.payments || []);
   var totalPaid = _paymentsSum();
@@ -16356,7 +16410,7 @@ function renderPaymentsCard(){
     +'</div>';
   }).join('') : '<div style="color:var(--mu);font-size:11px;padding:12px;text-align:center;background:rgba(4,15,30,.3);border:1px dashed rgba(0,180,216,.18);border-radius:8px;margin-bottom:8px">No payments recorded yet</div>';
 
-  return '<div class="ar-card ar-fu" style="animation-delay:.18s">'
+  return '<div class="ar-card ar-fu" id="ar2-payments-card" style="animation-delay:.18s">'
     +'<div class="ar-card-title-row" style="display:flex;justify-content:space-between;align-items:center">'
       +'<div class="ar-card-title">Payments Received <span style="font-size:10px;font-weight:500;color:var(--mu);letter-spacing:0;text-transform:none;margin-left:6px">Ledger → Receipt page</span></div>'
       +'<span style="font-family:\'Bebas Neue\',sans-serif;font-size:11px;letter-spacing:1.6px;color:'+badgeColor+';padding:3px 10px;border:1px solid '+badgeColor+';border-radius:99px">'+badgeText+'</span>'
@@ -20582,7 +20636,11 @@ function handleInput(e){
     var lineKey = el.dataset.qLineTax;
     if(!Q.lineTax) Q.lineTax = {};
     Q.lineTax[lineKey] = (parseFloat(el.value)||0)/100;
-    if(S.step===3){ renderDevices(); renderResults(); }
+    if(S.step===3){
+      renderResults();
+      try { patchQuoteTotals(); } catch(_){}
+      try { patchPaymentsCard(); } catch(_){}
+    }
     return;
   }
   // Quote discount % override. Stored as fraction 0..1 in Q.discountPct.
@@ -20590,7 +20648,15 @@ function handleInput(e){
   if(el.hasAttribute('data-q-disc-pct')){
     var v = el.value;
     Q.discountPct = (v === '' || v === null) ? null : (parseFloat(v)||0)/100;
-    if(S.step===3) renderResults();
+    if(S.step===3){
+      // Results column (Live Preview) re-renders with new quote totals AND
+      // the ROI now recalculates through effectiveDiscount(). Also refresh
+      // the in-form totals block + Payments card in place (no full form
+      // re-render, so the discount input keeps focus while typing).
+      renderResults();
+      try { if (typeof patchQuoteTotals === 'function') patchQuoteTotals(); } catch(_){}
+      try { if (typeof patchPaymentsCard === 'function') patchPaymentsCard(); } catch(_){}
+    }
     return;
   }
   // Quote form fields — text/number/date/textarea inputs all funnel here.
@@ -20606,8 +20672,16 @@ function handleInput(e){
     } else {
       Q[qkey]=raw;
     }
-    // Live-update the middle col preview as the rep types.
-    if(S.step===3) renderDevices();
+    // Live-update as the rep types. On the Quote step the devices column is
+    // hidden (renderDevices() paints nothing there) — the Live Preview lives
+    // in the results column, and the Totals + Payments cards are patched in
+    // place so Other Fee / Deposit / Services / Warranty / Shipping edits
+    // flow through to TOTAL and Balance Outstanding immediately.
+    if(S.step===3){
+      renderResults();
+      try { patchQuoteTotals(); } catch(_){}
+      try { patchPaymentsCard(); } catch(_){}
+    }
     return;
   }
   // Slider field
