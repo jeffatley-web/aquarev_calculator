@@ -2924,6 +2924,16 @@ window.AR2_PF = (function(){
       poolProfiles:         true,
       poolProfilesLayout:   'cards',        // 'cards' | 'list' (compact rows grouped by property)
       perProperty:          true,
+      // Per-property Assessment pages — one full assessment page per
+      // property, grouped after Property Profiles and BEFORE the Pool
+      // Profile cards / list.
+      propertyAssessments:  true,
+      // 60-Month Finance Terms master switch. OFF (default) = every page
+      // prints purchase-only (Portfolio Assessment, Exec Summary, per-
+      // property Assessment pages, Pool Profile cards). ON = the Advantage
+      // Plan / 60-month payment option prints alongside purchase. Overrides
+      // whatever scenario each property was saved with.
+      financeTerms:         false,
       quote:                false,           // off by default; flips true after Quote unlock
       stdTerms:             true,
       backCover:            true,
@@ -3023,9 +3033,11 @@ window.AR2_PF = (function(){
       +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
       +     _expRow('cover',           'Cover Page',           'Portfolio name + buyer info',                                                                       st.cover)
       +     _expRow('execSummary',     'Executive Summary',    'Rolled-up KPIs across all properties',                                                              st.execSummary)
-      +     _expRow('perProperty',     'Portfolio Assessment', 'Portfolio summary + per-property assessment pages',                                                 st.perProperty)
+      +     _expRow('financeTerms',    '60-Month Finance Terms', st.financeTerms ? 'Advantage Plan / monthly payment option prints on every page' : 'Off — all pages print purchase-only pricing', st.financeTerms)
+      +     _expRow('perProperty',     'Portfolio Assessment', 'One-page summary of the whole portfolio',                                                            st.perProperty)
       +     _expRow('propertyProfile', 'Property Profiles',    propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list',           st.propertyProfile)
       +     _expSubRow('propertyProfileLayout', [{value:'cards',label:'Cards'},{value:'list-by-country',label:'List by Country'}], st.propertyProfileLayout)
+      +     _expRow('propertyAssessments', 'Property Assessment Pages', 'One assessment page per property — placed before the pool profiles',                    st.propertyAssessments)
       +     _expRow('poolProfiles',    'Property Pool Profiles','Pool detail grouped by property — cards or compact list',                                          st.poolProfiles)
       +     _expSubRow('poolProfilesLayout',    [{value:'cards',label:'Cards'},{value:'list',label:'List'}],                                  st.poolProfilesLayout)
       +     quoteRow
@@ -5107,8 +5119,10 @@ function buildPortfolioReportPreview(pid, mode){
     //     exec summaries are suppressed in the capture loop below to
     //     prevent duplication.
     // ──────────────────────────────────────────────────────────────
+    // Portfolio-level presentation options threaded into every page builder.
+    var pfOpts = { financeTerms: !!st.financeTerms };
     if (st.execSummary && states.length){
-      var portfolioExecHtml = buildPortfolioExecSummaryPageHtml(pName, states, roll, today);
+      var portfolioExecHtml = buildPortfolioExecSummaryPageHtml(pName, states, roll, today, pfOpts);
       if (portfolioExecHtml) sections.push(portfolioExecHtml);
     }
 
@@ -5121,7 +5135,7 @@ function buildPortfolioReportPreview(pid, mode){
     //     suppress it if they want bare per-property pages only.
     // ──────────────────────────────────────────────────────────────
     if (st.perProperty && states.length){
-      var portfolioAssessmentHtml = buildPortfolioAssessmentPageHtml(pName, states, roll, today);
+      var portfolioAssessmentHtml = buildPortfolioAssessmentPageHtml(pName, states, roll, today, pfOpts);
       if (portfolioAssessmentHtml) sections.push(portfolioAssessmentHtml);
     }
 
@@ -5144,10 +5158,9 @@ function buildPortfolioReportPreview(pid, mode){
     //      cards per page.)
     // ──────────────────────────────────────────────────────────────
     var poolProfilesUseList = (st.poolProfiles && st.poolProfilesLayout === 'list');
-    if (poolProfilesUseList){
-      var plPages = buildPortfolioPoolProfilesListPages(pName, states, today);
-      for (var pli = 0; pli < plPages.length; pli++) sections.push(plPages[pli]);
-    }
+    // Built here, pushed BELOW — the per-property Assessment pages must
+    // precede the pool profiles regardless of Cards / List layout.
+    var plPages = poolProfilesUseList ? buildPortfolioPoolProfilesListPages(pName, states, today) : [];
 
     // ──────────────────────────────────────────────────────────────
     //  3. Per-Property Pages — hydrate each property's state into the
@@ -5166,7 +5179,7 @@ function buildPortfolioReportPreview(pid, mode){
     //     selected the List layout (rendered above).
     // ──────────────────────────────────────────────────────────────
     var poolProfilesUseCapture = (st.poolProfiles && st.poolProfilesLayout !== 'list');
-    if (poolProfilesUseCapture || st.perProperty){
+    if (poolProfilesUseCapture || st.propertyAssessments){
       // Split buckets: pool profile pages get grouped together (right after
       // Property Profiles), then per-property Assessment / Exec pages follow.
       var _capPoolPages = [];
@@ -5212,7 +5225,14 @@ function buildPortfolioReportPreview(pid, mode){
           // duplicate exec pages later in the doc.
           EX.inclExecSummary   = false;
           EX.inclLsExecSummary = false;                   // portrait only
-          EX.inclPoolProfiles  = !!poolProfilesUseCapture; // Cards mode only; List mode is rendered separately above
+          EX.inclPoolProfiles  = !!poolProfilesUseCapture; // Cards mode only; List mode is rendered separately below
+          // Portfolio-level 60-Month Finance master switch (Export panel).
+          // OFF → purchase-only everywhere; ON → Advantage + Purchase boxes.
+          // Overrides whatever scenario the property was saved with, so a
+          // property created inside the portfolio (no per-property toggle)
+          // and one copied in from a single assessment render identically.
+          EX.bothScenarios     = !!st.financeTerms;
+          EX.scenario          = st.financeTerms ? 'advantage' : 'purchase';
           EX.layout            = 'portrait';
           EX._captureMode      = true;
           // Property name flows through S.propertyName for the per-property
@@ -5262,14 +5282,18 @@ function buildPortfolioReportPreview(pid, mode){
           for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
         }
       }
-      // Append in the user-specified order: all Pool Profile pages first
-      // (grouped together right after Property Profiles), then per-property
-      // Assessment / Exec Summary pages.
-      // Per-property capture only contributes Pool Profile pages now.
-      // The Assessment page is owned by the portfolio-level builder
-      // (buildPortfolioAssessmentPageHtml) — appending the per-property
-      // Assessment captures here would duplicate it in the output.
+      // Order: per-property Assessment pages (Export toggle) → Pool
+      // Profiles (cards from the capture, or the compact list). The
+      // assessments always precede the pool profile pages.
+      if (st.propertyAssessments){
+        for (var crp = 0; crp < _capRestPages.length; crp++) sections.push(_capRestPages[crp]);
+      }
+      for (var pli = 0; pli < plPages.length; pli++) sections.push(plPages[pli]);
       for (var cpp = 0; cpp < _capPoolPages.length; cpp++) sections.push(_capPoolPages[cpp]);
+    } else {
+      // No capture pass needed (no cards, no per-property assessments) —
+      // the compact list, if selected, still goes here.
+      for (var pli2 = 0; pli2 < plPages.length; pli2++) sections.push(plPages[pli2]);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -5345,7 +5369,7 @@ function buildPortfolioReportPreview(pid, mode){
    then extract ONLY the .rpt-es-page blocks. Renders at the TOP of the
    document (right after Cover) so reps see the rolled-up executive narrative
    before any per-property detail. */
-function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
+function buildPortfolioExecSummaryPageHtml(pName, states, roll, today, opts){
   if (!states || !states.length) return '';
   if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
   // Aggregate the same totals the Assessment page uses
@@ -5424,6 +5448,9 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
     EX.inclQuoteTerms     = false;
     EX.inclQuotePayment   = false;
     EX.layout             = 'portrait';
+    // Portfolio-level 60-Month Finance master switch (see _defaultExportState).
+    EX.bothScenarios      = !!(opts && opts.financeTerms);
+    EX.scenario           = EX.bothScenarios ? 'advantage' : 'purchase';
     EX.images             = [];
     // Populate Video Resources with DEFAULT_YT_URLS so the media row renders
     // (it's the bottom-pinned slot — without it the body collapses and the
@@ -5472,7 +5499,7 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today){
   }
 }
 
-function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
+function buildPortfolioAssessmentPageHtml(pName, states, roll, today, opts){
   if (!states || !states.length) return '';
   if (typeof generateReport !== 'function' || typeof PIPES === 'undefined') return '';
 
@@ -5574,6 +5601,9 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today){
     EX.inclQuoteTerms     = false;
     EX.inclQuotePayment   = false;
     EX.layout             = 'portrait';
+    // Portfolio-level 60-Month Finance master switch (see _defaultExportState).
+    EX.bothScenarios      = !!(opts && opts.financeTerms);
+    EX.scenario           = EX.bothScenarios ? 'advantage' : 'purchase';
     EX.images             = [];
     // Populate Video Resources with DEFAULT_YT_URLS so the media row renders
     // (it's the bottom-pinned slot — without it the body collapses and the
@@ -8645,10 +8675,17 @@ function populateAdminDashboard(){
       set('ar-admin-kpi-pools', (typeof fn==='function'?fn(k.poolsTotal):String(k.poolsTotal)));
       set('ar-admin-kpi-value', (typeof fc==='function'?fc(Math.round(k.valueTotal),0):('$'+Math.round(k.valueTotal))));
     }).catch(function(err){
-      // Surface the failure so the silent em-dash placeholder doesn't hide
-      // a real problem (RLS denial, schema change, network error). Console
-      // is the only signal — the UI just stays on em-dashes intentionally.
+      // Surface the failure in the UI as well as the console — em-dashes
+      // alone hid a statement-timeout regression for days. Tiles show
+      // "n/a" with the error message as a tooltip.
       try { console.error('[admin KPI] statsAdminKpis failed:', err); } catch(_){}
+      try {
+        var msg = (err && (err.message || err.details)) || 'KPI query failed';
+        ['ar-admin-kpi-7d','ar-admin-kpi-ass','ar-admin-kpi-pf','ar-admin-kpi-prop','ar-admin-kpi-pools','ar-admin-kpi-value'].forEach(function(id){
+          var el = document.getElementById(id);
+          if (el){ el.textContent = 'n/a'; el.title = msg; el.style.color = '#fca5a5'; }
+        });
+      } catch(_){}
     });
   }
   // User-stats table — admin-only. Regular users don't see other users'
@@ -10310,7 +10347,7 @@ function adminReviewSetStatus(newStatus){
 var ADMIN_CHART_COLORS = ['#00b4d8','#f0a500','#22c55e','#a855f7','#ec4899','#ef4444','#3b82f6','#eab308'];
 
 function drawAdminChart(d){
-  if(!d || !d.users.length) return '<div style="color:var(--mu);font-size:11px;padding:10px">No activity in the last 90 days.</div>';
+  if(!d || !d.users.length) return '<div style="color:var(--mu);font-size:11px;padding:10px">No activity in the last 30 days.</div>';
   var W = 720, H = 180, pad = { top: 8, right: 12, bottom: 22, left: 28 };
   var plotW = W - pad.left - pad.right;
   var plotH = H - pad.top - pad.bottom;
@@ -14470,6 +14507,21 @@ function renderBank(targetId){
 
     var selectMode=false;
     var selected={};
+    // Archive record-type filter — 'all' | 'single' | 'portfolio'. Persisted
+    // per device. Only offered when the Portfolio module is on (otherwise the
+    // list can only contain single assessments).
+    var showTypeFilter = !!(window.AR2_PF && AR2_PF.isEnabled && AR2_PF.isEnabled());
+    var bankTypeFilter='all';
+    try { var _btf=localStorage.getItem('ar2:bank-type-filter'); if(_btf==='single'||_btf==='portfolio') bankTypeFilter=_btf; } catch(_){}
+    if(!showTypeFilter) bankTypeFilter='all';
+    var applyBankFilters=function(list, type, q){
+      return list.filter(function(e){
+        if(type==='single'    && e.archiveType==='portfolio') return false;
+        if(type==='portfolio' && e.archiveType!=='portfolio') return false;
+        if(q && String(e.propertyName||'').toLowerCase().indexOf(q)===-1) return false;
+        return true;
+      });
+    };
 
     var renderCards=function(list){
       if(!list.length){
@@ -14572,8 +14624,12 @@ function renderBank(targetId){
             +   badge
             + '</button>'
             + reassignInsideAnchor
-            + engPills
           + '</span>';
+          // engPills is appended as a full-width strip at the END of the row
+          // (see below) so names lay out horizontally and the row grows to
+          // fit — previously they were absolutely positioned under the
+          // hardhat and spilled into the next row when 2+ engineers were
+          // assigned.
         }
         // Per-row actions branch by type:
         //   Singles    \u2014 recall \u00b7 duplicate \u00b7 portrait \u00b7 landscape \u00b7 (reassign) \u00b7 delete
@@ -14606,10 +14662,10 @@ function renderBank(targetId){
         var countLabel = isPortfolio
           ? (s.devices||0) + (s.devices===1?' prop':' props')
           : (s.devices||'\u2014');
-        return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'">'
+        return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'" title="'+esc(entry.propertyName)+'">'
           +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
-            +'<div class="ar-bank-prop">'+typeBadge+esc(entry.propertyName)+'</div>'
+            +'<div class="ar-bank-prop" title="'+esc(entry.propertyName)+'">'+typeBadge+esc(entry.propertyName)+'</div>'
             +'<div class="ar-bank-date">'+dateStr+'</div>'
           +'</div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
@@ -14625,6 +14681,9 @@ function renderBank(targetId){
               +actions
             +'</div>'
           +'</div>'
+          // Engineer-name pills — full-width strip spanning the grid row so
+          // multiple names wrap horizontally and the row height grows.
+          +((typeof engPills!=='undefined' && engPills)?'<div class="ar-bank-eng-strip">'+engPills+'</div>':'')
         +'</div>';
       }).join('');
     };
@@ -14724,11 +14783,23 @@ function renderBank(targetId){
                   +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Pools</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-pools" style="font-size:22px">\u2014</div></div>'
                   +'<div class="ar-admin-kpi-card"><div class="ar-admin-kpi-lbl">Value</div><div class="ar-admin-kpi-val" id="ar-admin-kpi-value" style="font-size:22px">\u2014</div></div>'
                 +'</div>'
-                +'<div class="ar-admin-chart">'
-                  +'<div class="ar-admin-chart-title">Daily Records \u00b7 Last 30 Days \u00b7 By User (EST)</div>'
-                  +'<div id="ar-admin-chart-mount"></div>'
-                  +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
-                +'</div>';
+                // Collapsible chart card \u2014 collapsed by default so the KPI
+                // strip is the only thing above the fold. Click the title to
+                // expand; state persists per device (ar2:admin-chart-open).
+                +(function(){
+                    var chartOpen=false;
+                    try { chartOpen = localStorage.getItem('ar2:admin-chart-open')==='1'; } catch(_){}
+                    return '<div class="ar-admin-chart ar-admin-chart-collapsible'+(chartOpen?' open':'')+'" id="ar-admin-chart-card">'
+                      +'<button type="button" class="ar-admin-chart-title ar-admin-chart-toggle" data-action="admin-chart-toggle" aria-expanded="'+(chartOpen?'true':'false')+'" aria-controls="ar-admin-chart-body">'
+                        +'<span>Daily Records \u00b7 Last 30 Days \u00b7 By User (EST)</span>'
+                        +'<span class="ar-admin-chart-chev" aria-hidden="true">\u25be</span>'
+                      +'</button>'
+                      +'<div class="ar-admin-chart-body" id="ar-admin-chart-body"'+(chartOpen?'':' style="display:none"')+'>'
+                        +'<div id="ar-admin-chart-mount"></div>'
+                        +'<div class="ar-admin-chart-legend" id="ar-admin-chart-legend"></div>'
+                      +'</div>'
+                    +'</div>';
+                  })();
               var paneUsers = ''
                 +'<div class="ar-admin-userstats-card" style="margin-top:4px">'
                   +'<div class="ar-admin-userstats-title-row">'
@@ -14757,10 +14828,21 @@ function renderBank(targetId){
       +'</div>'
     +'</div>'
     +adminPanel
-    +(idx.length>3?'<input class="ar-bank-search" id="ar-bank-search" placeholder="Search by property name\u2026" type="search" />':'')
+    +((showTypeFilter || idx.length>3)
+      ? '<div class="ar-bank-filterbar">'
+        +(showTypeFilter
+          ? '<div class="ar-bank-typefilter" role="tablist" aria-label="Filter archive by record type">'
+            +'<button type="button" class="ar-bank-typepill'+(bankTypeFilter==='all'?' active':'')+'" data-bank-filter="all" role="tab" aria-selected="'+(bankTypeFilter==='all')+'">All</button>'
+            +'<button type="button" class="ar-bank-typepill'+(bankTypeFilter==='single'?' active':'')+'" data-bank-filter="single" role="tab" aria-selected="'+(bankTypeFilter==='single')+'">Assessments</button>'
+            +'<button type="button" class="ar-bank-typepill'+(bankTypeFilter==='portfolio'?' active':'')+'" data-bank-filter="portfolio" role="tab" aria-selected="'+(bankTypeFilter==='portfolio')+'">Portfolios</button>'
+          +'</div>'
+          : '')
+        +(idx.length>3?'<input class="ar-bank-search" id="ar-bank-search" placeholder="Search by property name\u2026" type="search" />':'')
+      +'</div>'
+      : '')
     +'<div class="ar-bank-toolbar" id="ar-bank-toolbar" style="display:none"></div>'
     +thead
-    +'<div class="ar-bank-list" id="'+listId+'">'+renderCards(idx)+'</div>';
+    +'<div class="ar-bank-list" id="'+listId+'">'+renderCards(applyBankFilters(idx, bankTypeFilter, ''))+'</div>';
     // Always populate the admin dashboard on render. Previously this was
     // gated on dashOpen (only if the drawer was expanded), which meant the
     // KPI tiles stayed on em-dashes whenever the open-state was lost from
@@ -14789,14 +14871,45 @@ function renderBank(targetId){
       }
     }
 
-    // Wire up live search
+    // Admin 30-day chart — collapsible card (collapsed by default to keep the
+    // top of the page compact). State persisted per device.
+    var chartTgl=document.querySelector('[data-action="admin-chart-toggle"]');
+    if(chartTgl){
+      chartTgl.addEventListener('click',function(){
+        var card=document.getElementById('ar-admin-chart-card');
+        var body=document.getElementById('ar-admin-chart-body');
+        if(!card||!body) return;
+        var willOpen=!card.classList.contains('open');
+        card.classList.toggle('open', willOpen);
+        body.style.display=willOpen?'':'none';
+        chartTgl.setAttribute('aria-expanded', willOpen?'true':'false');
+        try { localStorage.setItem('ar2:admin-chart-open', willOpen?'1':'0'); } catch(_){}
+      });
+    }
+
+    // Wire up live search + record-type filter (combined)
     var searchEl=document.getElementById('ar-bank-search');
+    var refreshBankList=function(){
+      var q=searchEl?searchEl.value.toLowerCase().trim():'';
+      currentList=applyBankFilters(idx, bankTypeFilter, q);
+      var listEl=document.getElementById(listId);
+      if(listEl)listEl.innerHTML=renderCards(currentList);
+    };
     if(searchEl){
-      searchEl.addEventListener('input',function(){
-        var q=searchEl.value.toLowerCase().trim();
-        currentList=q?idx.filter(function(e){return e.propertyName.toLowerCase().indexOf(q)>-1;}):idx;
-        var listEl=document.getElementById(listId);
-        if(listEl)listEl.innerHTML=renderCards(currentList);
+      searchEl.addEventListener('input', refreshBankList);
+    }
+    var typePills=el.querySelectorAll('[data-bank-filter]');
+    for(var tpi=0; tpi<typePills.length; tpi++){
+      typePills[tpi].addEventListener('click',function(){
+        var v=this.getAttribute('data-bank-filter')||'all';
+        bankTypeFilter=v;
+        try { localStorage.setItem('ar2:bank-type-filter', v); } catch(_){}
+        for(var tpj=0; tpj<typePills.length; tpj++){
+          var on=(typePills[tpj].getAttribute('data-bank-filter')===v);
+          typePills[tpj].classList.toggle('active', on);
+          typePills[tpj].setAttribute('aria-selected', on?'true':'false');
+        }
+        refreshBankList();
       });
     }
 
@@ -17499,7 +17612,7 @@ function generateReport(){
       +'<div class="rpt-es-chart-hdr">'
         +'<div class="rpt-es-chart-hdr-text">'
           +'<div class="rpt-es-chart-title">Investment &amp; Return Profile <span class="rpt-es-chart-sub-title">— 5-Year Outlook</span></div>'
-          +'<div class="rpt-es-chart-sub">Based on one time capital investment. 60 Month financing available based on location.</div>'
+          +'<div class="rpt-es-chart-sub">Based on one time capital investment.'+((EX.bothScenarios || EX.scenario==='advantage')?' 60 Month financing available based on location.':'')+'</div>'
         +'</div>'
         +'<div class="rpt-es-chart-stats">'
           +'<span class="rpt-es-chart-stat-net">'+fmtTick(Math.round(net5))+' Net Benefit</span>'
@@ -17592,7 +17705,7 @@ function generateReport(){
         +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esNet5)+'</span><span class="k">5-Year NET Benefit</span></div>'
         +'<div class="rpt-es-h2">Investment Profile 5-Year Outlook</div>'
         +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esInv)+'</span><span class="k">One-Time Investment</span></div>'
-        +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>'
+        +((EX.bothScenarios || EX.scenario==='advantage')?'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(esAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>':'')
         +'<div class="rpt-es-statline"><span class="v">'+(esPayback>0?(esPayback>=10?Math.round(esPayback):esPayback.toFixed(1))+' Months':'\u2014')+'</span><span class="k">Payback Period</span></div>'
       +'</div>'
       +'<div class="rpt-es-right">'
@@ -17857,7 +17970,7 @@ function generateReport(){
           +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsNet5)+'</span><span class="k">5-Year NET Benefit</span></div>'
           +'<div class="rpt-es-h2">Investment Profile 5-Year Outlook</div>'
           +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsInv)+'</span><span class="k">One-Time Investment</span></div>'
-          +'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>'
+          +((EX.bothScenarios || EX.scenario==='advantage')?'<div class="rpt-es-statline"><span class="v">'+fmtMoneyK(lsAdvMo)+'</span><span class="k">Monthly Payment Option</span></div>':'')
           +'<div class="rpt-es-statline"><span class="v">'+(lsPayback>0?(lsPayback>=10?Math.round(lsPayback):lsPayback.toFixed(1))+' Months':'—')+'</span><span class="k">Payback Period</span></div>'
           +'<div class="rpt-ls-chart-card">'+esChartHtml+'</div>'
           +(lsCtTitle||lsCtCopy
@@ -20881,7 +20994,7 @@ var HELP_CONTENT = {
      +'<ul>'
        +'<li><b>KPI grid</b> — six cards across the top: Records · 7 Days · Assessments Total · Portfolios Total · Properties Total · Pools Total · Value Total. Deleted records are excluded automatically.</li>'
        +'<li><b>User Activity table</b> — per-user lifetime login count, 30-day records, 30-day logins, last login date.</li>'
-       +'<li><b>90-Day Chart</b> — daily records created, broken out per user, in EST.</li>'
+       +'<li><b>30-Day Chart</b> — daily records created, broken out per user, in EST. Collapsed by default; click the title to expand.</li>'
        +'<li><b>Created By column</b> — every record shows who saved it. Use the orange ⇒ button to reassign records between users.</li>'
      +'</ul>'
   },
