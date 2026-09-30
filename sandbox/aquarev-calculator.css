@@ -1204,6 +1204,23 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-stitle::after{content:'';flex:1;height:1.5px;background:linear-gradient(to right,#d5eaf5,transparent);}
 /* ── Two-column ── */
 #ar2-report .rpt-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+/* Dense Pool Configuration grid — used on the Assessment page when a
+   property has many pools (above the single-column trigger). Rows flow
+   column-major (top→bottom, then next column) so the list reads like a
+   directory; row count per column is set inline via grid-template-rows.
+   Names truncate with an ellipsis rather than wrapping so every row keeps
+   the same height and the page budget stays predictable. */
+#ar2-report .rpt-pool-grid{display:grid;grid-auto-flow:column;column-gap:22px;row-gap:0;align-content:start;}
+#ar2-report .rpt-pool-grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr));}
+#ar2-report .rpt-pool-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+#ar2-report .rpt-pool-grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr));}
+#ar2-report .rpt-pool-grid .rpt-row{min-width:0;}
+#ar2-report .rpt-pool-grid .rpt-row .k{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2-report .rpt-pool-grid .rpt-row .k em{font-style:italic;color:#999;font-size:9px;margin-left:4px;}
+#ar2-report .rpt-pool-grid .rpt-row .v{white-space:nowrap;flex:0 0 auto;padding-left:8px;}
+#ar2-report .rpt-pool-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:22px;margin-top:6px;padding-top:4px;border-top:1px solid #dfe7ee;}
+#ar2-report .rpt-pool-totals .rpt-row{border-bottom:none;}
+#ar2-report .rpt-stitle .rpt-stitle-count{font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none;margin-left:6px;}
 /* Assess flow layout — each column flows its own content height
    independently rather than locking to the row's max. CSS grid auto-
    sizes rows to the tallest cell, but ITEMS inside don't stretch

@@ -17413,6 +17413,67 @@ function generateReport(){
   });
   var poolRows=poolRowsArr.join('');
 
+  // ── Dense Pool Configuration (many-pool properties) ─────────────────
+  // Compact rows (name · type · gallons — no dimensions) laid out in a
+  // column-major multi-column grid so 30–40 pools fit on ONE page instead
+  // of cascading a narrow single column across three sheets. Used by the
+  // single-page DENSE branch (above the flow trigger) and by the cascade
+  // pool pages beyond DENSE_SINGLE_MAX. Function declarations are hoisted;
+  // they close over devRows / purBox / advBox / bkRows / waterHtml which
+  // are all assigned before the template concatenation calls them.
+  var poolRowsDenseArr=S.bodies.map(function(b){
+    var g=bodyGallons(b);
+    return '<div class="rpt-row">'
+      +'<span class="k">'+esc(b.label)+'<em>'+esc(b.poolType||'')+'</em></span>'
+      +'<span class="v">'+fn(Math.round(g))+' gal</span>'
+    +'</div>';
+  });
+  function poolGridHtml(rows, cols){
+    if(!rows.length) return '';
+    cols=Math.max(1,Math.min(4,cols|0));
+    var perCol=Math.ceil(rows.length/cols);
+    return '<div class="rpt-pool-grid cols-'+cols+'" style="grid-template-rows:repeat('+perCol+',auto)">'+rows.join('')+'</div>';
+  }
+  function denseCols(n){ return (EX.layout==='landscape') ? 4 : (n>16 ? 3 : 2); }
+  function densePoolTotals(){
+    return '<div class="rpt-pool-totals">'
+      +'<div class="rpt-row strong"><span class="k">Total Volume</span><span class="v">'+fn(S.pool_gallons)+' gal</span></div>'
+      +(S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'<div></div>')
+      +'<div class="rpt-row"><span class="k">CO₂ pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>'
+    +'</div>';
+  }
+  function densePoolSection(rows, titleSuffix, withTotals){
+    return '<div class="rpt-sec">'
+      +'<div class="rpt-stitle">Pool Configuration<span class="rpt-stitle-count">'+poolRowsDenseArr.length+' pools</span>'+(titleSuffix||'')+'</div>'
+      +poolGridHtml(rows, denseCols(rows.length))
+      +(withTotals?densePoolTotals():'')
+    +'</div>';
+  }
+  // Devices + Purchase (left) | Breakdown + Water (right) — the "money"
+  // half of the Assessment, shared by the dense single page and the
+  // cascade's final page.
+  function denseMoneyRow(){
+    return '<div class="rpt-sec rpt-cols rpt-assess-flow">'
+      +'<div>'
+        +'<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
+        +devRows
+        +(R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">−'+fc(R.disc_amt,0)+'</span></div>':'')
+        +'<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
+        +'<div class="rpt-stitle rpt-stitle-stack">Purchase Options</div>'
+        +purBox+advBox
+      +'</div>'
+      +'<div>'
+        +'<div class="rpt-stitle">Monthly Savings Breakdown</div>'
+        +'<table class="rpt-tbl">'
+          +'<thead><tr><th>Category</th><th>'+(EX.layout==='landscape'?'Monthly':'Monthly Savings')+'</th><th>'+(EX.layout==='landscape'?'%':'% of Total')+'</th></tr></thead>'
+          +'<tbody>'+bkRows+'<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
+        +'</table>'
+        +(EX.layout==='landscape'?'':'<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>')
+        +(EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
+      +'</div>'
+    +'</div>';
+  }
+
   // Device rows
   var devRows=PIPES.filter(function(p){return S[p.k]>0;}).map(function(p){
     var qty=S[p.k];
@@ -18321,7 +18382,13 @@ function generateReport(){
       //   Without forcing flow, the classic 2-row grid pads the right
       //   column with whitespace below Total Investment to match the
       //   left column's stride, which was the user-visible "gap" bug.
-      +(poolRowsArr.length > 10 || (typeof EX !== 'undefined' && EX && EX._captureForceFlow)
+      +((poolRowsArr.length > ((EX.layout==='landscape')?18:22))
+        // ── DENSE layout (above the flow trigger, up to DENSE_SINGLE_MAX) ──
+        //    Full-width multi-column pool grid + totals strip on top, then
+        //    Devices + Purchase | Breakdown + Water. Keeps 30–40-pool
+        //    properties on a single sheet instead of a 3-page cascade.
+        ? densePoolSection(poolRowsDenseArr, '', true) + denseMoneyRow()
+        : (poolRowsArr.length > 10 || (typeof EX !== 'undefined' && EX && EX._captureForceFlow))
         // ── FLOW layout (11+ pools, OR forced by portfolio capture) ──
         ?'<div class="rpt-sec rpt-cols rpt-assess-flow">'
           // LEFT column
@@ -18459,8 +18526,15 @@ function generateReport(){
   //     existing cascade emits Page 1 (pools + devices + totals) and
   //     a summary page (Purchase + Breakdown + Media + CTA).
   var POOL_TRIGGER   = (EX.layout==='landscape') ? 18 : 22;
-  var POOL_P1_FILL   = (EX.layout==='landscape') ? 30 : 24;
-  var POOL_CONT_FILL = (EX.layout==='landscape') ? 60 : 44;
+  // Above POOL_TRIGGER the single page switches to the DENSE multi-column
+  // grid (densePoolSection + denseMoneyRow). It stays ONE page up to
+  // DENSE_SINGLE_MAX pools (≈3 cols × 14 rows portrait, 4 × 10 landscape,
+  // alongside Devices + Purchase + Breakdown + media). Beyond that the
+  // cascade emits full-width dense pool pages, then a final page with
+  // Devices + Purchase + Breakdown.
+  var DENSE_SINGLE_MAX = (EX.layout==='landscape') ? 40 : 42;
+  var POOL_P1_FILL   = (EX.layout==='landscape') ? 104 : 90;   // dense page devoted to pools
+  var POOL_CONT_FILL = (EX.layout==='landscape') ? 104 : 96;
   var nPoolRows = poolRowsArr.length;
 
   // Totals block — three rows that ride at the bottom of whichever
@@ -18470,7 +18544,9 @@ function generateReport(){
     + (S.chlorine_pool_gallons!==S.pool_gallons?'<div class="rpt-row"><span class="k">Chlorine Pool Volume</span><span class="v teal">'+fn(S.chlorine_pool_gallons)+' gal</span></div>':'')
     + '<div class="rpt-row"><span class="k">CO₂ pH Systems</span><span class="v">'+(S.co2_pool_gallons>0?fn(S.co2_pool_gallons)+' gal':'None enabled')+'</span></div>';
 
-  if (nPoolRows <= POOL_TRIGGER) {
+  if (nPoolRows <= DENSE_SINGLE_MAX) {
+    // Classic / flow / dense single page — the template above picks the
+    // internal layout from the pool count.
     assessmentHtml = singlePageAssessment;
   } else {
     // Compute page count: page 1 (with first chunk + devices) + continuation
@@ -18545,19 +18621,9 @@ function generateReport(){
     assessmentHtml = '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
       + assessHeader + assessKpiStrip
       + '<div class="rpt-body">'
-        + '<div class="rpt-sec rpt-cols">'
-          + '<div>'
-            + '<div class="rpt-stitle">Pool Configuration'+pgLbl(1)+'</div>'
-            + poolRowsArr.slice(0, POOL_P1_FILL).join('')
-            + (p1IsLastPoolPage ? totalsBlock : '')
-          + '</div>'
-          + '<div>'
-            + '<div class="rpt-stitle">AquaRev Devices Required <span style="font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none">(on Return Pipes)</span></div>'
-            + devRows
-            + (R.disc_amt>0?'<div class="rpt-row"><span class="k">Discount Applied</span><span class="v pos">-'+fc(R.disc_amt,0)+'</span></div>':'')
-            + '<div class="rpt-row strong"><span class="k">Total Investment</span><span class="v">'+fc(R.inv,0)+'</span></div>'
-          + '</div>'
-        + '</div>'
+        // Full-width dense pool grid (Devices moved to the final page so
+        // this sheet is devoted to the pool roster).
+        + densePoolSection(poolRowsDenseArr.slice(0, POOL_P1_FILL), pgLbl(1), p1IsLastPoolPage)
       + '</div>'
       + assessFooter
     + '</div>';
@@ -18566,28 +18632,13 @@ function generateReport(){
     for (var cpi=0; cpi<contPages; cpi++) {
       var startIdx = POOL_P1_FILL + cpi*POOL_CONT_FILL;
       var endIdx = Math.min(startIdx+POOL_CONT_FILL, nPoolRows);
-      var chunkRows = poolRowsArr.slice(startIdx, endIdx);
-      var halfPt = Math.ceil(chunkRows.length/2);
-      var leftColRows = chunkRows.slice(0, halfPt).join('');
-      var rightColRows = chunkRows.slice(halfPt).join('');
-      // Last cont page hosts the totals strip at the end of its right
-      // column (since the right column ends with the very last pool).
+      // Last cont page hosts the totals strip beneath the final pool rows.
       var isLastContPage = (cpi === contPages - 1);
 
       assessmentHtml += '<div class="rpt'+(EX.layout==='landscape'?' rpt-landscape':'')+'">'
         + assessHeaderCont
         + '<div class="rpt-body">'
-          + '<div class="rpt-sec rpt-cols">'
-            + '<div>'
-              + '<div class="rpt-stitle">Pool Configuration'+pgLbl(2+cpi)+'</div>'
-              + leftColRows
-            + '</div>'
-            + '<div>'
-              + '<div class="rpt-stitle" style="visibility:hidden">.</div>'
-              + rightColRows
-              + (isLastContPage ? totalsBlock : '')
-            + '</div>'
-          + '</div>'
+          + densePoolSection(poolRowsDenseArr.slice(startIdx, endIdx), pgLbl(2+cpi), isLastContPage)
         + '</div>'
         + assessFooter
       + '</div>';
@@ -18605,37 +18656,12 @@ function generateReport(){
           // Cascade last-page landscape — same restructure as the single-
           // page path: Row B = Purchase | Breakdown (2-col, natural),
           // Row C = Property Images | Video Resources as its own row.
-          ?'<div class="rpt-sec rpt-cols">'
-            + '<div>'
-              + '<div class="rpt-stitle">Purchase Options</div>'
-              + purBox + advBox
-            + '</div>'
-            + '<div>'
-              + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-              + '<table class="rpt-tbl">'
-                + '<thead><tr><th>Category</th><th>Monthly</th><th>%</th></tr></thead>'
-                + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
-              + '</table>'
-              + (EX.inclWater?waterHtml:'')
-            + '</div>'
-          + '</div>'
+          // Devices + Purchase | Breakdown + Water (Devices ride here now
+          // that the pool pages are full-width dense grids).
+          ?denseMoneyRow()
           + ((imgHtml||ytHtml)?'<div class="rpt-sec rpt-cols rpt-ls-media-row">'+mediaLeft+ytHtml+'</div>':'')
           + '<div class="rpt-disc">Estimates based on lab-verified reduction rates (IAPMO R&amp;T). Actual savings vary by site. NSF/ANSI 50 certified.</div>'
-          :'<div class="rpt-sec rpt-cols">'
-            + '<div>'
-              + '<div class="rpt-stitle">Purchase Options</div>'
-              + purBox + advBox
-            + '</div>'
-            + '<div>'
-              + '<div class="rpt-stitle">Monthly Savings Breakdown</div>'
-              + '<table class="rpt-tbl">'
-                + '<thead><tr><th>Category</th><th>Monthly Savings</th><th>% of Total</th></tr></thead>'
-                + '<tbody>' + bkRows + '<tr class="tot"><td>Total</td><td>'+fc(R.total_mo)+'</td><td>100%</td></tr></tbody>'
-              + '</table>'
-              + '<div class="rpt-row rpt-sw-applied" style="border-top:1px dashed #e0ecf4;margin-top:6px;padding-top:6px"><span class="k" style="color:#00b4d8;font-size:11px">Savings Projection Applied</span><span class="v" style="color:#00b4d8;font-size:11px">'+Math.round(S.savings_weight*100)+'%</span></div>'
-              + (EX.inclWater?'<div style="margin-top:10px">'+waterHtml+'</div>':'')
-            + '</div>'
-          + '</div>'
+          :denseMoneyRow()
           // Cascade last-page portrait — same .rpt-pt-media-row hook so
           // the multi-page Assessment final page pins Property Images +
           // Video Resources to the bottom of the body slot.
