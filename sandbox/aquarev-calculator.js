@@ -2918,6 +2918,15 @@ window.AR2_PF = (function(){
   function _defaultExportState(){
     return {
       cover:                true,
+      // Index (contents) page — lists every included page with its page
+      // number. Prints right after the Cover.
+      indexPage:            false,
+      // Summary Letter — a rep-drafted cover letter to the client. Prints
+      // after the Index (or after the Cover if the Index is off). The HTML
+      // comes from the rich-text editor on the Export panel and persists in
+      // portfolios.export_settings.
+      coverLetter:          false,
+      coverLetterHtml:      '',
       execSummary:          true,
       propertyProfile:      true,           // NEW: Property Profile page(s)
       propertyProfileLayout:'cards',        // 'cards' | 'list-by-country'
@@ -2940,14 +2949,73 @@ window.AR2_PF = (function(){
       quoteReady:           false             // becomes true once the Quote builder is saved
     };
   }
+  // Export state is seeded from defaults, then hydrated ONCE per portfolio
+  // from portfolios.export_settings (toggles, layouts, finance switch and
+  // the Summary Letter HTML). Every mutation persists back, debounced.
+  // quoteReady is derived (probed from portfolio_quotes) and never stored.
+  var _EXPORT_TRANSIENT_KEYS = { quoteReady: 1, _hydrated: 1, _hydrating: 1 };
   function getExportState(pid){
     if (!pfState.exportState) pfState.exportState = {};
-    if (!pfState.exportState[pid]) pfState.exportState[pid] = _defaultExportState();
+    if (!pfState.exportState[pid]){
+      pfState.exportState[pid] = _defaultExportState();
+      hydrateExportState(pid);
+    }
     return pfState.exportState[pid];
+  }
+  function hydrateExportState(pid){
+    var st = pfState.exportState && pfState.exportState[pid];
+    if (!st || st._hydrated || st._hydrating) return Promise.resolve(st);
+    var c = client();
+    if (!c || !pid) return Promise.resolve(st);
+    st._hydrating = true;
+    return c.from('portfolios').select('export_settings').eq('id', pid).maybeSingle().then(function(rs){
+      var saved = (rs && rs.data && rs.data.export_settings) || null;
+      if (saved && typeof saved === 'object'){
+        Object.keys(saved).forEach(function(k){
+          if (_EXPORT_TRANSIENT_KEYS[k]) return;
+          st[k] = saved[k];
+        });
+      }
+      st._hydrated = true; st._hydrating = false;
+      var live = document.getElementById('ar2-bank-overview-mount');
+      if (live && pfState.viewMode === 'export' && pfState.selectedPortfolioId === pid) renderPortfolioExport(live);
+      return st;
+    }, function(){ st._hydrated = true; st._hydrating = false; return st; });
+  }
+  var _exportSaveTimers = {};
+  function saveExportSettings(pid){
+    if (!pid) return;
+    if (_exportSaveTimers[pid]) clearTimeout(_exportSaveTimers[pid]);
+    _exportSaveTimers[pid] = setTimeout(function(){
+      _exportSaveTimers[pid] = null;
+      var st = pfState.exportState && pfState.exportState[pid];
+      var c = client();
+      if (!st || !c) return;
+      var clean = {};
+      Object.keys(st).forEach(function(k){ if (!_EXPORT_TRANSIENT_KEYS[k]) clean[k] = st[k]; });
+      c.from('portfolios').update({ export_settings: clean }).eq('id', pid).then(function(rs){
+        if (rs && rs.error) { try { console.warn('[AR2_PF] export_settings save failed:', rs.error.message); } catch(_){} }
+      }, function(err){ try { console.warn('[AR2_PF] export_settings save failed:', err); } catch(_){} });
+    }, 600);
   }
   function setExportSection(pid, key, value){
     var st = getExportState(pid);
     st[key] = !!value;
+    // First time the Summary Letter is switched on, seed a starter draft so
+    // the rep edits text instead of staring at an empty box.
+    if (key === 'coverLetter' && st.coverLetter && !(st.coverLetterHtml || '').trim()){
+      var p = getPortfolio(pid);
+      st.coverLetterHtml = (typeof pfDefaultLetterHtml === 'function') ? pfDefaultLetterHtml(p && p.name) : '';
+    }
+    saveExportSettings(pid);
+  }
+  // Called by the global input / toolbar handlers for #ar2-pf-letter-rte.
+  function setLetterHtml(html){
+    var pid = pfState.selectedPortfolioId;
+    if (!pid) return;
+    var st = getExportState(pid);
+    st.coverLetterHtml = String(html || '');
+    saveExportSettings(pid);
   }
   function renderPortfolioExport(mount){
     if (!mount) return;
@@ -3032,6 +3100,8 @@ window.AR2_PF = (function(){
       +   '<div class="ar-pf-exp-card">'
       +     '<div class="ar-pf-exp-card-title">Sections to include</div>'
       +     _expRow('cover',           'Cover Page',           'Portfolio name + buyer info',                                                                       st.cover)
+      +     _expRow('indexPage',       'Index Page',           'Contents of the included pages with page numbers — prints right after the Cover',                  st.indexPage)
+      +     _expRow('coverLetter',     'Summary Letter',       st.coverLetter ? 'Draft the client letter in the editor below — prints after the Index' : 'Optional cover letter to the client — turn on to draft it', st.coverLetter)
       +     _expRow('execSummary',     'Executive Summary',    'Rolled-up KPIs across all properties',                                                              st.execSummary)
       +     _expRow('financeTerms',    '60-Month Finance Terms', st.financeTerms ? 'Advantage Plan / monthly payment option prints on every page' : 'Off — all pages print purchase-only pricing', st.financeTerms)
       +     _expRow('perProperty',     'Portfolio Assessment', 'One-page summary of the whole portfolio',                                                            st.perProperty)
@@ -3044,6 +3114,23 @@ window.AR2_PF = (function(){
       +     _expRow('stdTerms',        'Purchase Terms and Conditions', 'Pulls from Quote section 6 if configured',                                                st.stdTerms)
       +     _expRow('backCover',       'Back Cover',           '',                                                                                                  st.backCover)
       +   '</div>'
+      // Summary Letter editor — shown only while the toggle is on. Same
+      // rich-text chrome as the Quote step's Purchase Terms editor; the
+      // global toolbar / input / paste handlers resolve the editor by id.
+      +   (st.coverLetter
+          ? '<div class="ar-pf-exp-card">'
+            + '<div class="ar-pf-exp-card-title">Summary Letter <span style="font-weight:500;color:var(--mu);font-size:11px;letter-spacing:0;text-transform:none;margin-left:6px">prints after the Index' + (st.indexPage ? '' : ' (Index is off — prints after the Cover)') + '</span></div>'
+            + '<div class="ar-rte-toolbar">'
+              + '<button type="button" class="ar-rte-btn" data-rte-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>'
+              + '<button type="button" class="ar-rte-btn" data-rte-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button>'
+              + '<button type="button" class="ar-rte-btn" data-rte-cmd="insertUnorderedList" title="Bulleted list">• List</button>'
+              + '<button type="button" class="ar-rte-btn" data-rte-cmd="insertOrderedList" title="Numbered list">1. List</button>'
+              + '<button type="button" class="ar-rte-btn" data-rte-cmd="removeFormat" title="Clear formatting">Tx</button>'
+            + '</div>'
+            + '<div class="ar-rte" id="ar2-pf-letter-rte" contenteditable="true" data-placeholder="Write the client letter…">' + (st.coverLetterHtml || '') + '</div>'
+            + '<div class="ar-pf-exp-note">Header shows the portfolio name and today\'s date. Replace the bracketed fields. Saves automatically.</div>'
+          + '</div>'
+          : '')
       +   '<div class="ar-pf-exp-actions">'
       +     '<button class="ar-pf-exp-btn" type="button" data-pf-action="exp-preview">Preview PDF</button>'
       +     '<button class="ar-pf-exp-btn primary" type="button" data-pf-action="exp-download">Download PDF</button>'
@@ -4146,6 +4233,9 @@ window.AR2_PF = (function(){
     backFromQuoteBuilder: backFromQuoteBuilder,
     getExportState: getExportState,
     setExportSection: setExportSection,
+    saveExportSettings: saveExportSettings,
+    hydrateExportState: hydrateExportState,
+    setLetterHtml: setLetterHtml,
     getQuoteState: getQuoteState,
     loadQuote: loadQuote,
     saveQuote: saveQuote,
@@ -5092,6 +5182,12 @@ function buildPortfolioReportPreview(pid, mode){
       AR2_PF.computeLineItemsRollup(states, quote.lineOverrides || {}) : [];
 
     var sections = [];
+    // Parallel outline: one label per pushed section (or null when the
+    // section continues the previous entry). Feeds the optional Index
+    // page; page numbers are computed at the end by counting the actual
+    // page elements each section renders.
+    var secLabels = [];
+    function pushSec(label, html){ sections.push(html); secLabels.push(label || null); }
 
     // ──────────────────────────────────────────────────────────────
     //  1. Portfolio Cover — IDENTICAL to single-property cover, with
@@ -5100,7 +5196,7 @@ function buildPortfolioReportPreview(pid, mode){
     //     cover image. Honors the Cover Page section toggle.
     // ──────────────────────────────────────────────────────────────
     if (st.cover){
-      sections.push(
+      pushSec('Cover',
         '<div class="rpt-cover-page">'
         + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69de6e658f0a11dd1b3d7563_AquaRev_Fact%20Sheet_COVER1-01.jpg','class="rpt-cover-bg"',1100)
         + '<div class="rpt-cover-overlay">'
@@ -5123,7 +5219,7 @@ function buildPortfolioReportPreview(pid, mode){
     var pfOpts = { financeTerms: !!st.financeTerms };
     if (st.execSummary && states.length){
       var portfolioExecHtml = buildPortfolioExecSummaryPageHtml(pName, states, roll, today, pfOpts);
-      if (portfolioExecHtml) sections.push(portfolioExecHtml);
+      if (portfolioExecHtml) pushSec('Executive Summary', portfolioExecHtml);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -5136,7 +5232,7 @@ function buildPortfolioReportPreview(pid, mode){
     // ──────────────────────────────────────────────────────────────
     if (st.perProperty && states.length){
       var portfolioAssessmentHtml = buildPortfolioAssessmentPageHtml(pName, states, roll, today, pfOpts);
-      if (portfolioAssessmentHtml) sections.push(portfolioAssessmentHtml);
+      if (portfolioAssessmentHtml) pushSec('Portfolio Assessment', portfolioAssessmentHtml);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -5146,7 +5242,7 @@ function buildPortfolioReportPreview(pid, mode){
     if (st.propertyProfile && states.length){
       var propLayout = (st.propertyProfileLayout === 'list-by-country') ? 'list-by-country' : 'cards';
       var propPages = buildPropertyProfilesPages(pName, states, today, propLayout);
-      for (var ppi = 0; ppi < propPages.length; ppi++) sections.push(propPages[ppi]);
+      for (var ppi = 0; ppi < propPages.length; ppi++) pushSec(ppi === 0 ? 'Property Profiles' : null, propPages[ppi]);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -5258,11 +5354,11 @@ function buildPortfolioReportPreview(pid, mode){
                 ppEls[pe].parentNode.removeChild(ppEls[pe]);
               }
               var rest = capTmp.innerHTML;
-              _capByProp.push({ rest: (rest && rest.trim()) ? rest : '', pools: _pools });
+              _capByProp.push({ name: prop.property_name || ('Property ' + (pi+1)), rest: (rest && rest.trim()) ? rest : '', pools: _pools });
             } catch(splitErr){
               // Defensive: if split fails, keep the whole capture as this
               // property's block, verbatim.
-              _capByProp.push({ rest: window.__pfCapturedHtml, pools: [] });
+              _capByProp.push({ name: prop.property_name || ('Property ' + (pi+1)), rest: window.__pfCapturedHtml, pools: [] });
             }
           }
         }
@@ -5289,14 +5385,14 @@ function buildPortfolioReportPreview(pid, mode){
       // run consecutively and the list follows them.
       for (var cbi = 0; cbi < _capByProp.length; cbi++){
         var _blk = _capByProp[cbi];
-        if (st.propertyAssessments && _blk.rest) sections.push(_blk.rest);
-        for (var cbp = 0; cbp < _blk.pools.length; cbp++) sections.push(_blk.pools[cbp]);
+        if (st.propertyAssessments && _blk.rest) pushSec({ t: _blk.name + ' — Assessment', sub: true }, _blk.rest);
+        for (var cbp = 0; cbp < _blk.pools.length; cbp++) pushSec(cbp === 0 ? { t: _blk.name + ' — Pool Profiles', sub: true } : null, _blk.pools[cbp]);
       }
-      for (var pli = 0; pli < plPages.length; pli++) sections.push(plPages[pli]);
+      for (var pli = 0; pli < plPages.length; pli++) pushSec(pli === 0 ? 'Pool Profiles (List)' : null, plPages[pli]);
     } else {
       // No capture pass needed (no cards, no per-property assessments) —
       // the compact list, if selected, still goes here.
-      for (var pli2 = 0; pli2 < plPages.length; pli2++) sections.push(plPages[pli2]);
+      for (var pli2 = 0; pli2 < plPages.length; pli2++) pushSec(pli2 === 0 ? 'Pool Profiles (List)' : null, plPages[pli2]);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -5310,13 +5406,13 @@ function buildPortfolioReportPreview(pid, mode){
     //     respecting portfolio discount/tax/shipping.
     // ──────────────────────────────────────────────────────────────
     if (st.quote && quote){
-      sections.push(buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today));
+      pushSec('Portfolio Quote', buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today));
       // Purchase Terms — separate page IFF the rep has content. Same chrome
       // as the single-property terms page (rpt-es-page + rpt-q-page-terms)
       // so it gets full-page height + footer-pinned layout.
       var pt = (quote.purchaseTerms || '').trim();
       if (pt){
-        sections.push(buildPortfolioPurchaseTermsPageHtml(pName, quote, pt, today));
+        pushSec('Purchase Terms and Conditions', buildPortfolioPurchaseTermsPageHtml(pName, quote, pt, today));
       }
     }
 
@@ -5325,11 +5421,43 @@ function buildPortfolioReportPreview(pid, mode){
     //     cover, same hosted image. .rpt-fs-img-page + .rpt-back-cover-page.
     // ──────────────────────────────────────────────────────────────
     if (st.backCover){
-      sections.push(
+      pushSec('Back Cover',
         '<div class="rpt-fs-img-page rpt-back-cover-page">'
         + cdnImg('https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fd65a10e9889939b9b992d_Back-Cover_Portrait-v2.png','',1100)
       + '</div>'
       );
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  Front matter — Summary Letter and Index slot in right after the
+    //  Cover (or at the very front when the Cover is off). The Index is
+    //  built LAST because it needs the final page order; page numbers
+    //  come from counting the real page elements each section renders.
+    // ──────────────────────────────────────────────────────────────
+    var frontAt = (st.cover && sections.length) ? 1 : 0;
+    var letterText = String(st.coverLetterHtml || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (st.coverLetter && letterText){
+      sections.splice(frontAt, 0, buildPortfolioLetterPageHtml(pName, today, st.coverLetterHtml));
+      secLabels.splice(frontAt, 0, 'Summary Letter');
+    }
+    if (st.indexPage && sections.length){
+      var INDEX_TOKEN = '__PF_INDEX_PAGE__';
+      sections.splice(frontAt, 0, INDEX_TOKEN);
+      secLabels.splice(frontAt, 0, 'Contents');
+      var _pageCount = function(html){
+        try { var d = document.createElement('div'); d.innerHTML = html; return Math.max(1, d.children.length); }
+        catch(_){ return 1; }
+      };
+      var entries = [], pageNo = 1;
+      for (var ei = 0; ei < sections.length; ei++){
+        var lab = secLabels[ei];
+        if (lab){
+          var isObj = (typeof lab === 'object');
+          entries.push({ t: isObj ? lab.t : lab, sub: isObj && !!lab.sub, p: pageNo });
+        }
+        pageNo += (sections[ei] === INDEX_TOKEN) ? 1 : _pageCount(sections[ei]);
+      }
+      sections[frontAt] = buildPortfolioIndexPageHtml(pName, today, entries, pageNo - 1);
     }
 
     if (!sections.length){
@@ -6472,6 +6600,85 @@ function buildPortfolioPurchaseTermsPageHtml(pName, quote, termsText, today){
     + '</div>'
     + qFooter
   + '</div>';
+}
+
+/* ── Portfolio front-matter pages: Summary Letter + Index ─────────────
+   Same .rpt-es-page chrome as the Purchase Terms page so the header /
+   footer band, margins and page size are identical. Per spec the
+   PORTFOLIO NAME is the large title at the top of the header; the page
+   kind (Summary / Contents) and date sit on the right. */
+function _pfFrontHeader(pName, kind, today){
+  return '<div class="rpt-es-head">'
+    + '<div class="rpt-es-head-left">'
+      + '<div class="rpt-es-logo">' + esc(pName) + '</div>'
+      + '<div class="rpt-es-logo-sub">AQUAREV WATER</div>'
+    + '</div>'
+    + '<div class="rpt-es-head-right">'
+      + '<div class="rpt-es-prop-name">' + esc(kind) + '</div>'
+      + '<div class="rpt-es-prop-date">' + esc(today) + '</div>'
+    + '</div>'
+  + '</div>';
+}
+function _pfFrontFooter(){
+  return '<div class="rpt-foot rpt-es-foot">'
+    + '<div class="rpt-foot-logo">AQUAREV WATER</div>'
+    + '<div class="rpt-foot-info">'
+      + 't. 832-979-6758 · <a href="mailto:water@aquarevwater.us" style="color:inherit;text-decoration:none">water@aquarevwater.us</a> · <a href="https://www.aquarevwater.us" target="_blank" style="color:inherit;text-decoration:none">aquarevwater.us</a> · Made in USA<br>'
+      + 'NSF/ANSI 50 · NSF-372 Lead-Free · US Pat. 10,934,180 · 11,358,881 · 12,037,269'
+    + '</div>'
+  + '</div>';
+}
+/* Rep-drafted Summary Letter. html comes from the Export panel RTE — it
+   was typed through the paste-sanitizer so it only carries <p>/<b>/<i>/
+   <ul>/<ol>/<li>/<br>; still run a light scrub for script/style/event
+   attributes in case a stored value predates that. */
+function buildPortfolioLetterPageHtml(pName, today, html){
+  var safe = String(html || '')
+    .replace(/<\s*(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript:/gi, '');
+  return '<div class="rpt-es-page rpt-q-page rpt-q-page-terms rpt-pf-letter-page">'
+    + _pfFrontHeader(pName, 'Summary', today)
+    + '<div class="rpt-q-terms-body">'
+      + '<div class="rpt-q-terms-title">Summary</div>'
+      + '<div class="rpt-q-terms-text rpt-letter">' + safe + '</div>'
+    + '</div>'
+    + _pfFrontFooter()
+  + '</div>';
+}
+/* Index / Contents page. entries = [{t, p, sub}] in document order with
+   1-based page numbers; totalPages for the footer note. Switches to two
+   columns when the outline is long (portfolios with many properties). */
+function buildPortfolioIndexPageHtml(pName, today, entries, totalPages){
+  var rows = (entries || []).map(function(en){
+    return '<div class="rpt-index-row' + (en.sub ? ' sub' : '') + '">'
+      + '<span class="t">' + esc(en.t) + '</span>'
+      + '<span class="dots"></span>'
+      + '<span class="p">' + en.p + '</span>'
+    + '</div>';
+  }).join('');
+  var twoCol = (entries || []).length > 30;
+  return '<div class="rpt-es-page rpt-q-page rpt-q-page-terms rpt-pf-index-page">'
+    + _pfFrontHeader(pName, 'Contents', today)
+    + '<div class="rpt-q-terms-body">'
+      + '<div class="rpt-q-terms-title">Contents</div>'
+      + '<div class="rpt-index' + (twoCol ? ' cols-2' : '') + '">' + rows + '</div>'
+      + '<div class="rpt-index-note">' + (entries || []).length + ' sections · ' + totalPages + ' pages</div>'
+    + '</div>'
+    + _pfFrontFooter()
+  + '</div>';
+}
+/* Starter letter, used the first time the Summary Letter toggle is turned
+   on so the rep edits a draft instead of a blank box. Bracketed fields are
+   meant to be replaced. */
+function pfDefaultLetterHtml(pName){
+  var n = esc(pName || 'your portfolio');
+  return '<p>Dear [Client Name],</p>'
+    + '<p>Thank you for the opportunity to assess the pool and spa systems across the <b>' + n + '</b> portfolio. This document summarizes our findings, the recommended AquaRev configuration for each property, and the projected water, chemical and operating savings.</p>'
+    + '<p>Each property section includes an assessment page and pool-by-pool profiles so your engineering and operations teams can review the specifics for their sites. Pricing and terms follow at the end of the document.</p>'
+    + '<p>We appreciate your consideration and look forward to supporting your properties.</p>'
+    + '<p>Sincerely,</p>'
+    + '<p>[Your Name]<br>AquaRev Water</p>';
 }
 
 /* Mount portfolio report into #ar2-report and invoke the same print path
@@ -20088,6 +20295,7 @@ function handleClick(e){
         if (pidL && lk && lv){
           var stL = AR2_PF.getExportState(pidL);
           stL[lk] = lv;
+          try { if (AR2_PF.saveExportSettings) AR2_PF.saveExportSettings(pidL); } catch(_){}
           var live = document.getElementById('ar2-bank-overview-mount');
           if (live && AR2_PF.viewMode && AR2_PF.viewMode() === 'export') AR2_PF.renderPortfolioExport(live);
         }
@@ -20316,11 +20524,19 @@ function handleClick(e){
   var rteBtn=e.target.closest('.ar-rte-btn[data-rte-cmd]');
   if(rteBtn){
     var rteCmd=rteBtn.dataset.rteCmd;
-    var rteEl=document.getElementById('ar2-q-rte');
+    // Target the editor that belongs to THIS toolbar (same card) — the
+    // Quote step's Purchase Terms editor and the Portfolio Export's
+    // Summary Letter editor share the toolbar markup.
+    var rteCard=rteBtn.closest('.ar-card, .ar-pf-exp-card');
+    var rteEl=(rteCard && rteCard.querySelector('.ar-rte')) || document.getElementById('ar2-q-rte');
     if(rteEl){
       try { document.execCommand(rteCmd, false, null); } catch(_){}
-      Q.termsHtml = rteEl.innerHTML;
-      renderResults();
+      if(rteEl.id==='ar2-pf-letter-rte'){
+        try { if (window.AR2_PF && AR2_PF.setLetterHtml) AR2_PF.setLetterHtml(rteEl.innerHTML); } catch(_){}
+      } else {
+        Q.termsHtml = rteEl.innerHTML;
+        renderResults();
+      }
     }
     return;
   }
@@ -22288,11 +22504,16 @@ function init(){
       // cheap and keeps Save/Archive in sync.
       if(S.step===3) renderResults();
     }
+    // Portfolio Export — Summary Letter editor. State only (no re-render,
+    // which would steal focus); persistence is debounced inside AR2_PF.
+    if(e.target && e.target.id==='ar2-pf-letter-rte'){
+      try { if (window.AR2_PF && AR2_PF.setLetterHtml) AR2_PF.setLetterHtml(e.target.innerHTML); } catch(_){}
+    }
   });
   // Strip styles on paste into the rich-text editor — only allow plain text
   // through, then re-apply formatting via the toolbar.
   root.addEventListener('paste',function(e){
-    if(e.target && e.target.id==='ar2-q-rte'){
+    if(e.target && (e.target.id==='ar2-q-rte' || e.target.id==='ar2-pf-letter-rte')){
       e.preventDefault();
       var text = (e.clipboardData||window.clipboardData).getData('text/plain') || '';
       try { document.execCommand('insertText', false, text); } catch(_){}

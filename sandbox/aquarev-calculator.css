@@ -1221,6 +1221,21 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-pool-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:22px;margin-top:6px;padding-top:4px;border-top:1px solid #dfe7ee;}
 #ar2-report .rpt-pool-totals .rpt-row{border-bottom:none;}
 #ar2-report .rpt-stitle .rpt-stitle-count{font-weight:500;color:#666;font-size:11px;letter-spacing:0;text-transform:none;margin-left:6px;}
+/* Portfolio front matter — Summary Letter + Index pages (share the
+   Purchase Terms page chrome; these only style the body content). */
+#ar2-report .rpt-letter{font-size:12.5px;line-height:1.75;color:#1c2b36;max-width:660px;}
+#ar2-report .rpt-letter p{margin:0 0 12px;}
+#ar2-report .rpt-letter ul,#ar2-report .rpt-letter ol{margin:0 0 12px 20px;}
+#ar2-report .rpt-index{display:grid;grid-template-columns:1fr;column-gap:36px;row-gap:0;margin-top:4px;}
+#ar2-report .rpt-index.cols-2{grid-template-columns:1fr 1fr;}
+#ar2-report .rpt-index-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-size:12px;color:#1c2b36;}
+#ar2-report .rpt-index-row.sub{padding:3px 0 3px 18px;font-size:11px;color:#4a5b68;}
+#ar2-report .rpt-index-row .t{flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#ar2-report .rpt-index-row .dots{flex:1 1 auto;border-bottom:1px dotted #9fb3c1;transform:translateY(-3px);min-width:16px;}
+#ar2-report .rpt-index-row .p{flex:0 0 auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:#0b6e8e;min-width:22px;text-align:right;}
+#ar2-report .rpt-index-note{margin-top:14px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#7a8b96;}
+/* Export panel — Summary Letter editor card */
+#ar2 .ar-pf-exp-card .ar-rte{min-height:220px;}
 /* Assess flow layout — each column flows its own content height
    independently rather than locking to the row's max. CSS grid auto-
    sizes rows to the tallest cell, but ITEMS inside don't stretch
