@@ -3037,7 +3037,7 @@ window.AR2_PF = (function(){
       +     _expRow('perProperty',     'Portfolio Assessment', 'One-page summary of the whole portfolio',                                                            st.perProperty)
       +     _expRow('propertyProfile', 'Property Profiles',    propCount + ' propert' + (propCount===1?'y':'ies') + ' — overview cards or country list',           st.propertyProfile)
       +     _expSubRow('propertyProfileLayout', [{value:'cards',label:'Cards'},{value:'list-by-country',label:'List by Country'}], st.propertyProfileLayout)
-      +     _expRow('propertyAssessments', 'Property Assessment Pages', 'One assessment page per property — placed before the pool profiles',                    st.propertyAssessments)
+      +     _expRow('propertyAssessments', 'Property Assessment Pages', 'One assessment page per property, immediately before that property\'s pool profile cards', st.propertyAssessments)
       +     _expRow('poolProfiles',    'Property Pool Profiles','Pool detail grouped by property — cards or compact list',                                          st.poolProfiles)
       +     _expSubRow('poolProfilesLayout',    [{value:'cards',label:'Cards'},{value:'list',label:'List'}],                                  st.poolProfilesLayout)
       +     quoteRow
@@ -5180,10 +5180,11 @@ function buildPortfolioReportPreview(pid, mode){
     // ──────────────────────────────────────────────────────────────
     var poolProfilesUseCapture = (st.poolProfiles && st.poolProfilesLayout !== 'list');
     if (poolProfilesUseCapture || st.propertyAssessments){
-      // Split buckets: pool profile pages get grouped together (right after
-      // Property Profiles), then per-property Assessment / Exec pages follow.
-      var _capPoolPages = [];
-      var _capRestPages = [];
+      // Per-property buckets: each entry holds that property's Assessment
+      // page(s) ("rest") and its Pool Profile card page(s) ("pools"), so the
+      // output can interleave them property by property:
+      //   Assessment A → Pools A → Assessment B → Pools B → …
+      var _capByProp = [];
       // Snapshot the live state — this is critical, we restore on every
       // exit path including failures.
       var savedS  = JSON.parse(JSON.stringify(S));
@@ -5244,24 +5245,24 @@ function buildPortfolioReportPreview(pid, mode){
             window.__pfCapturedHtml = '';
           }
           if (window.__pfCapturedHtml){
-            // Split the captured HTML into Pool Profile pages vs everything
-            // else, so Pool Profiles for ALL properties group together
-            // BEFORE per-property Assessment / Exec pages. Honors the user's
-            // ordering: Cover → Exec → Assessment → Property Profiles →
-            // Pool Profiles → Per-Property Assessments → Quote → Terms → Back.
+            // Split this property's capture into its Pool Profile card
+            // page(s) vs everything else (its Assessment page), keeping
+            // both under the same property bucket so they stay adjacent.
             try {
               var capTmp = document.createElement('div');
               capTmp.innerHTML = window.__pfCapturedHtml;
               var ppEls = capTmp.querySelectorAll('.rpt-pp-page');
+              var _pools = [];
               for (var pe = 0; pe < ppEls.length; pe++){
-                _capPoolPages.push(ppEls[pe].outerHTML);
+                _pools.push(ppEls[pe].outerHTML);
                 ppEls[pe].parentNode.removeChild(ppEls[pe]);
               }
               var rest = capTmp.innerHTML;
-              if (rest && rest.trim()) _capRestPages.push(rest);
+              _capByProp.push({ rest: (rest && rest.trim()) ? rest : '', pools: _pools });
             } catch(splitErr){
-              // Defensive: if split fails, append the whole capture verbatim
-              _capRestPages.push(window.__pfCapturedHtml);
+              // Defensive: if split fails, keep the whole capture as this
+              // property's block, verbatim.
+              _capByProp.push({ rest: window.__pfCapturedHtml, pools: [] });
             }
           }
         }
@@ -5282,14 +5283,16 @@ function buildPortfolioReportPreview(pid, mode){
           for (var srk in savedR){ if (savedR.hasOwnProperty(srk)) R[srk] = savedR[srk]; }
         }
       }
-      // Order: per-property Assessment pages (Export toggle) → Pool
-      // Profiles (cards from the capture, or the compact list). The
-      // assessments always precede the pool profile pages.
-      if (st.propertyAssessments){
-        for (var crp = 0; crp < _capRestPages.length; crp++) sections.push(_capRestPages[crp]);
+      // Emit property by property: Assessment page (Export toggle) then
+      // that property's Pool Profile card page(s). With the compact List
+      // layout there are no per-property pool pages, so the assessments
+      // run consecutively and the list follows them.
+      for (var cbi = 0; cbi < _capByProp.length; cbi++){
+        var _blk = _capByProp[cbi];
+        if (st.propertyAssessments && _blk.rest) sections.push(_blk.rest);
+        for (var cbp = 0; cbp < _blk.pools.length; cbp++) sections.push(_blk.pools[cbp]);
       }
       for (var pli = 0; pli < plPages.length; pli++) sections.push(plPages[pli]);
-      for (var cpp = 0; cpp < _capPoolPages.length; cpp++) sections.push(_capPoolPages[cpp]);
     } else {
       // No capture pass needed (no cards, no per-property assessments) —
       // the compact list, if selected, still goes here.
