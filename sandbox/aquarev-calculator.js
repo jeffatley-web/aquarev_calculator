@@ -5448,6 +5448,12 @@ function buildPortfolioReportPreview(pid, mode){
         try { var d = document.createElement('div'); d.innerHTML = html; return Math.max(1, d.children.length); }
         catch(_){ return 1; }
       };
+      // The number of entries doesn't depend on how many Contents pages
+      // there are, so count entries first, derive the Contents page count,
+      // then number everything with that count in place of the token.
+      var entryCount = 0;
+      for (var ec = 0; ec < secLabels.length; ec++){ if (secLabels[ec]) entryCount++; }
+      var indexPages = Math.max(1, Math.ceil(entryCount / PF_INDEX_ROWS_PER_PAGE));
       var entries = [], pageNo = 1;
       for (var ei = 0; ei < sections.length; ei++){
         var lab = secLabels[ei];
@@ -5455,9 +5461,13 @@ function buildPortfolioReportPreview(pid, mode){
           var isObj = (typeof lab === 'object');
           entries.push({ t: isObj ? lab.t : lab, sub: isObj && !!lab.sub, p: pageNo });
         }
-        pageNo += (sections[ei] === INDEX_TOKEN) ? 1 : _pageCount(sections[ei]);
+        pageNo += (sections[ei] === INDEX_TOKEN) ? indexPages : _pageCount(sections[ei]);
       }
-      sections[frontAt] = buildPortfolioIndexPageHtml(pName, today, entries, pageNo - 1);
+      var idxHtml = buildPortfolioIndexPages(pName, today, entries, pageNo - 1);
+      // Replace the single token slot with however many Contents pages resulted.
+      var idxLabels = idxHtml.map(function(_, i){ return i === 0 ? 'Contents' : null; });
+      Array.prototype.splice.apply(sections,  [frontAt, 1].concat(idxHtml));
+      Array.prototype.splice.apply(secLabels, [frontAt, 1].concat(idxLabels));
     }
 
     if (!sections.length){
@@ -6646,27 +6656,38 @@ function buildPortfolioLetterPageHtml(pName, today, html){
     + _pfFrontFooter()
   + '</div>';
 }
-/* Index / Contents page. entries = [{t, p, sub}] in document order with
-   1-based page numbers; totalPages for the footer note. Switches to two
-   columns when the outline is long (portfolios with many properties). */
-function buildPortfolioIndexPageHtml(pName, today, entries, totalPages){
-  var rows = (entries || []).map(function(en){
-    return '<div class="rpt-index-row' + (en.sub ? ' sub' : '') + '">'
-      + '<span class="t">' + esc(en.t) + '</span>'
-      + '<span class="dots"></span>'
-      + '<span class="p">' + en.p + '</span>'
-    + '</div>';
-  }).join('');
-  var twoCol = (entries || []).length > 30;
-  return '<div class="rpt-es-page rpt-q-page rpt-q-page-terms rpt-pf-index-page">'
-    + _pfFrontHeader(pName, 'Contents', today)
-    + '<div class="rpt-q-terms-body">'
-      + '<div class="rpt-q-terms-title">Contents</div>'
-      + '<div class="rpt-index' + (twoCol ? ' cols-2' : '') + '">' + rows + '</div>'
-      + '<div class="rpt-index-note">' + (entries || []).length + ' sections · ' + totalPages + ' pages</div>'
-    + '</div>'
-    + _pfFrontFooter()
-  + '</div>';
+/* Index / Contents — ALWAYS a single vertical column, in document order.
+   entries = [{t, p, sub}] with 1-based page numbers; totalPages for the
+   footer note. Long outlines (many properties) continue onto additional
+   single-column Contents pages rather than splitting sideways. Returns an
+   ARRAY of page HTML strings. */
+var PF_INDEX_ROWS_PER_PAGE = 32;
+function buildPortfolioIndexPages(pName, today, entries, totalPages){
+  entries = entries || [];
+  var pageCount = Math.max(1, Math.ceil(entries.length / PF_INDEX_ROWS_PER_PAGE));
+  var pages = [];
+  for (var pg = 0; pg < pageCount; pg++){
+    var slice = entries.slice(pg * PF_INDEX_ROWS_PER_PAGE, (pg + 1) * PF_INDEX_ROWS_PER_PAGE);
+    var rows = slice.map(function(en){
+      return '<div class="rpt-index-row' + (en.sub ? ' sub' : '') + '">'
+        + '<span class="t">' + esc(en.t) + '</span>'
+        + '<span class="dots"></span>'
+        + '<span class="p">' + en.p + '</span>'
+      + '</div>';
+    }).join('');
+    var isLast = (pg === pageCount - 1);
+    var title = 'Contents' + (pg > 0 ? ' <span style="font-weight:400;color:#7db8cc;font-size:11px;letter-spacing:1px">· continued (' + (pg + 1) + ' of ' + pageCount + ')</span>' : (pageCount > 1 ? ' <span style="font-weight:400;color:#7db8cc;font-size:11px;letter-spacing:1px">· 1 of ' + pageCount + '</span>' : ''));
+    pages.push('<div class="rpt-es-page rpt-q-page rpt-q-page-terms rpt-pf-index-page">'
+      + _pfFrontHeader(pName, 'Contents', today)
+      + '<div class="rpt-q-terms-body">'
+        + '<div class="rpt-q-terms-title">' + title + '</div>'
+        + '<div class="rpt-index">' + rows + '</div>'
+        + (isLast ? '<div class="rpt-index-note">' + entries.length + ' sections · ' + totalPages + ' pages</div>' : '')
+      + '</div>'
+      + _pfFrontFooter()
+    + '</div>');
+  }
+  return pages;
 }
 /* Starter letter, used the first time the Summary Letter toggle is turned
    on so the rep edits a draft instead of a blank box. Bracketed fields are
