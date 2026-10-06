@@ -1713,9 +1713,14 @@ window.AR2_PF = (function(){
     // Seed the new property's state from the portfolio's defaults so the
     // Savings Projection (weight) and discount don't silently fall back to
     // the calculator's 100 % / 0 % when the property is first opened.
-    return c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', portfolioId).maybeSingle()
-      .then(function(pr){ return (pr && pr.data) || {}; }, function(){ return {}; })
-      .then(function(defs){
+    return Promise.all([
+        c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', portfolioId).maybeSingle()
+          .then(function(pr){ return (pr && pr.data) || {}; }, function(){ return {}; }),
+        (typeof pfNextOrderIndex === 'function') ? pfNextOrderIndex(c, portfolioId) : Promise.resolve(nextOrderIndex(portfolioId))
+      ])
+      .then(function(both){
+        var defs = both[0] || {};
+        var nextIdx = (typeof both[1] === 'number' && isFinite(both[1])) ? both[1] : nextOrderIndex(portfolioId);
         var seed = {};
         var dsw = Number(defs.default_savings_weight);
         if (isFinite(dsw) && dsw > 0 && dsw <= 1) seed.savings_weight = dsw;
@@ -1725,7 +1730,7 @@ window.AR2_PF = (function(){
       .insert({
         portfolio_id: portfolioId,
         property_name: trimmed,
-        order_index: nextOrderIndex(portfolioId),
+        order_index: nextIdx,
         state_json: seed
       })
       .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at')
@@ -3674,10 +3679,12 @@ window.AR2_PF = (function(){
         var mapBlob   = (src.snapshot && src.snapshot.mapping) || null;
         var kpis      = src.summary || {};
         var propName  = src.property_name || 'Imported Property';
+        var nextP = (typeof pfNextOrderIndex === 'function') ? pfNextOrderIndex(c, pid) : Promise.resolve(nextOrderIndex(pid));
+        return nextP.then(function(nextIdx){
         return c.from('portfolio_properties').insert({
           portfolio_id: pid,
           property_name: propName,
-          order_index: nextOrderIndex(pid),
+          order_index: (typeof nextIdx === 'number' && isFinite(nextIdx)) ? nextIdx : nextOrderIndex(pid),
           state_json: stateBlob,
           ex_json: exBlob,
           pool_measure_json: mapBlob,
@@ -3690,6 +3697,7 @@ window.AR2_PF = (function(){
             payback:        Number(kpis.payback)     || 0
           }
         }).select('id').single();
+        });
       }).then(function(rs2){
         if (rs2 && rs2.error) throw new Error(rs2.error.message);
         // Invalidate caches so the roster + roll-up refresh.
@@ -4419,6 +4427,33 @@ window.AR2_PF = (function(){
    ────────────────────────────────────────────────────────────────────── */
 window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null otherwise
 
+/* ── Next free order_index for a portfolio — read from the database, not
+   the roster cache, so every creation path (Add Property, Add from
+   existing, Copy-to-Portfolio, CSV import, Map Pools save, Duplicate)
+   appends at max+1 instead of the old 999 / 1000 placeholders that left
+   rows tied. Resolves 0 for an empty portfolio; falls back to the cache
+   max (or 0) if the read fails so a save is never blocked. */
+function pfNextOrderIndex(c, portfolioId){
+  var cacheMax = function(){
+    var max = -1;
+    try {
+      var slot = window.AR2_PF && AR2_PF._state && AR2_PF._state.properties[portfolioId];
+      if (slot && Array.isArray(slot.rows)) slot.rows.forEach(function(r){ var o = r && r.order_index; if (typeof o === 'number' && o > max) max = o; });
+    } catch(_){}
+    return max + 1;
+  };
+  if (!c || !portfolioId) return Promise.resolve(cacheMax());
+  return c.from('portfolio_properties').select('order_index').eq('portfolio_id', portfolioId)
+    .order('order_index', { ascending: false, nullsFirst: false }).limit(1)
+    .then(function(rs){
+      var top = rs && rs.data && rs.data[0] && Number(rs.data[0].order_index);
+      if (rs && rs.error) return cacheMax();
+      if (!rs.data || !rs.data.length) return 0;
+      return isFinite(top) ? top + 1 : cacheMax();
+    }, function(){ return cacheMax(); });
+}
+window.pfNextOrderIndex = pfNextOrderIndex;
+
 /* ── Duplicate a portfolio — server-side: insert a new portfolios row with
    suffixed name, then bulk-copy portfolio_properties rows to point at the
    new portfolio id. RLS already gates this (users → own; admins → all). */
@@ -4758,9 +4793,12 @@ function submitImportCsv(){
   // any non-standard columns under state_json.import_extras.
   // Savings weight / discount are seeded from the portfolio defaults so
   // imported rows don't open at the calculator's 100 % / 0 % fallback.
-  c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', pid).maybeSingle()
-  .then(function(pr){ return (pr && pr.data) || {}; }, function(){ return {}; })
-  .then(function(defs){
+  Promise.all([
+    c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', pid).maybeSingle()
+      .then(function(pr){ return (pr && pr.data) || {}; }, function(){ return {}; }),
+    pfNextOrderIndex(c, pid)
+  ]).then(function(both){
+  var defs = both[0] || {}, baseIdx = Number(both[1]) || 0;
   var seedW = Number(defs.default_savings_weight), seedD = Number(defs.default_discount_pct);
   var inserts = rows.map(function(r, idx){
     var stateJson = { propertyName: r.property_name };
@@ -4771,7 +4809,7 @@ function submitImportCsv(){
     return {
       portfolio_id: pid,
       property_name: r.property_name,
-      order_index: 1000 + idx, // appended at the end; rep can reorder later
+      order_index: baseIdx + idx, // appended after the last existing property, in file order
       country: r.country || null,
       property_brand: r.property_brand || null,
       formatted_address: r.formatted_address || null,
@@ -5234,11 +5272,12 @@ function submitCopyToPortfolio(mode){
     var kpis      = src.summary || {};
     var propName  = src.property_name || 'Imported Property';
     if (mode === 'new'){
-      // Insert a new portfolio_properties row
+      // Insert a new portfolio_properties row at the next free position
+      return pfNextOrderIndex(c, pid).then(function(nextIdx){
       return c.from('portfolio_properties').insert({
         portfolio_id: pid,
         property_name: propName,
-        order_index: 999, // placed at end; the rep can drag later
+        order_index: nextIdx,
         state_json: stateBlob,
         ex_json: exBlob,
         pool_measure_json: mapBlob,
@@ -5251,6 +5290,7 @@ function submitCopyToPortfolio(mode){
           payback: Number(kpis.payback) || 0
         }
       }).select('id').single();
+      });
     }
     // mode === 'update' — overwrite the chosen property row
     var targetPropId = propSel.value;
@@ -7641,25 +7681,11 @@ function _bankSaveReportToPortfolio(target){
     disc_amt:       Number(R.disc_amt) || 0
   } : {};
 
-  // Pick the next order_index from the cached roster (if loaded). If the
-  // cache is cold, fall back to a high number — the rep can drag-reorder
-  // later. Copy-to-Portfolio uses the same fallback.
-  var orderIdx = 999;
-  try {
-    if (window.AR2_PF && AR2_PF._state){
-      var slot = AR2_PF._state.properties[target.id];
-      if (slot && Array.isArray(slot.rows)){
-        var max = -1;
-        for (var i=0;i<slot.rows.length;i++){
-          var o = slot.rows[i].order_index;
-          if (typeof o === 'number' && o > max) max = o;
-        }
-        orderIdx = max + 1;
-      }
-    }
-  } catch(_){}
-
-  c.from('portfolio_properties').insert({
+  // Next free order_index read from the database (pfNextOrderIndex), so the
+  // property lands after the last existing one even when the roster cache
+  // is cold. Falls back to the cache max / 0 if the read fails.
+  pfNextOrderIndex(c, target.id).then(function(orderIdx){
+  return c.from('portfolio_properties').insert({
     portfolio_id:      target.id,
     property_name:     propName,
     order_index:       orderIdx,
@@ -7711,6 +7737,7 @@ function _bankSaveReportToPortfolio(target){
           '\n\nNothing was saved. The portfolio binding is still active — fix the issue and try Save again, or click the × on the portfolio chip to drop the binding and save as a standalone assessment instead.');
     setTimeout(function(){ EX.saveStatus = null; renderDevices(); renderResults(); }, 4000);
   });
+  }); // pfNextOrderIndex
 }
 
 function bankSaveReportImpl(replaceIds){
