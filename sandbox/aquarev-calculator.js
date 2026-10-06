@@ -75,6 +75,11 @@ var EX={
   // Can be bundled into the main PDF via this toggle OR downloaded on its
   // own via the standalone "Download Receipt Only" button below.
   inclReceipt:false,      // include the Receipt / Payment Ledger page
+  // Summary Letter — rep-drafted cover letter to the client, printed right
+  // after the Cover (portrait). HTML from the Export-step rich-text editor;
+  // persists in snapshot.ex. Same page builder the portfolio export uses.
+  inclSummaryLetter:false,
+  summaryLetterHtml:'',
   images:[],              // [{id, data, comment}]
   ytEntries:[],           // [{id, url, videoId, comment}]
   showYtDrawer:false,
@@ -1705,14 +1710,27 @@ window.AR2_PF = (function(){
     var trimmed = String(name || '').trim();
     if (!portfolioId) return Promise.reject(new Error('portfolio required'));
     if (!trimmed)     return Promise.reject(new Error('Name required'));
-    return c.from('portfolio_properties')
+    // Seed the new property's state from the portfolio's defaults so the
+    // Savings Projection (weight) and discount don't silently fall back to
+    // the calculator's 100 % / 0 % when the property is first opened.
+    return c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', portfolioId).maybeSingle()
+      .then(function(pr){ return (pr && pr.data) || {}; }, function(){ return {}; })
+      .then(function(defs){
+        var seed = {};
+        var dsw = Number(defs.default_savings_weight);
+        if (isFinite(dsw) && dsw > 0 && dsw <= 1) seed.savings_weight = dsw;
+        var ddp = Number(defs.default_discount_pct);
+        if (isFinite(ddp) && ddp > 0) seed.discount = ddp > 1 ? ddp / 100 : ddp;
+        return c.from('portfolio_properties')
       .insert({
         portfolio_id: portfolioId,
         property_name: trimmed,
-        order_index: nextOrderIndex(portfolioId)
+        order_index: nextOrderIndex(portfolioId),
+        state_json: seed
       })
       .select('id,portfolio_id,property_name,order_index,country,formatted_address,computed_kpis,state_json,excluded_from_rollup,created_at,updated_at')
-      .single()
+      .single();
+      })
       .then(function(rs){
         if (rs.error) throw new Error(rs.error.message);
         var slot = pfState.properties[portfolioId] || { rows: [], loading: false, error: null };
@@ -2659,6 +2677,7 @@ window.AR2_PF = (function(){
       +     '<button class="ar-pf-actbtn" data-pf-action="open-quote" type="button" title="Configure the Portfolio Quote">Quote</button>'
       +     '<button class="ar-pf-actbtn primary" data-pf-action="open-export" type="button" title="Package the portfolio for export and distribution">Export &rarr;</button>'
       +     '<button class="ar-pf-actbtn" data-pf-action="import-csv" type="button" title="Bulk-import properties from a CSV / Excel template">&uarr; Import CSV</button>'
+      +     '<button class="ar-pf-actbtn" data-pf-action="duplicate-portfolio" type="button" title="Copy this portfolio and all of its properties under a new name">&#10697; Duplicate</button>'
       +     '<button class="ar-pf-newbtn" data-pf-action="new-property" type="button">Add Property</button>'
       +   '</div>'
       + '</div>';
@@ -3537,6 +3556,81 @@ window.AR2_PF = (function(){
     var el = document.getElementById('ar-pf-add-prop-modal');
     if (el && el.parentNode) el.parentNode.removeChild(el);
   }
+
+  // ── Duplicate Portfolio ───────────────────────────────────────────────
+  // Name-prompt modal → duplicatePortfolio(srcId, name) clones the portfolio
+  // row (defaults, export settings, quote) and every property (state, ex,
+  // mapping, images). opts.onDone(newId) runs after the copy; default
+  // behaviour opens the new portfolio.
+  function openDuplicatePortfolioModal(srcId, opts){
+    opts = opts || {};
+    if (document.getElementById('ar-pf-dup-modal')) return;
+    srcId = srcId || pfState.selectedPortfolioId || null;
+    if (!srcId){ alert('Open the portfolio you want to duplicate first.'); return; }
+    var cached = (pfState.portfolios || []).filter(function(p){ return p && p.id === srcId; })[0];
+    var srcName = (cached && cached.name) || '';
+    var backdrop = document.createElement('div');
+    backdrop.id = 'ar-pf-dup-modal';
+    backdrop.className = 'ar-pf-modal-backdrop';
+    backdrop.dataset.srcId = srcId;
+    function render(name){
+      backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-dup-title">'
+        + '<div class="ar-pf-modal-title" id="ar-pf-dup-title">Duplicate portfolio</div>'
+        + '<label class="ar-pf-modal-lbl" for="ar-pf-dup-name">New portfolio name</label>'
+        + '<input class="ar-pf-modal-input" id="ar-pf-dup-name" type="text" maxlength="160" autocomplete="off" value="' + esc('Copy of ' + (name || 'Untitled')) + '" />'
+        + '<div class="ar-pf-modal-hint">Copies every property (pools, devices, savings weighting, engineer data, photos) plus the export and quote settings. The original is left untouched.</div>'
+        + '<div class="ar-pf-modal-err" id="ar-pf-dup-err"></div>'
+        + '<div class="ar-pf-modal-actions">'
+        +   '<button class="ar-pf-modal-btn" type="button" data-pf-action="dup-pf-cancel">Cancel</button>'
+        +   '<button class="ar-pf-modal-btn primary" type="button" data-pf-action="dup-pf-create">Duplicate</button>'
+        + '</div>'
+      + '</div>';
+      setTimeout(function(){ var i = document.getElementById('ar-pf-dup-name'); if (i) try { i.focus(); i.select(); } catch(_){} }, 30);
+    }
+    render(srcName);
+    document.body.appendChild(backdrop);
+    if (!srcName){
+      var c = client();
+      if (c) c.from('portfolios').select('name').eq('id', srcId).maybeSingle().then(function(rs){
+        if (rs && rs.data && rs.data.name && document.getElementById('ar-pf-dup-modal') === backdrop) render(rs.data.name);
+      });
+    }
+    function submit(){
+      var input = document.getElementById('ar-pf-dup-name');
+      var err = document.getElementById('ar-pf-dup-err');
+      var btn = backdrop.querySelector('[data-pf-action="dup-pf-create"]');
+      var name = (input && input.value || '').trim();
+      if (err) err.textContent = '';
+      if (!name){ if (err) err.textContent = 'Enter a name for the new portfolio.'; return; }
+      if (btn){ btn.disabled = true; btn.textContent = 'Duplicating…'; }
+      duplicatePortfolio(srcId, name).then(function(newId){
+        closeDuplicatePortfolioModal();
+        try { if (typeof AR2_PF._state === 'object' && AR2_PF._state) AR2_PF._state.activeEngineers = null; } catch(_){}
+        if (typeof opts.onDone === 'function') opts.onDone(newId);
+        else openPortfolio(newId);
+      }).catch(function(e){
+        if (btn){ btn.disabled = false; btn.textContent = 'Duplicate'; }
+        if (err) err.textContent = 'Could not duplicate: ' + ((e && e.message) || 'unknown error');
+      });
+    }
+    backdrop.addEventListener('click', function(e){
+      if (e.target === backdrop) { closeDuplicatePortfolioModal(); return; }
+      var act = e.target.closest('[data-pf-action]');
+      if (!act) return;
+      e.stopPropagation();
+      var a = act.getAttribute('data-pf-action');
+      if (a === 'dup-pf-cancel') { closeDuplicatePortfolioModal(); return; }
+      if (a === 'dup-pf-create') { submit(); return; }
+    });
+    backdrop.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') closeDuplicatePortfolioModal();
+      if (e.key === 'Enter' && e.target.id === 'ar-pf-dup-name') submit();
+    });
+  }
+  function closeDuplicatePortfolioModal(){
+    var el = document.getElementById('ar-pf-dup-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
   function submitNewProperty(){
     var backdrop = document.getElementById('ar-pf-add-prop-modal');
     // Resolve the target portfolio id. Primary source: the modal's own
@@ -3721,9 +3815,23 @@ window.AR2_PF = (function(){
   // Internal flag `_navWithinPortfolio` (set by prev/next nav) preserves
   // the existing snapshot so exiting after multi-property navigation
   // still restores the original single-property session.
+  // Portfolio-level defaults (Savings Projection weight, discount) — small
+  // cached lookup so a property whose state_json never captured a weight
+  // inherits the portfolio's default instead of the calculator's 100 %.
+  var _pfDefaultsCache = {};
+  function portfolioDefaults(portfolioId){
+    if (!portfolioId) return Promise.resolve({});
+    if (_pfDefaultsCache[portfolioId]) return Promise.resolve(_pfDefaultsCache[portfolioId]);
+    var c = client();
+    if (!c) return Promise.resolve({});
+    return c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', portfolioId).maybeSingle()
+      .then(function(rs){ var d = (rs && rs.data) || {}; _pfDefaultsCache[portfolioId] = d; return d; }, function(){ return {}; });
+  }
   function enterProperty(propertyId, _navWithinPortfolio){
     if (!propertyId) return Promise.reject(new Error('property id required'));
     return fetchPropertyFull(propertyId).then(function(prop){
+      return portfolioDefaults(prop && prop.portfolio_id).then(function(defs){ prop._pfDefaults = defs || {}; return prop; });
+    }).then(function(prop){
       // Snapshot the user's current single-property session — only on the
       // INITIAL entry. Prev/Next navigation within property mode keeps
       // the original snapshot so a multi-property session still restores
@@ -3741,6 +3849,13 @@ window.AR2_PF = (function(){
       // so the calculator UI shows the property's name as the property name.
       if (prop.state_json && typeof prop.state_json === 'object'){
         _assignFields(S, prop.state_json);
+      }
+      // Weight fallback: a property that never stored savings_weight (older
+      // rows, blank "Create new" rows) takes the portfolio default (0.75
+      // unless changed) rather than silently reporting 100 % savings.
+      if (!(prop.state_json && Object.prototype.hasOwnProperty.call(prop.state_json, 'savings_weight'))){
+        var _dsw = Number(prop._pfDefaults && prop._pfDefaults.default_savings_weight);
+        if (isFinite(_dsw) && _dsw > 0 && _dsw <= 1) S.savings_weight = _dsw;
       }
       if (prop.ex_json && typeof prop.ex_json === 'object'){
         _assignFields(EX, prop.ex_json);
@@ -4226,6 +4341,8 @@ window.AR2_PF = (function(){
     viewMode: function(){ return pfState.viewMode; },
     selectedPortfolioId: function(){ return pfState.selectedPortfolioId; },
     openPortfolio: openPortfolio,
+    openDuplicatePortfolioModal: openDuplicatePortfolioModal,
+    closeDuplicatePortfolioModal: closeDuplicatePortfolioModal,
     backToPortfoliosList: backToPortfoliosList,
     openExport: openExport,
     backToOverview: backToOverview,
@@ -4305,7 +4422,7 @@ window.AR2_MAP_PF_TARGET = null; // { id, name } when a portfolio is bound; null
 /* ── Duplicate a portfolio — server-side: insert a new portfolios row with
    suffixed name, then bulk-copy portfolio_properties rows to point at the
    new portfolio id. RLS already gates this (users → own; admins → all). */
-function duplicatePortfolio(srcId){
+function duplicatePortfolio(srcId, newName){
   var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
   if (!c || !srcId) return Promise.reject(new Error('cloud not ready'));
   return c.from('portfolios').select('*').eq('id', srcId).single().then(function(rs){
@@ -4314,7 +4431,9 @@ function duplicatePortfolio(srcId){
     var copy = {
       user_id: src.user_id, // RLS keeps this scoped; admins can also duplicate
       client_org_id: src.client_org_id,
-      name: (src.name || 'Untitled') + ' (Copy)',
+      name: (String(newName || '').trim()) || ('Copy of ' + (src.name || 'Untitled')),
+      // Export panel state (toggles, layouts, finance switch, Summary Letter)
+      export_settings: src.export_settings || {},
       client_contact_name: src.client_contact_name,
       client_contact_email: src.client_contact_email,
       cover_image_url: src.cover_image_url,
@@ -4349,9 +4468,21 @@ function duplicatePortfolio(srcId){
             excluded_from_rollup: p.excluded_from_rollup
           };
         });
-        if (!rows.length) return newId;
-        return c.from('portfolio_properties').insert(rows).then(function(ins){
-          if (ins.error) throw new Error(ins.error.message);
+        // Also carry the Portfolio Quote configuration (buyer, adjustments,
+        // terms, line overrides) so the duplicate is export-ready. quote_id
+        // is cleared so the copy gets its own number when saved.
+        var copyQuote = function(){
+          return c.from('portfolio_quotes').select('*').eq('portfolio_id', srcId).maybeSingle().then(function(qs){
+            var q = qs && qs.data;
+            if (!q) return null;
+            var qc = {};
+            Object.keys(q).forEach(function(k){ if (k !== 'id' && k !== 'created_at' && k !== 'updated_at') qc[k] = q[k]; });
+            qc.portfolio_id = newId;
+            qc.quote_id = null;
+            return c.from('portfolio_quotes').insert(qc).then(function(){ return null; }, function(){ return null; });
+          }, function(){ return null; });
+        };
+        var finish = function(){
           // Invalidate AR2_PF caches so the new portfolio appears
           if (window.AR2_PF && AR2_PF._state){
             AR2_PF._state.portfolios = null;
@@ -4360,6 +4491,11 @@ function duplicatePortfolio(srcId){
           }
           if (window.AR2_PF && AR2_PF.refreshPortfolios){ try { AR2_PF.refreshPortfolios(); } catch(_){} }
           return newId;
+        };
+        if (!rows.length) return copyQuote().then(finish);
+        return c.from('portfolio_properties').insert(rows).then(function(ins){
+          if (ins.error) throw new Error(ins.error.message);
+          return copyQuote().then(finish);
         });
       });
     });
@@ -5322,6 +5458,7 @@ function buildPortfolioReportPreview(pid, mode){
           // duplicate exec pages later in the doc.
           EX.inclExecSummary   = false;
           EX.inclLsExecSummary = false;                   // portrait only
+          EX.inclSummaryLetter = false;                   // letters belong at the portfolio level (front matter)
           EX.inclPoolProfiles  = !!poolProfilesUseCapture; // Cards mode only; List mode is rendered separately below
           // Portfolio-level 60-Month Finance master switch (Export panel).
           // OFF → purchase-only everywhere; ON → Advantage + Purchase boxes.
@@ -5588,6 +5725,7 @@ function buildPortfolioExecSummaryPageHtml(pName, states, roll, today, opts){
     EX.inclQuote          = false;
     EX.inclQuoteTerms     = false;
     EX.inclQuotePayment   = false;
+    EX.inclSummaryLetter  = false;   // property-level letters never ride into portfolio captures
     EX.layout             = 'portrait';
     // Portfolio-level 60-Month Finance master switch (see _defaultExportState).
     EX.bothScenarios      = !!(opts && opts.financeTerms);
@@ -5741,6 +5879,7 @@ function buildPortfolioAssessmentPageHtml(pName, states, roll, today, opts){
     EX.inclQuote          = false;
     EX.inclQuoteTerms     = false;
     EX.inclQuotePayment   = false;
+    EX.inclSummaryLetter  = false;   // property-level letters never ride into portfolio captures
     EX.layout             = 'portrait';
     // Portfolio-level 60-Month Finance master switch (see _defaultExportState).
     EX.bothScenarios      = !!(opts && opts.financeTerms);
@@ -6692,11 +6831,15 @@ function buildPortfolioIndexPages(pName, today, entries, totalPages){
 /* Starter letter, used the first time the Summary Letter toggle is turned
    on so the rep edits a draft instead of a blank box. Bracketed fields are
    meant to be replaced. */
-function pfDefaultLetterHtml(pName){
-  var n = esc(pName || 'your portfolio');
+function pfDefaultLetterHtml(pName, kind){
+  var isProp = (kind === 'property');
+  var n = esc(pName || (isProp ? 'your property' : 'your portfolio'));
   return '<p>Dear [Client Name],</p>'
-    + '<p>Thank you for the opportunity to assess the pool and spa systems across the <b>' + n + '</b> portfolio. This document summarizes our findings, the recommended AquaRev configuration for each property, and the projected water, chemical and operating savings.</p>'
-    + '<p>Each property section includes an assessment page and pool-by-pool profiles so your engineering and operations teams can review the specifics for their sites. Pricing and terms follow at the end of the document.</p>'
+    + (isProp
+        ? '<p>Thank you for the opportunity to assess the pool and spa systems at <b>' + n + '</b>. This document summarizes our findings, the recommended AquaRev configuration, and the projected water, chemical and operating savings.</p>'
+          + '<p>The assessment page and pool-by-pool profiles that follow give your engineering and operations team the specifics for the site. Pricing and terms follow at the end of the document.</p>'
+        : '<p>Thank you for the opportunity to assess the pool and spa systems across the <b>' + n + '</b> portfolio. This document summarizes our findings, the recommended AquaRev configuration for each property, and the projected water, chemical and operating savings.</p>'
+          + '<p>Each property section includes an assessment page and pool-by-pool profiles so your engineering and operations teams can review the specifics for their sites. Pricing and terms follow at the end of the document.</p>')
     + '<p>We appreciate your consideration and look forward to supporting your properties.</p>'
     + '<p>Sincerely,</p>'
     + '<p>[Your Name]<br>AquaRev Water</p>';
@@ -7643,6 +7786,7 @@ function bankSaveReportImpl(replaceIds){
       // Quote / Order Form toggles (Step 3)
       inclQuote:EX.inclQuote, inclQuoteTerms:EX.inclQuoteTerms, inclQuotePayment:EX.inclQuotePayment,
       inclReceipt:EX.inclReceipt,
+      inclSummaryLetter:EX.inclSummaryLetter, summaryLetterHtml:EX.summaryLetterHtml,
       comments:EX.comments, ytEntries:EX.ytEntries,
       images:EX.images,
     },
@@ -7848,6 +7992,8 @@ function bankRecall(snapshot, recordId){
   EX.inclQuoteTerms=!!snapshot.ex.inclQuoteTerms;
   EX.inclQuotePayment=!!snapshot.ex.inclQuotePayment;
   EX.inclReceipt=!!snapshot.ex.inclReceipt;
+  EX.inclSummaryLetter=!!snapshot.ex.inclSummaryLetter;
+  EX.summaryLetterHtml=(typeof snapshot.ex.summaryLetterHtml==='string')?snapshot.ex.summaryLetterHtml:'';
   // Quote configuration (S.quote-equivalent — held in module-level Q).
   // Pre-v Quote snapshots won't have a quote field; default Q stays untouched.
   if (snapshot.quote && typeof snapshot.quote === 'object') {
@@ -18906,7 +19052,15 @@ function generateReport(){
   // ── Quote / Order Form pages — independently togglable in Export step ──
   var quoteHtml = buildQuoteHtml();
 
-  var html=coverHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml
+  // ── Summary Letter (portrait) — rep-drafted cover letter, prints right
+  //    after the Cover. Reuses the portfolio letter page builder with the
+  //    property name as the header title. Skipped when the editor is empty.
+  var summaryLetterHtml='';
+  if(EX.inclSummaryLetter && EX.layout==='portrait' && typeof buildPortfolioLetterPageHtml==='function'){
+    var _ltxt=String(EX.summaryLetterHtml||'').replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').trim();
+    if(_ltxt) summaryLetterHtml=buildPortfolioLetterPageHtml(prop, today, EX.summaryLetterHtml);
+  }
+  var html=coverHtml+summaryLetterHtml+lsCoverHtml+execSummaryHtml+lsExecSummaryHtml
     +assessmentHtml
     +poolProfilesHtml
     +fsHtml
@@ -19135,6 +19289,26 @@ function renderExportSection(){
           +'<div class="ar-toggle-row" data-client-hide><label>Include Cover Page</label>'
             +'<div class="ar-sw-track'+(EX.inclCover?' on':'')+'" data-ex-sw="inclCover"><div class="ar-sw-thumb"></div></div>'
           +'</div>'
+          // Summary Letter — optional cover letter to the client, printed
+          // right after the Cover. Editor appears while the toggle is on;
+          // the global RTE toolbar / input / paste handlers resolve it by id.
+          +'<div class="ar-toggle-row" data-client-hide><label>Include Summary Letter <span style="font-size:10px;color:var(--mu);font-weight:400">— prints after the Cover</span></label>'
+            +'<div class="ar-sw-track'+(EX.inclSummaryLetter?' on':'')+'" data-ex-sw="inclSummaryLetter"><div class="ar-sw-thumb"></div></div>'
+          +'</div>'
+          +(EX.inclSummaryLetter
+            ?'<div class="ar-export-field" data-client-hide style="margin-top:6px">'
+              +'<label class="ar-export-field-lbl">Summary Letter</label>'
+              +'<div class="ar-rte-toolbar">'
+                +'<button type="button" class="ar-rte-btn" data-rte-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>'
+                +'<button type="button" class="ar-rte-btn" data-rte-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button>'
+                +'<button type="button" class="ar-rte-btn" data-rte-cmd="insertUnorderedList" title="Bulleted list">• List</button>'
+                +'<button type="button" class="ar-rte-btn" data-rte-cmd="insertOrderedList" title="Numbered list">1. List</button>'
+                +'<button type="button" class="ar-rte-btn" data-rte-cmd="removeFormat" title="Clear formatting">Tx</button>'
+              +'</div>'
+              +'<div class="ar-rte" id="ar2-letter-rte" contenteditable="true" data-placeholder="Write the client letter…" style="min-height:170px">'+(EX.summaryLetterHtml||'')+'</div>'
+              +'<p class="ar-export-note" style="margin-top:6px">Header shows the property name and today\'s date. Replace the bracketed fields. Saved with the assessment.</p>'
+            +'</div>'
+            :'')
           +(function(){
             // Pool Profiles is now always toggleable. When no pool photos
             // are uploaded, the Profile page renders a grey placeholder
@@ -20226,6 +20400,9 @@ function handleClick(e){
       // CSV bulk-import — drag-and-drop modal that creates multiple portfolio
       // properties from a single uploaded template.
       if (act === 'import-csv')       { openImportCsvModal(AR2_PF.selectedPortfolioId()); return; }
+      // Duplicate portfolio — name prompt, then clone portfolio + properties.
+      if (act === 'duplicate-portfolio') { AR2_PF.openDuplicatePortfolioModal(AR2_PF.selectedPortfolioId()); return; }
+      if (act === 'dup-pf-cancel')    { AR2_PF.closeDuplicatePortfolioModal(); return; }
       // P3: Export panel nav + Quote builder nav
       if (act === 'back-to-overview') { AR2_PF.backToOverview();           return; }
       if (act === 'back-from-quote')  { AR2_PF.backFromQuoteBuilder();     return; }
@@ -20420,8 +20597,12 @@ function handleClick(e){
     }
     // Portfolio duplicate — clones the portfolio + properties under a new name.
     if (bAct==='duplicate' && bType==='portfolio'){
-      duplicatePortfolio(bId).then(function(){ renderArchive(); })
-        .catch(function(err){ alert('Could not duplicate portfolio: ' + ((err && err.message) || 'unknown error')); });
+      if (window.AR2_PF && AR2_PF.openDuplicatePortfolioModal){
+        AR2_PF.openDuplicatePortfolioModal(bId, { onDone: function(){ renderArchive(); } });
+      } else {
+        duplicatePortfolio(bId).then(function(){ renderArchive(); })
+          .catch(function(err){ alert('Could not duplicate portfolio: ' + ((err && err.message) || 'unknown error')); });
+      }
       return;
     }
     // Portfolio reassign (admin only) — surface a "coming soon" until the
@@ -20554,6 +20735,8 @@ function handleClick(e){
       try { document.execCommand(rteCmd, false, null); } catch(_){}
       if(rteEl.id==='ar2-pf-letter-rte'){
         try { if (window.AR2_PF && AR2_PF.setLetterHtml) AR2_PF.setLetterHtml(rteEl.innerHTML); } catch(_){}
+      } else if(rteEl.id==='ar2-letter-rte'){
+        EX.summaryLetterHtml = rteEl.innerHTML;   // single-assessment Summary Letter (saved with the record)
       } else {
         Q.termsHtml = rteEl.innerHTML;
         renderResults();
@@ -20569,6 +20752,15 @@ function handleClick(e){
     exSw.classList.toggle('on',EX[swKey]);
     // inclExecSummary controls visibility of the Custom Section drawer below it.
     // Export options live in #ar2-devices (middle column), so re-render that.
+    // Summary Letter: seed a starter draft the first time it's switched on,
+    // then re-render the panel so the editor appears / disappears.
+    if(swKey==='inclSummaryLetter'){
+      if(EX.inclSummaryLetter && !String(EX.summaryLetterHtml||'').trim() && typeof pfDefaultLetterHtml==='function'){
+        EX.summaryLetterHtml = pfDefaultLetterHtml(S.propertyName, 'property');
+      }
+      renderDevices();
+      return;
+    }
     if(swKey==='inclExecSummary'||swKey==='inclLsExecSummary'||swKey==='inclLsP2Col3Photos') renderDevices();
     return;
   }
@@ -21218,6 +21410,7 @@ var HELP_CONTENT = {
        +'<li><b>KPI strip</b> — properties count, total investment, total monthly / annual savings, blended payback.</li>'
        +'<li><b>+ Add Property</b> — adds one property manually. Drops you into property mode on the Map Pools step to fill it in.</li>'
        +'<li><b>↑ Import CSV</b> — bulk-import properties from a hotel-chain CSV (drag-and-drop or click). Use the <b>Download template</b> link in the modal for the recognized header format.</li>'
+       +'<li><b>⧉ Duplicate</b> — copy the whole portfolio (every property with its pools, devices, savings weighting, engineer data and photos, plus export and quote settings) under a new name. Useful for scenario variants or a new region built from an existing template.</li>'
        +'<li><b>Quote</b> — opens the Portfolio Quote builder (Recipient, Ship-Tos, Line Items, Adjustments, Deposit &amp; Terms, Purchase Terms, Notes).</li>'
        +'<li><b>Export →</b> — opens the Portfolio Export panel with section toggles for the final PDF.</li>'
        +'<li><b>Property roster</b> — click any row to enter property mode and edit that property\'s pools / devices / savings.</li>'
@@ -21386,7 +21579,7 @@ var TOUR_STEPS = {
   ],
   'portfolio-overview': [
     { selector:'.ar-pf-ov-hero',                    title:'Portfolio header',
-      body:'Back button, portfolio name + status, plus the action group: Quote · Export → · Import CSV · + Add Property.' },
+      body:'Back button, portfolio name + status, plus the action group: Quote · Export → · Import CSV · ⧉ Duplicate · + Add Property.' },
     { selector:'[data-pf-action="open-quote"]',     title:'Portfolio Quote',
       body:'Opens the Quote builder where you configure recipient, ship-tos, line items, adjustments, deposit, and terms once for the whole portfolio.' },
     { selector:'[data-pf-action="open-export"]',    title:'Export the portfolio',
@@ -22530,11 +22723,16 @@ function init(){
     if(e.target && e.target.id==='ar2-pf-letter-rte'){
       try { if (window.AR2_PF && AR2_PF.setLetterHtml) AR2_PF.setLetterHtml(e.target.innerHTML); } catch(_){}
     }
+    // Single-assessment Summary Letter editor (Export step) — state only;
+    // persisted through snapshot.ex on Save / autosave.
+    if(e.target && e.target.id==='ar2-letter-rte'){
+      EX.summaryLetterHtml = e.target.innerHTML;
+    }
   });
   // Strip styles on paste into the rich-text editor — only allow plain text
   // through, then re-apply formatting via the toolbar.
   root.addEventListener('paste',function(e){
-    if(e.target && (e.target.id==='ar2-q-rte' || e.target.id==='ar2-pf-letter-rte')){
+    if(e.target && (e.target.id==='ar2-q-rte' || e.target.id==='ar2-pf-letter-rte' || e.target.id==='ar2-letter-rte')){
       e.preventDefault();
       var text = (e.clipboardData||window.clipboardData).getData('text/plain') || '';
       try { document.execCommand('insertText', false, text); } catch(_){}
