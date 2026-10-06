@@ -4756,8 +4756,16 @@ function submitImportCsv(){
   // Build the rows for portfolio_properties insertion. Each property gets
   // an empty state_json (rep will fill in pools/devices later), preserving
   // any non-standard columns under state_json.import_extras.
+  // Savings weight / discount are seeded from the portfolio defaults so
+  // imported rows don't open at the calculator's 100 % / 0 % fallback.
+  c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', pid).maybeSingle()
+  .then(function(pr){ return (pr && pr.data) || {}; }, function(){ return {}; })
+  .then(function(defs){
+  var seedW = Number(defs.default_savings_weight), seedD = Number(defs.default_discount_pct);
   var inserts = rows.map(function(r, idx){
     var stateJson = { propertyName: r.property_name };
+    if (isFinite(seedW) && seedW > 0 && seedW <= 1) stateJson.savings_weight = seedW;
+    if (isFinite(seedD) && seedD > 0) stateJson.discount = seedD > 1 ? seedD / 100 : seedD;
     if (r.formatted_address) stateJson.formattedAddress = r.formatted_address;
     if (r.extras && Object.keys(r.extras).length) stateJson.import_extras = r.extras;
     return {
@@ -4795,6 +4803,7 @@ function submitImportCsv(){
     var errEl3 = document.getElementById('ar-csv-err');
     if (errEl3) errEl3.textContent = (err && err.message) || 'Import failed.';
   });
+  }); // portfolio defaults
 }
 
 /* ── Portfolio property Snapshot drawer ───────────────────────────
