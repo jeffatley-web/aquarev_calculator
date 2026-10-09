@@ -2676,6 +2676,9 @@ window.AR2_PF = (function(){
       +     '<div class="ar-pf-ov-title">' + esc(headerName) + '</div>'
       +     '<div class="ar-pf-ov-meta">'
       +       '<span class="ar-pf-row-status ' + statusClass + '">' + esc(statusLabel) + '</span>'
+      // Weighting chip — filled in async from portfolioDefaults() so the
+      // hero doesn't wait on a round-trip. Click opens the weighting modal.
+      +       '<button class="ar-pf-weight-chip" id="ar-pf-weight-chip" data-pf-action="open-weight" type="button" title="Savings projection weighting for this portfolio">Weighting&hellip;</button>'
       +     '</div>'
       +   '</div>'
       +   '<div class="ar-pf-ov-actions">'
@@ -2925,6 +2928,20 @@ window.AR2_PF = (function(){
         if (live) renderPortfolioOverview(live);
       });
     }
+    // Weighting chip label — "Weighting: per property" or "Weighting: 80%".
+    portfolioDefaults(pid).then(function(d){
+      var chip = document.getElementById('ar-pf-weight-chip');
+      if (!chip || pfState.selectedPortfolioId !== pid) return;
+      if (d && d.savings_weight_mode === 'portfolio'){
+        chip.textContent = 'Weighting ' + Math.round((Number(d.default_savings_weight)||0)*100) + '%';
+        chip.classList.add('on');
+        chip.title = 'All properties use the portfolio weighting of ' + Math.round((Number(d.default_savings_weight)||0)*100) + '%. Click to change or revert to per-property.';
+      } else {
+        chip.textContent = 'Weighting: per property';
+        chip.classList.remove('on');
+        chip.title = 'Each property keeps its own Savings Projection weighting. Click to set one portfolio-wide value.';
+      }
+    });
   }
 
   // ── Add Property modal (similar shape to New Portfolio modal) ──
@@ -3680,7 +3697,22 @@ window.AR2_PF = (function(){
         var kpis      = src.summary || {};
         var propName  = src.property_name || 'Imported Property';
         var nextP = (typeof pfNextOrderIndex === 'function') ? pfNextOrderIndex(c, pid) : Promise.resolve(nextOrderIndex(pid));
-        return nextP.then(function(nextIdx){
+        return Promise.all([nextP, portfolioWeightOverride(pid)]).then(function(both){
+        var nextIdx = both[0], wOverride = both[1];
+        var kpiBlob = {
+            inv:            Number(kpis.inv)         || 0,
+            total_mo:       Number(kpis.monthly)     || 0,
+            total_yr:       Number(kpis.annual)      || 0,
+            total_dev:      Number(kpis.devices)     || 0,
+            total_pool_gal: Number(kpis.poolGallons) || 0,
+            payback:        Number(kpis.payback)     || 0
+        };
+        // Portfolio-wide weighting supersedes the assessment's own value.
+        if (wOverride !== null && wOverride !== undefined){
+          stateBlob = cloneJson(stateBlob || {});
+          stateBlob.savings_weight = wOverride;
+          try { kpiBlob = kpisForState(stateBlob); } catch(_){}
+        }
         return c.from('portfolio_properties').insert({
           portfolio_id: pid,
           property_name: propName,
@@ -3688,14 +3720,7 @@ window.AR2_PF = (function(){
           state_json: stateBlob,
           ex_json: exBlob,
           pool_measure_json: mapBlob,
-          computed_kpis: {
-            inv:            Number(kpis.inv)         || 0,
-            total_mo:       Number(kpis.monthly)     || 0,
-            total_yr:       Number(kpis.annual)      || 0,
-            total_dev:      Number(kpis.devices)     || 0,
-            total_pool_gal: Number(kpis.poolGallons) || 0,
-            payback:        Number(kpis.payback)     || 0
-          }
+          computed_kpis: kpiBlob
         }).select('id').single();
         });
       }).then(function(rs2){
@@ -3832,8 +3857,169 @@ window.AR2_PF = (function(){
     if (_pfDefaultsCache[portfolioId]) return Promise.resolve(_pfDefaultsCache[portfolioId]);
     var c = client();
     if (!c) return Promise.resolve({});
-    return c.from('portfolios').select('default_savings_weight,default_discount_pct').eq('id', portfolioId).maybeSingle()
+    return c.from('portfolios').select('default_savings_weight,default_discount_pct,savings_weight_mode').eq('id', portfolioId).maybeSingle()
       .then(function(rs){ var d = (rs && rs.data) || {}; _pfDefaultsCache[portfolioId] = d; return d; }, function(){ return {}; });
+  }
+  function clearPortfolioDefaults(portfolioId){ if (portfolioId) delete _pfDefaultsCache[portfolioId]; else _pfDefaultsCache = {}; }
+  // Portfolio-wide weighting: when the portfolio is in 'portfolio' mode its
+  // default_savings_weight supersedes every included property. Resolves the
+  // weight to stamp on a property being added / copied, or null for "keep
+  // the source property's own weighting".
+  function portfolioWeightOverride(portfolioId){
+    return portfolioDefaults(portfolioId).then(function(d){
+      if (!d || d.savings_weight_mode !== 'portfolio') return null;
+      var w = Number(d.default_savings_weight);
+      return (isFinite(w) && w > 0 && w <= 1) ? w : null;
+    });
+  }
+
+  // Compute computed_kpis for an arbitrary state_json without disturbing the
+  // live calculator: swap S in, run the ROI math, swap S back. Mirrors the
+  // reset/assign sequence enterProperty uses (minus the map reset).
+  function kpisForState(stateJson){
+    var savedS = cloneJson(S);
+    // A Quote-step discount override on the live session must not leak into
+    // another property's KPIs (effectiveDiscount() reads Q.discountPct).
+    var hadQ = (typeof Q !== 'undefined' && Q), savedQd = hadQ ? Q.discountPct : undefined;
+    if (hadQ) Q.discountPct = null;
+    try {
+      var keep = { step: S.step, activeTab: S.activeTab };
+      for (var k in S){ if (Object.prototype.hasOwnProperty.call(S, k) && !(k in savedS)) delete S[k]; }
+      S.bodies = [{id:1,label:'Pool 1',poolType:'chlorine',inputMode:'dimensions',length:'',width:'',depth:'',manualGallons:'',co2Use:false,image:null,pipe_2in:0,pipe_3in:0,pipe_4in:0,pipe_6in:0,pipe_8in:0,pipe_10in:0}];
+      S.devicesByPool = false; S.manualVolume = false; S.manualTotalGallons = ''; S.manualChlorineGallons = ''; S.manualCo2 = false; S.manualPoolCount = 1;
+      S.pool_gallons = 0; S.chlorine_pool_gallons = 0; S.co2_pool_gallons = 0;
+      S.pipe_2in = 0; S.pipe_3in = 0; S.pipe_4in = 0; S.pipe_6in = 0; S.pipe_8in = 0; S.pipe_10in = 0;
+      S.discount = 0; S.savings_weight = 1;
+      _assignFields(S, stateJson || {});
+      S.step = keep.step; S.activeTab = keep.activeTab;
+      if (typeof syncGallons === 'function') { try { syncGallons(); } catch(_){} }
+      return _buildKpisFromState();
+    } finally {
+      for (var dk in S){ if (Object.prototype.hasOwnProperty.call(S, dk) && !(dk in savedS)) delete S[dk]; }
+      for (var sk in savedS){ if (Object.prototype.hasOwnProperty.call(savedS, sk)) S[sk] = savedS[sk]; }
+      if (hadQ) Q.discountPct = savedQd;
+    }
+  }
+
+  // Apply one weighting to every property in the portfolio and switch the
+  // portfolio to 'portfolio' mode (or back to 'property' mode when weight is
+  // null). Writes state_json.savings_weight + fresh computed_kpis per row.
+  // onProgress(done, total) lets the modal show a counter.
+  function applyPortfolioWeight(portfolioId, weight, onProgress){
+    var c = client();
+    if (!c || !portfolioId) return Promise.reject(new Error('cloud not ready'));
+    var mode = (weight === null || weight === undefined) ? 'property' : 'portfolio';
+    var w = Number(weight);
+    if (mode === 'portfolio' && !(isFinite(w) && w > 0 && w <= 1)) return Promise.reject(new Error('weight must be between 5 % and 100 %'));
+    var pfPatch = { savings_weight_mode: mode };
+    if (mode === 'portfolio') pfPatch.default_savings_weight = w;
+    return c.from('portfolios').update(pfPatch).eq('id', portfolioId).then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      clearPortfolioDefaults(portfolioId);
+      if (mode !== 'portfolio') return { updated: 0, total: 0 };
+      return c.from('portfolio_properties').select('id').eq('portfolio_id', portfolioId).order('order_index').then(function(ls){
+        if (ls.error) throw new Error(ls.error.message);
+        var ids = (ls.data || []).map(function(r){ return r.id; });
+        var done = 0;
+        var chain = Promise.resolve();
+        ids.forEach(function(id){
+          chain = chain.then(function(){
+            return fetchPropertyFull(id).then(function(prop){
+              var st = cloneJson((prop && prop.state_json) || {});
+              st.savings_weight = w;
+              var kp = kpisForState(st);
+              return c.from('portfolio_properties').update({ state_json: st, computed_kpis: kp }).eq('id', id).then(function(ur){
+                if (ur.error) throw new Error(ur.error.message);
+                done++;
+                if (typeof onProgress === 'function') { try { onProgress(done, ids.length); } catch(_){} }
+              });
+            });
+          });
+        });
+        return chain.then(function(){
+          pfState.properties[portfolioId] = null;
+          pfState.rollup[portfolioId] = null;
+          if (pfState.propertyStates) pfState.propertyStates[portfolioId] = null;
+          return { updated: done, total: ids.length };
+        });
+      });
+    });
+  }
+
+  // ── Portfolio Weighting modal ─────────────────────────────────────────
+  function openWeightModal(portfolioId){
+    portfolioId = portfolioId || pfState.selectedPortfolioId;
+    if (!portfolioId || document.getElementById('ar-pf-weight-modal')) return;
+    var rows = (pfState.properties[portfolioId] && pfState.properties[portfolioId].rows) || [];
+    var n = rows.length;
+    portfolioDefaults(portfolioId).then(function(d){
+      var mode = (d && d.savings_weight_mode) || 'property';
+      var cur = Math.round((Number(d && d.default_savings_weight) || 0.75) * 100);
+      var backdrop = document.createElement('div');
+      backdrop.id = 'ar-pf-weight-modal';
+      backdrop.className = 'ar-pf-modal-backdrop';
+      backdrop.innerHTML = '<div class="ar-pf-modal" role="dialog" aria-modal="true" aria-labelledby="ar-pf-weight-title">'
+        + '<div class="ar-pf-modal-title" id="ar-pf-weight-title">Portfolio weighting</div>'
+        + '<div class="ar-pf-modal-hint" style="margin-bottom:12px">'
+          + (mode === 'portfolio'
+              ? 'This portfolio currently applies <b style="color:#fff">' + cur + '%</b> to every property.'
+              : 'Each property currently keeps its own Savings Projection weighting.')
+          + ' Setting a portfolio weighting applies one value to all ' + n + ' propert' + (n===1?'y':'ies') + ' now, and to any property added or copied in later. It supersedes the per-property setting.'
+        + '</div>'
+        + '<label class="ar-pf-modal-lbl" for="ar-pf-weight-range">Savings projection weighting <span id="ar-pf-weight-val" style="color:#48cae4;font-weight:700">' + cur + '%</span></label>'
+        + '<input id="ar-pf-weight-range" type="range" min="5" max="100" step="5" value="' + cur + '" style="width:100%;margin:6px 0 4px;accent-color:#00b4d8" />'
+        + '<div style="display:flex;justify-content:space-between;font-size:10px;color:#7db8cc;letter-spacing:1px"><span>5%</span><span>50%</span><span>100%</span></div>'
+        + '<div class="ar-pf-modal-err" id="ar-pf-weight-err"></div>'
+        + '<div class="ar-pf-modal-actions">'
+        +   '<button class="ar-pf-modal-btn" type="button" data-pf-action="weight-cancel">Cancel</button>'
+        +   (mode === 'portfolio' ? '<button class="ar-pf-modal-btn" type="button" data-pf-action="weight-revert" title="Stop superseding; each property keeps the value it has now">Per-property</button>' : '')
+        +   '<button class="ar-pf-modal-btn primary" type="button" data-pf-action="weight-apply">Apply to all ' + n + '</button>'
+        + '</div>'
+      + '</div>';
+      document.body.appendChild(backdrop);
+      var range = backdrop.querySelector('#ar-pf-weight-range');
+      var val = backdrop.querySelector('#ar-pf-weight-val');
+      range.addEventListener('input', function(){ val.textContent = range.value + '%'; });
+      setTimeout(function(){ try { range.focus(); } catch(_){} }, 30);
+      function finish(res, label){
+        closeWeightModal();
+        pfState.properties[portfolioId] = null; pfState.rollup[portfolioId] = null;
+        if (typeof renderArchive === 'function') renderArchive();
+        try { if (typeof showToast === 'function') showToast(label); } catch(_){}
+      }
+      function run(weightOrNull){
+        var err = backdrop.querySelector('#ar-pf-weight-err');
+        var btns = backdrop.querySelectorAll('.ar-pf-modal-btn');
+        for (var i=0;i<btns.length;i++) btns[i].disabled = true;
+        var apply = backdrop.querySelector('[data-pf-action="weight-apply"]');
+        if (err) err.textContent = '';
+        applyPortfolioWeight(portfolioId, weightOrNull, function(done, total){
+          if (apply) apply.textContent = 'Applying ' + done + ' / ' + total + '…';
+        }).then(function(res){
+          finish(res, weightOrNull === null ? 'Portfolio weighting removed — properties keep their own values'
+                                            : 'Weighting ' + Math.round(weightOrNull*100) + '% applied to ' + res.updated + ' propert' + (res.updated===1?'y':'ies'));
+        }).catch(function(e){
+          for (var j=0;j<btns.length;j++) btns[j].disabled = false;
+          if (apply) apply.textContent = 'Apply to all ' + n;
+          if (err) err.textContent = 'Could not apply: ' + ((e && e.message) || 'unknown error');
+        });
+      }
+      backdrop.addEventListener('click', function(e){
+        if (e.target === backdrop) { closeWeightModal(); return; }
+        var act = e.target.closest('[data-pf-action]');
+        if (!act) return;
+        e.stopPropagation();
+        var a = act.getAttribute('data-pf-action');
+        if (a === 'weight-cancel') { closeWeightModal(); return; }
+        if (a === 'weight-revert') { run(null); return; }
+        if (a === 'weight-apply')  { run(Number(range.value) / 100); return; }
+      });
+      backdrop.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeWeightModal(); });
+    });
+  }
+  function closeWeightModal(){
+    var el = document.getElementById('ar-pf-weight-modal');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
   function enterProperty(propertyId, _navWithinPortfolio){
     if (!propertyId) return Promise.reject(new Error('property id required'));
@@ -3864,6 +4050,11 @@ window.AR2_PF = (function(){
       if (!(prop.state_json && Object.prototype.hasOwnProperty.call(prop.state_json, 'savings_weight'))){
         var _dsw = Number(prop._pfDefaults && prop._pfDefaults.default_savings_weight);
         if (isFinite(_dsw) && _dsw > 0 && _dsw <= 1) S.savings_weight = _dsw;
+      }
+      // Portfolio-wide weighting supersedes the property's own value.
+      if (prop._pfDefaults && prop._pfDefaults.savings_weight_mode === 'portfolio'){
+        var _pw = Number(prop._pfDefaults.default_savings_weight);
+        if (isFinite(_pw) && _pw > 0 && _pw <= 1) S.savings_weight = _pw;
       }
       if (prop.ex_json && typeof prop.ex_json === 'object'){
         _assignFields(EX, prop.ex_json);
@@ -4351,6 +4542,13 @@ window.AR2_PF = (function(){
     openPortfolio: openPortfolio,
     openDuplicatePortfolioModal: openDuplicatePortfolioModal,
     closeDuplicatePortfolioModal: closeDuplicatePortfolioModal,
+    openWeightModal: openWeightModal,
+    closeWeightModal: closeWeightModal,
+    loadedWeightMode: function(){ var p = pfState.propertyMode && pfState.loadedProperty; return (p && p._pfDefaults && p._pfDefaults.savings_weight_mode) || 'property'; },
+    applyPortfolioWeight: applyPortfolioWeight,
+    portfolioWeightOverride: portfolioWeightOverride,
+    kpisForState: kpisForState,
+    clearPortfolioDefaults: clearPortfolioDefaults,
     backToPortfoliosList: backToPortfoliosList,
     openExport: openExport,
     backToOverview: backToOverview,
@@ -5272,8 +5470,26 @@ function submitCopyToPortfolio(mode){
     var kpis      = src.summary || {};
     var propName  = src.property_name || 'Imported Property';
     if (mode === 'new'){
-      // Insert a new portfolio_properties row at the next free position
-      return pfNextOrderIndex(c, pid).then(function(nextIdx){
+      // Insert a new portfolio_properties row at the next free position.
+      // The source assessment's own savings weighting is carried as-is
+      // unless the target portfolio has a portfolio-wide weighting, which
+      // supersedes it (KPIs recomputed so the roll-up matches).
+      var _wP = (window.AR2_PF && AR2_PF.portfolioWeightOverride) ? AR2_PF.portfolioWeightOverride(pid) : Promise.resolve(null);
+      return Promise.all([pfNextOrderIndex(c, pid), _wP]).then(function(both){
+      var nextIdx = both[0], wOverride = both[1];
+      var kpiBlob = {
+          inv: Number(kpis.inv) || 0,
+          total_mo: Number(kpis.monthly) || 0,
+          total_yr: Number(kpis.annual) || 0,
+          total_dev: Number(kpis.devices) || 0,
+          total_pool_gal: Number(kpis.poolGallons) || 0,
+          payback: Number(kpis.payback) || 0
+      };
+      if (wOverride !== null && wOverride !== undefined){
+        stateBlob = JSON.parse(JSON.stringify(stateBlob || {}));
+        stateBlob.savings_weight = wOverride;
+        try { kpiBlob = AR2_PF.kpisForState(stateBlob); } catch(_){}
+      }
       return c.from('portfolio_properties').insert({
         portfolio_id: pid,
         property_name: propName,
@@ -5281,14 +5497,7 @@ function submitCopyToPortfolio(mode){
         state_json: stateBlob,
         ex_json: exBlob,
         pool_measure_json: mapBlob,
-        computed_kpis: {
-          inv: Number(kpis.inv) || 0,
-          total_mo: Number(kpis.monthly) || 0,
-          total_yr: Number(kpis.annual) || 0,
-          total_dev: Number(kpis.devices) || 0,
-          total_pool_gal: Number(kpis.poolGallons) || 0,
-          payback: Number(kpis.payback) || 0
-        }
+        computed_kpis: kpiBlob
       }).select('id').single();
       });
     }
@@ -7685,7 +7894,14 @@ function _bankSaveReportToPortfolio(target){
   // Next free order_index read from the database (pfNextOrderIndex), so the
   // property lands after the last existing one even when the roster cache
   // is cold. Falls back to the cache max / 0 if the read fails.
-  pfNextOrderIndex(c, target.id).then(function(orderIdx){
+  var _wP = (window.AR2_PF && AR2_PF.portfolioWeightOverride) ? AR2_PF.portfolioWeightOverride(target.id) : Promise.resolve(null);
+  Promise.all([pfNextOrderIndex(c, target.id), _wP]).then(function(both){
+  var orderIdx = both[0], wOverride = both[1];
+  // Portfolio-wide weighting supersedes the live calculator's value.
+  if (wOverride !== null && wOverride !== undefined && Number(stateJson.savings_weight) !== wOverride){
+    stateJson.savings_weight = wOverride;
+    try { kpis = AR2_PF.kpisForState(stateJson); } catch(_){}
+  }
   return c.from('portfolio_properties').insert({
     portfolio_id:      target.id,
     property_name:     propName,
@@ -16491,6 +16707,11 @@ function renderStep1(){
         +'<div class="ar-slider-val-inline" id="sw-lbl">'+wPct+'%</div>'
       +'</div>'
       +'<div class="ar-slider-ticks"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>'
+      // Portfolio-wide weighting in force: say so, since the value will be
+      // re-imposed on the next open and on every Apply from the Overview.
+      +((window.AR2_PF && AR2_PF.loadedWeightMode && AR2_PF.loadedWeightMode()==='portfolio')
+        ? '<div style="margin-top:6px;font-size:11px;line-height:1.4;color:#48cae4">Set by the portfolio weighting ('+wPct+'%). Change it from the Portfolio Overview &rarr; Weighting to update every property.</div>'
+        : '')
     +'</div>'
     +'<button class="ar-btn ghost" data-action="toggle-adv-rates" style="width:100%;margin-top:6px;font-size:12px;padding:8px 14px">'+I.file+' '+(S.showAdvRates?'Hide':'Adjust')+' Water &amp; Chemical Rates</button>'
     +advRatesHtml
@@ -20440,6 +20661,9 @@ function handleClick(e){
       // Duplicate portfolio — name prompt, then clone portfolio + properties.
       if (act === 'duplicate-portfolio') { AR2_PF.openDuplicatePortfolioModal(AR2_PF.selectedPortfolioId()); return; }
       if (act === 'dup-pf-cancel')    { AR2_PF.closeDuplicatePortfolioModal(); return; }
+      // Portfolio-wide savings weighting
+      if (act === 'open-weight')      { AR2_PF.openWeightModal(AR2_PF.selectedPortfolioId()); return; }
+      if (act === 'weight-cancel')    { AR2_PF.closeWeightModal(); return; }
       // P3: Export panel nav + Quote builder nav
       if (act === 'back-to-overview') { AR2_PF.backToOverview();           return; }
       if (act === 'back-from-quote')  { AR2_PF.backFromQuoteBuilder();     return; }
@@ -21448,6 +21672,7 @@ var HELP_CONTENT = {
        +'<li><b>+ Add Property</b> — adds one property manually. Drops you into property mode on the Map Pools step to fill it in.</li>'
        +'<li><b>↑ Import CSV</b> — bulk-import properties from a hotel-chain CSV (drag-and-drop or click). Use the <b>Download template</b> link in the modal for the recognized header format.</li>'
        +'<li><b>⧉ Duplicate</b> — copy the whole portfolio (every property with its pools, devices, savings weighting, engineer data and photos, plus export and quote settings) under a new name. Useful for scenario variants or a new region built from an existing template.</li>'
+       +'<li><b>Weighting</b> (chip next to the status) — set one Savings Projection weighting for the whole portfolio. <b>Apply to all</b> rewrites every property\'s weighting and KPIs now, and any property added or copied in afterwards adopts it. <b>Per-property</b> switches back so each property keeps its own value. Copies from the Archive otherwise carry the assessment\'s own weighting.</li>'
        +'<li><b>Quote</b> — opens the Portfolio Quote builder (Recipient, Ship-Tos, Line Items, Adjustments, Deposit &amp; Terms, Purchase Terms, Notes).</li>'
        +'<li><b>Export →</b> — opens the Portfolio Export panel with section toggles for the final PDF.</li>'
        +'<li><b>Property roster</b> — click any row to enter property mode and edit that property\'s pools / devices / savings.</li>'

@@ -3699,6 +3699,9 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-pf-row-name{font-family:'DM Sans',sans-serif;font-size:14.5px;font-weight:600;color:#e0f4fa;}
 #ar2 .ar-pf-row-meta{font-size:11px;color:var(--mu);letter-spacing:.5px;margin-top:3px;}
 #ar2 .ar-pf-row-status{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 9px;border-radius:9px;font-weight:700;}
+#ar2 .ar-pf-weight-chip{font-family:inherit;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 10px;border-radius:9px;font-weight:700;background:transparent;border:1px solid rgba(0,180,216,.35);color:#7db8cc;cursor:pointer;transition:background .15s,color .15s,border-color .15s;}
+#ar2 .ar-pf-weight-chip:hover{background:rgba(0,180,216,.14);color:#fff;border-color:rgba(0,180,216,.7);}
+#ar2 .ar-pf-weight-chip.on{background:rgba(0,180,216,.18);color:#48cae4;border-color:rgba(0,180,216,.6);}
 #ar2 .ar-pf-row-status.draft{background:rgba(125,184,204,.16);color:#8fb8c8;}
 #ar2 .ar-pf-row-status.in_review{background:rgba(240,165,0,.16);color:#f0a500;}
 #ar2 .ar-pf-row-status.sent{background:rgba(0,180,216,.18);color:var(--t);}
