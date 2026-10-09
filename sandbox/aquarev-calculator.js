@@ -1496,15 +1496,24 @@ window.AR2_PF = (function(){
         ? new Date(p.last_modified_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
         : '—';
       var statusClass = (p.status || 'draft').toLowerCase();
+      // Row KPIs fill from the cached roll-up when the snapshot drawer has
+      // loaded it (or when the overview was visited); "—" until then.
+      var rl = pfState.rollup[p.id] && pfState.rollup[p.id].data;
+      var kProps = rl ? String(Number(rl.property_count) || 0) : '—';
+      var kInv   = rl ? ('$' + fn(Number(rl.total_inv) || 0)) : '—';
       return '<div class="ar-pf-row" data-pf-portfolio="' + p.id + '" role="button" tabindex="0">'
         +   '<div>'
         +     '<div class="ar-pf-row-name">' + esc(p.name || 'Untitled portfolio') + '</div>'
         +     '<div class="ar-pf-row-meta">' + (p.client_contact_name ? esc(p.client_contact_name) + ' · ' : '') + dateStr + '</div>'
         +   '</div>'
         +   '<span class="ar-pf-row-status ' + statusClass + '">' + esc(p.status || 'draft').replace('_',' ') + '</span>'
-        +   '<div class="ar-pf-row-kpi"><div class="v">—</div><div class="l">Properties</div></div>'
-        +   '<div class="ar-pf-row-kpi"><div class="v">—</div><div class="l">Investment</div></div>'
-        + '</div>';
+        +   '<div class="ar-pf-row-kpi"><div class="v">' + kProps + '</div><div class="l">Properties</div></div>'
+        +   '<div class="ar-pf-row-kpi"><div class="v">' + kInv + '</div><div class="l">Investment</div></div>'
+        +   '<button class="ar-pf-prop-snap" data-pf-action="open-pf-snapshot" data-pf-snap-portfolio="' + p.id + '" type="button" aria-label="Open portfolio snapshot" data-pf-tip="Snapshot" data-pf-tip-tone="purple">'
+        +     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
+        +   '</button>'
+        + '</div>'
+        + '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer" id="ar-pf-pf-snap-' + p.id + '" data-pf-snap-drawer="' + p.id + '"></div>';
     }).join('');
 
     mount.innerHTML = '<div class="ar-pf-panel">' + hero
@@ -3482,8 +3491,10 @@ window.AR2_PF = (function(){
       + '</div>'
       // Pane 2 — Add from existing (hidden until selected)
       + '<div id="ar-pf-add-pane-existing" style="display:none">'
-      +   '<label class="ar-pf-modal-lbl" for="ar-pf-add-existing-select">Existing assessment</label>'
-      +   '<select class="ar-pf-modal-input" id="ar-pf-add-existing-select"><option value="">— Loading assessments… —</option></select>'
+      +   '<label class="ar-pf-modal-lbl" for="ar-pf-add-existing-search">Search assessments</label>'
+      +   '<input class="ar-pf-modal-input" id="ar-pf-add-existing-search" type="search" placeholder="Type a property name, brand, rep or date…" autocomplete="off" style="margin-bottom:8px" />'
+      +   '<label class="ar-pf-modal-lbl" for="ar-pf-add-existing-select">Existing assessment <span id="ar-pf-add-existing-count" style="color:#7db8cc;font-weight:400;text-transform:none;letter-spacing:0"></span></label>'
+      +   '<select class="ar-pf-modal-input" id="ar-pf-add-existing-select" size="7" style="height:auto;padding:6px"><option value="">— Loading assessments… —</option></select>'
       +   '<div class="ar-pf-modal-hint">The assessment\'s pools, devices, and saved data are copied into this portfolio as a new property. The original single-assessment record stays intact.</div>'
       + '</div>'
       + '<div class="ar-pf-modal-err" id="ar-pf-add-prop-err"></div>'
@@ -3520,14 +3531,37 @@ window.AR2_PF = (function(){
           var tb = new Date(b.savedAt || 0).getTime();
           return tb - ta;
         });
-        sel.innerHTML = '<option value="">— Select an assessment —</option>'
-          + rows.map(function(r){
-              var nm = r.propertyName || 'Untitled';
-              var dt = r.savedAt ? new Date(r.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
-              var ownerSuffix = '';
-              if (r.createdByName){ ownerSuffix = ' · ' + r.createdByName; }
-              return '<option value="' + esc(r.id) + '">' + esc(nm) + (dt ? ' · ' + esc(dt) : '') + esc(ownerSuffix) + '</option>';
-            }).join('');
+        // Search: the list box re-renders on every keystroke, matching any
+        // word of the query against name · date · rep (case-insensitive).
+        var entries = rows.map(function(r){
+          var nm = r.propertyName || 'Untitled';
+          var dt = r.savedAt ? new Date(r.savedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+          var owner = r.createdByName ? String(r.createdByName) : '';
+          var label = nm + (dt ? ' · ' + dt : '') + (owner ? ' · ' + owner : '');
+          return { id: r.id, label: label, hay: label.toLowerCase() };
+        });
+        var countEl = document.getElementById('ar-pf-add-existing-count');
+        function renderList(q){
+          var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+          var hits = entries.filter(function(en){ return terms.every(function(t){ return en.hay.indexOf(t) !== -1; }); });
+          var keep = sel.value;
+          sel.innerHTML = (hits.length ? '' : '<option value="" disabled>— No assessments match —</option>')
+            + hits.map(function(en){ return '<option value="' + esc(en.id) + '">' + esc(en.label) + '</option>'; }).join('');
+          if (keep && hits.some(function(en){ return en.id === keep; })) sel.value = keep;
+          else if (hits.length === 1) sel.value = hits[0].id;
+          if (countEl) countEl.textContent = '(' + hits.length + ' of ' + entries.length + ')';
+        }
+        renderList('');
+        var search = document.getElementById('ar-pf-add-existing-search');
+        if (search){
+          search.addEventListener('input', function(){ renderList(search.value); });
+          // Enter in the search box: jump to the list (single match is already selected)
+          search.addEventListener('keydown', function(ev){
+            if (ev.key === 'Enter'){ ev.preventDefault(); ev.stopPropagation(); if (sel.value) submitNewProperty(); else try { sel.focus(); } catch(_){} }
+          });
+        }
+        // Double-click a row = Save
+        sel.addEventListener('dblclick', function(){ if (sel.value) submitNewProperty(); });
       }, function(){
         sel.innerHTML = '<option value="">— Could not load —</option>';
       });
@@ -3545,7 +3579,7 @@ window.AR2_PF = (function(){
       if (paneEx)  paneEx.style.display  = (mode === 'existing') ? '' : 'none';
       if (mode === 'existing'){
         ensureExistingLoaded();
-        setTimeout(function(){ var s = document.getElementById('ar-pf-add-existing-select'); if (s) try { s.focus(); } catch(_){} }, 30);
+        setTimeout(function(){ var s = document.getElementById('ar-pf-add-existing-search'); if (s) try { s.focus(); } catch(_){} }, 30);
       } else {
         setTimeout(function(){ var i = document.getElementById('ar-pf-add-prop-name'); if (i) try { i.focus(); } catch(_){} }, 30);
       }
@@ -3571,7 +3605,7 @@ window.AR2_PF = (function(){
     });
     backdrop.addEventListener('keydown', function(e){
       if (e.key === 'Escape') closeAddPropertyModal();
-      if (e.key === 'Enter' && e.target.id === 'ar-pf-add-prop-name') submitNewProperty();
+      if (e.key === 'Enter' && (e.target.id === 'ar-pf-add-prop-name' || e.target.id === 'ar-pf-add-existing-select')) submitNewProperty();
     });
   }
   function closeAddPropertyModal(){
@@ -5040,6 +5074,123 @@ function submitImportCsv(){
     if (errEl3) errEl3.textContent = (err && err.message) || 'Import failed.';
   });
   }); // portfolio defaults
+}
+
+/* ── Portfolio Snapshot drawer (Portfolios list) ─────────────────
+   Slide-down card under a portfolio row: KPI tiles from portfolio_rollup
+   plus one line per property (pools · devices · investment · annual
+   savings · payback) and a summary sentence. Reads only light columns —
+   never state_json — so it stays fast on image-heavy portfolios.
+   The roll-up is cached into AR2_PF._state.rollup so the list row KPIs
+   ("Properties" / "Investment") fill in on the next render. */
+function togglePfPortfolioSnapshot(portfolioId){
+  if (!portfolioId) return;
+  var drawer = document.getElementById('ar-pf-pf-snap-' + portfolioId);
+  var btn = document.querySelector('.ar-pf-prop-snap[data-pf-snap-portfolio="' + portfolioId + '"]');
+  if (!drawer) return;
+  if (drawer.classList.contains('open')){
+    drawer.classList.remove('open');
+    if (btn) btn.classList.remove('is-open');
+    return;
+  }
+  // One drawer open at a time
+  var others = document.querySelectorAll('.ar-pf-pf-snap-drawer.open');
+  for (var i=0;i<others.length;i++){ others[i].classList.remove('open'); }
+  var openBtns = document.querySelectorAll('.ar-pf-prop-snap.is-open[data-pf-snap-portfolio]');
+  for (var j=0;j<openBtns.length;j++){ openBtns[j].classList.remove('is-open'); }
+  drawer.classList.add('open');
+  if (btn) btn.classList.add('is-open');
+  if (drawer.dataset.loaded === '1') return;
+  drawer.innerHTML = '<div class="ar-pf-snap-loading">Loading snapshot…</div>';
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){ drawer.innerHTML = '<div class="ar-pf-snap-err">Cloud unavailable.</div>'; return; }
+  var pfRow = ((window.AR2_PF && AR2_PF._state && AR2_PF._state.portfolios) || []).filter(function(p){ return p && p.id === portfolioId; })[0] || {};
+  var money = function(n){ return '$' + (typeof fn === 'function' ? fn(Number(n)||0) : Math.round(Number(n)||0).toLocaleString('en-US')); };
+  var num = function(n){ return (typeof fn === 'function' ? fn(Number(n)||0) : Math.round(Number(n)||0).toLocaleString('en-US')); };
+  var mo = function(n){ var v = Number(n); return isFinite(v) && v > 0 ? (v < 10 ? v.toFixed(1) : Math.round(v)) + ' mo' : '—'; };
+  Promise.all([
+    c.rpc('portfolio_rollup', { p_portfolio_id: portfolioId }).then(function(rs){ if (rs.error) throw new Error(rs.error.message); return rs.data || {}; }),
+    c.from('portfolio_properties')
+      .select('id,property_name,country,pool_count,computed_kpis,excluded_from_rollup,order_index')
+      .eq('portfolio_id', portfolioId).order('order_index', { ascending: true })
+      .then(function(rs){ if (rs.error) throw new Error(rs.error.message); return rs.data || []; })
+  ]).then(function(both){
+    var roll = both[0], props = both[1];
+    try {
+      if (window.AR2_PF && AR2_PF._state){
+        AR2_PF._state.rollup[portfolioId] = { data: roll, loading: false, error: null };
+        var rowEl = document.querySelector('.ar-pf-row[data-pf-portfolio="' + portfolioId + '"]');
+        if (rowEl){
+          var kv = rowEl.querySelectorAll('.ar-pf-row-kpi .v');
+          if (kv[0]) kv[0].textContent = String(Number(roll.property_count) || 0);
+          if (kv[1]) kv[1].textContent = money(roll.total_inv);
+        }
+      }
+    } catch(_){}
+    var pools = 0; props.forEach(function(p){ if (!p.excluded_from_rollup) pools += Number(p.pool_count) || 0; });
+    var inv = Number(roll.total_inv) || 0, yr = Number(roll.total_yr) || 0, net5 = yr * 5 - inv;
+    var tiles = [
+      { l:'Properties', v: String(Number(roll.property_count) || 0) + (Number(roll.excluded_count) ? '<span class="unit"> +' + roll.excluded_count + ' excluded</span>' : '') },
+      { l:'Pools', v: num(pools) },
+      { l:'Devices', v: num(roll.total_dev) },
+      { l:'Investment', v: money(inv) },
+      { l:'Annual savings', v: money(yr), pos: true },
+      { l:'Payback', v: mo(roll.blended_payback_mo) }
+    ];
+    var kpiHtml = '<div class="ar-pf-snap-kpis">' + tiles.map(function(t){
+      return '<div class="ar-pf-snap-kpi"><div class="lbl">' + t.l + '</div><div class="val' + (t.pos?' pos':'') + '">' + t.v + '</div></div>';
+    }).join('') + '</div>';
+    var rows = props.map(function(p){
+      var k = p.computed_kpis || {};
+      var pInv = Number(k.inv) || 0, pYr = Number(k.total_yr) || 0, pMo = Number(k.total_mo) || 0;
+      var pb = pMo > 0 ? pInv / pMo : null;
+      return '<tr' + (p.excluded_from_rollup ? ' class="excluded"' : '') + '>'
+        + '<td>' + esc(p.property_name || 'Untitled') + (p.country ? '<span class="sub">' + esc(p.country) + (p.excluded_from_rollup ? ' · excluded from roll-up' : '') + '</span>' : (p.excluded_from_rollup ? '<span class="sub">excluded from roll-up</span>' : '')) + '</td>'
+        + '<td>' + num(p.pool_count) + '</td>'
+        + '<td>' + num(k.total_dev) + '</td>'
+        + '<td>' + money(pInv) + '</td>'
+        + '<td>' + money(pYr) + '</td>'
+        + '<td>' + mo(pb) + '</td>'
+        + '</tr>';
+    }).join('');
+    var tableHtml = props.length
+      ? '<div class="ar-pf-snap-ptable-wrap"><table class="ar-pf-snap-ptable">'
+        + '<thead><tr><th>Property</th><th>Pools</th><th>Devices</th><th>Investment</th><th>Annual savings</th><th>Payback</th></tr></thead>'
+        + '<tbody>' + rows + '</tbody>'
+        + '<tfoot><tr><td>Portfolio total</td><td>' + num(pools) + '</td><td>' + num(roll.total_dev) + '</td><td>' + money(inv) + '</td><td>' + money(yr) + '</td><td>' + mo(roll.blended_payback_mo) + '</td></tr></tfoot>'
+        + '</table></div>'
+      : '<div class="ar-pf-snap-empty">No properties yet. Open the portfolio to add the first one.</div>';
+    var roi = Number(roll.blended_roi_5yr_pct);
+    var summary = props.length
+      ? '<div class="ar-pf-snap-summary">' + esc(pfRow.name || 'This portfolio') + ': <b>' + (Number(roll.property_count)||0) + '</b> propert' + ((Number(roll.property_count)||0)===1?'y':'ies') + ', <b>' + num(pools) + '</b> pools, <b>' + num(roll.total_dev) + '</b> devices. '
+        + 'Investment <b>' + money(inv) + '</b> returns <b>' + money(yr) + '</b> a year, paying back in <b>' + mo(roll.blended_payback_mo) + '</b>'
+        + (isFinite(roi) ? ' with a <b>' + Math.round(roi) + '%</b> 5-year ROI' : '')
+        + ' and <b>' + money(net5) + '</b> net value over five years. Water saved: <b>' + num(roll.total_water_5yr) + '</b> gal over five years.'
+        + (Number(roll.incomplete_count) ? ' <span style="color:#f0a500">' + roll.incomplete_count + ' propert' + (roll.incomplete_count===1?'y has':'ies have') + ' no devices yet.</span>' : '')
+        + '</div>'
+      : '';
+    drawer.innerHTML = '<div class="ar-pf-snap-card">'
+      + '<div class="ar-pf-snap-head">'
+      +   '<div class="ar-pf-snap-head-left">'
+      +     '<div class="ar-pf-snap-eyebrow">Portfolio snapshot</div>'
+      +     '<div class="ar-pf-snap-name">' + esc(pfRow.name || 'Portfolio') + '</div>'
+      +     '<div class="ar-pf-snap-sub">' + (pfRow.client_contact_name ? esc(pfRow.client_contact_name) + ' · ' : '') + 'Purchase basis · figures from each property’s last save</div>'
+      +   '</div>'
+      +   '<div class="ar-pf-snap-head-right">'
+      +     '<button class="ar-pf-snap-open-btn" type="button" data-pf-open-portfolio="' + esc(portfolioId) + '">Open portfolio &rarr;</button>'
+      +     '<button class="ar-pf-snap-close" type="button" data-pf-action="close-pf-snapshot" data-pf-snap-portfolio="' + esc(portfolioId) + '" aria-label="Close snapshot">&times;</button>'
+      +   '</div>'
+      + '</div>'
+      + kpiHtml
+      + summary
+      + tableHtml
+      + '</div>';
+    drawer.dataset.loaded = '1';
+    var openBtn = drawer.querySelector('[data-pf-open-portfolio]');
+    if (openBtn) openBtn.addEventListener('click', function(ev){ ev.stopPropagation(); if (window.AR2_PF && AR2_PF.openPortfolio) AR2_PF.openPortfolio(portfolioId); });
+  }).catch(function(err){
+    drawer.innerHTML = '<div class="ar-pf-snap-err">Could not load snapshot: ' + esc((err && err.message) || 'unknown error') + '</div>';
+  });
 }
 
 /* ── Portfolio property Snapshot drawer ───────────────────────────
@@ -20439,6 +20590,13 @@ function handleClick(e){
         var snapId = pfAct.getAttribute('data-pf-property');
         if (!snapId) return;
         if (typeof togglePfPropertySnapshot === 'function') togglePfPropertySnapshot(snapId);
+        return;
+      }
+      // Portfolio snapshot drawer (Portfolios list) — must not open the portfolio
+      if (act === 'open-pf-snapshot' || act === 'close-pf-snapshot'){
+        e.stopPropagation();
+        var pfSnapId = pfAct.getAttribute('data-pf-snap-portfolio');
+        if (pfSnapId && typeof togglePfPortfolioSnapshot === 'function') togglePfPortfolioSnapshot(pfSnapId);
         return;
       }
 

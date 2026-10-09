@@ -3694,7 +3694,27 @@ body.pf-engineer-mode #ap2{display:none!important;}
 
 /* Portfolio list row (Phase 1 — simple list; Phase 2 = full roster grid) */
 #ar2 .ar-pf-list{display:flex;flex-direction:column;gap:10px;}
-#ar2 .ar-pf-row{display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:14px 18px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:11px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+#ar2 .ar-pf-row{display:grid;grid-template-columns:1fr auto auto auto auto;gap:14px;align-items:center;padding:14px 18px;background:rgba(13,45,74,.42);border:1px solid rgba(0,180,216,.14);border-radius:11px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;}
+/* Portfolio snapshot drawer (Portfolios list) — reuses the property drawer
+   chrome; the table inside lists each property with its key stats. */
+#ar2 .ar-pf-pf-snap-drawer{margin-top:-10px;margin-bottom:0;}   /* collapses the list gap while closed */
+#ar2 .ar-pf-pf-snap-drawer.open{margin-top:-4px;margin-bottom:4px;}
+#ar2 .ar-pf-snap-ptable{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:12.5px;}
+#ar2 .ar-pf-snap-ptable th{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;text-align:right;padding:2px 12px 4px;white-space:nowrap;}
+#ar2 .ar-pf-snap-ptable th:first-child{text-align:left;}
+#ar2 .ar-pf-snap-ptable td{padding:9px 12px;background:rgba(4,15,30,.42);border-top:1px solid rgba(0,180,216,.12);border-bottom:1px solid rgba(0,180,216,.12);text-align:right;font-family:'JetBrains Mono',monospace;color:#cfe2eb;white-space:nowrap;}
+#ar2 .ar-pf-snap-ptable td:first-child{text-align:left;font-family:'DM Sans',sans-serif;font-weight:600;color:#e0f4fa;border-left:1px solid rgba(0,180,216,.12);border-radius:8px 0 0 8px;white-space:normal;min-width:160px;}
+#ar2 .ar-pf-snap-ptable td:last-child{border-right:1px solid rgba(0,180,216,.12);border-radius:0 8px 8px 0;}
+#ar2 .ar-pf-snap-ptable td .sub{display:block;font-size:10.5px;color:var(--mu);font-weight:400;margin-top:2px;}
+#ar2 .ar-pf-snap-ptable tr.excluded td{opacity:.5;}
+#ar2 .ar-pf-snap-ptable tr:hover td{border-color:rgba(0,180,216,.32);}
+#ar2 .ar-pf-snap-ptable tfoot td{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.3);color:#fff;font-weight:700;}
+#ar2 .ar-pf-snap-ptable-wrap{overflow-x:auto;}
+#ar2 .ar-pf-snap-summary{font-size:12.5px;color:#cfe2eb;line-height:1.5;padding:10px 12px;background:rgba(0,180,216,.08);border:1px solid rgba(0,180,216,.22);border-radius:8px;}
+#ar2 .ar-pf-snap-summary b{color:#48cae4;font-family:'JetBrains Mono',monospace;font-weight:700;}
+#ar2 .ar-pf-snap-open-btn{font-family:inherit;font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;padding:6px 12px;border-radius:7px;border:1px solid rgba(0,180,216,.45);background:transparent;color:#48cae4;cursor:pointer;}
+#ar2 .ar-pf-snap-open-btn:hover{background:rgba(0,180,216,.16);color:#fff;}
+@media (max-width:760px){#ar2 .ar-pf-row{grid-template-columns:1fr auto auto;} #ar2 .ar-pf-row .ar-pf-row-kpi{display:none;}}
 #ar2 .ar-pf-row:hover{background:rgba(0,180,216,.07);border-color:rgba(0,180,216,.32);transform:translateY(-1px);}
 #ar2 .ar-pf-row-name{font-family:'DM Sans',sans-serif;font-size:14.5px;font-weight:600;color:#e0f4fa;}
 #ar2 .ar-pf-row-meta{font-size:11px;color:var(--mu);letter-spacing:.5px;margin-top:3px;}
