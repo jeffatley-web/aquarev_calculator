@@ -6657,31 +6657,30 @@ function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
       + '</div>'
     + '</div>'
   + '</div>';
-  // Equipment line items — same .rpt-q-tbl chrome + .rpt-q-section-row band.
-  var rowsHtml = '<tr class="rpt-q-section-row"><td colspan="5">EQUIPMENT</td></tr>';
+  // Equipment line items — same .rpt-q-table chrome as the single-property
+  // quote (th/td classes qty · rate · amt carry the right-align + mono rules).
+  var rowsHtml = '<tr class="rpt-q-section-row"><td colspan="4">EQUIPMENT</td></tr>';
   if (lineItems && lineItems.length){
     rowsHtml += lineItems.map(function(L){
       return '<tr>'
         + '<td>' + esc(L.label) + (L.flow?' <span style="color:#888;font-size:9.5px">— ' + esc(L.flow) + '</span>':'') + '</td>'
-        + '<td class="rpt-q-num">' + L.qty + '</td>'
-        + '<td class="rpt-q-num">$' + fn(L.price) + '</td>'
-        + '<td class="rpt-q-num">$' + fn(L.total) + '</td>'
-        + '<td class="rpt-q-num"></td>'
+        + '<td class="qty">' + L.qty + '</td>'
+        + '<td class="rate">$' + fn(L.price) + '</td>'
+        + '<td class="amt">$' + fn(L.total) + '</td>'
       + '</tr>';
     }).join('');
   } else {
-    rowsHtml += '<tr><td colspan="5" style="text-align:center;font-style:italic;color:#888;padding:14px 8px">No line items rolled up. Add devices on at least one property.</td></tr>';
+    rowsHtml += '<tr><td colspan="4" style="text-align:center;font-style:italic;color:#888;padding:14px 8px">No line items rolled up. Add devices on at least one property.</td></tr>';
   }
   // If shipping > 0 add a SHIPPING section row + line
   var ship = Number(quote.shippingCost) || 0;
   if (ship > 0){
-    rowsHtml += '<tr class="rpt-q-section-row"><td colspan="5">SHIPPING</td></tr>'
+    rowsHtml += '<tr class="rpt-q-section-row"><td colspan="4">SHIPPING</td></tr>'
       + '<tr>'
         + '<td>Consolidated Shipping' + (quote.shippingTerm?' (' + esc(quote.shippingTerm) + ')':'') + '</td>'
-        + '<td class="rpt-q-num">1</td>'
-        + '<td class="rpt-q-num">$' + fn(ship) + '</td>'
-        + '<td class="rpt-q-num">$' + fn(ship) + '</td>'
-        + '<td class="rpt-q-num"></td>'
+        + '<td class="qty">1</td>'
+        + '<td class="rate">$' + fn(ship) + '</td>'
+        + '<td class="amt">$' + fn(ship) + '</td>'
       + '</tr>';
   }
   // Totals — match the single-property buildQuoteTotals layout (rpt-q-totals)
@@ -6699,8 +6698,11 @@ function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
     + (disc>0   ? '<dt>Discount (' + disc + '%)</dt><dd>-$' + fn(discAmt) + '</dd>' : '')
     + (ship>0   ? '<dt>Shipping</dt><dd>$' + fn(ship) + '</dd>' : '')
     + (taxRate>0? '<dt>Tax (' + taxRate + '%)</dt><dd>$' + fn(taxAmt) + '</dd>' : '')
-    + '<div class="strong"><dt>Total</dt><dd>$' + fn(grandTotal) + '</dd></div>'
+    // display:contents keeps dt/dd as direct grid items of the <dl> (a plain
+    // wrapper collapses the row into one cell and pushes Deposit sideways).
+    + '<div class="strong" style="display:contents"><dt>Total</dt><dd>$' + fn(grandTotal) + '</dd></div>'
     + (depositPct>0 ? '<dt>Deposit (' + depositPct + '%)</dt><dd>$' + fn(depositAmt) + '</dd>' : '')
+    + (depositPct>0 ? '<dt>Balance</dt><dd>$' + fn(grandTotal - depositAmt) + '</dd>' : '')
   + '</dl>';
   var termsBlock = quote.stdTerms ? '<div class="terms"><div class="terms-title">Standard Terms</div>' + esc(quote.stdTerms).replace(/\n/g,'<br>') + '</div>' : '<div class="terms"></div>';
   var totalsRow = '<div class="rpt-q-totals">' + termsBlock + totalsBlock + '</div>';
@@ -6711,13 +6713,12 @@ function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
     + qHeader
     + '<div class="rpt-q-body" style="flex:1 1 0;min-height:0;overflow:hidden;padding:18px 32px 14px;display:flex;flex-direction:column">'
       + topRow
-      + '<table class="rpt-q-tbl" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px;color:#222">'
-        + '<thead><tr style="background:#f5fbff;border-bottom:1.5px solid #48cae4">'
-          + '<th style="text-align:left;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Item</th>'
-          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Qty</th>'
-          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Unit</th>'
-          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540">Line Total</th>'
-          + '<th style="text-align:right;padding:6px 8px;font-family:\'Bebas Neue\',sans-serif;font-size:9.5px;letter-spacing:1.5px;color:#0a2540"></th>'
+      + '<table class="rpt-q-table" style="margin-top:14px">'
+        + '<thead><tr>'
+          + '<th>Item</th>'
+          + '<th class="qty">Qty</th>'
+          + '<th class="rate">Unit</th>'
+          + '<th class="amt">Line Total</th>'
         + '</tr></thead>'
         + '<tbody>' + rowsHtml + '</tbody>'
       + '</table>'
