@@ -3738,6 +3738,11 @@ body.pf-engineer-mode #ap2{display:none!important;}
 .ar-pf-modal-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:3px;color:#fff;margin-bottom:14px;}
 .ar-pf-modal-lbl{display:block;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#7db8cc;margin-bottom:6px;}
 .ar-pf-modal-input{width:100%;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.28);border-radius:8px;padding:10px 12px;color:#e0f4fa;font-size:14px;font-family:inherit;outline:none;transition:border-color .15s;}
+/* List-box variant (Add from existing): rows styled to match the dark modal */
+select.ar-pf-modal-input[size] option{padding:7px 10px;border-radius:6px;color:#e0f4fa;background:transparent;font-size:13px;}
+select.ar-pf-modal-input[size] option:hover{background:rgba(0,180,216,.14);}
+select.ar-pf-modal-input[size] option:checked{background:rgba(0,180,216,.32) linear-gradient(0deg,rgba(0,180,216,.32),rgba(0,180,216,.32));color:#fff;font-weight:600;}
+select.ar-pf-modal-input[size]:focus option:checked{background:rgba(0,180,216,.42) linear-gradient(0deg,rgba(0,180,216,.42),rgba(0,180,216,.42));}
 .ar-pf-modal-input:focus{border-color:var(--t);}
 .ar-pf-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
 .ar-pf-modal-btn{padding:9px 16px;border-radius:8px;border:1px solid rgba(0,180,216,.2);background:transparent;color:#cfe2eb;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s;}
