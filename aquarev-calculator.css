@@ -3716,6 +3716,9 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-pf-snap-ptable tr.excluded td{opacity:.5;}
 #ar2 .ar-pf-snap-ptable th.sz{color:#c4b5fd;}
 #ar2 .ar-pf-snap-kpis.cols8{grid-template-columns:repeat(8,1fr);}
+#ar2 .ar-pf-snap-kpi .val .unit{display:block;font-family:'DM Sans',sans-serif;font-weight:500;font-size:9.5px;color:var(--mu);letter-spacing:.4px;margin-top:3px;}
+#ar2 .ar-pf-snap-ptable td.roi{color:#4ade80;}
+#ar2 .ar-pf-snap-ptable tfoot td.roi{color:#4ade80;}
 #ar2 .ar-pf-snap-kpis.cols8 .ar-pf-snap-kpi .val{font-size:15.5px;}
 @media (max-width:1100px){#ar2 .ar-pf-snap-kpis.cols8{grid-template-columns:repeat(4,1fr);}}
 #ar2 .ar-pf-snap-facts{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;color:#9fc7d8;padding:2px 2px 0;}

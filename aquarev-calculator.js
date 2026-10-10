@@ -5162,6 +5162,7 @@ function togglePfPortfolioSnapshot(portfolioId){
       var k = p.computed_kpis || {};
       var pInv = Number(k.inv) || 0, pYr = Number(k.total_yr) || 0, pMo = Number(k.total_mo) || 0;
       var pb = pMo > 0 ? pInv / pMo : null;
+      var pRoi = pInv > 0 ? ((pYr * 5 - pInv) / pInv) * 100 : null;   // 5-yr ROI, same formula as the roll-up
       return '<tr' + (p.excluded_from_rollup ? ' class="excluded"' : '') + '>'
         + '<td>' + esc(p.property_name || 'Untitled') + (p.country ? '<span class="sub">' + esc(p.country) + (p.excluded_from_rollup ? ' · excluded from roll-up' : '') + '</span>' : (p.excluded_from_rollup ? '<span class="sub">excluded from roll-up</span>' : '')) + '</td>'
         + '<td>' + num(p.pool_count) + '</td>'
@@ -5170,17 +5171,19 @@ function togglePfPortfolioSnapshot(portfolioId){
         + '<td>' + money(pInv) + '</td>'
         + '<td>' + money(pYr) + '</td>'
         + '<td>' + mo(pb) + '</td>'
+        + '<td class="roi">' + (pRoi === null ? '—' : Math.round(pRoi) + '%') + '</td>'
         + '</tr>';
     }).join('');
     var tableHtml = props.length
       ? '<div class="ar-pf-snap-ptable-wrap"><table class="ar-pf-snap-ptable">'
         + '<thead><tr><th>Property</th><th>Pools</th>'
         +   sizeCols.map(function(s){ return '<th class="sz">' + s.l + '</th>'; }).join('')
-        +   '<th class="tot">Devices</th><th>Investment</th><th>Annual savings</th><th>Payback</th></tr></thead>'
+        +   '<th class="tot">Devices</th><th>Investment</th><th>Annual savings</th><th>Payback</th><th>5-yr ROI</th></tr></thead>'
         + '<tbody>' + rows + '</tbody>'
         + '<tfoot><tr><td>Portfolio total</td><td>' + num(pools) + '</td>'
         +   sizeCols.map(function(s){ return '<td>' + num(sizeTot[s.k]) + '</td>'; }).join('')
-        +   '<td class="tot">' + num(roll.total_dev) + '</td><td>' + money(inv) + '</td><td>' + money(yr) + '</td><td>' + mo(roll.blended_payback_mo) + '</td></tr></tfoot>'
+        +   '<td class="tot">' + num(roll.total_dev) + '</td><td>' + money(inv) + '</td><td>' + money(yr) + '</td><td>' + mo(roll.blended_payback_mo) + '</td>'
+        +   '<td class="roi">' + (isFinite(roiPct) ? Math.round(roiPct) + '%' : '—') + '</td></tr></tfoot>'
         + '</table></div>'
       : '<div class="ar-pf-snap-empty">No properties yet. Open the portfolio to add the first one.</div>';
     var summary = Number(roll.incomplete_count)
@@ -5256,23 +5259,24 @@ function toggleAssessmentSnapshot(assessmentId){
     var manual = !!d.manualVolume;
     var totGal = Number(d.pool_gallons) || Number(sm.poolGallons) || 0;
     var cell = function(n){ var v = Number(n) || 0; return '<td' + (v ? '' : ' class="zero"') + '>' + (v ? num(v) : '·') + '</td>'; };
+    var net5 = yr * 5 - inv;
     var tiles = [
       { l:'Pools', v: num(d.pool_count || bodies.length) },
       { l:'Devices', v: num(totalDev) },
       { l:'Volume', v: num(totGal) + '<span class="unit"> gal</span>' },
       { l:'Investment', v: money(inv) },
+      { l:'Monthly savings', v: money(moSav), pos: true },
       { l:'Annual savings', v: money(yr), pos: true },
-      { l:'Payback', v: mo(sm.payback) }
+      { l:'Payback', v: mo(sm.payback) },
+      { l:'5-yr ROI', v: roi5 === null ? '—' : Math.round(roi5) + '%<span class="unit"> · net ' + money(net5) + '</span>', pos: roi5 !== null && roi5 > 0 }
     ];
-    var kpiHtml = '<div class="ar-pf-snap-kpis">' + tiles.map(function(t){
+    var kpiHtml = '<div class="ar-pf-snap-kpis cols8">' + tiles.map(function(t){
       return '<div class="ar-pf-snap-kpi"><div class="lbl">' + t.l + '</div><div class="val' + (t.pos?' pos':'') + '">' + t.v + '</div></div>';
     }).join('') + '</div>';
-    // Facts strip — weighting, discount, monthly, ROI, engineer status, quote
+    // Facts strip — weighting, discount, engineer status, quote, photos
     var facts = [];
     if (weight !== null && isFinite(weight)) facts.push('Savings weighting <b>' + Math.round(weight*100) + '%</b>');
     if (disc > 0) facts.push('Discount <b>' + Math.round(disc*100) + '%</b>');
-    facts.push('Monthly <b>' + money(moSav) + '</b>');
-    if (roi5 !== null) facts.push('5-yr ROI <b>' + Math.round(roi5) + '%</b>');
     facts.push('Engineer-verified pools <b>' + num(d.engineer_verified) + '</b> of ' + num(bodies.length));
     if (d.quote && d.quote.quote_id) facts.push('Quote <b>' + esc(d.quote.quote_id) + '</b>' + (d.quote.payments ? ' · ' + d.quote.payments + ' payment' + (d.quote.payments===1?'':'s') + ' · paid <b>' + money(d.quote.paid) + '</b>' : ''));
     if (d.images) facts.push('<b>' + num(d.images) + '</b> photo' + (d.images===1?'':'s'));
