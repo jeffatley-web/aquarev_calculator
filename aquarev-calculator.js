@@ -5116,7 +5116,10 @@ function togglePfPortfolioSnapshot(portfolioId){
   Promise.all([
     c.rpc('portfolio_rollup', { p_portfolio_id: portfolioId }).then(function(rs){ if (rs.error) throw new Error(rs.error.message); return rs.data || {}; }),
     c.from('portfolio_properties')
-      .select('id,property_name,country,pool_count,computed_kpis,excluded_from_rollup,order_index')
+      // Device counts by size are plucked straight out of state_json with
+      // PostgREST JSON-path aliases, so only six scalars travel — never the
+      // whole blob (images). One portfolio's rows only, never a fleet scan.
+      .select('id,property_name,country,pool_count,computed_kpis,excluded_from_rollup,order_index,p2:state_json->pipe_2in,p3:state_json->pipe_3in,p4:state_json->pipe_4in,p6:state_json->pipe_6in,p8:state_json->pipe_8in,p10:state_json->pipe_10in')
       .eq('portfolio_id', portfolioId).order('order_index', { ascending: true })
       .then(function(rs){ if (rs.error) throw new Error(rs.error.message); return rs.data || []; })
   ]).then(function(both){
@@ -5145,6 +5148,13 @@ function togglePfPortfolioSnapshot(portfolioId){
     var kpiHtml = '<div class="ar-pf-snap-kpis">' + tiles.map(function(t){
       return '<div class="ar-pf-snap-kpi"><div class="lbl">' + t.l + '</div><div class="val' + (t.pos?' pos':'') + '">' + t.v + '</div></div>';
     }).join('') + '</div>';
+    // Device-size columns: only sizes present somewhere in the portfolio
+    // get a column, so a 2″/3″ portfolio isn't padded with four empty ones.
+    var SIZES = [{k:'p2',l:'2″'},{k:'p3',l:'3″'},{k:'p4',l:'4″'},{k:'p6',l:'6″'},{k:'p8',l:'8″'},{k:'p10',l:'10″'}];
+    var sizeTot = {}; SIZES.forEach(function(s){ sizeTot[s.k] = 0; });
+    props.forEach(function(p){ if (p.excluded_from_rollup) return; SIZES.forEach(function(s){ sizeTot[s.k] += Number(p[s.k]) || 0; }); });
+    var sizeCols = SIZES.filter(function(s){ return sizeTot[s.k] > 0; });
+    var cell = function(n){ var v = Number(n) || 0; return '<td' + (v ? '' : ' class="zero"') + '>' + (v ? num(v) : '·') + '</td>'; };
     var rows = props.map(function(p){
       var k = p.computed_kpis || {};
       var pInv = Number(k.inv) || 0, pYr = Number(k.total_yr) || 0, pMo = Number(k.total_mo) || 0;
@@ -5152,7 +5162,8 @@ function togglePfPortfolioSnapshot(portfolioId){
       return '<tr' + (p.excluded_from_rollup ? ' class="excluded"' : '') + '>'
         + '<td>' + esc(p.property_name || 'Untitled') + (p.country ? '<span class="sub">' + esc(p.country) + (p.excluded_from_rollup ? ' · excluded from roll-up' : '') + '</span>' : (p.excluded_from_rollup ? '<span class="sub">excluded from roll-up</span>' : '')) + '</td>'
         + '<td>' + num(p.pool_count) + '</td>'
-        + '<td>' + num(k.total_dev) + '</td>'
+        + sizeCols.map(function(s){ return cell(p[s.k]); }).join('')
+        + '<td class="tot">' + num(k.total_dev) + '</td>'
         + '<td>' + money(pInv) + '</td>'
         + '<td>' + money(pYr) + '</td>'
         + '<td>' + mo(pb) + '</td>'
@@ -5160,19 +5171,17 @@ function togglePfPortfolioSnapshot(portfolioId){
     }).join('');
     var tableHtml = props.length
       ? '<div class="ar-pf-snap-ptable-wrap"><table class="ar-pf-snap-ptable">'
-        + '<thead><tr><th>Property</th><th>Pools</th><th>Devices</th><th>Investment</th><th>Annual savings</th><th>Payback</th></tr></thead>'
+        + '<thead><tr><th>Property</th><th>Pools</th>'
+        +   sizeCols.map(function(s){ return '<th class="sz">' + s.l + '</th>'; }).join('')
+        +   '<th class="tot">Devices</th><th>Investment</th><th>Annual savings</th><th>Payback</th></tr></thead>'
         + '<tbody>' + rows + '</tbody>'
-        + '<tfoot><tr><td>Portfolio total</td><td>' + num(pools) + '</td><td>' + num(roll.total_dev) + '</td><td>' + money(inv) + '</td><td>' + money(yr) + '</td><td>' + mo(roll.blended_payback_mo) + '</td></tr></tfoot>'
+        + '<tfoot><tr><td>Portfolio total</td><td>' + num(pools) + '</td>'
+        +   sizeCols.map(function(s){ return '<td>' + num(sizeTot[s.k]) + '</td>'; }).join('')
+        +   '<td class="tot">' + num(roll.total_dev) + '</td><td>' + money(inv) + '</td><td>' + money(yr) + '</td><td>' + mo(roll.blended_payback_mo) + '</td></tr></tfoot>'
         + '</table></div>'
       : '<div class="ar-pf-snap-empty">No properties yet. Open the portfolio to add the first one.</div>';
-    var roi = Number(roll.blended_roi_5yr_pct);
-    var summary = props.length
-      ? '<div class="ar-pf-snap-summary">' + esc(pfRow.name || 'This portfolio') + ': <b>' + (Number(roll.property_count)||0) + '</b> propert' + ((Number(roll.property_count)||0)===1?'y':'ies') + ', <b>' + num(pools) + '</b> pools, <b>' + num(roll.total_dev) + '</b> devices. '
-        + 'Investment <b>' + money(inv) + '</b> returns <b>' + money(yr) + '</b> a year, paying back in <b>' + mo(roll.blended_payback_mo) + '</b>'
-        + (isFinite(roi) ? ' with a <b>' + Math.round(roi) + '%</b> 5-year ROI' : '')
-        + ' and <b>' + money(net5) + '</b> net value over five years. Water saved: <b>' + num(roll.total_water_5yr) + '</b> gal over five years.'
-        + (Number(roll.incomplete_count) ? ' <span style="color:#f0a500">' + roll.incomplete_count + ' propert' + (roll.incomplete_count===1?'y has':'ies have') + ' no devices yet.</span>' : '')
-        + '</div>'
+    var summary = Number(roll.incomplete_count)
+      ? '<div class="ar-pf-snap-empty" style="color:#f0a500;padding:4px 2px">' + roll.incomplete_count + ' propert' + (roll.incomplete_count===1?'y has':'ies have') + ' no devices yet and ' + (roll.incomplete_count===1?'is':'are') + ' not counted in the roll-up.</div>'
       : '';
     drawer.innerHTML = '<div class="ar-pf-snap-card">'
       + '<div class="ar-pf-snap-head">'

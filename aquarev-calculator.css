@@ -3712,6 +3712,9 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-pf-snap-ptable td:last-child{border-right:1px solid rgba(0,180,216,.12);border-radius:0 8px 8px 0;}
 #ar2 .ar-pf-snap-ptable td .sub{display:block;font-size:10.5px;color:var(--mu);font-weight:400;margin-top:2px;}
 #ar2 .ar-pf-snap-ptable tr.excluded td{opacity:.5;}
+#ar2 .ar-pf-snap-ptable th.sz{color:#c4b5fd;}
+#ar2 .ar-pf-snap-ptable td.zero{color:rgba(125,184,204,.4);}
+#ar2 .ar-pf-snap-ptable th.tot,#ar2 .ar-pf-snap-ptable td.tot{border-left:1px dashed rgba(168,85,247,.35);color:#e0f4fa;}
 #ar2 .ar-pf-snap-ptable tr:hover td{border-color:rgba(0,180,216,.32);}
 #ar2 .ar-pf-snap-ptable tfoot td{background:rgba(0,180,216,.1);border-color:rgba(0,180,216,.3);color:#fff;font-weight:700;}
 #ar2 .ar-pf-snap-ptable-wrap{overflow-x:auto;}
