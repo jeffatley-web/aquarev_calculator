@@ -5207,6 +5207,115 @@ function togglePfPortfolioSnapshot(portfolioId){
   });
 }
 
+/* ── Single-assessment Snapshot drawer (Archive list) ────────────
+   Same chrome as the portfolio drawer. Data comes from the
+   assessment_snapshot_lite(uuid) RPC (SECURITY INVOKER, caller's RLS),
+   which strips images/polygons server-side so the drawer never pulls
+   the multi-MB snapshot. */
+function toggleAssessmentSnapshot(assessmentId){
+  if (!assessmentId) return;
+  var drawer = document.getElementById('ar-as-snap-' + assessmentId);
+  var btn = document.querySelector('[data-as-snap="' + assessmentId + '"]');
+  if (!drawer) return;
+  if (drawer.classList.contains('open')){
+    drawer.classList.remove('open');
+    if (btn) btn.classList.remove('is-open');
+    return;
+  }
+  var others = document.querySelectorAll('.ar-pf-pf-snap-drawer.open');
+  for (var i=0;i<others.length;i++){ others[i].classList.remove('open'); }
+  var openBtns = document.querySelectorAll('.is-open[data-as-snap], .is-open[data-pf-snap-portfolio]');
+  for (var j=0;j<openBtns.length;j++){ openBtns[j].classList.remove('is-open'); }
+  drawer.classList.add('open');
+  if (btn) btn.classList.add('is-open');
+  if (drawer.dataset.loaded === '1') return;
+  drawer.innerHTML = '<div class="ar-pf-snap-loading">Loading snapshot…</div>';
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  if (!c){ drawer.innerHTML = '<div class="ar-pf-snap-err">Cloud unavailable.</div>'; return; }
+  var money = function(n){ return '$' + (typeof fn === 'function' ? fn(Number(n)||0) : Math.round(Number(n)||0).toLocaleString('en-US')); };
+  var num = function(n){ return (typeof fn === 'function' ? fn(Number(n)||0) : Math.round(Number(n)||0).toLocaleString('en-US')); };
+  var mo = function(n){ var v = Number(n); return isFinite(v) && v > 0 ? (v < 10 ? v.toFixed(1) : Math.round(v)) + ' mo' : '—'; };
+  var dateStr = function(s){ try { return s ? new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : ''; } catch(_){ return ''; } };
+  c.rpc('assessment_snapshot_lite', { p_id: assessmentId }).then(function(rs){
+    if (rs.error) throw new Error(rs.error.message);
+    var d = rs.data;
+    if (!d || !d.id) throw new Error('record not found or not visible to you');
+    var sm = d.summary || {};
+    var inv = Number(sm.inv) || 0, yr = Number(sm.annual) || 0, moSav = Number(sm.monthly) || 0;
+    var roi5 = inv > 0 ? ((yr * 5 - inv) / inv) * 100 : null;
+    var weight = (d.savings_weight !== null && d.savings_weight !== undefined) ? Number(d.savings_weight) : (sm.savingsWeight !== undefined ? Number(sm.savingsWeight) : null);
+    var disc = Number(d.discount) || 0;
+    var SIZES = [{k:'p2',l:'2″',b:'pipe_2in'},{k:'p3',l:'3″',b:'pipe_3in'},{k:'p4',l:'4″',b:'pipe_4in'},{k:'p6',l:'6″',b:'pipe_6in'},{k:'p8',l:'8″',b:'pipe_8in'},{k:'p10',l:'10″',b:'pipe_10in'}];
+    var pipes = d.pipes || {};
+    var sizeCols = SIZES.filter(function(s){ return (Number(pipes[s.k]) || 0) > 0; });
+    var totalDev = SIZES.reduce(function(a,s){ return a + (Number(pipes[s.k]) || 0); }, 0) || Number(sm.devices) || 0;
+    var bodies = Array.isArray(d.bodies) ? d.bodies : [];
+    var manual = !!d.manualVolume;
+    var totGal = Number(d.pool_gallons) || Number(sm.poolGallons) || 0;
+    var cell = function(n){ var v = Number(n) || 0; return '<td' + (v ? '' : ' class="zero"') + '>' + (v ? num(v) : '·') + '</td>'; };
+    var tiles = [
+      { l:'Pools', v: num(d.pool_count || bodies.length) },
+      { l:'Devices', v: num(totalDev) },
+      { l:'Volume', v: num(totGal) + '<span class="unit"> gal</span>' },
+      { l:'Investment', v: money(inv) },
+      { l:'Annual savings', v: money(yr), pos: true },
+      { l:'Payback', v: mo(sm.payback) }
+    ];
+    var kpiHtml = '<div class="ar-pf-snap-kpis">' + tiles.map(function(t){
+      return '<div class="ar-pf-snap-kpi"><div class="lbl">' + t.l + '</div><div class="val' + (t.pos?' pos':'') + '">' + t.v + '</div></div>';
+    }).join('') + '</div>';
+    // Facts strip — weighting, discount, monthly, ROI, engineer status, quote
+    var facts = [];
+    if (weight !== null && isFinite(weight)) facts.push('Savings weighting <b>' + Math.round(weight*100) + '%</b>');
+    if (disc > 0) facts.push('Discount <b>' + Math.round(disc*100) + '%</b>');
+    facts.push('Monthly <b>' + money(moSav) + '</b>');
+    if (roi5 !== null) facts.push('5-yr ROI <b>' + Math.round(roi5) + '%</b>');
+    facts.push('Engineer-verified pools <b>' + num(d.engineer_verified) + '</b> of ' + num(bodies.length));
+    if (d.quote && d.quote.quote_id) facts.push('Quote <b>' + esc(d.quote.quote_id) + '</b>' + (d.quote.payments ? ' · ' + d.quote.payments + ' payment' + (d.quote.payments===1?'':'s') + ' · paid <b>' + money(d.quote.paid) + '</b>' : ''));
+    if (d.images) facts.push('<b>' + num(d.images) + '</b> photo' + (d.images===1?'':'s'));
+    var factsHtml = '<div class="ar-pf-snap-facts">' + facts.map(function(f){ return '<span>' + f + '</span>'; }).join('') + '</div>';
+    var rows = bodies.map(function(b, idx){
+      var g = 0;
+      try { g = (!manual && typeof bodyGallons === 'function') ? Number(bodyGallons(b)) || 0 : 0; } catch(_){ g = 0; }
+      var bdev = SIZES.reduce(function(a,s){ return a + (Number(b[s.b]) || 0); }, 0);
+      return '<tr>'
+        + '<td>' + esc(b.label || ('Pool ' + (idx+1))) + '<span class="sub">' + esc(b.poolType || 'chlorine') + (b.co2Use ? ' · CO₂' : '') + (b.fromMap ? ' · mapped' : '') + '</span></td>'
+        + '<td>' + (manual ? '—' : (g ? num(g) : '—')) + '</td>'
+        + sizeCols.map(function(s){ return cell(b[s.b]); }).join('')
+        + '<td class="tot">' + num(bdev) + '</td>'
+        + '</tr>';
+    }).join('');
+    var tableHtml = bodies.length
+      ? '<div class="ar-pf-snap-ptable-wrap"><table class="ar-pf-snap-ptable">'
+        + '<thead><tr><th>Pool</th><th>Volume (gal)</th>' + sizeCols.map(function(s){ return '<th class="sz">' + s.l + '</th>'; }).join('') + '<th class="tot">Devices</th></tr></thead>'
+        + '<tbody>' + rows + '</tbody>'
+        + '<tfoot><tr><td>Total' + (manual ? '<span class="sub">manual volume entry</span>' : '') + '</td><td>' + num(totGal) + '</td>'
+        +   sizeCols.map(function(s){ return '<td>' + num(pipes[s.k]) + '</td>'; }).join('')
+        +   '<td class="tot">' + num(totalDev) + '</td></tr></tfoot>'
+        + '</table></div>'
+      : '<div class="ar-pf-snap-empty">No pools recorded on this assessment.</div>';
+    drawer.innerHTML = '<div class="ar-pf-snap-card">'
+      + '<div class="ar-pf-snap-head">'
+      +   '<div class="ar-pf-snap-head-left">'
+      +     '<div class="ar-pf-snap-eyebrow">Assessment snapshot</div>'
+      +     '<div class="ar-pf-snap-name">' + esc(d.property_name || 'Assessment') + '</div>'
+      +     '<div class="ar-pf-snap-sub">' + (d.address ? esc(d.address) + ' · ' : '') + 'Saved ' + esc(dateStr(d.saved_at || d.updated_at)) + (d.created_by ? ' by ' + esc(d.created_by) : '') + '</div>'
+      +   '</div>'
+      +   '<div class="ar-pf-snap-head-right">'
+      +     '<button class="ar-pf-snap-open-btn" type="button" data-bank-action="recall" data-bank-id="' + esc(assessmentId) + '">Open assessment &rarr;</button>'
+      +     '<button class="ar-pf-snap-close" type="button" data-bank-action="snapshot" data-bank-id="' + esc(assessmentId) + '" aria-label="Close snapshot">&times;</button>'
+      +   '</div>'
+      + '</div>'
+      + kpiHtml
+      + factsHtml
+      + tableHtml
+      + '</div>';
+    drawer.dataset.loaded = '1';
+  }).catch(function(err){
+    drawer.innerHTML = '<div class="ar-pf-snap-err">Could not load snapshot: ' + esc((err && err.message) || 'unknown error') + '</div>';
+  });
+}
+
 /* ── Portfolio property Snapshot drawer ───────────────────────────
    Slide-down inline card below a property row. Shows a polished
    KPI tile grid + per-pool engineer verification status (green/orange
@@ -15446,11 +15555,14 @@ function renderBank(targetId){
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
             +bankEngBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
-          : '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" title="Load this assessment">'+I.file+'</button>'
+          // Singles: the record name opens the assessment, so no "load" icon;
+          // PDFs are produced from the Export step, so no portrait/landscape
+          // icons. Snapshot drawer gives the quick view in place.
+          : '<button class="ar-bank-act snapshot" data-bank-action="snapshot" data-bank-id="'+entry.id+'" data-as-snap="'+entry.id+'" title="Snapshot — pools, devices, savings and quote status" aria-label="Assessment snapshot">'
+              +'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
+            +'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" title="Duplicate this assessment">'+I.copy+'</button>'
             +'<button class="ar-bank-act" data-bank-action="copy-to-portfolio" data-bank-id="'+entry.id+'" title="Copy to portfolio">+☰</button>'
-            +'<button class="ar-bank-act" data-bank-action="portrait" data-bank-id="'+entry.id+'" title="Portrait PDF">'+I.port+'</button>'
-            +'<button class="ar-bank-act" data-bank-action="landscape" data-bank-id="'+entry.id+'" title="Landscape PDF">'+I.land+'</button>'
             +bankEngBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" title="Delete">'+I.trash+'</button>';
         var classes = 'ar-bank-card' + (selectMode?' selmode':'') + (isSel?' selected':'') + (isAdmin?' admin-cols':'') + (isPortfolio?' is-portfolio':'');
@@ -15463,7 +15575,7 @@ function renderBank(targetId){
         return '<div class="'+classes+'" data-row-id="'+entry.id+'" data-archive-type="'+(isPortfolio?'portfolio':'single')+'" title="'+esc(entry.propertyName)+'">'
           +(selectMode && !isPortfolio?'<div class="ar-bank-chk"><input type="checkbox" data-sel-id="'+entry.id+'"'+(isSel?' checked':'')+'></div>':selectMode?'<div class="ar-bank-chk"></div>':'')
           +'<div class="ar-bank-name">'
-            +'<div class="ar-bank-prop" title="'+esc(entry.propertyName)+'">'+typeBadge+esc(entry.propertyName)+'</div>'
+            +'<div class="ar-bank-prop" title="'+esc(entry.propertyName)+'">'+typeBadge+'<span class="ar-bank-prop-text">'+esc(entry.propertyName)+'</span></div>'
             +'<div class="ar-bank-date">'+dateStr+'</div>'
           +'</div>'
           +'<div class="ar-bank-cell"><div class="ar-bank-cell-val '+clr+'">'+fc(s.monthly,0)+'</div></div>'
@@ -15485,7 +15597,9 @@ function renderBank(targetId){
         +'</div>'
         // Portfolio snapshot drawer — sibling of the card, filled lazily by
         // togglePfPortfolioSnapshot() when the snapshot action is clicked.
-        +(isPortfolio?'<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer in-archive" id="ar-pf-pf-snap-'+entry.id+'" data-pf-snap-drawer="'+entry.id+'"></div>':'');
+        +(isPortfolio
+            ? '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer in-archive" id="ar-pf-pf-snap-'+entry.id+'" data-pf-snap-drawer="'+entry.id+'"></div>'
+            : '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer in-archive" id="ar-as-snap-'+entry.id+'" data-as-snap-drawer="'+entry.id+'"></div>');
       }).join('');
     };
 
@@ -21033,6 +21147,11 @@ function handleClick(e){
     // Portfolio snapshot drawer (Archive list) — quick view, no navigation.
     if (bAct==='snapshot' && bType==='portfolio'){
       if (typeof togglePfPortfolioSnapshot === 'function') togglePfPortfolioSnapshot(bId);
+      return;
+    }
+    // Single-assessment snapshot drawer — same quick view for archive records.
+    if (bAct==='snapshot'){
+      if (typeof toggleAssessmentSnapshot === 'function') toggleAssessmentSnapshot(bId);
       return;
     }
     if (bAct==='recall' && bType==='portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
