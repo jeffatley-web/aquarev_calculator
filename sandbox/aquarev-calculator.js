@@ -7916,6 +7916,16 @@ function seedFirstPropertyFromMapPools(newPortfolio){
         try { showView('bank'); } catch(_){}
       }
     }
+    // Admins land on the Admin Dashboard (Archive view with the dashboard
+    // drawer expanded) instead of the calculator form. Once per session so
+    // navigating away later isn't undone by a re-run of applyPfBody.
+    if (u && u.role === 'admin' && !window.__adminRouted){
+      window.__adminRouted = true;
+      try { localStorage.setItem('ar2:admin-dash-open', '1'); } catch(_){}
+      if (typeof showView === 'function'){
+        try { showView('bank'); } catch(_){}
+      }
+    }
   }
   // Poll for cloud-ready every 500ms (up to ~2 min cap). The moment the
   // user finishes gateLogin, AR2_CLOUD.isReady() flips true; we then call
@@ -22220,6 +22230,9 @@ function maybeShowWelcomeModal(){
     // Engineers run a fully scripted step-1 briefing video on login — never
     // overlay the calc/oversight welcome on top of that.
     if (window.AR2_CLOUD && AR2_CLOUD.isEngineer && AR2_CLOUD.isEngineer()) return;
+    // Admins are never prompted for the guided tour — they go straight to
+    // the Admin Dashboard. The tour stays available from the ? button.
+    if (window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin()) return;
     var ver = '';
     try { ver = localStorage.getItem('ar_app_version') || ''; } catch(_){}
     if (!ver) return; // version-stamp poller hasn't run yet
