@@ -5137,15 +5137,18 @@ function togglePfPortfolioSnapshot(portfolioId){
     } catch(_){}
     var pools = 0; props.forEach(function(p){ if (!p.excluded_from_rollup) pools += Number(p.pool_count) || 0; });
     var inv = Number(roll.total_inv) || 0, yr = Number(roll.total_yr) || 0, net5 = yr * 5 - inv;
+    var roiPct = Number(roll.blended_roi_5yr_pct);
     var tiles = [
       { l:'Properties', v: String(Number(roll.property_count) || 0) + (Number(roll.excluded_count) ? '<span class="unit"> +' + roll.excluded_count + ' excluded</span>' : '') },
       { l:'Pools', v: num(pools) },
       { l:'Devices', v: num(roll.total_dev) },
       { l:'Investment', v: money(inv) },
       { l:'Annual savings', v: money(yr), pos: true },
-      { l:'Payback', v: mo(roll.blended_payback_mo) }
+      { l:'Payback', v: mo(roll.blended_payback_mo) },
+      { l:'5-yr ROI', v: isFinite(roiPct) ? Math.round(roiPct) + '%' : '—', pos: isFinite(roiPct) && roiPct > 0 },
+      { l:'Net value, 5 yr', v: money(net5), pos: net5 > 0 }
     ];
-    var kpiHtml = '<div class="ar-pf-snap-kpis">' + tiles.map(function(t){
+    var kpiHtml = '<div class="ar-pf-snap-kpis cols8">' + tiles.map(function(t){
       return '<div class="ar-pf-snap-kpi"><div class="lbl">' + t.l + '</div><div class="val' + (t.pos?' pos':'') + '">' + t.v + '</div></div>';
     }).join('') + '</div>';
     // Device-size columns: only sizes present somewhere in the portfolio
@@ -15548,8 +15551,8 @@ function renderBank(targetId){
         // so the actions row simplifies. The standalone reassignBtn var
         // is no longer used here but kept above for back-compat.
         var actions = isPortfolio
-          ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
-            +'<button class="ar-bank-act snapshot" data-bank-action="snapshot" data-bank-id="'+entry.id+'" data-bank-type="portfolio" data-pf-snap-portfolio="'+entry.id+'" title="Snapshot — properties, key stats and summary KPIs" aria-label="Portfolio snapshot">'
+          // Portfolio name opens the portfolio, so no "open" icon here either.
+          ? '<button class="ar-bank-act snapshot" data-bank-action="snapshot" data-bank-id="'+entry.id+'" data-bank-type="portfolio" data-pf-snap-portfolio="'+entry.id+'" title="Snapshot — properties, key stats and summary KPIs" aria-label="Portfolio snapshot">'
               +'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
             +'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
