@@ -3699,6 +3699,11 @@ body.pf-engineer-mode #ap2{display:none!important;}
    chrome; the table inside lists each property with its key stats. */
 #ar2 .ar-pf-pf-snap-drawer{margin-top:-10px;margin-bottom:0;}   /* collapses the list gap while closed */
 #ar2 .ar-pf-pf-snap-drawer.open{margin-top:-4px;margin-bottom:4px;}
+/* Archive list variant (gap 0 between cards) */
+#ar2 .ar-pf-pf-snap-drawer.in-archive{margin-top:0;margin-bottom:0;border-width:0;}
+#ar2 .ar-pf-pf-snap-drawer.in-archive.open{margin:4px 0 10px;border-width:1px;}
+#ar2 .ar-bank-act.snapshot{color:#c4b5fd;border-color:rgba(168,85,247,.32);}
+#ar2 .ar-bank-act.snapshot:hover,#ar2 .ar-bank-act.snapshot.is-open{background:rgba(168,85,247,.22);border-color:rgba(168,85,247,.6);color:#fff;}
 #ar2 .ar-pf-snap-ptable{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:12.5px;}
 #ar2 .ar-pf-snap-ptable th{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;text-align:right;padding:2px 12px 4px;white-space:nowrap;}
 #ar2 .ar-pf-snap-ptable th:first-child{text-align:left;}

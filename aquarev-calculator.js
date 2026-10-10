@@ -5086,7 +5086,7 @@ function submitImportCsv(){
 function togglePfPortfolioSnapshot(portfolioId){
   if (!portfolioId) return;
   var drawer = document.getElementById('ar-pf-pf-snap-' + portfolioId);
-  var btn = document.querySelector('.ar-pf-prop-snap[data-pf-snap-portfolio="' + portfolioId + '"]');
+  var btn = document.querySelector('[data-pf-snap-portfolio="' + portfolioId + '"]');
   if (!drawer) return;
   if (drawer.classList.contains('open')){
     drawer.classList.remove('open');
@@ -5096,7 +5096,7 @@ function togglePfPortfolioSnapshot(portfolioId){
   // One drawer open at a time
   var others = document.querySelectorAll('.ar-pf-pf-snap-drawer.open');
   for (var i=0;i<others.length;i++){ others[i].classList.remove('open'); }
-  var openBtns = document.querySelectorAll('.ar-pf-prop-snap.is-open[data-pf-snap-portfolio]');
+  var openBtns = document.querySelectorAll('.is-open[data-pf-snap-portfolio]');
   for (var j=0;j<openBtns.length;j++){ openBtns[j].classList.remove('is-open'); }
   drawer.classList.add('open');
   if (btn) btn.classList.add('is-open');
@@ -5105,6 +5105,11 @@ function togglePfPortfolioSnapshot(portfolioId){
   var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
   if (!c){ drawer.innerHTML = '<div class="ar-pf-snap-err">Cloud unavailable.</div>'; return; }
   var pfRow = ((window.AR2_PF && AR2_PF._state && AR2_PF._state.portfolios) || []).filter(function(p){ return p && p.id === portfolioId; })[0] || {};
+  if (!pfRow.name){
+    // Archive list: the card carries the name in its title attribute.
+    var card = document.querySelector('.ar-bank-card[data-row-id="' + portfolioId + '"]');
+    if (card) pfRow = { id: portfolioId, name: card.getAttribute('title') || '' };
+  }
   var money = function(n){ return '$' + (typeof fn === 'function' ? fn(Number(n)||0) : Math.round(Number(n)||0).toLocaleString('en-US')); };
   var num = function(n){ return (typeof fn === 'function' ? fn(Number(n)||0) : Math.round(Number(n)||0).toLocaleString('en-US')); };
   var mo = function(n){ var v = Number(n); return isFinite(v) && v > 0 ? (v < 10 ? v.toFixed(1) : Math.round(v)) + ' mo' : '—'; };
@@ -15426,6 +15431,9 @@ function renderBank(targetId){
         // is no longer used here but kept above for back-compat.
         var actions = isPortfolio
           ? '<button class="ar-bank-act primary" data-bank-action="recall" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Open portfolio">'+I.file+'</button>'
+            +'<button class="ar-bank-act snapshot" data-bank-action="snapshot" data-bank-id="'+entry.id+'" data-bank-type="portfolio" data-pf-snap-portfolio="'+entry.id+'" title="Snapshot — properties, key stats and summary KPIs" aria-label="Portfolio snapshot">'
+              +'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
+            +'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
             +bankEngBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
@@ -15465,7 +15473,10 @@ function renderBank(targetId){
           // Engineer-name pills — full-width strip spanning the grid row so
           // multiple names wrap horizontally and the row height grows.
           +((typeof engPills!=='undefined' && engPills)?'<div class="ar-bank-eng-strip">'+engPills+'</div>':'')
-        +'</div>';
+        +'</div>'
+        // Portfolio snapshot drawer — sibling of the card, filled lazily by
+        // togglePfPortfolioSnapshot() when the snapshot action is clicked.
+        +(isPortfolio?'<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer in-archive" id="ar-pf-pf-snap-'+entry.id+'" data-pf-snap-drawer="'+entry.id+'"></div>':'');
       }).join('');
     };
 
@@ -21010,6 +21021,11 @@ function handleClick(e){
     var bId=bankBtn.dataset.bankId;
     var bType=bankBtn.dataset.bankType; // 'portfolio' on portfolio rows; undefined for singles
     // Portfolio recall — open the Portfolio Overview drill-down view.
+    // Portfolio snapshot drawer (Archive list) — quick view, no navigation.
+    if (bAct==='snapshot' && bType==='portfolio'){
+      if (typeof togglePfPortfolioSnapshot === 'function') togglePfPortfolioSnapshot(bId);
+      return;
+    }
     if (bAct==='recall' && bType==='portfolio' && window.AR2_PF && AR2_PF.openPortfolio){
       AR2_PF.openPortfolio(bId);
       return;
