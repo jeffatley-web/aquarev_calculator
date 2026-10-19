@@ -15121,13 +15121,15 @@ window.AR2_ENGINEER = (function(){
       +     '</label>'
       +     engAddedBadge
       +     deleteBtn
-      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
-      // Status pill — one state for the whole card.
+      // Status pill — one state for the whole card. Sits on the name row,
+      // ahead of the full-width meta line, so name + status share a row
+      // (Jeff, 2026-10-19).
       +     (isLocked   ? '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Locked</div>'
             : isConfirmed ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Confirmed</div>'
             : isStale     ? '<div class="ar-eng-pool-check stale">' + svgIconWarn() + ' Edited since confirm</div>'
             : anyFlag     ? '<div class="ar-eng-pool-check flagged">' + svgIconWarn() + ' Flagged</div>'
             :               '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
+      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
       +   '</div>'
       // Collapsed summary for a confirmed card: one line, Edit to reopen.
       +   (collapsed
