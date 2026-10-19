@@ -10201,10 +10201,15 @@ function _frRenderPoolCard(p, verifs, media, roomLabel){
     +     '<div class="ar-fr-cmp-row head"><div></div><div>Estimate</div><div>Engineer</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Gallons</div><div>' + (p.repGal ? fn(p.repGal) : '—') + '</div><div>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) : '—') + dot(galState) + '</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Water type</div><div>' + esc(typeLabel(p.repType)) + '</div><div>' + esc(typeLabel(v.pool_type)) + dot(typeState) + '</div></div>'
-    +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(linesToText(engLines)) + dot(linesState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(window.AR2_SIZING ? AR2_SIZING.linesText(engLines) : linesToText(engLines)) + dot(linesState) + '</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Pump room</div><div>—</div><div>' + esc(roomName) + '</div></div>'
     +   '</div>'
     + '</div>'
+    // Hydraulics — what the engineer recorded per return line: pipe size as
+    // marked, flow reading (or code flow), device assigned, status + flags.
+    + ((engLines && engLines.length && window.AR2_SIZING)
+        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true }) + '</div></div>'
+        : '')
     + '<div class="ar-fr-pool-media">'
     +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
     +   thumbsHtml
@@ -12375,11 +12380,53 @@ window.AR2_SIZING = (function(){
       model: (deviceFor(dev) || {}).model || ''
     };
   }
+  // ── Shared renderers for stored lines (Step 4 review, engineer report,
+  //    admin review). Work from the sizing saved on each line; a legacy
+  //    line (diameter only) renders as "N × 4″ → 4″ device".
+  function _e(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function lineStatus(line){
+    var sz = line.sizing || {}; var fl = sz.flags || [];
+    if (line.device_override) return { k: 'override', label: 'Override' };
+    if (fl.indexOf('upsized') !== -1 || fl.indexOf('parallel') !== -1) return { k: 'upsized', label: 'Upsized' };
+    if (fl.indexOf('below_min') !== -1) return { k: 'warn', label: 'Below min' };
+    if (fl.length) return { k: 'warn', label: 'Check' };
+    return { k: 'ok', label: 'In spec' };
+  }
+  function pipeText(line){
+    var std = line.pipe_std || 'us', size = line.pipe_size != null ? line.pipe_size : line.diameter;
+    if (std === 'metric'){ var r = pipeRow('metric', size); return r ? (r.label + ' (' + r.us + ')') : (size + ' mm'); }
+    var u = pipeRow('us', size); return u ? u.label : (size + '″');
+  }
+  function linesText(lines){
+    if (!lines || !lines.length) return '—';
+    return lines.map(function(l){
+      var dev = Number(l.diameter) || (l.sizing && l.sizing.device) || '?';
+      var par = (l.sizing && l.sizing.parallel > 1) ? ' ×' + l.sizing.parallel : '';
+      return (l.count || 1) + ' × ' + pipeText(l) + ' → ' + dev + '″' + par;
+    }).join(' · ');
+  }
+  // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool }
+  function linesTableHtml(lines, opts){
+    opts = opts || {};
+    if (!lines || !lines.length) return '<div class="ar-hyd-empty">No return lines recorded.</div>';
+    var fu = opts.flowUnit || 'gpm';
+    var rows = lines.map(function(l, i){
+      var sz = l.sizing || {}; var st = lineStatus(l);
+      var dev = Number(l.diameter) || sz.device || '?';
+      var flowTxt = l.flow_gpm ? showFlow(l.flow_gpm, l.flow_unit || fu) : (sz.code ? showFlow(sz.code, fu) + '<span class="sub">code flow</span>' : '—');
+      var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? '<span class="sub">' + _e(sz.model) + (sz.adapter ? ' · adapter' : '') + '</span>' : '');
+      var flags = (opts.showFlags !== false && sz.messages && sz.messages.length)
+        ? '<tr class="ar-hyd-flags"><td colspan="5">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
+        : '';
+      return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
+    }).join('');
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
   return {
     DEVICES: DEVICES, US: US, METRIC: METRIC, TURNOVER_H: TURNOVER_H, VOL: VOL, FLOW: FLOW,
     assign: assign, codeFlowGpm: codeFlowGpm, pipeRow: pipeRow, pipeLabel: pipeLabel, velocityFps: velocityFps,
     showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
-    deviceFor: deviceFor
+    deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml
   };
 })();
 
@@ -14419,61 +14466,33 @@ window.AR2_ENGINEER = (function(){
       +       '<span class="ar-admin-review-status ' + esc(asgnStatus) + '">' + esc(statusLabel) + '</span>'
       +     '</div>'
 
-      // ── Metadata strip — Address (with Maps link), Pools on file,
-      //    Total volume (Estimate), Assigned / Sent dates.
-      +     '<div class="ar-admin-review-meta" style="margin-bottom:14px;padding-bottom:14px">'
-      +       '<div class="ar-admin-review-meta-item" style="flex:1 1 100%">'
-      +         '<span class="ar-admin-review-meta-lbl">Address</span>'
-      +         '<span class="ar-admin-review-meta-val">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener" style="margin-left:6px">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span>'
-      +       '</div>'
-      +       '<div class="ar-admin-review-meta-item">'
-      +         '<span class="ar-admin-review-meta-lbl">Total volume</span>'
-      +         '<span class="ar-admin-review-meta-val mono">' + (totalGallons ? (userUnits() === 'metric' ? AR2_SIZING.showVol(totalGallons, 'm3') + ' <span style="opacity:.6">(' + fn(Math.round(totalGallons)) + ' gal)</span>' : fn(Math.round(totalGallons)) + ' gal') : '—') + '</span>'
-      +       '</div>'
-      // ── Measurement family for this property (metric trial). Drives the
-      //    return-line size list and the adapter requirement. Not the
-      //    engineer's own display preference (that lives in the header).
-      +       '<div class="ar-admin-review-meta-item">'
-      +         '<span class="ar-admin-review-meta-lbl">Site pipe standard</span>'
-      +         '<span class="ar-admin-review-meta-val">'
-      +           '<span class="ar-eng-seg" role="radiogroup" aria-label="Site pipe standard">'
-      +             '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'us' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="imperial"' + (isLockedProp ? ' disabled' : '') + '>Imperial</button>'
-      +             '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'metric' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="metric"' + (isLockedProp ? ' disabled' : '') + '>Metric</button>'
-      +           '</span>'
-      +           '<span class="ar-eng-hint" style="display:block;margin-top:4px">' + (propStd() === 'metric' ? 'Return lines in mm · devices stay imperial · adapters supplied' : 'Return lines in inches') + '</span>'
-      +         '</span>'
-      +       '</div>'
-      +       (assignedTxt
-          ? '<div class="ar-admin-review-meta-item">'
-            + '<span class="ar-admin-review-meta-lbl">Assigned</span>'
-            + '<span class="ar-admin-review-meta-val">' + esc(assignedTxt) + '</span>'
-            + '</div>'
-          : '')
-      +       (submittedTxt
-          ? '<div class="ar-admin-review-meta-item">'
-            + '<span class="ar-admin-review-meta-lbl">Last submission</span>'
-            + '<span class="ar-admin-review-meta-val">' + esc(submittedTxt) + '</span>'
-            + '</div>'
-          : '')
+      // ── Facts grid — four quiet facts; the address spans the row.
+      +     '<div class="ar-eng-facts">'
+      +       '<div class="ar-eng-fact span2"><span class="k">Address</span><span class="v">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Pools on file</span><span class="v mono">' + (s.pools.length || 0) + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Total volume (estimate)</span><span class="v mono">' + (totalGallons ? (userUnits() === 'metric' ? AR2_SIZING.showVol(totalGallons, 'm3') + '<span class="alt">' + fn(Math.round(totalGallons)) + ' gal</span>' : fn(Math.round(totalGallons)) + ' gal<span class="alt">' + AR2_SIZING.showVol(totalGallons, 'm3') + '</span>') : '—') + '</span></div>'
+      +       (assignedTxt ? '<div class="ar-eng-fact"><span class="k">Assigned</span><span class="v">' + esc(assignedTxt) + '</span></div>' : '')
+      +       (submittedTxt ? '<div class="ar-eng-fact"><span class="k">Last sent</span><span class="v">' + esc(submittedTxt) + '</span></div>' : '')
       +     '</div>'
 
-      // ── KPI band — running progress at a glance. Photos cell turns
-      //    amber on 0 (matches the admin review's "no media" warning).
-      +     '<div class="ar-admin-review-kpis">'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pools</div><div class="ar-admin-review-kpi-val">' + (s.pools.length || 0) + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      // ── Site pipe standard — a required decision, so it gets its own
+      //    section rather than a cell in the facts grid. Drives the
+      //    return-line size list and the adapter requirement on Step 3.
+      +     '<div class="ar-eng-section-title">Site pipe standard</div>'
+      +     '<div class="ar-eng-std-card' + (propStd() === 'metric' ? ' metric' : '') + '">'
+      +       '<div class="ar-eng-std-l">'
+      +         '<div class="ar-eng-seg lg" role="radiogroup" aria-label="Site pipe standard">'
+      +           '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'us' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="imperial"' + (isLockedProp ? ' disabled' : '') + '>Imperial <small>inches</small></button>'
+      +           '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'metric' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="metric"' + (isLockedProp ? ' disabled' : '') + '>Metric <small>mm</small></button>'
+      +         '</div>'
+      +       '</div>'
+      +       '<div class="ar-eng-std-r">'
+      +         (propStd() === 'metric'
+                ? '<b>Metric site.</b> Return lines are recorded in mm (63, 90, 110, 160). AquaRev devices stay in inches; a transition adapter is supplied for every metric line, device on the receiving end.'
+                : '<b>Imperial site.</b> Return lines are recorded in inches (1½ to 6). Switch to Metric if the pipe is marked in mm.')
+      +         '<div class="ar-eng-hint" style="margin-top:6px">Your own units for volumes and flows are set from the Units menu in the header and do not change this.</div>'
+      +       '</div>'
       +     '</div>'
-
-      // ── Pump-room chips (when any have been added on Step 3 — useful
-      //    on return visits when the engineer revisits Step 2 to verify
-      //    everything before the final submit).
-      +     (pumpRoomCount
-          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
-            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
-            + '</div>'
-          : '')
 
       // ── Rep notes block (preserved from the original) ──────────
       +     (s.assignment && s.assignment.assignment_notes
@@ -15118,18 +15137,37 @@ window.AR2_ENGINEER = (function(){
             + '</div>'
           : '')
 
-      // ── Per-pool readiness checklist — clickable rows jump to that
-      //    pool's card on Step 3 for a quick fix.
-      +     '<div class="ar-eng-readiness">'
-      +       '<div class="ar-eng-readiness-hd"><span>Pool checklist</span><b>' + doneCount + ' / ' + s.pools.length + ' complete</b></div>'
-      +       poolReadiness.map(function(pr){
-              var cls = pr.ready ? ' complete' : '';
-              var missingTxt = pr.ready ? svgIconCheck() + ' Ready to send' : ('Missing: ' + pr.missing.join(' · '));
-              return '<div class="ar-eng-readiness-row' + cls + '" data-action="ar-eng-goto-pool" data-pool-index="' + pr.index + '" role="button" tabindex="0">'
-                + '<span class="ar-eng-readiness-flag">' + (pr.ready ? svgIconCheck() : svgIconWarn()) + '</span>'
-                + '<span class="ar-eng-readiness-name">' + esc(pr.name) + '</span>'
-                + '<span class="ar-eng-readiness-missing">' + missingTxt + '</span>'
-                + '<span class="ar-eng-readiness-chev">›</span>'
+      // ── Per-pool summary — everything captured on Step 3, readable
+      //    without opening the card: volume, water type, pump room, the
+      //    return-line table (pipe · flow · device · status), notes, media.
+      //    Header click jumps to that pool's card.
+      +     '<div class="ar-eng-readiness-hd"><span>Pool summary</span><b>' + doneCount + ' / ' + s.pools.length + ' complete</b></div>'
+      +     '<div class="ar-eng-sum">'
+      +       s.pools.map(function(p){
+              var v = s.verifications[p.index] || { return_lines: [] };
+              var pr = poolReadiness.filter(function(x){ return x.index === p.index; })[0] || { ready: false, missing: [], name: p.name };
+              var gal = Number(v.confirmed_gallons) || 0, est = Number(p.gallonsRep) || 0;
+              var vu = userUnits() === 'metric' ? 'm3' : 'gal';
+              var fu = userUnits() === 'metric' ? 'm3h' : 'gpm';
+              var room = (s.pumpRooms || []).filter(function(r){ return r.id === v.pump_room_id; })[0];
+              var counts = countMediaForPool(p.index);
+              var wt = v.pool_type === 'saltwater' ? 'Saltwater' : v.pool_type === 'fresh' ? 'Fresh / chlorine' : '—';
+              return '<div class="ar-eng-sum-pool' + (pr.ready ? ' ready' : '') + '">'
+                + '<div class="ar-eng-sum-hd" data-action="ar-eng-goto-pool" data-pool-index="' + p.index + '" role="button" tabindex="0">'
+                +   '<span class="ar-eng-readiness-flag">' + (pr.ready ? svgIconCheck() : svgIconWarn()) + '</span>'
+                +   '<span class="ar-eng-sum-name">' + esc(pr.name) + '</span>'
+                +   (p.isEngineerAdded ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '')
+                +   '<span class="ar-eng-sum-edit">Edit ›</span>'
+                + '</div>'
+                + '<div class="ar-eng-sum-facts">'
+                +   '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, vu) : (est ? AR2_SIZING.showVol(est, vu) + ' (estimate)' : '—')) + '</b></span>'
+                +   '<span>Water <b>' + wt + '</b></span>'
+                +   (room ? '<span>Pump room <b>' + esc(room.label || 'Room') + '</b></span>' : '')
+                +   '<span>Media <b>' + counts.photo + ' photo' + (counts.photo===1?'':'s') + ' · ' + counts.video + ' video' + (counts.video===1?'':'s') + '</b></span>'
+                + '</div>'
+                + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true }) + '</div>'
+                + (v.notes ? '<div class="ar-eng-sum-notes">' + esc(v.notes) + '</div>' : '')
+                + (pr.ready ? '' : '<div class="ar-eng-sum-missing">' + svgIconWarn() + ' Missing: ' + pr.missing.join(' · ') + '</div>')
                 + '</div>';
             }).join('')
       +     '</div>'
