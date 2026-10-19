@@ -14501,11 +14501,11 @@ window.AR2_ENGINEER = (function(){
       // Specifications + Drawings replace the old PDF link (Jeff, 2026-10-19).
       +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/specifications" target="_blank" rel="noopener">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h8"/></svg>'
-      +           '<span>Installation Specifications<span class="ar-eng-brief-link-sub">Spec 22 51 19 · device data, flow windows, connection, clearances</span></span>'
+      +           '<span>Installation Specifications<span class="ar-eng-brief-link-sub">Device data, flow windows, connection, clearances</span></span>'
       +         '</a>'
       +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/drawings" target="_blank" rel="noopener">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>'
-      +           '<span>Installation Drawing Set<span class="ar-eng-brief-link-sub">Set 100 · pump room plan, flow diagram, union detail, sequence</span></span>'
+      +           '<span>Installation Drawing Set<span class="ar-eng-brief-link-sub">Pump room plan, flow diagram, union detail, sequence</span></span>'
       +         '</a>'
       +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener" style="display:none">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="12" y1="13" x2="12" y2="19"/><polyline points="9 16 12 19 15 16"/></svg>'
@@ -16166,7 +16166,7 @@ window.AR2_ENGINEER = (function(){
     handleAction: handleAction,
     tryResume: tryResume,
     // Render hooks used by the visual harness (no data access of their own).
-    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, propertyStep: renderPropertyStep, reviewStep: renderReviewStep, poolsStep: renderPoolsStep }
+    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, briefingStep: renderBriefingStep, propertyStep: renderPropertyStep, reviewStep: renderReviewStep, poolsStep: renderPoolsStep }
   };
 })();
 
