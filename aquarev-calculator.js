@@ -13142,18 +13142,13 @@ window.AR2_ENGINEER = (function(){
       return true;
     }
     if (n === 3){
-      // Pool cards are locked until at least one pump room has media.
-      // Step 3 cannot be complete while pool cards remain locked.
-      if (!anyPumpRoomHasMedia()) return false;
-      // Every pool (assessment-derived OR engineer-added) needs:
-      //   • At least one return-line row (pipe count + diameter), AND
-      //   • At least one photo OR video uploaded.
+      // Every pool (assessment-derived OR engineer-added) needs at least
+      // one return-line row. Photos / videos are optional (2026-10-19).
       var allPools = combinedPools();
       if (!allPools.length) return false;
       return allPools.every(function(p){
         var v = s.verifications[p.index];
-        if (!v || !Array.isArray(v.return_lines) || v.return_lines.length === 0) return false;
-        return poolHasMedia(p.index);
+        return !!(v && Array.isArray(v.return_lines) && v.return_lines.length > 0);
       });
     }
     return true;
@@ -14056,27 +14051,29 @@ window.AR2_ENGINEER = (function(){
         + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments + signed-in session are remembered on the icon. No browser bars, no URL typing.</p>',
       2: ''
         + '<div class="ar-eng-help-section">Step 2 — Property review</div>'
-        + '<p><b>Access is auto-confirmed</b> the moment you open this assignment from the portal — so you don\'t need to tap anything to start.</p>'
-        + '<p>If something blocks you on-site (locked equipment room, missing keys), tap <b>Report blocked access</b> and add a quick note. Your rep gets it immediately.</p>'
-        + '<p>Total volume is verified per-pool in Step 3 and rolled up in Step 4 — no separate check on this page.</p>',
+        + '<p><b>Site pipe standard.</b> Choose <b>Imperial</b> if the return pipes are marked in inches, <b>Metric</b> if they are marked in millimetres (63, 90, 110, 160). This sets the size list on every return line in Step 3. AquaRev devices always stay in inches; on a metric site AquaRev supplies a transition adapter for each line, with the device on the receiving end.</p>'
+        + '<p><b>Your contact details.</b> Name, mobile and company are printed on the verification report your rep receives. Tap a field to edit; it saves when you leave the field. Your sign-in email is managed by AquaRev.</p>'
+        + '<p><b>Access</b> is auto-confirmed when you open the assignment. If something blocks you on-site (locked equipment room, missing keys), tap <b>Report blocked access</b> and add a note. Your rep gets it immediately.</p>'
+        + '<p><b>Your own units</b> (gallons and gpm, or m³ and m³/h) are set from the <b>Units</b> menu in the header. They change how you enter and read volumes and flows; they do not change the site pipe standard.</p>',
       3: ''
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
-        + '<p><b>Start with the Pump Rooms section at the top.</b> Tap <b>+ Add Pump Room</b> for every equipment room you walked through, give each one a short ID (e.g. <i>PR-1</i>, <i>North equipment</i>), and record a quick walkthrough video. You\'ll link pools to their rooms below.</p>'
-        + '<p><b>For each pool, you need three things to mark it complete:</b></p>'
-        + '<p style="margin-left:14px"><b>1. Confirm gallons</b> — type a value (or tap <i>Confirm Estimate</i> to accept the rep\'s number). If yours differs by more than 5%, you\'ll be asked to leave a quick note.</p>'
-        + '<p style="margin-left:14px"><b>2. Add return lines</b> — one row per pipe configuration. Use +/− for line count, the dropdown for diameter. Add multiple rows if pipe sizes vary.</p>'
-        + '<p style="margin-left:14px"><b>3. Photograph the return lines</b> — required for every pool. Get one clear close-up of each pipe size showing the diameter, plus a wider shot of the full return wall. A short video panning across the lines is great for clustered piping. Cameras open automatically on mobile; photos are compressed before upload.</p>'
-        + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it.</p>'
+        + '<p><b>Pump rooms.</b> Tap <b>+ Add Pump Room</b> for each equipment room you walk through and give it a short ID (e.g. <i>PR-1</i>). A walkthrough video (30 sec – 2 min) following the supply lines through the treatment system and back to the pool is the most useful thing you can capture, but it is optional and can be added later.</p>'
+        + '<p><b>To mark a pool complete you need one thing: at least one return line.</b> Everything else improves the record but does not block you.</p>'
+        + '<p style="margin-left:14px"><b>Volume</b> — type the pool volume or tap <i>Confirm Estimate</i> to accept the rep\'s figure. Use the <b>gal · m³ · L</b> pills to enter it in your own unit; it is stored in gallons. A difference of more than 5% from the estimate is flagged for the rep.</p>'
+        + '<p style="margin-left:14px"><b>Water type</b> — fresh water / chlorine or saltwater.</p>'
+        + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
+        + '<p style="margin-left:14px"><b>Status</b> — <i>In spec</i>: flow sits inside the device\'s range. <i>Upsized</i>: flow was above the matched device\'s maximum, so the next size was assigned. <i>Below min</i>: flow is under the device minimum; check the reading before installing. <i>Override</i>: you chose the size yourself. The amber notes under a line explain each flag.</p>'
+        + '<p style="margin-left:14px"><b>Photos and video</b> — optional for now. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously.</p>'
+        + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
-        + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across. Set one next to the pipe for scale in your photo.</p>'
-        + '<p>Verify each pool individually — gallons, water type, return lines, and at least one photo per pool — so any per-pool differences make it back to your rep cleanly.</p>',
+        + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across, a 1 euro coin about 23 mm. Set one next to the pipe for scale in your photo.</p>',
       4: ''
         + '<div class="ar-eng-help-section">Step 4 — Review and send</div>'
-        + '<p>Skim the summary. Any pool missing required items (return lines, media) is flagged in amber — tap <b>Back to pools</b> to fix.</p>'
-        + '<p>Tap <b>Send to AquaRev for review</b> when you\'re done. Your rep gets a notification instantly.</p>'
-        + '<p><b>You can keep editing after sending</b> — re-open any record from your assignment list to upload more photos or correct mistakes. Resending just notifies your rep that there\'s a fresh update.</p>'
-        + '<p>You can also <b>download a PDF</b> of your verification report from this step for your own records.</p>'
+        + '<p>The top shows the site pipe standard, the <b>device schedule</b> (devices by size for the whole property) with the adapters required, and your progress. Each pool below shows its volume, water type, pump room, the return-line table with pipe, flow, device and status, and your notes. Tap a pool to go back to its card.</p>'
+        + '<p><b>Save progress</b> writes everything to AquaRev now without sending for review, and your rep sees a "saved progress" activity on their dashboard. Use it whenever you leave a site part-way through.</p>'
+        + '<p><b>Send to AquaRev for review</b> when every pool has at least one return line. Your rep is notified instantly. You can keep editing afterwards; resending just alerts them to the update.</p>'
+        + '<p><b>Preview Report</b> shows the verification report in-app; <b>Download PDF</b> opens the print dialog to save it. The report carries the device schedule, adapters, each pool\'s return lines and flows, and your contact details.</p>'
     };
     var bd = document.createElement('div');
     bd.id = 'ar-eng-help-drawer';
@@ -14671,13 +14668,15 @@ window.AR2_ENGINEER = (function(){
     // (walkthrough video or supporting photo). The engineer can still
     // see them, but inputs are disabled with a clear callout pointing
     // up to the Pump Rooms section.
-    var poolsUnlocked = anyPumpRoomHasMedia();
+    // Media gate removed (Jeff, 2026-10-19): pool cards are open from the
+    // start and photos / videos are optional while the engineer is still
+    // collecting them. Only a locked assignment disables the cards.
+    var poolsUnlocked = !(s.assignment && s.assignment.status === 'locked');
     var cardsHtml = allPools.map(function(p){ return poolCardHtml(p, !poolsUnlocked); }).join('');
     var pumpRoomsSection = pumpRoomsSectionHtml();
     var doneCount = allPools.filter(function(p){
       var v = s.verifications[p.index];
-      var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
-      return hasLines && poolHasMedia(p.index);
+      return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
     }).length;
     // Apply Pool 1 to Rest feature was removed (per Jeff 2026-05-25)
     // — engineers should verify each pool individually rather than
@@ -14956,7 +14955,7 @@ window.AR2_ENGINEER = (function(){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
     var hasMedia = poolHasMedia(p.index);
-    var complete = hasLines && hasMedia && !isLocked;
+    var complete = hasLines && !isLocked;   // media optional (2026-10-19)
     var lines = v.return_lines || [];
     if (lines.length) recomputeLines(p, v, lines);
     var std = propStd();
@@ -15045,7 +15044,6 @@ window.AR2_ENGINEER = (function(){
     if (!complete){
       var missing = [];
       if (!hasLines) missing.push('add at least one return line');
-      if (!hasMedia) missing.push('capture at least one photo or video of the return lines');
       if (missing.length){
         missingHint = '<div class="ar-eng-pool-missing">'
           + svgIconWarn() + ' To complete this pool: ' + missing.join(' &amp; ') + '.'
@@ -15150,7 +15148,7 @@ window.AR2_ENGINEER = (function(){
       +       '<label>Return-line media</label>'
       +       (hasMedia
               ? '<span class="ar-eng-pill green sm">' + svgIconCheck() + ' Captured</span>'
-              : '<span class="ar-eng-pill amber sm">Required</span>')
+              : '<span class="ar-eng-pill sm" style="background:rgba(125,184,204,.12);color:#9fc7d8;border:1px solid rgba(125,184,204,.3)">Optional</span>')
       +       '<span class="ar-eng-media-tally">' + counts.photo + '/10 photos · ' + counts.video + '/4 videos</span>'
       +       '<button class="ar-eng-mini-help" data-action="ar-eng-return-media-tip" type="button" aria-label="What to shoot" title="One clear close-up per pipe size showing diameter, plus a wider shot of the full return wall. Pan video helps for clustered piping.">?</button>'
       +     '</div>'
@@ -15182,14 +15180,13 @@ window.AR2_ENGINEER = (function(){
     var poolReadiness = s.pools.map(function(p){
       var v = s.verifications[p.index];
       var hasLines = v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
-      var hasMedia = poolHasMedia(p.index);
       var missing = [];
       if (!hasLines) missing.push('Return lines');
-      if (!hasMedia) missing.push('Photo or video');
+      // Photos / videos are optional (2026-10-19); readiness = return lines only.
       return {
         index: p.index,
         name: (v && v.pool_name_override) || p.name,
-        ready: hasLines && hasMedia,
+        ready: !!hasLines,
         missing: missing
       };
     });
