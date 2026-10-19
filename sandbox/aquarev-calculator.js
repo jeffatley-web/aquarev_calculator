@@ -14453,12 +14453,18 @@ window.AR2_ENGINEER = (function(){
       +     '<div class="ar-eng-video">'
       +       '<iframe src="https://www.youtube-nocookie.com/embed/Nh7DkYL6LNA" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
       +     '</div>'
-      +     '<ul class="ar-eng-bullets">'
-      +       '<li><b>Confirm property access</b> on Step 2, and set the <b>site pipe standard</b> — Imperial (inches) or Metric (mm) — so the return-line sizes match what is on the pipe.</li>'
-      +       '<li><b>Verify each pool</b> on Step 3 — confirm the volume, then for every return line record the pipe size and the flow rate from the flow meter or pump curve. The card shows the AquaRev device that fits and flags anything out of specification.</li>'
-      +       '<li><b>Pick your units</b> from the Units menu in the header at any time — gallons and gpm, or m³ and m³/h. The device sizes always stay in inches.</li>'
-      +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
-      +     '</ul>'
+      // ── What we need from you — four numbered cards, one line each
+      // (rewritten for clarity, Jeff, 2026-10-19).
+      +     '<div class="ar-eng-brief-need">'
+      +       '<div class="ar-eng-brief-need-hd">What we need from you</div>'
+      +       '<div class="ar-eng-brief-need-grid">'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">1</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 2</div><div class="ar-eng-brief-need-title">Confirm the site</div><div class="ar-eng-brief-need-sub">Your contact details, site access and whether pipes are marked in inches or mm.</div></div></div>'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">2</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 3</div><div class="ar-eng-brief-need-title">Walk the pump room</div><div class="ar-eng-brief-need-sub">A short video from the pumps to the return pipes. One per equipment room.</div></div></div>'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">3</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 3</div><div class="ar-eng-brief-need-title">Verify each pool</div><div class="ar-eng-brief-need-sub">Check the volume and water type, then record each return line\'s pipe size and flow. Confirm the card.</div></div></div>'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">4</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 4</div><div class="ar-eng-brief-need-title">Send to AquaRev</div><div class="ar-eng-brief-need-sub">Review the summary and send. Your rep is notified automatically.</div></div></div>'
+      +       '</div>'
+      +       '<div class="ar-eng-brief-need-foot">Work in gallons or m³ — switch units any time from the header. Device sizes always show in inches.</div>'
+      +     '</div>'
 
       // ── Specifications briefing supplement ─────────────────────
       // Visual reference drawn from the AquaRev Specifications Guide
