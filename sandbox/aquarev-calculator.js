@@ -14535,10 +14535,14 @@ window.AR2_ENGINEER = (function(){
       +     (window.AR_PWA && !AR_PWA.isStandalone()
           ? '<div class="ar-eng-brief-install">'
             + '<div class="ar-eng-brief-install-l">'
-            +   '<div class="ar-eng-brief-install-eyebrow">Install on your phone</div>'
-            +   '<div class="ar-eng-brief-install-title">Add AquaRev to your home screen</div>'
-            +   '<div class="ar-eng-brief-install-sub">One-tap launch, no browser bars, faster startup. Scan the QR code with your phone\'s camera to open the install page there, or tap the button below to install on this device.</div>'
-            +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">Install on this device</button>'
+            // Two clear paths: computer or phone (Jeff, 2026-10-19).
+            +   '<div class="ar-eng-brief-install-eyebrow">Install the app</div>'
+            +   '<div class="ar-eng-brief-install-title">Use AquaRev on your computer or your phone</div>'
+            +   '<div class="ar-eng-brief-install-ways">'
+            +     '<div class="ar-eng-brief-install-way"><b>On this computer</b>Tap the button to add AquaRev as a desktop app. Opens in its own window, no browser bars.</div>'
+            +     '<div class="ar-eng-brief-install-way"><b>On your phone</b>Scan the QR code with your phone\'s camera and add it to your home screen for easy field access.</div>'
+            +   '</div>'
+            +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">' + (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Install on this phone' : 'Install on this computer') + '</button>'
             + '</div>'
             + '<div class="ar-eng-brief-install-qr">'
             +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent('https://www.aquarevwater.us/calculator-sandbox?install=1') + '" alt="Scan to install AquaRev" />'
