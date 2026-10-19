@@ -15126,6 +15126,7 @@ window.AR2_ENGINEER = (function(){
       +   imageBlock
 
       // — Volume first — entered in the engineer's unit, stored in gallons.
+      +   '<div class="ar-eng-two">'
       +   '<div class="ar-eng-field"><label>Volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"')
       +       ((v.confirmed_gallons && p.gallonsRep && Number(v.confirmed_gallons) !== Number(p.gallonsRep)) ? '<span class="ar-eng-diff" title="Assessment: ' + fn(p.gallonsRep) + ' gal">edited</span><button class="ar-eng-reset" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button" title="Reset to the assessment value"' + dis + disA + '>reset</button>' : '')
       +     '</label>'
@@ -15144,6 +15145,9 @@ window.AR2_ENGINEER = (function(){
       +       '<option value="saltwater"' + (v.pool_type === 'saltwater' ? ' selected' : '') + '>Saltwater</option>'
       +     '</select>'
       +   '</div>'
+      +   '</div>'
+      // Pump room sits with the pool identity, ahead of the return lines.
+      +   pumpRoomLinkHtml
 
       +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count · pipe size · flow · straight run per line)</span>'
       +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
@@ -15181,7 +15185,7 @@ window.AR2_ENGINEER = (function(){
                 +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span></div>'
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + '</div>' : '')
+                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</div>' : '')
                 // Straight run — required span for the assigned device (L1 + 8 in),
                 // available span measured on site, or a "confirmed sufficient" tick.
                 +   (function(){
@@ -15202,8 +15206,6 @@ window.AR2_ENGINEER = (function(){
             }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button"' + dis + disA + '>+ Add return line</button>'
       +   '</div>'
-
-      +   pumpRoomLinkHtml
 
       +   '<div class="ar-eng-field"><label>Notes <span class="ar-eng-hint">(optional)</span></label>'
       +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?"' + dis + '>' + esc(v.notes || '') + '</textarea>'
@@ -15232,8 +15234,11 @@ window.AR2_ENGINEER = (function(){
       +   missingHint
       // ── Confirm pool — one action for the whole card.
       +   '<div class="ar-eng-pool-confirm-row">'
-      +     (v.confirmed_at ? '<span class="ar-eng-pool-confirmed-by">' + (isStale ? svgIconWarn() + ' Edited since ' : svgIconCheck() + ' ') + esc(confirmedTxt) + '</span>' : '<span class="ar-eng-hint">Confirm when the lines and straight runs are verified on site.</span>')
-      +     '<button class="ar-eng-btn ' + (canConfirm ? 'send-green' : 'secondary') + ' sm" data-action="ar-eng-pool-confirm" data-pool="' + p.index + '" type="button"' + (canConfirm ? '' : ' disabled') + '>' + svgIconCheck() + ' ' + (isStale ? 'Re-confirm pool' : isConfirmed ? 'Confirmed' : 'Confirm pool') + '</button>'
+      +     '<span class="ar-eng-pool-confirm-txt">'
+      +       (v.confirmed_at ? '<span class="ar-eng-pool-confirmed-by">' + (isStale ? svgIconWarn() + ' Edited since ' : svgIconCheck() + ' ') + esc(confirmedTxt) + '</span><br>' : '')
+      +       '<b>Confirmation of pool specifications.</b> The volume, water type, return lines, flows, device sizes and straight runs above are correct as verified on site.'
+      +     '</span>'
+      +     '<button class="ar-eng-btn ' + (canConfirm ? 'send-green' : 'secondary') + ' sm" data-action="ar-eng-pool-confirm" data-pool="' + p.index + '" type="button"' + (canConfirm ? '' : ' disabled') + '>' + svgIconCheck() + ' ' + (isStale ? 'Re-confirm specifications' : isConfirmed ? 'Confirmed' : 'Confirm specifications') + '</button>'
       +   '</div>'
       + '</div>'))
       ;

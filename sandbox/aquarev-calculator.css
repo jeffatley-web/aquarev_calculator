@@ -3229,6 +3229,11 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-span-tick input{accent-color:#00b4d8;width:15px;height:15px;margin:0;}
 #ar2 .ar-eng-status-pill.pending{background:rgba(125,184,204,.12);color:#9fc7d8;border-color:rgba(125,184,204,.35);}
 #ar2 .ar-eng-pool-confirm-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,180,216,.14);}
+#ar2 .ar-eng-pool-confirm-txt{flex:1 1 320px;font-size:12.5px;line-height:1.5;color:#9fc7d8;}
+#ar2 .ar-eng-pool-confirm-txt b{color:#e0f4fa;}
+#ar2 .ar-eng-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
+#ar2 .ar-eng-two .ar-eng-field{min-width:0;}
+@media (max-width:420px){#ar2 .ar-eng-two{grid-template-columns:1fr;}}
 #ar2 .ar-eng-pool-confirmed-by{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#4ade80;}
 #ar2 .ar-eng-pool-check.stale ~ .ar-eng-pool-confirm-row .ar-eng-pool-confirmed-by{color:#c4b5fd;}
 #ar2 .ar-eng-btn.sm{padding:9px 16px;font-size:13px;}
