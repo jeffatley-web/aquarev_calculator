@@ -15773,7 +15773,7 @@ window.AR2_ENGINEER = (function(){
     handleAction: handleAction,
     tryResume: tryResume,
     // Render hooks used by the visual harness (no data access of their own).
-    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, propertyStep: renderPropertyStep }
+    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, propertyStep: renderPropertyStep, reviewStep: renderReviewStep, poolsStep: renderPoolsStep }
   };
 })();
 
