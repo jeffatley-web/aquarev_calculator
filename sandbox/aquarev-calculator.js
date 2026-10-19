@@ -14091,7 +14091,7 @@ window.AR2_ENGINEER = (function(){
         + '<p style="margin-left:14px"><b>Water type</b> — fresh water / chlorine or saltwater.</p>'
         + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
         + '<p style="margin-left:14px"><b>Status</b> — <i>In spec</i>: flow sits inside the device\'s range. <i>Upsized</i>: flow was above the matched device\'s maximum, so the next size was assigned. <i>Below min</i>: flow is under the device minimum; check the reading before installing. <i>Override</i>: you chose the size yourself. The amber notes under a line explain each flag.</p>'
-        + '<p style="margin-left:14px"><b>Straight run</b> — under each line, <i>needs</i> is the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites add the adapter allowance). Type the run you measured in <i>available</i> if you have it; it is optional. A run that is too short is flagged; the drawing set shows the fix (rebuild the run as an offset with four 90° elbows).</p>'
+        + '<p style="margin-left:14px"><b>Straight run</b> — under each line, <i>needs</i> is the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites add the adapter allowance). Check it on site before confirming the pool; if the run is shorter, the drawing set shows the fix (rebuild the run as an offset with four 90° elbows) — note it in the pool notes.</p>'
         + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
         + '<p style="margin-left:14px"><b>Edited markers</b> — a small <i>edited</i> tag beside volume or water type means your value differs from the rep\'s assessment; hover it to see the original, or tap <i>reset</i> to put it back.</p>'
         + '<p style="margin-left:14px"><b>Photos and video</b> — optional for now. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously.</p>'
@@ -15184,19 +15184,7 @@ window.AR2_ENGINEER = (function(){
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
                 +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</div>' : '')
-                // Straight run — required span for the assigned device (L1 + 8 in),
-                // available span measured on site, or a "confirmed sufficient" tick.
-                +   (function(){
-                      var sp = AR2_SIZING.spanStatus(line);
-                      var availShown = line.span_available_in ? (std === 'metric' ? Math.round(line.span_available_in * 25.4) : Math.round(line.span_available_in * 100) / 100) : '';
-                      return '<div class="ar-eng-line-span ' + sp.k + '">'
-                        + '<span class="ar-eng-line-lbl">Straight run</span>'
-                        + '<span class="ar-eng-span-need">needs <b>' + AR2_SIZING.showSpan(sp.required_in, std) + '</b>' + (sz.adapter ? ' <span class="ar-eng-hint">+ adapter allowance</span>' : '') + '</span>'
-                        + '<span class="ar-eng-span-avail">available <input type="number" inputmode="decimal" step="any" data-action="ar-eng-line-span" data-pool="' + p.index + '" data-line="' + li + '" data-std="' + std + '" value="' + availShown + '" placeholder="' + (std === 'metric' ? 'mm' : 'in') + '"' + dis + ' /> ' + (std === 'metric' ? 'mm' : 'in') + '</span>'
-                        + '<span class="ar-eng-status-pill ' + (sp.k === 'ok' ? 'ok' : sp.k === 'short' ? 'warn' : 'pending') + '">' + sp.label + '</span>'
-                        + (sp.k === 'short' ? '<div class="ar-eng-line-flag" style="flex-basis:100%">' + svgIconWarn() + ' Run is shorter than the device needs. Rebuild the run as an offset with four 90° elbows (drawing M-301) or choose a longer section.</div>' : '')
-                        + '</div>';
-                    })()
+                // Straight run: the requirement is shown in the device line above ("needs … straight run"); no entry field (Jeff, 2026-10-19).
                 +   (overridden ? '<input type="text" class="ar-eng-override-reason" data-action="ar-eng-line-override-reason" data-pool="' + p.index + '" data-line="' + li + '" value="' + esc(line.override_reason || '') + '" placeholder="Reason for override (required)" maxlength="160"' + dis + ' />' : '')
                 +   ((sz.messages && sz.messages.length) ? '<div class="ar-eng-line-flags">' + sz.messages.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('') + '</div>' : '')
                 + '</div>';
