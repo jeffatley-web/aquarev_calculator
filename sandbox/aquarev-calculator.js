@@ -9854,7 +9854,7 @@ window.AR2_FIELD_REPORT = (function(){
         var asgnIds = asgns.map(function(a){ return a.id; });
         var engIds  = Array.from(new Set(asgns.map(function(a){ return a.engineer_user_id; })));
         return Promise.all([
-          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
+          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
           c.from('engineer_media').select('id,assignment_id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').in('assignment_id', asgnIds).order('uploaded_at',{ascending:true}),
           c.from('engineer_pump_rooms').select('id,assignment_id,label,notes,created_at').in('assignment_id', asgnIds).order('created_at',{ascending:true}),
           engIds.length ? c.from('app_users').select('id,name,phone,role').in('id', engIds) : Promise.resolve({ data: [] })
@@ -10231,7 +10231,7 @@ function _frRenderPoolCard(p, verifs, media, roomLabel){
     // Hydraulics — what the engineer recorded per return line: pipe size as
     // marked, flow reading (or code flow), device assigned, status + flags.
     + ((engLines && engLines.length && window.AR2_SIZING)
-        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true }) + '</div></div>'
+        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true, std: ((bundle.record && bundle.record.state_json && bundle.record.state_json.units) === 'metric' ? 'metric' : 'us') }) + '</div></div>'
         : '')
     + '<div class="ar-fr-pool-media">'
     +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
@@ -10483,7 +10483,7 @@ function generateEngineerReport(assignmentId, opts){
 
   Promise.all([
     c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
     c.from('engineer_media').select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true}),
     c.from('engineer_pump_rooms').select('id,label,notes,created_at').eq('assignment_id', assignmentId).order('created_at',{ascending:true})
   ]).then(function(arr){
@@ -10665,7 +10665,7 @@ function _engineerReport_renderHtml(bundle){
     var SZ = window.AR2_SIZING;
     var lineFlagsHtml = '';
     var linesTable = lines.length
-      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Status</th></tr></thead><tbody>'
+      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Straight run</th><th>Status</th></tr></thead><tbody>'
         + lines.map(function(l, li){
             var sz = l.sizing || {};
             var dev = Number(l.diameter) || sz.device || '?';
@@ -10676,7 +10676,10 @@ function _engineerReport_renderHtml(bundle){
             var st = SZ ? SZ.lineStatus(l).label : '—';
             if (sz.messages && sz.messages.length) lineFlagsHtml += sz.messages.map(function(m){ return '<div class="rpt-row" style="display:block;color:#8a5a00;line-height:1.5">Line ' + (li+1) + ': ' + esc(m) + '</div>'; }).join('');
             if (l.device_override && l.override_reason) lineFlagsHtml += '<div class="rpt-row" style="display:block;color:#5b3a8a;line-height:1.5">Line ' + (li+1) + ' override: ' + esc(l.override_reason) + '</div>';
-            return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + esc(st) + '</td></tr>';
+            var spR = SZ ? SZ.spanStatus(l) : null;
+            var stdR = (rec.state_json && rec.state_json.units === 'metric') ? 'metric' : 'us';
+            var spanTxt = spR ? ((spR.k === 'ok' || spR.k === 'short') ? SZ.showSpan(l.span_available_in, stdR) + ' <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>' : spR.k === 'ticked' ? 'Confirmed sufficient <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>' : 'Not confirmed <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>') : '—';
+            return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + spanTxt + '</td><td>' + esc(st) + '</td></tr>';
           }).join('')
         + '</tbody></table>'
         + (lineFlagsHtml ? '<div style="margin-top:6px">' + lineFlagsHtml + '</div>' : '')
@@ -10715,6 +10718,7 @@ function _engineerReport_renderHtml(bundle){
       +     '<div class="rpt-row"><span class="k">Engineer-confirmed volume</span><span class="v">' + (volBoth(v && v.confirmed_gallons) || 'Not confirmed') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Devices for this pool</span><span class="v">' + (SZ ? esc(SZ.scheduleText(SZ.deviceSchedule([lines]))) : '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Pool confirmation</span><span class="v">' + (v && v.confirmed_at ? esc((v.confirm_stale ? 'Edited after confirmation by ' : 'Confirmed by ') + (v.confirmed_by_name || 'engineer') + ' on ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})) : 'Not yet confirmed') + '</span></div>'
       +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines &amp; Device Sizing</div>'
       +     linesTable
       +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
@@ -11149,7 +11153,7 @@ function openAdminReviewModal(assignmentId){
   var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
   if (!c) return;
   Promise.all([
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
     c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId),
     c.from('engineer_pump_rooms').select('id,label').eq('assignment_id', assignmentId)
   ]).then(function(arr){
@@ -12455,23 +12459,42 @@ window.AR2_SIZING = (function(){
       return (l.count || 1) + ' × ' + pipeText(l) + ' → ' + dev + '″' + par;
     }).join(' · ');
   }
-  // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool }
+  // ── Straight run needed to install the device: overall length L1 + 8 in
+  //    (4 in clear each side to any fitting), per Spec 22 51 19 / M-301.
+  var SPAN_IN = { 2: 28.25, 3: 32.0, 4: 36.19, 6: 48.0 };
+  function requiredSpanIn(deviceIn){ return SPAN_IN[Number(deviceIn)] || 0; }
+  function showSpan(inches, std){
+    var v = Number(inches) || 0; if (!v) return '—';
+    return std === 'metric' ? Math.round(v * 25.4) + ' mm' : (Math.round(v * 100) / 100) + ' in';
+  }
+  // spanStatus(line) → { k:'ok'|'short'|'ticked'|'unmeasured', label, required_in }
+  function spanStatus(line){
+    var dev = Number(line.diameter) || (line.sizing && line.sizing.device) || 0;
+    var req = requiredSpanIn(dev);
+    var avail = Number(line.span_available_in) || 0;
+    if (avail > 0) return avail >= req ? { k: 'ok', label: 'Span OK', required_in: req } : { k: 'short', label: 'Span short', required_in: req };
+    if (line.span_confirmed) return { k: 'ticked', label: 'Confirmed sufficient', required_in: req };
+    return { k: 'unmeasured', label: 'Span not confirmed', required_in: req };
+  }
+  // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool, std:'us'|'metric' (span units) }
   function linesTableHtml(lines, opts){
     opts = opts || {};
     if (!lines || !lines.length) return '<div class="ar-hyd-empty">No return lines recorded.</div>';
-    var fu = opts.flowUnit || 'gpm';
+    var fu = opts.flowUnit || 'gpm', std = opts.std || 'us';
     var rows = lines.map(function(l, i){
-      var sz = l.sizing || {}; var st = lineStatus(l);
+      var sz = l.sizing || {}; var st = lineStatus(l); var sp = spanStatus(l);
       var dev = Number(l.diameter) || sz.device || '?';
       var flowTxt = l.flow_gpm ? showFlow(l.flow_gpm, l.flow_unit || fu) : (sz.code ? showFlow(sz.code, fu) + '<span class="sub">code flow</span>' : '—');
       var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? '<span class="sub">' + _e(sz.model) + (sz.adapter ? ' · adapter' : '') + '</span>' : '');
+      var spanTxt = (sp.k === 'ok' || sp.k === 'short' ? showSpan(l.span_available_in, std) : sp.k === 'ticked' ? 'Confirmed' : '—')
+        + '<span class="sub">needs ' + showSpan(sp.required_in, std) + (sz.adapter ? ' + adapter' : '') + '</span>';
       var flags = (opts.showFlags !== false && sz.messages && sz.messages.length)
-        ? '<tr class="ar-hyd-flags"><td colspan="5">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
+        ? '<tr class="ar-hyd-flags"><td colspan="6">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
         : '';
-      return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
+      return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td class="sp ' + sp.k + '">' + spanTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
     }).join('');
     // Fixed column widths so tables on neighbouring pool cards line up.
-    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:9%"><col style="width:27%"><col style="width:20%"><col style="width:26%"><col style="width:18%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:7%"><col style="width:23%"><col style="width:17%"><col style="width:22%"><col style="width:16%"><col style="width:15%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Span</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
   // Device schedule — devices by size across a set of lines (count × parallel).
   function deviceSchedule(linesArrays){
@@ -12518,7 +12541,8 @@ window.AR2_SIZING = (function(){
     showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
     deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml,
     deviceSchedule: deviceSchedule, scheduleText: scheduleText, lineDeviceCount: lineDeviceCount,
-    adapterSchedule: adapterSchedule, adapterText: adapterText
+    adapterSchedule: adapterSchedule, adapterText: adapterText,
+    requiredSpanIn: requiredSpanIn, showSpan: showSpan, spanStatus: spanStatus
   };
 })();
 
@@ -12927,7 +12951,7 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c) return Promise.resolve({});
     return c.from('engineer_verifications')
-      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at,pool_type,confirmed_at,confirmed_by,confirmed_by_name,confirm_stale')
       .eq('assignment_id', assignmentId)
       .then(function(rs){
         if (rs.error) return {};
@@ -13358,6 +13382,7 @@ window.AR2_ENGINEER = (function(){
       pool_name_override: v.pool_name_override || null,
       is_engineer_added: !!v.is_engineer_added,
       pool_type: v.pool_type || null,
+      confirmed_at: v.confirmed_at || null, confirmed_by: v.confirmed_by || null, confirmed_by_name: v.confirmed_by_name || null, confirm_stale: !!v.confirm_stale,
       updated_at: new Date().toISOString()
     };
     c.from('engineer_verifications')
@@ -13408,6 +13433,10 @@ window.AR2_ENGINEER = (function(){
   function updateVerification(poolIndex, patch, opts){
     var v = s.verifications[poolIndex] || { pool_index: poolIndex, return_lines: [] };
     for (var k in patch){ if (patch.hasOwnProperty(k)) v[k] = patch[k]; }
+    // Any edit after confirmation marks the card "Edited since confirm" so a
+    // confirmed state never silently hides a change. The confirm action
+    // itself passes opts.confirm.
+    if (v.confirmed_at && !(opts && opts.confirm)) v.confirm_stale = true;
     s.verifications[poolIndex] = v;
     scheduleSave(poolIndex);
     // Skip the repaint when the caller is a text-input handler (which
@@ -14955,10 +14984,20 @@ window.AR2_ENGINEER = (function(){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
     var hasMedia = poolHasMedia(p.index);
-    var complete = hasLines && !isLocked;   // media optional (2026-10-19)
     var lines = v.return_lines || [];
     if (lines.length) recomputeLines(p, v, lines);
     var std = propStd();
+    // ── Confirmation model (2026-10-19): the card is confirmed as a whole.
+    //    Pending → Confirmed (by engineer or admin) → Edited since confirm.
+    var isConfirmed = !!v.confirmed_at && !v.confirm_stale;
+    var isStale     = !!v.confirmed_at && !!v.confirm_stale;
+    var anyFlag     = lines.some(function(l){ return l.sizing && l.sizing.flags && l.sizing.flags.length; });
+    var spanOkAll   = hasLines && lines.every(function(l){ var k = AR2_SIZING.spanStatus(l).k; return k === 'ok' || k === 'ticked'; });
+    var canConfirm  = hasLines && spanOkAll && !isLocked;
+    var complete    = isConfirmed && !isLocked;
+    var expanded    = !!(s._expandedPools && s._expandedPools[p.index]);
+    var collapsed   = isConfirmed && !expanded;
+    var confirmedTxt = v.confirmed_at ? ('Confirmed by ' + (v.confirmed_by_name || 'engineer') + ' · ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})) : '';
     var volUnit = volUnitFor(p.index);
     var gal = poolGallonsFor(p, v);
     var totalLineCount = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
@@ -15044,9 +15083,10 @@ window.AR2_ENGINEER = (function(){
     if (!complete){
       var missing = [];
       if (!hasLines) missing.push('add at least one return line');
-      if (missing.length){
+      else if (!spanOkAll) missing.push('confirm the straight run on every line');
+      if (!isLocked && missing.length){
         missingHint = '<div class="ar-eng-pool-missing">'
-          + svgIconWarn() + ' To complete this pool: ' + missing.join(' &amp; ') + '.'
+          + svgIconWarn() + ' To confirm this pool: ' + missing.join(' &amp; ') + '.'
           + '</div>';
       }
     }
@@ -15060,27 +15100,41 @@ window.AR2_ENGINEER = (function(){
       +     engAddedBadge
       +     deleteBtn
       +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
-      // Always render the status pill so the head row reserves space and
-      // the engineer can see at a glance which pools still need work.
-      +     (complete
-              ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Complete</div>'
-              : '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
+      // Status pill — one state for the whole card.
+      +     (isLocked   ? '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Locked</div>'
+            : isConfirmed ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Confirmed</div>'
+            : isStale     ? '<div class="ar-eng-pool-check stale">' + svgIconWarn() + ' Edited since confirm</div>'
+            : anyFlag     ? '<div class="ar-eng-pool-check flagged">' + svgIconWarn() + ' Flagged</div>'
+            :               '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
       +   '</div>'
-
+      // Collapsed summary for a confirmed card: one line, Edit to reopen.
+      +   (collapsed
+            ? '<div class="ar-eng-pool-summary">'
+              + '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, volUnit) : '—') + '</b></span>'
+              + '<span>Water <b>' + (v.pool_type === 'saltwater' ? 'Saltwater' : 'Fresh / chlorine') + '</b></span>'
+              + '<span>Lines <b>' + esc(AR2_SIZING.linesText(lines)) + '</b></span>'
+              + '<span>Span <b>confirmed</b></span>'
+              + '<span class="ar-eng-pool-summary-by">' + esc(confirmedTxt) + '</span>'
+              + '<button class="ar-eng-tiny" data-action="ar-eng-pool-expand" data-pool="' + p.index + '" type="button">' + svgIconPencil() + ' Edit</button>'
+              + '</div>'
+            : '')
+      + (collapsed ? '</div>' : (''
+      +   '<div class="ar-eng-prefill-note">' + (p.isEngineerAdded ? 'New pool recorded on site. Fill in what you can, then confirm the pool.' : 'Pre-filled from the rep\'s assessment. Edit anything that differs on site, then confirm the pool.') + '</div>'
       +   imageBlock
 
       // — Volume first — entered in the engineer's unit, stored in gallons.
-      +   '<div class="ar-eng-field"><label>Confirm volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"') + '</label>'
+      +   '<div class="ar-eng-field"><label>Volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"')
+      +       ((v.confirmed_gallons && p.gallonsRep && Number(v.confirmed_gallons) !== Number(p.gallonsRep)) ? '<span class="ar-eng-diff" title="Assessment: ' + fn(p.gallonsRep) + ' gal">edited</span><button class="ar-eng-reset" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button" title="Reset to the assessment value"' + dis + disA + '>reset</button>' : '')
+      +     '</label>'
       +     '<div class="ar-eng-inline">'
-      +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + (v.confirmed_gallons ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (p.gallonsRep ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '"' + dis + ' />'
-      +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Confirm Estimate</button>' : '')
+      +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + ((v.confirmed_gallons || p.gallonsRep) ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons || p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (volUnit === 'gal' ? 'gallons' : volUnit === 'm3' ? 'm³' : 'litres') + '"' + dis + ' />'
       +     '</div>'
       +     (volUnit !== 'gal' && (v.confirmed_gallons || p.gallonsRep) ? '<div class="ar-eng-hint" style="margin-top:4px">= ' + fn(Math.round(v.confirmed_gallons || p.gallonsRep)) + ' gal</div>' : '')
       +     divergenceWarning
       +   '</div>'
 
       // — Water type (moved below gallons) —
-      +   '<div class="ar-eng-field"><label>Water type' + (v._seededFromAssessment && v.pool_type ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm</span>' : '') + '</label>'
+      +   '<div class="ar-eng-field"><label>Water type' + ((v.pool_type && p.repPoolType && ((v.pool_type === 'saltwater') !== (p.repPoolType === 'saltwater'))) ? ' <span class="ar-eng-diff" title="Assessment: ' + (p.repPoolType === 'saltwater' ? 'Saltwater' : 'Fresh / chlorine') + '">edited</span>' : '') + '</label>'
       +     '<select class="ar-eng-pool-type-select" data-action="ar-eng-pool-type" data-pool="' + p.index + '"' + dis + '>'
       +       '<option value=""' + (!v.pool_type ? ' selected' : '') + '>— Select water type —</option>'
       +       '<option value="fresh"' + (v.pool_type === 'fresh' ? ' selected' : '') + '>Fresh Water / Chlorine</option>'
@@ -15088,7 +15142,7 @@ window.AR2_ENGINEER = (function(){
       +     '</select>'
       +   '</div>'
 
-      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count · pipe size · flow per line)</span>')
+      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count · pipe size · flow · straight run per line)</span>'
       +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
       +     '</label>'
       +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
@@ -15125,6 +15179,20 @@ window.AR2_ENGINEER = (function(){
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
                 +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + '</div>' : '')
+                // Straight run — required span for the assigned device (L1 + 8 in),
+                // available span measured on site, or a "confirmed sufficient" tick.
+                +   (function(){
+                      var sp = AR2_SIZING.spanStatus(line);
+                      var availShown = line.span_available_in ? (std === 'metric' ? Math.round(line.span_available_in * 25.4) : Math.round(line.span_available_in * 100) / 100) : '';
+                      return '<div class="ar-eng-line-span ' + sp.k + '">'
+                        + '<span class="ar-eng-line-lbl">Straight run</span>'
+                        + '<span class="ar-eng-span-need">needs <b>' + AR2_SIZING.showSpan(sp.required_in, std) + '</b>' + (sz.adapter ? ' <span class="ar-eng-hint">+ adapter allowance</span>' : '') + '</span>'
+                        + '<span class="ar-eng-span-avail">available <input type="number" inputmode="decimal" step="any" data-action="ar-eng-line-span" data-pool="' + p.index + '" data-line="' + li + '" data-std="' + std + '" value="' + availShown + '" placeholder="' + (std === 'metric' ? 'mm' : 'in') + '"' + dis + ' /> ' + (std === 'metric' ? 'mm' : 'in') + '</span>'
+                        + '<label class="ar-eng-span-tick"><input type="checkbox" data-action="ar-eng-line-span-ok" data-pool="' + p.index + '" data-line="' + li + '"' + (line.span_confirmed ? ' checked' : '') + dis + ' /> Confirmed sufficient</label>'
+                        + '<span class="ar-eng-status-pill ' + (sp.k === 'ok' || sp.k === 'ticked' ? 'ok' : sp.k === 'short' ? 'warn' : 'pending') + '">' + sp.label + '</span>'
+                        + (sp.k === 'short' ? '<div class="ar-eng-line-flag" style="flex-basis:100%">' + svgIconWarn() + ' Run is shorter than the device needs. Rebuild the run as an offset with four 90° elbows (drawing M-301) or choose a longer section.</div>' : '')
+                        + '</div>';
+                    })()
                 +   (overridden ? '<input type="text" class="ar-eng-override-reason" data-action="ar-eng-line-override-reason" data-pool="' + p.index + '" data-line="' + li + '" value="' + esc(line.override_reason || '') + '" placeholder="Reason for override (required)" maxlength="160"' + dis + ' />' : '')
                 +   ((sz.messages && sz.messages.length) ? '<div class="ar-eng-line-flags">' + sz.messages.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('') + '</div>' : '')
                 + '</div>';
@@ -15159,7 +15227,13 @@ window.AR2_ENGINEER = (function(){
       +     '</div>'
       +   '</div>'
       +   missingHint
-      + '</div>';
+      // ── Confirm pool — one action for the whole card.
+      +   '<div class="ar-eng-pool-confirm-row">'
+      +     (v.confirmed_at ? '<span class="ar-eng-pool-confirmed-by">' + (isStale ? svgIconWarn() + ' Edited since ' : svgIconCheck() + ' ') + esc(confirmedTxt) + '</span>' : '<span class="ar-eng-hint">Confirm when the lines and straight runs are verified on site.</span>')
+      +     '<button class="ar-eng-btn ' + (canConfirm ? 'send-green' : 'secondary') + ' sm" data-action="ar-eng-pool-confirm" data-pool="' + p.index + '" type="button"' + (canConfirm ? '' : ' disabled') + '>' + svgIconCheck() + ' ' + (isStale ? 'Re-confirm pool' : isConfirmed ? 'Confirmed' : 'Confirm pool') + '</button>'
+      +   '</div>'
+      + '</div>'))
+      ;
   }
 
   function renderReviewStep(mount){
@@ -15288,8 +15362,9 @@ window.AR2_ENGINEER = (function(){
                 +   '<span>Water <b>' + wt + '</b></span>'
                 +   (room ? '<span>Pump room <b>' + esc(room.label || 'Room') + '</b></span>' : '')
                 +   '<span>Media <b>' + counts.photo + ' photo' + (counts.photo===1?'':'s') + ' · ' + counts.video + ' video' + (counts.video===1?'':'s') + '</b></span>'
+                +   (v.confirmed_at ? '<span>' + (v.confirm_stale ? 'Edited since confirm by' : 'Confirmed by') + ' <b>' + esc(v.confirmed_by_name || 'engineer') + '</b> ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</span>' : '<span>Confirmation <b>pending</b></span>')
                 + '</div>'
-                + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true }) + '</div>'
+                + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true, std: propStd() }) + '</div>'
                 + (v.notes ? '<div class="ar-eng-sum-notes">' + esc(v.notes) + '</div>' : '')
                 + (pr.ready ? '' : '<div class="ar-eng-sum-missing">' + svgIconWarn() + ' Missing: ' + pr.missing.join(' · ') + '</div>')
                 + '</div>';
@@ -15416,6 +15491,64 @@ window.AR2_ENGINEER = (function(){
       return true;
     }
     // ── Metric trial: units + per-line flow / size / override ──
+    // ── Straight run per line + pool confirmation ──
+    if (action === 'ar-eng-line-span' || action === 'ar-eng-line-span-ok'){
+      var piS = parseInt(target.getAttribute('data-pool'), 10);
+      var liS = parseInt(target.getAttribute('data-line'), 10);
+      var vS = s.verifications[piS] || { return_lines: [] };
+      var linesS = (vS.return_lines || []).slice();
+      if (!linesS[liS]) return true;
+      var lineS = linesS[liS] = JSON.parse(JSON.stringify(linesS[liS]));
+      var silentS = false;
+      if (action === 'ar-eng-line-span'){
+        var typedS = parseFloat(String(target.value).replace(/,/g, ''));
+        var stdS = target.getAttribute('data-std') === 'metric' ? 'metric' : 'us';
+        lineS.span_available_in = isNaN(typedS) || typedS <= 0 ? 0 : (stdS === 'metric' ? typedS / 25.4 : typedS);
+        silentS = true;
+      } else {
+        lineS.span_confirmed = !!target.checked;
+      }
+      updateVerification(piS, { return_lines: linesS }, silentS ? { silent: true } : undefined);
+      if (silentS){
+        // Refresh just this line's span row so the status tracks the number.
+        try {
+          var rowS = target.closest('.ar-eng-line-span');
+          var spS = AR2_SIZING.spanStatus(lineS);
+          var pillS = rowS && rowS.querySelector('.ar-eng-status-pill');
+          if (pillS){ pillS.className = 'ar-eng-status-pill ' + (spS.k === 'ok' || spS.k === 'ticked' ? 'ok' : spS.k === 'short' ? 'warn' : 'pending'); pillS.textContent = spS.label; }
+          if (rowS) rowS.className = 'ar-eng-line-span ' + spS.k;
+        } catch(_){}
+      }
+      return true;
+    }
+    if (action === 'ar-eng-pool-confirm'){
+      var piC = parseInt(target.getAttribute('data-pool'), 10);
+      var poolC = s.pools.find(function(x){ return x.index === piC; });
+      var vC = s.verifications[piC] || { pool_index: piC, return_lines: [] };
+      var linesC = vC.return_lines || [];
+      if (poolC && linesC.length) recomputeLines(poolC, vC, linesC);
+      var okC = linesC.length && linesC.every(function(l){ var k = AR2_SIZING.spanStatus(l).k; return k === 'ok' || k === 'ticked'; });
+      if (!okC) return true;
+      var uC = currentUser() || {};
+      var who = (uC.name || 'engineer') + (uC.role === 'admin' ? ' (admin)' : '');
+      var patchC = {
+        confirmed_at: new Date().toISOString(), confirmed_by: uC.id || null, confirmed_by_name: who, confirm_stale: false,
+        return_lines: linesC
+      };
+      // Accepting the pre-filled estimate counts as confirming it.
+      if (vC.confirmed_gallons == null && poolC && poolC.gallonsRep) patchC.confirmed_gallons = poolC.gallonsRep;
+      if (!s._expandedPools) s._expandedPools = {};
+      s._expandedPools[piC] = false;   // collapse to the summary line
+      updateVerification(piC, patchC, { confirm: true });
+      return true;
+    }
+    if (action === 'ar-eng-pool-expand'){
+      var piE = parseInt(target.getAttribute('data-pool'), 10);
+      if (!s._expandedPools) s._expandedPools = {};
+      s._expandedPools[piE] = true;
+      repaint();
+      return true;
+    }
     if (action === 'ar-eng-vol-unit'){
       var piU = parseInt(target.getAttribute('data-pool'), 10);
       if (!s._volUnit) s._volUnit = {};
@@ -15444,6 +15577,7 @@ window.AR2_ENGINEER = (function(){
             has_discrepancy: !!v.has_discrepancy, discrepancy_reason: v.discrepancy_reason || null,
             pump_room_id: v.pump_room_id || null, pool_name_override: v.pool_name_override || null,
             is_engineer_added: !!v.is_engineer_added, pool_type: v.pool_type || null,
+            confirmed_at: v.confirmed_at || null, confirmed_by: v.confirmed_by || null, confirmed_by_name: v.confirmed_by_name || null, confirm_stale: !!v.confirm_stale,
             updated_at: new Date().toISOString()
           };
           flushes.push(cS.from('engineer_verifications').upsert(payload, { onConflict: 'assignment_id,pool_index' }).select('id').single()
