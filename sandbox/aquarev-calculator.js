@@ -10637,11 +10637,28 @@ function _engineerReport_renderHtml(bundle){
     var pumpRoom = poolPumpRoom[p.index] ? pumpRoomById[poolPumpRoom[p.index]] : null;
     var engType = (v && v.pool_type) || p.repPoolType || '';
 
+    // Return lines — pipe as marked on site, flow reading, device assigned
+    // (count × parallel), status. Flags print beneath the table.
+    var SZ = window.AR2_SIZING;
+    var lineFlagsHtml = '';
     var linesTable = lines.length
-      ? '<table class="rpt-tbl"><thead><tr><th>Count</th><th>Diameter</th></tr></thead><tbody>'
-        + lines.map(function(l){ return '<tr><td>' + (l.count||1) + '</td><td>' + (l.diameter||'?') + '" return</td></tr>'; }).join('')
+      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Status</th></tr></thead><tbody>'
+        + lines.map(function(l, li){
+            var sz = l.sizing || {};
+            var dev = Number(l.diameter) || sz.device || '?';
+            var pipe = SZ ? SZ.pipeText(l) : ((l.diameter||'?') + '″');
+            var flow = l.flow_gpm
+              ? (SZ ? SZ.showFlow(l.flow_gpm, 'gpm') + (l.flow_unit && l.flow_unit !== 'gpm' ? ' <span style="color:#777">(' + SZ.showFlow(l.flow_gpm, l.flow_unit) + ')</span>' : '') : fn(l.flow_gpm) + ' gpm')
+              : (sz.code ? (SZ ? SZ.showFlow(sz.code, 'gpm') : fn(sz.code) + ' gpm') + ' <span style="color:#777">code flow</span>' : '—');
+            var st = SZ ? SZ.lineStatus(l).label : '—';
+            if (sz.messages && sz.messages.length) lineFlagsHtml += sz.messages.map(function(m){ return '<div class="rpt-row" style="display:block;color:#8a5a00;line-height:1.5">Line ' + (li+1) + ': ' + esc(m) + '</div>'; }).join('');
+            if (l.device_override && l.override_reason) lineFlagsHtml += '<div class="rpt-row" style="display:block;color:#5b3a8a;line-height:1.5">Line ' + (li+1) + ' override: ' + esc(l.override_reason) + '</div>';
+            return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + esc(st) + '</td></tr>';
+          }).join('')
         + '</tbody></table>'
+        + (lineFlagsHtml ? '<div style="margin-top:6px">' + lineFlagsHtml + '</div>' : '')
       : '<div class="rpt-row" style="color:#888">No return lines documented.</div>';
+    var volBoth = function(g){ return g ? (fn(g) + ' gal' + (SZ ? ' <span style="color:#777">(' + SZ.showVol(g, 'm3') + ')</span>' : '')) : null; };
 
     var photoGrid = photos.length
       ? '<div class="rpt-eng-photos">'
@@ -10671,10 +10688,11 @@ function _engineerReport_renderHtml(bundle){
       +   '<div class="rpt-sec">'
       +     '<div class="rpt-stitle">' + esc(displayName) + (p.engineerAdded ? ' · Engineer-added' : '') + '</div>'
       +     '<div class="rpt-row"><span class="k">Water type</span><span class="v">' + esc(poolTypeLabel(engType)) + '</span></div>'
-      +     '<div class="rpt-row"><span class="k">Estimate gallons</span><span class="v">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal' : '—') + '</span></div>'
-      +     '<div class="rpt-row"><span class="k">Engineer-confirmed gallons</span><span class="v">' + (v && v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : 'Not confirmed') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Estimate volume</span><span class="v">' + (volBoth(p.gallonsRep) || '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Engineer-confirmed volume</span><span class="v">' + (volBoth(v && v.confirmed_gallons) || 'Not confirmed') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
-      +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines</div>'
+      +     '<div class="rpt-row"><span class="k">Devices for this pool</span><span class="v">' + (SZ ? esc(SZ.scheduleText(SZ.deviceSchedule([lines]))) : '—') + '</span></div>'
+      +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines &amp; Device Sizing</div>'
       +     linesTable
       +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
       +     divergence
@@ -10734,7 +10752,9 @@ function _engineerReport_renderHtml(bundle){
     +     '</div>'
     +     '<div class="rpt-sec">'
     +       '<div class="rpt-stitle">Verification Summary</div>'
+    +       '<div class="rpt-row"><span class="k">Site pipe standard</span><span class="v">' + ((rec.state_json && rec.state_json.units === 'metric') ? 'Metric (mm) · devices imperial, adapters supplied' : 'Imperial (inches)') + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Pools documented</span><span class="v">' + verifs.length + ' of ' + pools.length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Device schedule</span><span class="v">' + (window.AR2_SIZING ? esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(verifs.map(function(x){ return x.return_lines || []; })))) : '—') + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Pump rooms captured</span><span class="v">' + pumpRooms.length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Photos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='photo';}).length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Videos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='video';}).length + '</span></div>'
@@ -10771,20 +10791,24 @@ function _engineerReport_renderHtml(bundle){
         var v = verifs.find(function(x){ return x.pool_index === p.index; });
         if (!v || v.pump_room_id !== r.id) return null;
         var poolDisplayName = (v && v.pool_name_override) || p.name;
+        var SZr = window.AR2_SIZING;
         var poolLines = (v.return_lines || []).map(function(l){
-          return '<span class="rpt-eng-line-chip">' + (l.count||1) + '&times;' + (l.diameter||'?') + '&quot;</span>';
+          return '<span class="rpt-eng-line-chip">' + (l.count||1) + '&times; ' + esc(SZr ? SZr.pipeText(l) : ((l.diameter||'?') + '″')) + '</span>';
         }).join('');
         if (!poolLines) poolLines = '<span style="color:#888">—</span>';
+        var poolDevs = SZr ? esc(SZr.scheduleText(SZr.deviceSchedule([v.return_lines || []]))) : '—';
+        var vol = v.confirmed_gallons || p.gallonsRep;
         return '<tr>'
           + '<td><b>' + esc(poolDisplayName) + '</b></td>'
-          + '<td>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : '—') + '</td>'
+          + '<td>' + (vol ? fn(vol) + ' gal' + (SZr ? ' <span style="color:#777">(' + SZr.showVol(vol, 'm3') + ')</span>' : '') + (v.confirmed_gallons ? '' : ' <span style="color:#777">est.</span>') : '—') + '</td>'
           + '<td>' + poolLines + '</td>'
+          + '<td>' + poolDevs + '</td>'
           + '</tr>';
       })
       .filter(Boolean)
       .join('');
     var poolsServedHtml = poolsServedRows
-      ? '<table class="rpt-tbl"><thead><tr><th>Pool</th><th>Gallons</th><th>Return lines</th></tr></thead><tbody>' + poolsServedRows + '</tbody></table>'
+      ? '<table class="rpt-tbl"><thead><tr><th>Pool</th><th>Volume</th><th>Return lines</th><th>Devices</th></tr></thead><tbody>' + poolsServedRows + '</tbody></table>'
       : '<div class="rpt-row" style="color:#888">No pools linked to this pump room yet.</div>';
     var poolsServedCount = poolsPerRoom[r.id] || 0;
 
@@ -12422,11 +12446,29 @@ window.AR2_SIZING = (function(){
     }).join('');
     return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
+  // Device schedule — devices by size across a set of lines (count × parallel).
+  function deviceSchedule(linesArrays){
+    var by = {};
+    (linesArrays || []).forEach(function(lines){
+      (lines || []).forEach(function(l){
+        var dev = Number(l.diameter) || (l.sizing && l.sizing.device) || 0; if (!dev) return;
+        var n = (Number(l.count) || 1) * Math.max(1, Number(l.sizing && l.sizing.parallel) || 1);
+        by[dev] = (by[dev] || 0) + n;
+      });
+    });
+    return Object.keys(by).map(Number).sort(function(a,b){ return a-b; }).map(function(d){ var m = deviceFor(d); return { in: d, count: by[d], model: m ? m.model : '' }; });
+  }
+  function scheduleText(sched){
+    if (!sched || !sched.length) return '—';
+    return sched.map(function(x){ return x.count + ' × ' + x.in + '″' + (x.model ? ' (' + x.model + ')' : ''); }).join(' · ');
+  }
+  function lineDeviceCount(l){ return (Number(l.count) || 1) * Math.max(1, Number(l.sizing && l.sizing.parallel) || 1); }
   return {
     DEVICES: DEVICES, US: US, METRIC: METRIC, TURNOVER_H: TURNOVER_H, VOL: VOL, FLOW: FLOW,
     assign: assign, codeFlowGpm: codeFlowGpm, pipeRow: pipeRow, pipeLabel: pipeLabel, velocityFps: velocityFps,
     showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
-    deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml
+    deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml,
+    deviceSchedule: deviceSchedule, scheduleText: scheduleText, lineDeviceCount: lineDeviceCount
   };
 })();
 
@@ -12561,7 +12603,23 @@ window.AR2_ENGINEER = (function(){
   }
   function repaint(){
     var m = mountEl();
+    // Full re-render replaces the DOM, which resets the window scroll to
+    // the top. Keep the engineer where they were working (Jeff, 2026-10-19):
+    // remember the scroll position and restore it after the paint.
+    var y = (typeof window !== 'undefined') ? (window.pageYOffset || document.documentElement.scrollTop || 0) : 0;
+    var h = document.documentElement.scrollHeight;
     if (m && typeof renderEngineerPortalShell === 'function') renderEngineerPortalShell(m);
+    if (y > 0){
+      try {
+        window.scrollTo(0, y);
+        requestAnimationFrame(function(){
+          // Content may have grown/shrunk above the fold (e.g. a new thumb);
+          // clamp to the new document height rather than overshooting.
+          var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          window.scrollTo(0, Math.min(y, maxY));
+        });
+      } catch(_){}
+    }
   }
 
   // ── Cross-reload state persistence ────────────────────────────────
@@ -15122,20 +15180,16 @@ window.AR2_ENGINEER = (function(){
 
       +     sentBanner
 
-      // ── KPI band ──────────────────────────────────────────────
-      +     '<div class="ar-admin-review-kpis">'
-      +       '<div class="ar-admin-review-kpi' + (allReady ? '' : ' warn') + '"><div class="ar-admin-review-kpi-lbl">Pools done</div><div class="ar-admin-review-kpi-val">' + doneCount + ' / ' + s.pools.length + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      // ── Facts grid — same treatment as Step 2: site standard, device
+      //    schedule, progress counters, pump rooms.
+      +     '<div class="ar-eng-facts">'
+      +       '<div class="ar-eng-fact"><span class="k">Site pipe standard</span><span class="v">' + (propStd() === 'metric' ? 'Metric <span class="alt">mm · devices imperial · adapters supplied</span>' : 'Imperial <span class="alt">inches</span>') + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Device schedule</span><span class="v mono" style="font-size:13.5px">' + esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(Object.keys(s.verifications).map(function(k){ return (s.verifications[k] || {}).return_lines || []; })))) + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Pools complete</span><span class="v mono' + (allReady ? '' : ' warn') + '">' + doneCount + ' / ' + s.pools.length + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Pump rooms</span><span class="v">' + (pumpRoomCount ? s.pumpRooms.map(function(r){ return esc(r.label || 'Room'); }).join(' · ') : '<span class="mono">0</span>') + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Photos</span><span class="v mono' + (photoCount===0?' warn':'') + '">' + photoCount + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Videos</span><span class="v mono">' + videoCount + '</span></div>'
       +     '</div>'
-
-      // ── Pump-room chips (when captured) ──────────────────────
-      +     (pumpRoomCount
-          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
-            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
-            + '</div>'
-          : '')
 
       // ── Per-pool summary — everything captured on Step 3, readable
       //    without opening the card: volume, water type, pump room, the

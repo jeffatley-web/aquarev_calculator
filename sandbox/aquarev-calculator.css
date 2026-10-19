@@ -3297,6 +3297,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-fact .v{display:block;font-size:14px;color:#e0f4fa;line-height:1.35;word-break:break-word;}
 #ar2 .ar-eng-fact .v.mono{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:600;}
 #ar2 .ar-eng-fact .v .alt{display:block;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:400;color:#7db8cc;margin-top:1px;}
+#ar2 .ar-eng-fact .v.warn{color:#f0a500;}
 #ar2 .ar-eng-fact .ar-eng-link{margin-left:8px;font-size:12px;white-space:nowrap;}
 #ar2 .ar-eng-std-card{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.28);border-radius:10px;padding:14px 16px;margin-bottom:18px;}
 #ar2 .ar-eng-std-card.metric{background:rgba(72,202,228,.08);border-color:rgba(72,202,228,.45);}
