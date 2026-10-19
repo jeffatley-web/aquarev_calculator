@@ -14762,6 +14762,9 @@ window.AR2_ENGINEER = (function(){
       }
       var r = AR2_SIZING.assign({ std: line.pipe_std, size: line.pipe_size, flowGpm: Number(line.flow_gpm) || 0, codeFlowGpm: codeGpm });
       line.device_auto = r.device;
+      // An override equal to the rule's answer is no override (e.g. flow
+      // changed and the rule now lands on the size that was picked by hand).
+      if (line.device_override && Number(line.device_override) === Number(r.device)){ line.device_override = null; line.override_reason = ''; }
       line.diameter = Number(line.device_override) || r.device;   // effective device size
       line.sizing = { reason: r.reason, design: Math.round(r.design), code: Math.round(codeGpm), entered: Math.round(r.entered),
                       parallel: r.parallel, velocity: Math.round(r.velocityFps * 10) / 10, adapter: !!r.adapter, model: r.model,
@@ -15304,6 +15307,8 @@ window.AR2_ENGINEER = (function(){
       } else if (action === 'ar-eng-line-override'){
         var ov = parseInt(target.value, 10);
         line.device_override = isNaN(ov) ? null : ov;
+        // Choosing the size the rule already gives is not an override.
+        if (line.device_override && Number(line.device_override) === Number(line.device_auto)) line.device_override = null;
         if (!line.device_override) line.override_reason = '';
       } else if (action === 'ar-eng-line-override-reason'){
         line.override_reason = target.value || '';
