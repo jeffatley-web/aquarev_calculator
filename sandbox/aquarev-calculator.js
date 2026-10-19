@@ -15129,7 +15129,7 @@ window.AR2_ENGINEER = (function(){
             : isStale     ? '<div class="ar-eng-pool-check stale">' + svgIconWarn() + ' Edited since confirm</div>'
             : anyFlag     ? '<div class="ar-eng-pool-check flagged">' + svgIconWarn() + ' Flagged</div>'
             :               '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
-      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
+      +     '<div class="ar-eng-pool-meta">' + [ (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate)' : ''), (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) ].filter(Boolean).join(' · ') + '</div>'
       +   '</div>'
       // Collapsed summary for a confirmed card: one line, Edit to reopen.
       +   (collapsed
