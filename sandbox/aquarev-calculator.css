@@ -3298,6 +3298,16 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-fact .v.mono{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:600;}
 #ar2 .ar-eng-fact .v .alt{display:block;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:400;color:#7db8cc;margin-top:1px;}
 #ar2 .ar-eng-fact .v.warn{color:#f0a500;}
+/* Step 2 — engineer profile */
+#ar2 .ar-eng-profile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 18px;}
+#ar2 .ar-eng-profile-f{display:block;background:rgba(4,15,30,.4);border:1px solid rgba(0,180,216,.14);border-radius:9px;padding:9px 12px 10px;min-width:0;}
+#ar2 .ar-eng-profile-f span{display:block;font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:#7db8cc;font-weight:700;margin-bottom:4px;}
+#ar2 .ar-eng-profile-f input{width:100%;background:transparent;border:0;border-bottom:1px solid rgba(0,180,216,.25);color:#e0f4fa;font-family:inherit;font-size:14px;padding:3px 0 4px;outline:none;}
+#ar2 .ar-eng-profile-f input:focus{border-bottom-color:rgba(0,180,216,.8);}
+#ar2 .ar-eng-profile-f input:disabled{color:#9fc7d8;border-bottom-style:dashed;}
+#ar2 .ar-eng-profile-st{float:right;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#7db8cc;font-weight:700;}
+#ar2 .ar-eng-profile-st.ok{color:#4ade80;} #ar2 .ar-eng-profile-st.err{color:#fca5a5;}
+@media (max-width:560px){#ar2 .ar-eng-profile{grid-template-columns:1fr;}}
 #ar2 .ar-eng-fact .ar-eng-link{margin-left:8px;font-size:12px;white-space:nowrap;}
 #ar2 .ar-eng-std-card{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;background:rgba(0,180,216,.06);border:1px solid rgba(0,180,216,.28);border-radius:10px;padding:14px 16px;margin-bottom:18px;}
 #ar2 .ar-eng-std-card.metric{background:rgba(72,202,228,.08);border-color:rgba(72,202,228,.45);}

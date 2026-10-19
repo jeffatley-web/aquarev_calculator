@@ -690,8 +690,27 @@ var Cloud = (function(){
           // Non-corp roles always have calc access.
           if (user) user.corpEngCalcAccess = true;
           return user;
-        });
+        })
+        .then(hydrateUserProfile);
     });
+  }
+
+  // Profile fields the edge function does not return: phone, company,
+  // briefing flag and units preference. Merged into the session user so
+  // the engineer portal can show/edit them. RLS allows self-select.
+  function hydrateUserProfile(u){
+    var c = getClient();
+    if (!c || !u || !u.id) return u;
+    return c.from('app_users').select('phone,company,briefing_skipped,unit_system').eq('id', u.id).maybeSingle()
+      .then(function(rs){
+        if (rs && rs.data){
+          u.phone = rs.data.phone || u.phone || '';
+          u.company = rs.data.company || '';
+          u.briefing_skipped = !!rs.data.briefing_skipped;
+          u.unit_system = rs.data.unit_system || 'imperial';
+        }
+        return u;
+      }, function(){ return u; });
   }
 
   function restoreSession(){
@@ -703,7 +722,7 @@ var Cloud = (function(){
       // Look up app_user row to get role/name (RLS allows self-read).
       // logo_data is fetched too so Client branding (header text + PDF logo)
       // applies on the very first render after a restored session.
-      return c.from('app_users').select('id,email,name,role,active,logo_data,corp_eng_calc_access').eq('id', sess.user.id).maybeSingle().then(function(rs){
+      return c.from('app_users').select('id,email,name,role,active,logo_data,corp_eng_calc_access,phone,company,briefing_skipped,unit_system').eq('id', sess.user.id).maybeSingle().then(function(rs){
         if(rs.error || !rs.data) return null;
         if(!rs.data.active) { c.auth.signOut(); return null; }
         user = {
@@ -717,7 +736,11 @@ var Cloud = (function(){
           // top-bar nav (New button hidden when false) + gate inside
           // showView so 'form' / 'export' / etc. routes redirect to the
           // dashboard. Admin flips this via User Activity row.
-          corpEngCalcAccess: !!rs.data.corp_eng_calc_access
+          corpEngCalcAccess: !!rs.data.corp_eng_calc_access,
+          phone: rs.data.phone || '',
+          company: rs.data.company || '',
+          briefing_skipped: !!rs.data.briefing_skipped,
+          unit_system: rs.data.unit_system || 'imperial'
         };
         installStorageAdapter();
         // NOTE: track_login is intentionally NOT called here. Cloud mode
@@ -10468,7 +10491,7 @@ function generateEngineerReport(assignmentId, opts){
     if (!asgn) throw new Error('Assignment not found.');
     return Promise.all([
       _engineerReport_loadRecord(asgn),
-      c.from('app_users').select('id,name,phone').eq('id', asgn.engineer_user_id).single().then(function(rs){ return rs.data; }, function(){ return null; })
+      c.from('app_users').select('id,name,phone,email,company').eq('id', asgn.engineer_user_id).single().then(function(rs){ return rs.data; }, function(){ return null; })
     ]).then(function(linked){
       return {
         asgn: asgn,
@@ -10748,7 +10771,9 @@ function _engineerReport_renderHtml(bundle){
     +     '<div class="rpt-sec">'
     +       '<div class="rpt-stitle">Engineer</div>'
     +       '<div class="rpt-row"><span class="k">Name</span><span class="v">' + esc(eng.name || '—') + '</span></div>'
+    +       (eng.company ? '<div class="rpt-row"><span class="k">Company</span><span class="v">' + esc(eng.company) + '</span></div>' : '')
     +       (eng.phone ? '<div class="rpt-row"><span class="k">Phone</span><span class="v">' + esc(eng.phone) + '</span></div>' : '')
+    +       (eng.email ? '<div class="rpt-row"><span class="k">Email</span><span class="v">' + esc(eng.email) + '</span></div>' : '')
     +     '</div>'
     +     '<div class="rpt-sec">'
     +       '<div class="rpt-stitle">Verification Summary</div>'
@@ -14552,6 +14577,24 @@ window.AR2_ENGINEER = (function(){
       +       '</div>'
       +     '</div>'
 
+      // ── Engineer profile — contact details printed on the report cover.
+      //    Editable in place; saves to app_users (self-update policy).
+      +     (function(){
+              var u = currentUser() || {};
+              var canEdit = !!(u && u.role === 'engineer');
+              var st = s._profileSaveState || '';
+              return '<div class="ar-eng-section-title">Your contact details <span class="ar-eng-hint" style="text-transform:none;letter-spacing:0;font-weight:400">— printed on the verification report</span>'
+                + (st === 'saving' ? '<span class="ar-eng-profile-st">Saving…</span>' : st === 'saved' ? '<span class="ar-eng-profile-st ok">' + svgIconCheck() + ' Saved</span>' : st === 'error' ? '<span class="ar-eng-profile-st err">Save failed</span>' : '')
+                + '</div>'
+                + '<div class="ar-eng-profile">'
+                +   '<label class="ar-eng-profile-f"><span>Name</span><input type="text" data-action="ar-eng-profile-field" data-field="name" value="' + esc(u.name || '') + '" placeholder="Full name" maxlength="80"' + (canEdit ? '' : ' disabled') + ' /></label>'
+                +   '<label class="ar-eng-profile-f"><span>Mobile</span><input type="tel" inputmode="tel" data-action="ar-eng-profile-field" data-field="phone" value="' + esc(u.phone || '') + '" placeholder="+1 555 000 0000" maxlength="40"' + (canEdit ? '' : ' disabled') + ' /></label>'
+                +   '<label class="ar-eng-profile-f"><span>Email</span><input type="email" value="' + esc(u.email || '') + '" disabled title="Your sign-in email is managed by AquaRev" /></label>'
+                +   '<label class="ar-eng-profile-f"><span>Company</span><input type="text" data-action="ar-eng-profile-field" data-field="company" value="' + esc(u.company || '') + '" placeholder="Company or contractor" maxlength="80"' + (canEdit ? '' : ' disabled') + ' /></label>'
+                + '</div>'
+                + (canEdit ? '' : '<div class="ar-eng-hint" style="margin:-8px 0 14px">Reviewers see the engineer\'s details here; only the engineer can edit them.</div>');
+            })()
+
       // ── Rep notes block (preserved from the original) ──────────
       +     (s.assignment && s.assignment.assignment_notes
           ? '<div class="ar-eng-notes" style="margin:0 0 14px"><b>Rep notes</b><div>' + esc(s.assignment.assignment_notes) + '</div></div>'
@@ -15346,6 +15389,25 @@ window.AR2_ENGINEER = (function(){
       if (!s._volUnit) s._volUnit = {};
       s._volUnit[piU] = target.getAttribute('data-unit') || 'gal';
       repaint();
+      return true;
+    }
+    if (action === 'ar-eng-profile-field'){
+      // Name / mobile / company — saved on change (blur or Enter), not per keystroke.
+      var fld = target.getAttribute('data-field');
+      if (['name','phone','company'].indexOf(fld) === -1) return true;
+      var uP = currentUser(), cPf = client();
+      if (!uP || !cPf) return true;
+      var valP = String(target.value || '').trim();
+      if (fld === 'name' && !valP){ target.value = uP.name || ''; return true; }   // never blank the name
+      var patchP = {}; patchP[fld] = valP || null;
+      s._profileSaveState = 'saving';
+      var stEl = document.querySelector('.ar-eng-profile-st'); if (stEl) stEl.textContent = 'Saving…';
+      cPf.from('app_users').update(patchP).eq('id', uP.id).then(function(rs){
+        if (rs && rs.error){ s._profileSaveState = 'error'; try { console.warn('[engineer profile]', rs.error); } catch(_){} }
+        else { uP[fld] = valP; s._profileSaveState = 'saved'; }
+        _safeRepaint();
+        setTimeout(function(){ if (s._profileSaveState === 'saved'){ s._profileSaveState = ''; _safeRepaint(); } }, 2500);
+      }, function(){ s._profileSaveState = 'error'; _safeRepaint(); });
       return true;
     }
     if (action === 'ar-eng-user-units'){
@@ -23791,6 +23853,8 @@ function init(){
     var t = e.target;
     if (!t || !t.hasAttribute || !t.hasAttribute('data-action')) return;
     var a = t.getAttribute('data-action');
+    // Profile fields save on commit (change), never per keystroke.
+    if (a === 'ar-eng-profile-field' && e.type === 'input') return;
     if (a && a.indexOf('ar-eng-') === 0) AR2_ENGINEER.handleAction(a, t);
   }
   root.addEventListener('input', relayEngineerInput);
