@@ -8476,8 +8476,8 @@ function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
             // Zero out all sizes on this body, then apply engineer's spec
             pipeSizes.forEach(function(sz){ body['pipe_'+sz+'in'] = 0; });
             v.return_lines.forEach(function(line){
-              var sz = parseInt(line.diameter, 10);
-              var cnt = parseInt(line.count, 10);
+              var sz = parseInt(line.diameter, 10);   // effective DEVICE size (rule or override)
+              var cnt = parseInt(line.count, 10) * Math.max(1, parseInt(line.sizing && line.sizing.parallel, 10) || 1);
               if (pipeSizes.indexOf(sz) >= 0 && cnt > 0){
                 body['pipe_'+sz+'in'] = (body['pipe_'+sz+'in']|0) + cnt;
               }
@@ -12234,6 +12234,155 @@ function renderEngineerAssignmentList(mountEl){
    action handlers mutate it + persist via Supabase. Auto-save is
    debounced (600ms) and updates engineer_verifications.
    ──────────────────────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   AR2_SIZING — device sizing engine + unit conversions (metric trial)
+   ───────────────────────────────────────────────────────────────────────
+   Canonical storage is imperial everywhere (gallons, gpm, inches). This
+   module converts at the edges and applies the agreed sizing rule:
+     1. design flow = max(entered flow, health-code flow)
+        health-code flow = gallons ÷ (4 h × 60) ÷ lines on the pool
+     2. start from the device matched to the pipe (US: same size; metric:
+        63→2″, 90→3″, 110→4″, 160→6″; 50→2″, 75→3″ by nearest)
+     3. design flow above the device max → upsize (prompt); above 6″ max →
+        parallel 6″ units. Below the device min → flag only.
+   Devices are always imperial; a metric line means an adapter with the
+   device on the receiving end. See "AquaRev Metric Sizing Chart" Rev 0.3.
+   ═══════════════════════════════════════════════════════════════════════ */
+window.AR2_SIZING = (function(){
+  var DEVICES = [
+    { in: 2, model: 'KD2X4X2',  min: 44,  max: 127  },
+    { in: 3, model: 'KD3X6X3',  min: 112, max: 273  },
+    { in: 4, model: 'KD4X8X4',  min: 240, max: 480  },
+    { in: 6, model: 'KD6X12X6', min: 440, max: 1100 }
+  ];
+  // US Schedule 40 PVC — inside diameter in inches
+  var US = [
+    { size: 1.5, label: '1½″', id_in: 1.610, dev: 2 },
+    { size: 2,   label: '2″',  id_in: 2.067, dev: 2 },
+    { size: 3,   label: '3″',  id_in: 3.068, dev: 3 },
+    { size: 4,   label: '4″',  id_in: 4.026, dev: 4 },
+    { size: 6,   label: '6″',  id_in: 6.065, dev: 6 }
+  ];
+  // Metric PVC-U OD (ISO 161-1 / EN 1452), PN10 inside diameter in mm
+  var METRIC = [
+    { size: 50,  label: '50 mm',  dn: 'DN40',  us: '1½″', id_mm: 45.2,  dev: 2 },
+    { size: 63,  label: '63 mm',  dn: 'DN50',  us: '2″',  id_mm: 57.0,  dev: 2 },
+    { size: 75,  label: '75 mm',  dn: 'DN65',  us: '2½″', id_mm: 67.8,  dev: 3 },
+    { size: 90,  label: '90 mm',  dn: 'DN80',  us: '3″',  id_mm: 81.4,  dev: 3 },
+    { size: 110, label: '110 mm', dn: 'DN100', us: '4″',  id_mm: 99.4,  dev: 4 },
+    { size: 160, label: '160 mm', dn: 'DN150', us: '6″',  id_mm: 144.6, dev: 6 }
+  ];
+  var TURNOVER_H = 4;           // calculator default for every body (decision 2026-10-16)
+  var V_MAX_FPS  = 8;           // return-line velocity warning threshold
+  var GAL_PER_M3 = 264.172, L_PER_GAL = 3.785411784, GPM_PER_M3H = 4.402868, GPM_PER_LS = 15.850323;
+
+  function deviceFor(inches){ for (var i=0;i<DEVICES.length;i++) if (DEVICES[i].in === inches) return DEVICES[i]; return null; }
+  function nextDevice(inches){ for (var i=0;i<DEVICES.length;i++) if (DEVICES[i].in > inches) return DEVICES[i]; return null; }
+  function pipeRow(std, size){
+    var list = std === 'metric' ? METRIC : US, n = Number(size);
+    for (var i=0;i<list.length;i++) if (list[i].size === n) return list[i];
+    // nearest listed size
+    var best = null, bd = Infinity;
+    for (var j=0;j<list.length;j++){ var d = Math.abs(list[j].size - n); if (d < bd){ bd = d; best = list[j]; } }
+    return best;
+  }
+  function pipeLabel(std, size){
+    var r = pipeRow(std, size); if (!r) return String(size);
+    return std === 'metric' ? (r.label + ' · ' + r.dn + ' · ' + r.us) : r.label;
+  }
+  function idInches(std, size){
+    var r = pipeRow(std, size); if (!r) return 0;
+    return std === 'metric' ? r.id_mm / 25.4 : r.id_in;
+  }
+  function velocityFps(std, size, gpm){
+    var id = idInches(std, size); if (!(id > 0) || !(gpm > 0)) return 0;
+    return gpm / (2.448 * id * id);
+  }
+  // ── unit conversions (canonical: gallons, gpm) ──
+  var VOL = {
+    gal: { label: 'gal',  toGal: function(v){ return v; },               fromGal: function(g){ return g; },               dp: 0 },
+    m3:  { label: 'm³',   toGal: function(v){ return v * GAL_PER_M3; },  fromGal: function(g){ return g / GAL_PER_M3; },  dp: 1 },
+    L:   { label: 'L',    toGal: function(v){ return v / L_PER_GAL; },   fromGal: function(g){ return g * L_PER_GAL; },   dp: 0 }
+  };
+  var FLOW = {
+    gpm: { label: 'gpm',  toGpm: function(v){ return v; },               fromGpm: function(g){ return g; },               dp: 0 },
+    m3h: { label: 'm³/h', toGpm: function(v){ return v * GPM_PER_M3H; }, fromGpm: function(g){ return g / GPM_PER_M3H; }, dp: 1 },
+    ls:  { label: 'L/s',  toGpm: function(v){ return v * GPM_PER_LS; },  fromGpm: function(g){ return g / GPM_PER_LS; },  dp: 2 }
+  };
+  function fmt(n, dp){
+    if (!isFinite(n)) return '—';
+    if (dp === 1 && Math.abs(n) >= 100) dp = 0;
+    return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dp });
+  }
+  function showVol(gal, unit){ var u = VOL[unit] || VOL.gal; return fmt(u.fromGal(Number(gal)||0), u.dp) + ' ' + u.label; }
+  function showFlow(gpm, unit){ var u = FLOW[unit] || FLOW.gpm; return fmt(u.fromGpm(Number(gpm)||0), u.dp) + ' ' + u.label; }
+  function volToGal(v, unit){ var u = VOL[unit] || VOL.gal; return u.toGal(Number(v)||0); }
+  function flowToGpm(v, unit){ var u = FLOW[unit] || FLOW.gpm; return u.toGpm(Number(v)||0); }
+  function volFromGal(gal, unit){ var u = VOL[unit] || VOL.gal; return u.fromGal(Number(gal)||0); }
+  function flowFromGpm(gpm, unit){ var u = FLOW[unit] || FLOW.gpm; return u.fromGpm(Number(gpm)||0); }
+
+  function codeFlowGpm(gallons, lineCount, turnoverH){
+    var g = Number(gallons) || 0, n = Math.max(1, Number(lineCount) || 1), t = turnoverH || TURNOVER_H;
+    return g > 0 ? g / (t * 60) / n : 0;
+  }
+
+  /* assign({std, size, flowGpm, codeFlowGpm}) →
+     { startDevice, device, design, reason, flags[], upsized, belowMin,
+       underCode, overCapacity, velocityFps, adapter, parallel } */
+  function assign(o){
+    var std = o.std === 'metric' ? 'metric' : 'us';
+    var row = pipeRow(std, o.size);
+    var start = row ? row.dev : 4;
+    var entered = Number(o.flowGpm) || 0, code = Number(o.codeFlowGpm) || 0;
+    var design = Math.max(entered, code);
+    var flags = [], reason = 'matched';
+    var dev = start, parallel = 1, upsized = false, belowMin = false;
+    var startDev = deviceFor(start), d = startDev;
+    if (design > 0 && d){
+      // step up while above max
+      var guard = 0;
+      while (d && design > d.max && guard < 5){
+        var nx = nextDevice(d.in);
+        if (!nx){ // above 6″ max → parallel 6″
+          parallel = Math.ceil(design / d.max);
+          flags.push({ k: 'parallel', msg: 'Design flow ' + Math.round(design) + ' gpm exceeds the 6″ maximum of ' + d.max + ' gpm; split across ' + parallel + ' × 6″ units in parallel.' });
+          reason = 'parallel';
+          break;
+        }
+        d = nx; upsized = true; guard++;
+      }
+      if (upsized){
+        reason = 'upsized';
+        flags.push({ k: 'upsized', msg: 'The ' + startDev.in + '″ device matched to this line is not compatible with the GPM specification (' + Math.round(design) + ' gpm > ' + startDev.max + ' gpm max). Upsized to ' + d.in + '″ (' + d.min + '–' + d.max + ' gpm).' });
+      }
+      if (design < d.min){
+        belowMin = true; reason = reason === 'matched' ? 'below_min' : reason;
+        flags.push({ k: 'below_min', msg: 'Design flow ' + Math.round(design) + ' gpm is below the ' + d.in + '″ device minimum of ' + d.min + ' gpm. Confirm the flow reading before installing.' });
+      }
+      dev = d.in;
+    }
+    var underCode = entered > 0 && code > 0 && entered < code * 0.98;
+    if (underCode) flags.push({ k: 'under_code', msg: 'Entered flow ' + Math.round(entered) + ' gpm is below the health-code flow of ' + Math.round(code) + ' gpm (4 h turnover). Device sized for the code flow.' });
+    var vel = velocityFps(std, o.size, design);
+    var overCap = vel > V_MAX_FPS;
+    if (overCap) flags.push({ k: 'velocity', msg: 'Design flow implies ' + vel.toFixed(1) + ' ft/s in this line (limit ' + V_MAX_FPS + ' ft/s). Check the pipe size or the flow reading.' });
+    return {
+      std: std, size: row ? row.size : o.size, startDevice: start, device: dev, parallel: parallel,
+      design: design, entered: entered, code: code, reason: reason, flags: flags,
+      upsized: upsized, belowMin: belowMin, underCode: underCode, overCapacity: overCap,
+      velocityFps: vel, adapter: std === 'metric' || (std === 'us' && row && row.size !== dev),
+      model: (deviceFor(dev) || {}).model || ''
+    };
+  }
+  return {
+    DEVICES: DEVICES, US: US, METRIC: METRIC, TURNOVER_H: TURNOVER_H, VOL: VOL, FLOW: FLOW,
+    assign: assign, codeFlowGpm: codeFlowGpm, pipeRow: pipeRow, pipeLabel: pipeLabel, velocityFps: velocityFps,
+    showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
+    deviceFor: deviceFor
+  };
+})();
+
 window.AR2_ENGINEER = (function(){
 
   // ── Module state ────────────────────────────────────────────────
@@ -12899,14 +13048,19 @@ window.AR2_ENGINEER = (function(){
       patch.manualGallons = String(v.confirmed_gallons);
       patch.inputMode = 'gallons';
     }
-    // Translate return_lines back to pipe_2in/3in/4in/6in/8in/10in counts
+    // Translate return_lines back to pipe_2in/3in/4in/6in/8in/10in counts.
+    // `diameter` is the EFFECTIVE DEVICE size (rule or override); the pipe
+    // itself lives in pipe_std / pipe_size. The full line spec rides along
+    // so the pool profile card and PDF can show "110 mm line → 4″ device".
     if (Array.isArray(v.return_lines) && v.return_lines.length){
+      patch.return_lines = v.return_lines;
       // Zero the canonical six first so removed lines clear properly.
       patch.pipe_2in = 0; patch.pipe_3in = 0; patch.pipe_4in = 0;
       patch.pipe_6in = 0; patch.pipe_8in = 0; patch.pipe_10in = 0;
       v.return_lines.forEach(function(line){
         var d = Number(line.diameter) || 0;
-        var n = Number(line.count) || 0;
+        // Parallel 6″ units (design flow above 1,100 gpm) multiply the count.
+        var n = (Number(line.count) || 0) * Math.max(1, Number(line.sizing && line.sizing.parallel) || 1);
         if (n <= 0) return;
         if (d === 2)  patch.pipe_2in  += n;
         else if (d === 3)  patch.pipe_3in  += n;
@@ -13703,6 +13857,15 @@ window.AR2_ENGINEER = (function(){
     return '<div class="ar-eng-flow-header">'
       +   '<div class="ar-eng-header-top">'
       +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' ' + backLabel + '</button>'
+      // Personal units preference — how THIS user enters and reads volumes
+      // and flows, on every property. Stored on app_users.unit_system.
+      +     '<label class="ar-eng-units-pref" title="Your measurement preference for volumes and flows">'
+      +       '<span>Units</span>'
+      +       '<select data-action="ar-eng-user-units" aria-label="Measurement preference">'
+      +         '<option value="imperial"' + (userUnits() === 'imperial' ? ' selected' : '') + '>Imperial · gal · gpm</option>'
+      +         '<option value="metric"' + (userUnits() === 'metric' ? ' selected' : '') + '>Metric · m³ · m³/h</option>'
+      +       '</select>'
+      +     '</label>'
       +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
       +   '</div>'
       +   adminBanner
@@ -14195,6 +14358,7 @@ window.AR2_ENGINEER = (function(){
     var rec = s.record || {};
     var pc = s.propertyConfirmation;
     var sj = rec.state_json || {};
+    var isLockedProp = !!(s.assignment && s.assignment.status === 'locked');
     var totalGallons = 0;
     if (sj.manualVolume){
       totalGallons = Number(sj.manualTotalGallons) || 0;
@@ -14254,7 +14418,20 @@ window.AR2_ENGINEER = (function(){
       +       '</div>'
       +       '<div class="ar-admin-review-meta-item">'
       +         '<span class="ar-admin-review-meta-lbl">Total volume</span>'
-      +         '<span class="ar-admin-review-meta-val mono">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span>'
+      +         '<span class="ar-admin-review-meta-val mono">' + (totalGallons ? (userUnits() === 'metric' ? AR2_SIZING.showVol(totalGallons, 'm3') + ' <span style="opacity:.6">(' + fn(Math.round(totalGallons)) + ' gal)</span>' : fn(Math.round(totalGallons)) + ' gal') : '—') + '</span>'
+      +       '</div>'
+      // ── Measurement family for this property (metric trial). Drives the
+      //    return-line size list and the adapter requirement. Not the
+      //    engineer's own display preference (that lives in the header).
+      +       '<div class="ar-admin-review-meta-item">'
+      +         '<span class="ar-admin-review-meta-lbl">Site pipe standard</span>'
+      +         '<span class="ar-admin-review-meta-val">'
+      +           '<span class="ar-eng-seg" role="radiogroup" aria-label="Site pipe standard">'
+      +             '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'us' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="imperial"' + (isLockedProp ? ' disabled' : '') + '>Imperial</button>'
+      +             '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'metric' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="metric"' + (isLockedProp ? ' disabled' : '') + '>Metric</button>'
+      +           '</span>'
+      +           '<span class="ar-eng-hint" style="display:block;margin-top:4px">' + (propStd() === 'metric' ? 'Return lines in mm · devices stay imperial · adapters supplied' : 'Return lines in inches') + '</span>'
+      +         '</span>'
       +       '</div>'
       +       (assignedTxt
           ? '<div class="ar-admin-review-meta-item">'
@@ -14534,13 +14711,90 @@ window.AR2_ENGINEER = (function(){
       + '</div>';
   }
 
+  /* ── Units + sizing helpers (metric trial) ──────────────────────────
+     propStd()   'us' | 'metric' — the SITE's pipe family (state_json.units)
+     userUnits() 'imperial' | 'metric' — this USER's entry/display preference
+     Per-field unit pills override the preference for the session only.  */
+  function propStd(){
+    var sj = (s.record && s.record.state_json) || {};
+    return sj.units === 'metric' ? 'metric' : 'us';
+  }
+  function userUnits(){
+    var u = currentUser();
+    return (u && u.unit_system === 'metric') ? 'metric' : 'imperial';
+  }
+  function volUnitFor(poolIndex){
+    if (!s._volUnit) s._volUnit = {};
+    return s._volUnit[poolIndex] || (userUnits() === 'metric' ? 'm3' : 'gal');
+  }
+  function flowUnitFor(line){
+    return (line && line.flow_unit) || (userUnits() === 'metric' ? 'm3h' : 'gpm');
+  }
+  function poolGallonsFor(p, v){
+    return Number(v && v.confirmed_gallons) || Number(p && p.gallonsRep) || 0;
+  }
+  // Recompute device assignment for every line on a pool. Mutates the line
+  // objects: diameter (effective device, keeps every downstream consumer
+  // working unchanged), device_auto, pipe_std, pipe_size, sizing{}.
+  function recomputeLines(p, v, lines){
+    var std = propStd();
+    var totalLines = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
+    var gal = poolGallonsFor(p, v);
+    var codeGpm = AR2_SIZING.codeFlowGpm(gal, totalLines);
+    lines.forEach(function(line){
+      if (!line.pipe_std) line.pipe_std = std;
+      // A line created before the trial carries only `diameter` (inches).
+      if (line.pipe_size == null) line.pipe_size = (line.pipe_std === 'metric') ? 110 : (Number(line.diameter) || 4);
+      var r = AR2_SIZING.assign({ std: line.pipe_std, size: line.pipe_size, flowGpm: Number(line.flow_gpm) || 0, codeFlowGpm: codeGpm });
+      line.device_auto = r.device;
+      line.diameter = Number(line.device_override) || r.device;   // effective device size
+      line.sizing = { reason: r.reason, design: Math.round(r.design), code: Math.round(codeGpm), entered: Math.round(r.entered),
+                      parallel: r.parallel, velocity: Math.round(r.velocityFps * 10) / 10, adapter: !!r.adapter, model: r.model,
+                      flags: r.flags.map(function(f){ return f.k; }), messages: r.flags.map(function(f){ return f.msg; }) };
+    });
+    return lines;
+  }
+  // Append a "[Sizing]" line to the pool notes for every new flag so the
+  // installer sees it without opening the portal. De-duplicated by text.
+  function appendSizingNotes(v, lines){
+    var notes = String(v.notes || '');
+    var added = false;
+    lines.forEach(function(line, li){
+      (line.sizing && line.sizing.messages || []).forEach(function(msg){
+        var tag = '[Sizing] Line ' + (li + 1) + ': ' + msg;
+        if (notes.indexOf(tag) === -1){ notes = (notes ? notes.replace(/\s+$/, '') + '\n' : '') + tag; added = true; }
+      });
+    });
+    if (added) v.notes = notes;
+    return added;
+  }
+  function sizeOptionsHtml(std, selected){
+    var list = std === 'metric' ? AR2_SIZING.METRIC : AR2_SIZING.US;
+    return list.map(function(r){
+      var lbl = std === 'metric' ? (r.label + ' · ' + r.dn + ' (' + r.us + ')') : (r.label + ' return');
+      return '<option value="' + r.size + '"' + (Number(selected) === r.size ? ' selected' : '') + '>' + lbl + '</option>';
+    }).join('');
+  }
+  function unitPillsHtml(kind, current, attrs){
+    var units = kind === 'vol' ? ['gal','m3','L'] : ['gpm','m3h','ls'];
+    var labels = { gal:'gal', m3:'m³', L:'L', gpm:'gpm', m3h:'m³/h', ls:'L/s' };
+    return '<span class="ar-eng-unit-pills" role="radiogroup">' + units.map(function(u){
+      return '<button type="button" class="ar-eng-unit-pill' + (u === current ? ' on' : '') + '" ' + attrs + ' data-unit="' + u + '">' + labels[u] + '</button>';
+    }).join('') + '</span>';
+  }
+
   function poolCardHtml(p, isLocked){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
     var hasMedia = poolHasMedia(p.index);
     var complete = hasLines && hasMedia && !isLocked;
     var lines = v.return_lines || [];
-    var DIAMETERS = [2, 3, 4, 6, 8];
+    if (lines.length) recomputeLines(p, v, lines);
+    var std = propStd();
+    var volUnit = volUnitFor(p.index);
+    var gal = poolGallonsFor(p, v);
+    var totalLineCount = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
+    var codeGpm = AR2_SIZING.codeFlowGpm(gal, totalLineCount);
     // dis = ' disabled' string we sprinkle on every form control while
     // the card is locked. Buttons get aria-disabled to be safe.
     var dis  = isLocked ? ' disabled' : '';
@@ -14648,12 +14902,13 @@ window.AR2_ENGINEER = (function(){
 
       +   imageBlock
 
-      // — Gallons first —
-      +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
+      // — Volume first — entered in the engineer's unit, stored in gallons.
+      +   '<div class="ar-eng-field"><label>Confirm volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"') + '</label>'
       +     '<div class="ar-eng-inline">'
-      +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
+      +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + (v.confirmed_gallons ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (p.gallonsRep ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '"' + dis + ' />'
       +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Confirm Estimate</button>' : '')
       +     '</div>'
+      +     (volUnit !== 'gal' && (v.confirmed_gallons || p.gallonsRep) ? '<div class="ar-eng-hint" style="margin-top:4px">= ' + fn(Math.round(v.confirmed_gallons || p.gallonsRep)) + ' gal</div>' : '')
       +     divergenceWarning
       +   '</div>'
 
@@ -14666,19 +14921,53 @@ window.AR2_ENGINEER = (function(){
       +     '</select>'
       +   '</div>'
 
-      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count + diameter per line)</span>') + '</label>'
+      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count · pipe size · flow per line)</span>')
+      +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
+      +     '</label>'
       +     '<div class="ar-eng-lines">' + (lines.length ? lines.map(function(line, li){
-              var diaOpts = DIAMETERS.map(function(d){
-                return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
-              }).join('');
-              return '<div class="ar-eng-line">'
-                +   '<div class="ar-eng-line-stepper">'
-                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
-                +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
-                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
+              var lstd = line.pipe_std || std;
+              var fu = flowUnitFor(line);
+              var sz = line.sizing || {};
+              var devEff = Number(line.diameter) || sz.device || 4;
+              var overridden = !!line.device_override;
+              var status = overridden ? 'override' : (sz.flags && sz.flags.length ? (sz.flags.indexOf('upsized') !== -1 || sz.flags.indexOf('parallel') !== -1 ? 'upsized' : 'warn') : 'ok');
+              var statusLabel = status === 'ok' ? 'In spec' : status === 'upsized' ? 'Upsized' : status === 'override' ? 'Override' : (sz.flags && sz.flags.indexOf('below_min') !== -1 ? 'Below min' : 'Check');
+              var flowVal = line.flow_gpm ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(line.flow_gpm, fu), AR2_SIZING.FLOW[fu].dp).replace(/,/g,'') : '';
+              var devOpts = AR2_SIZING.DEVICES.map(function(d){ return '<option value="' + d.in + '"' + (Number(line.device_override) === d.in ? ' selected' : '') + '>' + d.in + '″ (' + d.min + '–' + d.max + ' gpm)</option>'; }).join('');
+              return '<div class="ar-eng-line ar-eng-line-v2' + (status !== 'ok' ? ' has-flag' : '') + '">'
+                // Row 1 — count · pipe size · flow + unit · source
+                +   '<div class="ar-eng-line-row">'
+                +     '<div class="ar-eng-line-stepper">'
+                +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
+                +       '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
+                +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
+                +     '</div>'
+                +     '<select class="ar-eng-line-dia" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size (' + (lstd === 'metric' ? 'metric OD' : 'US nominal') + ')"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size) + '</select>'
+                +     '<div class="ar-eng-line-flow">'
+                +       '<input type="number" inputmode="decimal" step="any" placeholder="flow" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line"' + dis + ' />'
+                +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
+                +     '</div>'
+                +     '<select class="ar-eng-line-src" data-action="ar-eng-line-flow-src" data-pool="' + p.index + '" data-line="' + li + '" title="Where the flow figure comes from"' + dis + '>'
+                +       '<option value=""' + (!line.flow_source ? ' selected' : '') + '>Flow source…</option>'
+                +       '<option value="meter"' + (line.flow_source === 'meter' ? ' selected' : '') + '>Flow meter</option>'
+                +       '<option value="pump"' + (line.flow_source === 'pump' ? ' selected' : '') + '>Pump curve</option>'
+                +       '<option value="code"' + (line.flow_source === 'code' ? ' selected' : '') + '>Code flow (no reading)</option>'
+                +     '</select>'
+                +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '"' + dis + '>' + diaOpts + '</select>'
-                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
+                // Row 2 — device result · status · override
+                +   '<div class="ar-eng-line-result">'
+                +     '<span class="ar-eng-dev-badge">' + svgIconArrowRight() + ' ' + devEff + '″ device' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? ' <span class="mono">' + esc(sz.model) + '</span>' : '') + '</span>'
+                +     '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span>'
+                +     (sz.design ? '<span class="ar-eng-line-meta">design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter' : '') + '</span>' : '')
+                +     '<span class="ar-eng-line-spacer"></span>'
+                +     '<label class="ar-eng-override" title="Use a different device than the rule assigns (reason required)">'
+                +       '<span>Override</span>'
+                +       '<select data-action="ar-eng-line-override" data-pool="' + p.index + '" data-line="' + li + '"' + dis + '><option value=""' + (!line.device_override ? ' selected' : '') + '>Rule (' + (line.device_auto || devEff) + '″)</option>' + devOpts + '</select>'
+                +     '</label>'
+                +   '</div>'
+                +   (overridden ? '<input type="text" class="ar-eng-override-reason" data-action="ar-eng-line-override-reason" data-pool="' + p.index + '" data-line="' + li + '" value="' + esc(line.override_reason || '') + '" placeholder="Reason for override (required)" maxlength="160"' + dis + ' />' : '')
+                +   ((sz.messages && sz.messages.length) ? '<div class="ar-eng-line-flags">' + sz.messages.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('') + '</div>' : '')
                 + '</div>';
             }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button"' + dis + disA + '>+ Add return line</button>'
@@ -14926,7 +15215,9 @@ window.AR2_ENGINEER = (function(){
     }
     if (action === 'ar-eng-confirm-gallons'){
       var pi = parseInt(target.getAttribute('data-pool'), 10);
-      var val = parseInt(target.value, 10);
+      // Typed in the field's unit (gal · m³ · L); stored as whole gallons.
+      var typed = parseFloat(String(target.value).replace(/,/g, ''));
+      var val = isNaN(typed) ? NaN : Math.round(AR2_SIZING.volToGal(typed, target.getAttribute('data-unit') || 'gal'));
       var pool = s.pools.find(function(x){ return x.index === pi; });
       // Auto-flag discrepancy if engineer's value differs from rep by >5%.
       // Note: when value is cleared / matches within tolerance, clear the
@@ -14937,8 +15228,98 @@ window.AR2_ENGINEER = (function(){
         var diff = Math.abs(newConfirmed - pool.gallonsRep);
         if (diff / pool.gallonsRep > 0.05) discFlag = true;
       }
-      // Silent: don't repaint mid-keystroke or focus + scroll jump.
-      updateVerification(pi, { confirmed_gallons: newConfirmed, has_discrepancy: discFlag }, { silent: true });
+      // Silent: don't repaint mid-keystroke or focus + scroll jump. Lines
+      // are re-sized against the new volume (code flow depends on it).
+      var vG = s.verifications[pi] || { return_lines: [] };
+      var linesG = (vG.return_lines || []).slice();
+      var patchG = { confirmed_gallons: newConfirmed, has_discrepancy: discFlag };
+      if (linesG.length && pool){ vG.confirmed_gallons = newConfirmed; recomputeLines(pool, vG, linesG); patchG.return_lines = linesG; if (appendSizingNotes(vG, linesG)) patchG.notes = vG.notes; }
+      updateVerification(pi, patchG, { silent: true });
+      return true;
+    }
+    // ── Metric trial: units + per-line flow / size / override ──
+    if (action === 'ar-eng-vol-unit'){
+      var piU = parseInt(target.getAttribute('data-pool'), 10);
+      if (!s._volUnit) s._volUnit = {};
+      s._volUnit[piU] = target.getAttribute('data-unit') || 'gal';
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-user-units'){
+      var pref = target.value === 'metric' ? 'metric' : 'imperial';
+      var cU = client(), uU = currentUser();
+      if (uU) uU.unit_system = pref;
+      if (cU && uU) cU.from('app_users').update({ unit_system: pref }).eq('id', uU.id).then(function(){}, function(){});
+      s._volUnit = {};   // field pills fall back to the new preference
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-prop-units'){
+      var fam = target.getAttribute('data-units') === 'metric' ? 'metric' : 'imperial';
+      if (!s.record) return true;
+      s.record.state_json = s.record.state_json || {};
+      s.record.state_json.units = fam;
+      var cP = client();
+      if (cP && s.assignmentId){
+        cP.rpc('engineer_apply_record_patch', { p_assignment_id: s.assignmentId, p_patch: { units: fam } })
+          .then(function(rs){ if (rs && rs.error) try { console.warn('[engineer units] ', rs.error); } catch(_){} }, function(){});
+      }
+      // Existing lines keep their own pipe_std; new lines follow the site.
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-line-size' || action === 'ar-eng-line-flow' || action === 'ar-eng-line-flow-unit' || action === 'ar-eng-line-flow-src' || action === 'ar-eng-line-override' || action === 'ar-eng-line-override-reason'){
+      var piL = parseInt(target.getAttribute('data-pool'), 10);
+      var liL = parseInt(target.getAttribute('data-line'), 10);
+      var poolL = s.pools.find(function(x){ return x.index === piL; });
+      var vL = s.verifications[piL] || { return_lines: [] };
+      var linesL = (vL.return_lines || []).slice();
+      var line = linesL[liL];
+      if (!line) return true;
+      line = linesL[liL] = JSON.parse(JSON.stringify(line));
+      var silent = false;
+      if (action === 'ar-eng-line-size'){
+        line.pipe_std = line.pipe_std || propStd();
+        line.pipe_size = parseFloat(target.value) || line.pipe_size;
+      } else if (action === 'ar-eng-line-flow'){
+        var fTyped = parseFloat(String(target.value).replace(/,/g, ''));
+        line.flow_unit = target.getAttribute('data-unit') || flowUnitFor(line);
+        line.flow_gpm = isNaN(fTyped) ? 0 : Math.round(AR2_SIZING.flowToGpm(fTyped, line.flow_unit) * 100) / 100;
+        if (line.flow_gpm && !line.flow_source) line.flow_source = 'meter';
+        silent = true;
+      } else if (action === 'ar-eng-line-flow-unit'){
+        line.flow_unit = target.getAttribute('data-unit') || 'gpm';
+      } else if (action === 'ar-eng-line-flow-src'){
+        line.flow_source = target.value || '';
+        if (line.flow_source === 'code') line.flow_gpm = 0;
+      } else if (action === 'ar-eng-line-override'){
+        var ov = parseInt(target.value, 10);
+        line.device_override = isNaN(ov) ? null : ov;
+        if (!line.device_override) line.override_reason = '';
+      } else if (action === 'ar-eng-line-override-reason'){
+        line.override_reason = target.value || '';
+        silent = true;
+      }
+      if (poolL) recomputeLines(poolL, vL, linesL);
+      var patchL = { return_lines: linesL };
+      if (appendSizingNotes(vL, linesL)) patchL.notes = vL.notes;
+      updateVerification(piL, patchL, silent ? { silent: true } : undefined);
+      // Flow typing is silent (no repaint); refresh just this line's result
+      // row so the device badge / flags track the number as it is typed.
+      if (silent && action === 'ar-eng-line-flow'){
+        try {
+          var card = target.closest('.ar-eng-line-v2');
+          var res = card && card.querySelector('.ar-eng-line-result .ar-eng-dev-badge');
+          if (res) res.innerHTML = svgIconArrowRight() + ' ' + (line.diameter || line.device_auto) + '″ device' + (line.sizing && line.sizing.parallel > 1 ? ' × ' + line.sizing.parallel : '');
+          var pill = card && card.querySelector('.ar-eng-status-pill');
+          if (pill){ var fl = (line.sizing && line.sizing.flags) || []; var st = line.device_override ? 'override' : (fl.length ? (fl.indexOf('upsized') !== -1 || fl.indexOf('parallel') !== -1 ? 'upsized' : 'warn') : 'ok'); pill.className = 'ar-eng-status-pill ' + st; pill.textContent = st === 'ok' ? 'In spec' : st === 'upsized' ? 'Upsized' : st === 'override' ? 'Override' : (fl.indexOf('below_min') !== -1 ? 'Below min' : 'Check'); }
+          var flagsEl = card && card.querySelector('.ar-eng-line-flags');
+          var msgs = (line.sizing && line.sizing.messages) || [];
+          if (flagsEl) flagsEl.innerHTML = msgs.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('');
+          else if (msgs.length && card){ var fe = document.createElement('div'); fe.className = 'ar-eng-line-flags'; fe.innerHTML = msgs.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join(''); card.appendChild(fe); }
+          if (card) card.classList.toggle('has-flag', !!msgs.length || !!line.device_override);
+        } catch(_){}
+      }
       return true;
     }
     if (action === 'ar-eng-discrepancy-reason'){
@@ -15244,15 +15625,26 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-gallons-match'){
       var pi2 = parseInt(target.getAttribute('data-pool'), 10);
       var p = s.pools.find(function(x){ return x.index === pi2; });
-      if (p) updateVerification(pi2, { confirmed_gallons: p.gallonsRep, has_discrepancy: false, discrepancy_reason: null });
+      if (p){
+        var vM = s.verifications[pi2] || { return_lines: [] };
+        var linesM = (vM.return_lines || []).slice();
+        var patchM = { confirmed_gallons: p.gallonsRep, has_discrepancy: false, discrepancy_reason: null };
+        if (linesM.length){ vM.confirmed_gallons = p.gallonsRep; recomputeLines(p, vM, linesM); patchM.return_lines = linesM; if (appendSizingNotes(vM, linesM)) patchM.notes = vM.notes; }
+        updateVerification(pi2, patchM);
+      }
       return true;
     }
     if (action === 'ar-eng-line-add'){
       var pi3 = parseInt(target.getAttribute('data-pool'), 10);
       var existing = s.verifications[pi3] || { return_lines: [] };
       var lines3 = (existing.return_lines || []).slice();
-      lines3.push({ count: 1, diameter: 4 });
-      updateVerification(pi3, { return_lines: lines3 });
+      var stdA = propStd();
+      lines3.push({ count: 1, diameter: 4, pipe_std: stdA, pipe_size: stdA === 'metric' ? 110 : 4, flow_gpm: 0, flow_unit: (userUnits() === 'metric' ? 'm3h' : 'gpm'), flow_source: '' });
+      var poolA = s.pools.find(function(x){ return x.index === pi3; });
+      if (poolA) recomputeLines(poolA, existing, lines3);
+      var patchA = { return_lines: lines3 };
+      if (appendSizingNotes(existing, lines3)) patchA.notes = existing.notes;
+      updateVerification(pi3, patchA);
       return true;
     }
     if (action === 'ar-eng-line-remove'){
@@ -15261,6 +15653,8 @@ window.AR2_ENGINEER = (function(){
       var existing4 = s.verifications[pi4] || { return_lines: [] };
       var lines4 = (existing4.return_lines || []).slice();
       lines4.splice(li4, 1);
+      var poolR = s.pools.find(function(x){ return x.index === pi4; });
+      if (poolR && lines4.length) recomputeLines(poolR, existing4, lines4);   // code flow per line changes
       updateVerification(pi4, { return_lines: lines4 });
       return true;
     }
@@ -15272,11 +15666,16 @@ window.AR2_ENGINEER = (function(){
       var lines5 = (existing5.return_lines || []).slice();
       if (lines5[li5]){
         var newCount = Math.max(1, Math.min(99, (Number(lines5[li5].count) || 1) + delta));
-        lines5[li5] = { count: newCount, diameter: lines5[li5].diameter || 4 };
-        updateVerification(pi5, { return_lines: lines5 });
+        var lc = JSON.parse(JSON.stringify(lines5[li5])); lc.count = newCount; lines5[li5] = lc;
+        var poolC = s.pools.find(function(x){ return x.index === pi5; });
+        if (poolC) recomputeLines(poolC, existing5, lines5);
+        var patchC = { return_lines: lines5 };
+        if (appendSizingNotes(existing5, lines5)) patchC.notes = existing5.notes;
+        updateVerification(pi5, patchC);
       }
       return true;
     }
+    // Legacy handler (pre-trial markup); kept so an old cached render still works.
     if (action === 'ar-eng-line-dia'){
       var pi6 = parseInt(target.getAttribute('data-pool'), 10);
       var li6 = parseInt(target.getAttribute('data-line'), 10);
@@ -15284,7 +15683,7 @@ window.AR2_ENGINEER = (function(){
       var existing6 = s.verifications[pi6] || { return_lines: [] };
       var lines6 = (existing6.return_lines || []).slice();
       if (lines6[li6]){
-        lines6[li6] = { count: lines6[li6].count || 1, diameter: dia };
+        lines6[li6] = { count: lines6[li6].count || 1, diameter: dia, pipe_std: 'us', pipe_size: dia };
         updateVerification(pi6, { return_lines: lines6 });
       }
       return true;
@@ -15358,7 +15757,9 @@ window.AR2_ENGINEER = (function(){
     goToStep: goToStep,
     renderCurrentStep: renderCurrentStep,
     handleAction: handleAction,
-    tryResume: tryResume
+    tryResume: tryResume,
+    // Render hooks used by the visual harness (no data access of their own).
+    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, propertyStep: renderPropertyStep }
   };
 })();
 
