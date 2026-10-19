@@ -10678,7 +10678,7 @@ function _engineerReport_renderHtml(bundle){
             if (l.device_override && l.override_reason) lineFlagsHtml += '<div class="rpt-row" style="display:block;color:#5b3a8a;line-height:1.5">Line ' + (li+1) + ' override: ' + esc(l.override_reason) + '</div>';
             var spR = SZ ? SZ.spanStatus(l) : null;
             var stdR = (rec.state_json && rec.state_json.units === 'metric') ? 'metric' : 'us';
-            var spanTxt = spR ? ((spR.k === 'ok' || spR.k === 'short') ? SZ.showSpan(l.span_available_in, stdR) + ' <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>' : spR.k === 'ticked' ? 'Confirmed sufficient <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>' : 'Not confirmed <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>') : '—';
+            var spanTxt = spR ? ((spR.k === 'ok' || spR.k === 'short') ? SZ.showSpan(l.span_available_in, stdR) + ' <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>' : 'Not measured <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>') : '—';
             return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + spanTxt + '</td><td>' + esc(st) + '</td></tr>';
           }).join('')
         + '</tbody></table>'
@@ -12473,8 +12473,7 @@ window.AR2_SIZING = (function(){
     var req = requiredSpanIn(dev);
     var avail = Number(line.span_available_in) || 0;
     if (avail > 0) return avail >= req ? { k: 'ok', label: 'Span OK', required_in: req } : { k: 'short', label: 'Span short', required_in: req };
-    if (line.span_confirmed) return { k: 'ticked', label: 'Confirmed sufficient', required_in: req };
-    return { k: 'unmeasured', label: 'Span not confirmed', required_in: req };
+    return { k: 'unmeasured', label: 'Not measured', required_in: req };
   }
   // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool, std:'us'|'metric' (span units) }
   function linesTableHtml(lines, opts){
@@ -12486,7 +12485,7 @@ window.AR2_SIZING = (function(){
       var dev = Number(l.diameter) || sz.device || '?';
       var flowTxt = l.flow_gpm ? showFlow(l.flow_gpm, l.flow_unit || fu) : (sz.code ? showFlow(sz.code, fu) + '<span class="sub">code flow</span>' : '—');
       var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? '<span class="sub">' + _e(sz.model) + (sz.adapter ? ' · adapter' : '') + '</span>' : '');
-      var spanTxt = (sp.k === 'ok' || sp.k === 'short' ? showSpan(l.span_available_in, std) : sp.k === 'ticked' ? 'Confirmed' : '—')
+      var spanTxt = (sp.k === 'ok' || sp.k === 'short' ? showSpan(l.span_available_in, std) : '—')
         + '<span class="sub">needs ' + showSpan(sp.required_in, std) + (sz.adapter ? ' + adapter' : '') + '</span>';
       var flags = (opts.showFlags !== false && sz.messages && sz.messages.length)
         ? '<tr class="ar-hyd-flags"><td colspan="6">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
@@ -14087,13 +14086,13 @@ window.AR2_ENGINEER = (function(){
       3: ''
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
         + '<p><b>Pump rooms.</b> Tap <b>+ Add Pump Room</b> for each equipment room you walk through and give it a short ID (e.g. <i>PR-1</i>). A walkthrough video (30 sec – 2 min) following the supply lines through the treatment system and back to the pool is the most useful thing you can capture, but it is optional and can be added later.</p>'
-        + '<p><b>Every field starts pre-filled from the rep\'s assessment.</b> Edit only what differs on site, then confirm the pool. Sending for review needs at least one return line per pool; confirming a pool additionally needs its straight runs checked.</p>'
+        + '<p><b>Every field starts pre-filled from the rep\'s assessment.</b> Edit only what differs on site, then confirm the pool. Sending for review and confirming a pool both need at least one return line per pool.</p>'
         + '<p style="margin-left:14px"><b>Volume</b> — type the pool volume or tap <i>Confirm Estimate</i> to accept the rep\'s figure. Use the <b>gal · m³ · L</b> pills to enter it in your own unit; it is stored in gallons. A difference of more than 5% from the estimate is flagged for the rep.</p>'
         + '<p style="margin-left:14px"><b>Water type</b> — fresh water / chlorine or saltwater.</p>'
         + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
         + '<p style="margin-left:14px"><b>Status</b> — <i>In spec</i>: flow sits inside the device\'s range. <i>Upsized</i>: flow was above the matched device\'s maximum, so the next size was assigned. <i>Below min</i>: flow is under the device minimum; check the reading before installing. <i>Override</i>: you chose the size yourself. The amber notes under a line explain each flag.</p>'
-        + '<p style="margin-left:14px"><b>Straight run</b> — under each line, <i>needs</i> is the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites add the adapter allowance). Type the run you measured in <i>available</i>, or tick <i>Confirmed sufficient</i> if you checked it without a tape. A run that is too short is flagged; the drawing set shows the fix (rebuild the run as an offset with four 90° elbows).</p>'
-        + '<p style="margin-left:14px"><b>Confirm pool</b> — once every line has a size, a flow or code flow, and a confirmed straight run, tap <b>Confirm pool</b>. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
+        + '<p style="margin-left:14px"><b>Straight run</b> — under each line, <i>needs</i> is the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites add the adapter allowance). Type the run you measured in <i>available</i> if you have it; it is optional. A run that is too short is flagged; the drawing set shows the fix (rebuild the run as an offset with four 90° elbows).</p>'
+        + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
         + '<p style="margin-left:14px"><b>Edited markers</b> — a small <i>edited</i> tag beside volume or water type means your value differs from the rep\'s assessment; hover it to see the original, or tap <i>reset</i> to put it back.</p>'
         + '<p style="margin-left:14px"><b>Photos and video</b> — optional for now. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously.</p>'
         + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
@@ -14995,8 +14994,8 @@ window.AR2_ENGINEER = (function(){
     var isConfirmed = !!v.confirmed_at && !v.confirm_stale;
     var isStale     = !!v.confirmed_at && !!v.confirm_stale;
     var anyFlag     = lines.some(function(l){ return l.sizing && l.sizing.flags && l.sizing.flags.length; });
-    var spanOkAll   = hasLines && lines.every(function(l){ var k = AR2_SIZING.spanStatus(l).k; return k === 'ok' || k === 'ticked'; });
-    var canConfirm  = hasLines && spanOkAll && !isLocked;
+    var spanOkAll   = true;   // straight run is recorded, not gated (Jeff, 2026-10-19)
+    var canConfirm  = hasLines && !isLocked;
     var complete    = isConfirmed && !isLocked;
     var expanded    = !!(s._expandedPools && s._expandedPools[p.index]);
     var collapsed   = isConfirmed && !expanded;
@@ -15086,7 +15085,6 @@ window.AR2_ENGINEER = (function(){
     if (!complete){
       var missing = [];
       if (!hasLines) missing.push('add at least one return line');
-      else if (!spanOkAll) missing.push('confirm the straight run on every line');
       if (!isLocked && missing.length){
         missingHint = '<div class="ar-eng-pool-missing">'
           + svgIconWarn() + ' To confirm this pool: ' + missing.join(' &amp; ') + '.'
@@ -15116,7 +15114,7 @@ window.AR2_ENGINEER = (function(){
               + '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, volUnit) : '—') + '</b></span>'
               + '<span>Water <b>' + (v.pool_type === 'saltwater' ? 'Saltwater' : 'Fresh / chlorine') + '</b></span>'
               + '<span>Lines <b>' + esc(AR2_SIZING.linesText(lines)) + '</b></span>'
-              + '<span>Span <b>confirmed</b></span>'
+              + (lines.some(function(l){ return l.span_available_in; }) ? '<span>Run <b>' + lines.map(function(l){ return l.span_available_in ? AR2_SIZING.showSpan(l.span_available_in, std) : '—'; }).join(' · ') + '</b></span>' : '')
               + '<span class="ar-eng-pool-summary-by">' + esc(confirmedTxt) + '</span>'
               + '<button class="ar-eng-tiny" data-action="ar-eng-pool-expand" data-pool="' + p.index + '" type="button">' + svgIconPencil() + ' Edit</button>'
               + '</div>'
@@ -15195,8 +15193,7 @@ window.AR2_ENGINEER = (function(){
                         + '<span class="ar-eng-line-lbl">Straight run</span>'
                         + '<span class="ar-eng-span-need">needs <b>' + AR2_SIZING.showSpan(sp.required_in, std) + '</b>' + (sz.adapter ? ' <span class="ar-eng-hint">+ adapter allowance</span>' : '') + '</span>'
                         + '<span class="ar-eng-span-avail">available <input type="number" inputmode="decimal" step="any" data-action="ar-eng-line-span" data-pool="' + p.index + '" data-line="' + li + '" data-std="' + std + '" value="' + availShown + '" placeholder="' + (std === 'metric' ? 'mm' : 'in') + '"' + dis + ' /> ' + (std === 'metric' ? 'mm' : 'in') + '</span>'
-                        + '<label class="ar-eng-span-tick"><input type="checkbox" data-action="ar-eng-line-span-ok" data-pool="' + p.index + '" data-line="' + li + '"' + (line.span_confirmed ? ' checked' : '') + dis + ' /> Confirmed sufficient</label>'
-                        + '<span class="ar-eng-status-pill ' + (sp.k === 'ok' || sp.k === 'ticked' ? 'ok' : sp.k === 'short' ? 'warn' : 'pending') + '">' + sp.label + '</span>'
+                        + '<span class="ar-eng-status-pill ' + (sp.k === 'ok' ? 'ok' : sp.k === 'short' ? 'warn' : 'pending') + '">' + sp.label + '</span>'
                         + (sp.k === 'short' ? '<div class="ar-eng-line-flag" style="flex-basis:100%">' + svgIconWarn() + ' Run is shorter than the device needs. Rebuild the run as an offset with four 90° elbows (drawing M-301) or choose a longer section.</div>' : '')
                         + '</div>';
                     })()
@@ -15535,8 +15532,7 @@ window.AR2_ENGINEER = (function(){
       var vC = s.verifications[piC] || { pool_index: piC, return_lines: [] };
       var linesC = vC.return_lines || [];
       if (poolC && linesC.length) recomputeLines(poolC, vC, linesC);
-      var okC = linesC.length && linesC.every(function(l){ var k = AR2_SIZING.spanStatus(l).k; return k === 'ok' || k === 'ticked'; });
-      if (!okC) return true;
+      if (!linesC.length) return true;
       var uC = currentUser() || {};
       var who = (uC.name || 'engineer') + (uC.role === 'admin' ? ' (admin)' : '');
       var patchC = {
