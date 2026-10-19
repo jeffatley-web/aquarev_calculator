@@ -14266,8 +14266,9 @@ window.AR2_ENGINEER = (function(){
       +       '<iframe src="https://www.youtube-nocookie.com/embed/Nh7DkYL6LNA" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
       +     '</div>'
       +     '<ul class="ar-eng-bullets">'
-      +       '<li><b>Confirm property access</b> on Step 2 before you start collecting data on site.</li>'
-      +       '<li><b>Verify each pool</b> on Step 3 — gallons, return lines, diameters, and any notes.</li>'
+      +       '<li><b>Confirm property access</b> on Step 2, and set the <b>site pipe standard</b> — Imperial (inches) or Metric (mm) — so the return-line sizes match what is on the pipe.</li>'
+      +       '<li><b>Verify each pool</b> on Step 3 — confirm the volume, then for every return line record the pipe size and the flow rate from the flow meter or pump curve. The card shows the AquaRev device that fits and flags anything out of specification.</li>'
+      +       '<li><b>Pick your units</b> from the Units menu in the header at any time — gallons and gpm, or m³ and m³/h. The device sizes always stay in inches.</li>'
       +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
       +     '</ul>'
 
@@ -14309,7 +14310,16 @@ window.AR2_ENGINEER = (function(){
       +         '<div class="ar-eng-brief-sizes-foot">Devices need 20" – 40" of straight pipe to install. Note any tight runs in your walkthrough video.</div>'
       +       '</div>'
       +       '<div class="ar-eng-brief-strip">'
-      +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener">'
+      // Specifications + Drawings replace the old PDF link (Jeff, 2026-10-19).
+      +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/specifications" target="_blank" rel="noopener">'
+      +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h8"/></svg>'
+      +           '<span>Installation Specifications<span class="ar-eng-brief-link-sub">Spec 22 51 19 · device data, flow windows, connection, clearances</span></span>'
+      +         '</a>'
+      +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/drawings" target="_blank" rel="noopener">'
+      +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>'
+      +           '<span>Installation Drawing Set<span class="ar-eng-brief-link-sub">Set 100 · pump room plan, flow diagram, union detail, sequence</span></span>'
+      +         '</a>'
+      +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener" style="display:none">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="12" y1="13" x2="12" y2="19"/><polyline points="9 16 12 19 15 16"/></svg>'
       +           '<span>Download full Specifications Guide<span class="ar-eng-brief-link-sub">PDF · device sizing, placement, photo / video checklist</span></span>'
       +         '</a>'
@@ -14741,10 +14751,15 @@ window.AR2_ENGINEER = (function(){
     var totalLines = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
     var gal = poolGallonsFor(p, v);
     var codeGpm = AR2_SIZING.codeFlowGpm(gal, totalLines);
+    var IN_TO_MM = { 1.5: 50, 2: 63, 3: 90, 4: 110, 6: 160 };
     lines.forEach(function(line){
+      // A line created before the trial carries only `diameter` (inches,
+      // which was also the pipe size). Carry it into the site's family.
       if (!line.pipe_std) line.pipe_std = std;
-      // A line created before the trial carries only `diameter` (inches).
-      if (line.pipe_size == null) line.pipe_size = (line.pipe_std === 'metric') ? 110 : (Number(line.diameter) || 4);
+      if (line.pipe_size == null){
+        var dIn = Number(line.diameter) || 4;
+        line.pipe_size = (line.pipe_std === 'metric') ? (IN_TO_MM[dIn] || 110) : dIn;
+      }
       var r = AR2_SIZING.assign({ std: line.pipe_std, size: line.pipe_size, flowGpm: Number(line.flow_gpm) || 0, codeFlowGpm: codeGpm });
       line.device_auto = r.device;
       line.diameter = Number(line.device_override) || r.device;   // effective device size
@@ -14756,24 +14771,25 @@ window.AR2_ENGINEER = (function(){
   }
   // Append a "[Sizing]" line to the pool notes for every new flag so the
   // installer sees it without opening the portal. De-duplicated by text.
-  function appendSizingNotes(v, lines){
-    var notes = String(v.notes || '');
-    var added = false;
-    lines.forEach(function(line, li){
-      (line.sizing && line.sizing.messages || []).forEach(function(msg){
-        var tag = '[Sizing] Line ' + (li + 1) + ': ' + msg;
-        if (notes.indexOf(tag) === -1){ notes = (notes ? notes.replace(/\s+$/, '') + '\n' : '') + tag; added = true; }
-      });
-    });
-    if (added) v.notes = notes;
-    return added;
-  }
-  function sizeOptionsHtml(std, selected){
-    var list = std === 'metric' ? AR2_SIZING.METRIC : AR2_SIZING.US;
-    return list.map(function(r){
-      var lbl = std === 'metric' ? (r.label + ' · ' + r.dn + ' (' + r.us + ')') : (r.label + ' return');
-      return '<option value="' + r.size + '"' + (Number(selected) === r.size ? ' selected' : '') + '>' + lbl + '</option>';
-    }).join('');
+  // Disabled 2026-10-19 (Jeff): system notes stacked up as selections
+  // changed. Flags stay on the card; notes are the engineer's / admin's.
+  function appendSizingNotes(){ return false; }
+  // Both families are always offered (site family first) so an engineer
+  // can re-size an existing line to 110 mm without adding a new one.
+  // Option value = "std:size".
+  function sizeOptionsHtml(std, selected, siteStd){
+    function group(fam, label){
+      var list = fam === 'metric' ? AR2_SIZING.METRIC : AR2_SIZING.US;
+      return '<optgroup label="' + label + '">' + list.map(function(r){
+        var lbl = fam === 'metric' ? (r.label + ' · ' + r.dn + ' · ' + r.us) : r.label;
+        var sel = (fam === std && Number(selected) === r.size) ? ' selected' : '';
+        return '<option value="' + fam + ':' + r.size + '"' + sel + '>' + lbl + '</option>';
+      }).join('') + '</optgroup>';
+    }
+    var first = siteStd === 'metric' ? 'metric' : 'us';
+    return first === 'metric'
+      ? group('metric', 'Metric (mm)') + group('us', 'Imperial (in)')
+      : group('us', 'Imperial (in)') + group('metric', 'Metric (mm)');
   }
   function unitPillsHtml(kind, current, attrs){
     var units = kind === 'vol' ? ['gal','m3','L'] : ['gpm','m3h','ls'];
@@ -14924,7 +14940,10 @@ window.AR2_ENGINEER = (function(){
       +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count · pipe size · flow per line)</span>')
       +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
       +     '</label>'
-      +     '<div class="ar-eng-lines">' + (lines.length ? lines.map(function(line, li){
+      +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
+      // Column headers — the lines read as a small table: Qty · Pipe · Flow · Device
+      +       (lines.length ? '<div class="ar-eng-lines-hd"><span>Qty</span><span>Pipe size</span><span>Flow</span><span>Device</span><span></span></div>' : '')
+      +       (lines.length ? lines.map(function(line, li){
               var lstd = line.pipe_std || std;
               var fu = flowUnitFor(line);
               var sz = line.sizing || {};
@@ -14933,41 +14952,28 @@ window.AR2_ENGINEER = (function(){
               var status = overridden ? 'override' : (sz.flags && sz.flags.length ? (sz.flags.indexOf('upsized') !== -1 || sz.flags.indexOf('parallel') !== -1 ? 'upsized' : 'warn') : 'ok');
               var statusLabel = status === 'ok' ? 'In spec' : status === 'upsized' ? 'Upsized' : status === 'override' ? 'Override' : (sz.flags && sz.flags.indexOf('below_min') !== -1 ? 'Below min' : 'Check');
               var flowVal = line.flow_gpm ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(line.flow_gpm, fu), AR2_SIZING.FLOW[fu].dp).replace(/,/g,'') : '';
-              var devOpts = AR2_SIZING.DEVICES.map(function(d){ return '<option value="' + d.in + '"' + (Number(line.device_override) === d.in ? ' selected' : '') + '>' + d.in + '″ (' + d.min + '–' + d.max + ' gpm)</option>'; }).join('');
+              // Device select = rule result + override in one control. First
+              // option is the rule's answer; picking another size is an override.
+              var devSel = '<select class="ar-eng-dev-sel' + (overridden ? ' overridden' : '') + '" data-action="ar-eng-line-override" data-pool="' + p.index + '" data-line="' + li + '" title="Device assigned by the sizing rule. Choose another size to override (reason required)."' + dis + '>'
+                + '<option value=""' + (!overridden ? ' selected' : '') + '>' + (line.device_auto || devEff) + '″ · rule' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + '</option>'
+                + AR2_SIZING.DEVICES.map(function(d){ return '<option value="' + d.in + '"' + (Number(line.device_override) === d.in ? ' selected' : '') + '>' + d.in + '″ · override</option>'; }).join('')
+                + '</select>';
               return '<div class="ar-eng-line ar-eng-line-v2' + (status !== 'ok' ? ' has-flag' : '') + '">'
-                // Row 1 — count · pipe size · flow + unit · source
-                +   '<div class="ar-eng-line-row">'
-                +     '<div class="ar-eng-line-stepper">'
+                +   '<div class="ar-eng-line-grid">'
+                +     '<div class="ar-eng-line-stepper" data-col="Qty">'
                 +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
                 +       '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
                 +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
                 +     '</div>'
-                +     '<select class="ar-eng-line-dia" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size (' + (lstd === 'metric' ? 'metric OD' : 'US nominal') + ')"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size) + '</select>'
+                +     '<select class="ar-eng-line-dia" data-col="Pipe" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size as marked on the line (imperial or metric)"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size, std) + '</select>'
+                +     '<div class="ar-eng-line-flowcell" data-col="Flow">'
+                +       '<input type="number" inputmode="decimal" step="any" placeholder="' + (codeGpm > 0 ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(codeGpm, fu), AR2_SIZING.FLOW[fu].dp) : '—') + '" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line. Blank = health-code flow."' + dis + ' />'
+                +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
+                +     '</div>'
+                +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span></div>'
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                // Row 2 — flow reading + unit · source
-                +   '<div class="ar-eng-line-row flow">'
-                +     '<span class="ar-eng-line-lbl">Flow</span>'
-                +     '<input type="number" inputmode="decimal" step="any" placeholder="—" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line"' + dis + ' />'
-                +     unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
-                +     '<select class="ar-eng-line-src" data-action="ar-eng-line-flow-src" data-pool="' + p.index + '" data-line="' + li + '" title="Where the flow figure comes from"' + dis + '>'
-                +       '<option value=""' + (!line.flow_source ? ' selected' : '') + '>Source…</option>'
-                +       '<option value="meter"' + (line.flow_source === 'meter' ? ' selected' : '') + '>Flow meter</option>'
-                +       '<option value="pump"' + (line.flow_source === 'pump' ? ' selected' : '') + '>Pump curve</option>'
-                +       '<option value="code"' + (line.flow_source === 'code' ? ' selected' : '') + '>No reading · use code flow</option>'
-                +     '</select>'
-                +   '</div>'
-                // Row 2 — device result · status · override
-                +   '<div class="ar-eng-line-result">'
-                +     '<span class="ar-eng-dev-badge">' + svgIconArrowRight() + ' ' + devEff + '″ device' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? ' <span class="mono">' + esc(sz.model) + '</span>' : '') + '</span>'
-                +     '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span>'
-                +     (sz.design ? '<span class="ar-eng-line-meta">design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter' : '') + '</span>' : '')
-                +     '<span class="ar-eng-line-spacer"></span>'
-                +     '<label class="ar-eng-override" title="Use a different device than the rule assigns (reason required)">'
-                +       '<span>Override</span>'
-                +       '<select data-action="ar-eng-line-override" data-pool="' + p.index + '" data-line="' + li + '"' + dis + '><option value=""' + (!line.device_override ? ' selected' : '') + '>Rule (' + (line.device_auto || devEff) + '″)</option>' + devOpts + '</select>'
-                +     '</label>'
-                +   '</div>'
+                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + '</div>' : '')
                 +   (overridden ? '<input type="text" class="ar-eng-override-reason" data-action="ar-eng-line-override-reason" data-pool="' + p.index + '" data-line="' + li + '" value="' + esc(line.override_reason || '') + '" placeholder="Reason for override (required)" maxlength="160"' + dis + ' />' : '')
                 +   ((sz.messages && sz.messages.length) ? '<div class="ar-eng-line-flags">' + sz.messages.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('') + '</div>' : '')
                 + '</div>';
@@ -15281,8 +15287,9 @@ window.AR2_ENGINEER = (function(){
       line = linesL[liL] = JSON.parse(JSON.stringify(line));
       var silent = false;
       if (action === 'ar-eng-line-size'){
-        line.pipe_std = line.pipe_std || propStd();
-        line.pipe_size = parseFloat(target.value) || line.pipe_size;
+        var parts = String(target.value).split(':');
+        if (parts.length === 2){ line.pipe_std = parts[0] === 'metric' ? 'metric' : 'us'; line.pipe_size = parseFloat(parts[1]) || line.pipe_size; }
+        else { line.pipe_std = line.pipe_std || propStd(); line.pipe_size = parseFloat(target.value) || line.pipe_size; }
       } else if (action === 'ar-eng-line-flow'){
         var fTyped = parseFloat(String(target.value).replace(/,/g, ''));
         line.flow_unit = target.getAttribute('data-unit') || flowUnitFor(line);
