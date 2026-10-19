@@ -14709,6 +14709,10 @@ window.AR2_ENGINEER = (function(){
       var v = s.verifications[p.index];
       return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
     }).length;
+    var confirmedCount = allPools.filter(function(p){
+      var v = s.verifications[p.index];
+      return v && v.confirmed_at && !v.confirm_stale;
+    }).length;
     // Apply Pool 1 to Rest feature was removed (per Jeff 2026-05-25)
     // — engineers should verify each pool individually rather than
     // bulk-copying one pool's setup, which made discrepancies easier
@@ -14725,15 +14729,26 @@ window.AR2_ENGINEER = (function(){
       + '<div class="ar-eng-wrap ar-eng-flow">'
       +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + allPools.length + ' complete')
       +   stepperHtml(3)
+      +   '<div class="ar-eng-secnav">'
+      +     '<button class="ar-eng-secnav-btn" data-action="ar-eng-jump" data-target="rooms" type="button"><span class="n">1</span>Pump Rooms <b>' + (s.pumpRooms || []).length + '</b></button>'
+      +     '<button class="ar-eng-secnav-btn" data-action="ar-eng-jump" data-target="pools" type="button"><span class="n">2</span>Pools <b>' + confirmedCount + '/' + allPools.length + '</b></button>'
+      +     '<button class="ar-eng-secnav-btn next" data-action="ar-eng-goto-step" data-step="4" type="button">Review ' + svgIconArrowRight() + '</button>'
+      +   '</div>'
       +   pumpRoomsSection
       // Hard visual break between the Pump-Rooms section above and the
       // Pools section below. The eyebrow + lede pair mirrors the
       // Pump-Rooms section so the structure is symmetric and the
       // engineer's ask shifts unmistakably from rooms → pools.
-      +   '<div class="ar-eng-pools-section">'
-      +     '<div class="ar-eng-section-hd">'
-      +       '<div class="ar-eng-section-eyebrow">Pools</div>'
-      +       '<div class="ar-eng-section-sub">Verify each pool below — gallons, water type, return lines, and at least one return-line photo. Link each pool to the pump room that serves it. It is ideal if you can also take a photo of the size stamp directly on the pipe for certainty.</div>'
+      +   '<div class="ar-eng-pools-section" id="ar-eng-sec-pools">'
+      +     '<div class="ar-eng-section-band">'
+      +       '<div class="ar-eng-section-num">2</div>'
+      +       '<div class="ar-eng-section-band-l">'
+      +         '<div class="ar-eng-section-eyebrow">Pools <span class="ar-eng-section-count">' + confirmedCount + ' / ' + allPools.length + ' confirmed</span></div>'
+      +         '<div class="ar-eng-section-sub">Each card is pre-filled from the assessment. Check the volume, water type, pump room and return lines against the site, then confirm the specifications. A photo of the size stamp on the pipe is ideal if you can get one.</div>'
+      +       '</div>'
+      +       '<div class="ar-eng-section-band-r">'
+      +         '<button class="ar-eng-jump" data-action="ar-eng-jump" data-target="rooms" type="button">' + svgIconArrowLeft() + ' Pump rooms</button>'
+      +       '</div>'
       +     '</div>'
       +     lockBanner
       +     applyToolbar
@@ -14815,10 +14830,16 @@ window.AR2_ENGINEER = (function(){
       ? ''
       : '<button class="ar-eng-add-pump-room" data-action="ar-eng-pump-room-add" type="button">+ Add Pump Room</button>';
     return ''
-      + '<div class="ar-eng-pump-rooms-section">'
-      +   '<div class="ar-eng-section-hd">'
-      +     '<div class="ar-eng-section-eyebrow">Pump Rooms</div>'
-      +     '<div class="ar-eng-section-sub">ID the pump room and take a quick walkthrough video, then link each pool and return pipes to the pump room below in the pools section.</div>'
+      + '<div class="ar-eng-pump-rooms-section" id="ar-eng-sec-rooms">'
+      +   '<div class="ar-eng-section-band">'
+      +     '<div class="ar-eng-section-num">1</div>'
+      +     '<div class="ar-eng-section-band-l">'
+      +       '<div class="ar-eng-section-eyebrow">Pump Rooms <span class="ar-eng-section-count">' + rooms.length + '</span></div>'
+      +       '<div class="ar-eng-section-sub">ID each equipment room and, if you can, take a short walkthrough video. Pools link to their room in the next section.</div>'
+      +     '</div>'
+      +     '<div class="ar-eng-section-band-r">'
+      +       '<button class="ar-eng-jump" data-action="ar-eng-jump" data-target="pools" type="button">Pools ' + svgIconArrowRight() + '</button>'
+      +     '</div>'
       +   '</div>'
       +   (cards
           ? '<div class="ar-eng-pump-room-grid">' + cards + '</div>'
@@ -15532,6 +15553,11 @@ window.AR2_ENGINEER = (function(){
       if (!s._expandedPools) s._expandedPools = {};
       s._expandedPools[piC] = false;   // collapse to the summary line
       updateVerification(piC, patchC, { confirm: true });
+      return true;
+    }
+    if (action === 'ar-eng-jump'){
+      var tgt = document.getElementById(target.getAttribute('data-target') === 'rooms' ? 'ar-eng-sec-rooms' : 'ar-eng-sec-pools');
+      if (tgt){ try { tgt.scrollIntoView({ behavior: 'smooth', block: 'start' }); window.scrollBy(0, -64); } catch(_){ tgt.scrollIntoView(); } }
       return true;
     }
     if (action === 'ar-eng-pool-expand'){
