@@ -3274,7 +3274,8 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-units-pref{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#7db8cc;margin-left:auto;margin-right:8px;}
 #ar2 .ar-eng-units-pref select{background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.25);color:#cfe2eb;padding:5px 8px;border-radius:7px;font-family:inherit;font-size:11.5px;text-transform:none;letter-spacing:0;outline:none;cursor:pointer;}
 /* Hydraulics table — shared by Step 4 review, engineer report, admin review */
-#ar2 .ar-hyd-tbl{width:100%;border-collapse:separate;border-spacing:0 4px;font-size:12.5px;}
+#ar2 .ar-hyd-tbl{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 4px;font-size:12.5px;min-width:520px;}
+#ar2 .ar-hyd-tbl td{overflow:hidden;text-overflow:ellipsis;}
 #ar2 .ar-hyd-tbl th{font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:#7db8cc;font-weight:700;text-align:left;padding:0 10px 2px;}
 #ar2 .ar-hyd-tbl td{padding:7px 10px;background:rgba(4,15,30,.4);border-top:1px solid rgba(0,180,216,.12);border-bottom:1px solid rgba(0,180,216,.12);color:#e0f4fa;font-family:'JetBrains Mono',monospace;white-space:nowrap;vertical-align:top;}
 #ar2 .ar-hyd-tbl td:first-child{border-left:1px solid rgba(0,180,216,.12);border-radius:7px 0 0 7px;}

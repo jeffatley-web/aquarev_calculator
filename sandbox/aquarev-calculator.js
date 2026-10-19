@@ -12469,7 +12469,8 @@ window.AR2_SIZING = (function(){
         : '';
       return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
     }).join('');
-    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    // Fixed column widths so tables on neighbouring pool cards line up.
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:9%"><col style="width:27%"><col style="width:20%"><col style="width:26%"><col style="width:18%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
   // Device schedule — devices by size across a set of lines (count × parallel).
   function deviceSchedule(linesArrays){
@@ -15296,6 +15297,11 @@ window.AR2_ENGINEER = (function(){
       // ── Bottom nav ────────────────────────────────────────────
       +     '<div class="ar-eng-actions">'
       +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
+      // Save progress — flushes every pending edit now and, for non-admin
+      // users, posts a dashboard activity alert without sending for review.
+      +       (locked ? '' : '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-save-progress" type="button"' + (s._progressSaveState === 'saving' ? ' disabled' : '') + '>'
+            + (s._progressSaveState === 'saving' ? 'Saving…' : s._progressSaveState === 'saved' ? svgIconCheck() + ' Saved' : svgIconDownload() + ' Save progress')
+            + '</button>')
       +       (isAdmin
             ? '<button class="ar-eng-btn primary" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' Back to Archive</button>'
             : '')
@@ -15389,6 +15395,55 @@ window.AR2_ENGINEER = (function(){
       if (!s._volUnit) s._volUnit = {};
       s._volUnit[piU] = target.getAttribute('data-unit') || 'gal';
       repaint();
+      return true;
+    }
+    if (action === 'ar-eng-save-progress'){
+      var cS = client();
+      if (!cS || !s.assignmentId) return true;
+      s._progressSaveState = 'saving';
+      repaint();
+      // 1. Flush every pool with a pending debounce, plus seeded-but-untouched
+      //    pools (same rule as submit) so nothing sits only in memory.
+      var flushes = [];
+      Object.keys(s.verifications).forEach(function(k){
+        var v = s.verifications[k]; if (!v) return;
+        var pending = s._poolSaveTimers && s._poolSaveTimers[k];
+        var seeded = v._seededFromAssessment && Array.isArray(v.return_lines) && v.return_lines.length;
+        if (pending){ clearTimeout(pending); delete s._poolSaveTimers[k]; }
+        if (pending || seeded || v.id){
+          var payload = {
+            assignment_id: s.assignmentId, pool_index: Number(k),
+            confirmed_gallons: v.confirmed_gallons != null ? Number(v.confirmed_gallons) : null,
+            return_lines: v.return_lines || [], notes: v.notes || null,
+            has_discrepancy: !!v.has_discrepancy, discrepancy_reason: v.discrepancy_reason || null,
+            pump_room_id: v.pump_room_id || null, pool_name_override: v.pool_name_override || null,
+            is_engineer_added: !!v.is_engineer_added, pool_type: v.pool_type || null,
+            updated_at: new Date().toISOString()
+          };
+          flushes.push(cS.from('engineer_verifications').upsert(payload, { onConflict: 'assignment_id,pool_index' }).select('id').single()
+            .then(function(rs){ if (rs && rs.data){ v.id = rs.data.id; v._seededFromAssessment = false; try { _propagatePoolToParent(Number(k), v); } catch(_){} } }, function(){}));
+        }
+      });
+      // 2. Property notes still debouncing → write now.
+      if (s._propNotesTimer){ clearTimeout(s._propNotesTimer); s._propNotesTimer = null;
+        flushes.push(cS.from('engineer_assignments').update({ engineer_property_notes: s._propNotesLocal || null, last_modified_at: new Date().toISOString() }).eq('id', s.assignmentId).then(function(){}, function(){})); }
+      // 3. Touch the assignment so "last modified" moves, and bump pending → in_progress.
+      var asgnPatch = { last_modified_at: new Date().toISOString() };
+      if (s.assignment && s.assignment.status === 'pending') asgnPatch.status = 'in_progress';
+      flushes.push(cS.from('engineer_assignments').update(asgnPatch).eq('id', s.assignmentId).then(function(){ if (asgnPatch.status && s.assignment) s.assignment.status = 'in_progress'; }, function(){}));
+      Promise.all(flushes).then(function(){
+        // 4. Dashboard activity for admins + rep — non-admin saves only
+        //    (the RPC returns 0 for admins without inserting).
+        var isAdminS = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+        var notify = (!isAdminS && window.AR_NOTIFY && AR_NOTIFY.engineerSaved) ? AR_NOTIFY.engineerSaved(s.assignmentId) : Promise.resolve();
+        return notify;
+      }).then(function(){
+        s.saving = false; s.lastSavedAt = new Date(); s.lastSaveError = null; s._progressSaveState = 'saved';
+        repaint();
+        setTimeout(function(){ if (s._progressSaveState === 'saved'){ s._progressSaveState = ''; _safeRepaint(); } }, 3000);
+      }).catch(function(err){
+        s._progressSaveState = ''; s.lastSaveError = (err && err.message) || 'Save failed'; repaint();
+      });
       return true;
     }
     if (action === 'ar-eng-profile-field'){
@@ -16688,6 +16743,18 @@ window.AR_NOTIFY = {
         related_record_id: relatedRecordId || null
       });
     } catch(_){ return Promise.resolve(); }
+  },
+  // "Save progress" on Step 4 — dashboard activity for admins + rep when a
+  // non-admin saves (SECURITY DEFINER notify_engineer_saved; admins → 0 rows).
+  engineerSaved: function(assignmentId){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c || !assignmentId) return Promise.resolve({ skipped: true });
+      return c.rpc('notify_engineer_saved', { p_assignment_id: assignmentId }).then(function(rs){
+        if (rs && rs.error){ try { console.warn('[notify_engineer_saved]', rs.error); } catch(_){} return { error: rs.error }; }
+        return rs;
+      }, function(err){ return { error: err }; });
+    } catch(e){ return Promise.resolve({ error: e }); }
   },
   // Engineer-side RPC: notifies admins + rep about an engineer submission.
   // Engineers can't write notifications directly; this routes through
