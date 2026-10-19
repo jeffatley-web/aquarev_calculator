@@ -690,8 +690,27 @@ var Cloud = (function(){
           // Non-corp roles always have calc access.
           if (user) user.corpEngCalcAccess = true;
           return user;
-        });
+        })
+        .then(hydrateUserProfile);
     });
+  }
+
+  // Profile fields the edge function does not return: phone, company,
+  // briefing flag and units preference. Merged into the session user so
+  // the engineer portal can show/edit them. RLS allows self-select.
+  function hydrateUserProfile(u){
+    var c = getClient();
+    if (!c || !u || !u.id) return u;
+    return c.from('app_users').select('phone,company,briefing_skipped,unit_system').eq('id', u.id).maybeSingle()
+      .then(function(rs){
+        if (rs && rs.data){
+          u.phone = rs.data.phone || u.phone || '';
+          u.company = rs.data.company || '';
+          u.briefing_skipped = !!rs.data.briefing_skipped;
+          u.unit_system = rs.data.unit_system || 'imperial';
+        }
+        return u;
+      }, function(){ return u; });
   }
 
   function restoreSession(){
@@ -703,7 +722,7 @@ var Cloud = (function(){
       // Look up app_user row to get role/name (RLS allows self-read).
       // logo_data is fetched too so Client branding (header text + PDF logo)
       // applies on the very first render after a restored session.
-      return c.from('app_users').select('id,email,name,role,active,logo_data,corp_eng_calc_access').eq('id', sess.user.id).maybeSingle().then(function(rs){
+      return c.from('app_users').select('id,email,name,role,active,logo_data,corp_eng_calc_access,phone,company,briefing_skipped,unit_system').eq('id', sess.user.id).maybeSingle().then(function(rs){
         if(rs.error || !rs.data) return null;
         if(!rs.data.active) { c.auth.signOut(); return null; }
         user = {
@@ -717,7 +736,11 @@ var Cloud = (function(){
           // top-bar nav (New button hidden when false) + gate inside
           // showView so 'form' / 'export' / etc. routes redirect to the
           // dashboard. Admin flips this via User Activity row.
-          corpEngCalcAccess: !!rs.data.corp_eng_calc_access
+          corpEngCalcAccess: !!rs.data.corp_eng_calc_access,
+          phone: rs.data.phone || '',
+          company: rs.data.company || '',
+          briefing_skipped: !!rs.data.briefing_skipped,
+          unit_system: rs.data.unit_system || 'imperial'
         };
         installStorageAdapter();
         // NOTE: track_login is intentionally NOT called here. Cloud mode
@@ -8476,8 +8499,8 @@ function loadEngineerVerifiedPoolsForRecord(recordId, recordType){
             // Zero out all sizes on this body, then apply engineer's spec
             pipeSizes.forEach(function(sz){ body['pipe_'+sz+'in'] = 0; });
             v.return_lines.forEach(function(line){
-              var sz = parseInt(line.diameter, 10);
-              var cnt = parseInt(line.count, 10);
+              var sz = parseInt(line.diameter, 10);   // effective DEVICE size (rule or override)
+              var cnt = parseInt(line.count, 10) * Math.max(1, parseInt(line.sizing && line.sizing.parallel, 10) || 1);
               if (pipeSizes.indexOf(sz) >= 0 && cnt > 0){
                 body['pipe_'+sz+'in'] = (body['pipe_'+sz+'in']|0) + cnt;
               }
@@ -10201,10 +10224,15 @@ function _frRenderPoolCard(p, verifs, media, roomLabel){
     +     '<div class="ar-fr-cmp-row head"><div></div><div>Estimate</div><div>Engineer</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Gallons</div><div>' + (p.repGal ? fn(p.repGal) : '—') + '</div><div>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) : '—') + dot(galState) + '</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Water type</div><div>' + esc(typeLabel(p.repType)) + '</div><div>' + esc(typeLabel(v.pool_type)) + dot(typeState) + '</div></div>'
-    +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(linesToText(engLines)) + dot(linesState) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(window.AR2_SIZING ? AR2_SIZING.linesText(engLines) : linesToText(engLines)) + dot(linesState) + '</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Pump room</div><div>—</div><div>' + esc(roomName) + '</div></div>'
     +   '</div>'
     + '</div>'
+    // Hydraulics — what the engineer recorded per return line: pipe size as
+    // marked, flow reading (or code flow), device assigned, status + flags.
+    + ((engLines && engLines.length && window.AR2_SIZING)
+        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true }) + '</div></div>'
+        : '')
     + '<div class="ar-fr-pool-media">'
     +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
     +   thumbsHtml
@@ -10463,7 +10491,7 @@ function generateEngineerReport(assignmentId, opts){
     if (!asgn) throw new Error('Assignment not found.');
     return Promise.all([
       _engineerReport_loadRecord(asgn),
-      c.from('app_users').select('id,name,phone').eq('id', asgn.engineer_user_id).single().then(function(rs){ return rs.data; }, function(){ return null; })
+      c.from('app_users').select('id,name,phone,email,company').eq('id', asgn.engineer_user_id).single().then(function(rs){ return rs.data; }, function(){ return null; })
     ]).then(function(linked){
       return {
         asgn: asgn,
@@ -10632,11 +10660,28 @@ function _engineerReport_renderHtml(bundle){
     var pumpRoom = poolPumpRoom[p.index] ? pumpRoomById[poolPumpRoom[p.index]] : null;
     var engType = (v && v.pool_type) || p.repPoolType || '';
 
+    // Return lines — pipe as marked on site, flow reading, device assigned
+    // (count × parallel), status. Flags print beneath the table.
+    var SZ = window.AR2_SIZING;
+    var lineFlagsHtml = '';
     var linesTable = lines.length
-      ? '<table class="rpt-tbl"><thead><tr><th>Count</th><th>Diameter</th></tr></thead><tbody>'
-        + lines.map(function(l){ return '<tr><td>' + (l.count||1) + '</td><td>' + (l.diameter||'?') + '" return</td></tr>'; }).join('')
+      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Status</th></tr></thead><tbody>'
+        + lines.map(function(l, li){
+            var sz = l.sizing || {};
+            var dev = Number(l.diameter) || sz.device || '?';
+            var pipe = SZ ? SZ.pipeText(l) : ((l.diameter||'?') + '″');
+            var flow = l.flow_gpm
+              ? (SZ ? SZ.showFlow(l.flow_gpm, 'gpm') + (l.flow_unit && l.flow_unit !== 'gpm' ? ' <span style="color:#777">(' + SZ.showFlow(l.flow_gpm, l.flow_unit) + ')</span>' : '') : fn(l.flow_gpm) + ' gpm')
+              : (sz.code ? (SZ ? SZ.showFlow(sz.code, 'gpm') : fn(sz.code) + ' gpm') + ' <span style="color:#777">code flow</span>' : '—');
+            var st = SZ ? SZ.lineStatus(l).label : '—';
+            if (sz.messages && sz.messages.length) lineFlagsHtml += sz.messages.map(function(m){ return '<div class="rpt-row" style="display:block;color:#8a5a00;line-height:1.5">Line ' + (li+1) + ': ' + esc(m) + '</div>'; }).join('');
+            if (l.device_override && l.override_reason) lineFlagsHtml += '<div class="rpt-row" style="display:block;color:#5b3a8a;line-height:1.5">Line ' + (li+1) + ' override: ' + esc(l.override_reason) + '</div>';
+            return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + esc(st) + '</td></tr>';
+          }).join('')
         + '</tbody></table>'
+        + (lineFlagsHtml ? '<div style="margin-top:6px">' + lineFlagsHtml + '</div>' : '')
       : '<div class="rpt-row" style="color:#888">No return lines documented.</div>';
+    var volBoth = function(g){ return g ? (fn(g) + ' gal' + (SZ ? ' <span style="color:#777">(' + SZ.showVol(g, 'm3') + ')</span>' : '')) : null; };
 
     var photoGrid = photos.length
       ? '<div class="rpt-eng-photos">'
@@ -10666,10 +10711,11 @@ function _engineerReport_renderHtml(bundle){
       +   '<div class="rpt-sec">'
       +     '<div class="rpt-stitle">' + esc(displayName) + (p.engineerAdded ? ' · Engineer-added' : '') + '</div>'
       +     '<div class="rpt-row"><span class="k">Water type</span><span class="v">' + esc(poolTypeLabel(engType)) + '</span></div>'
-      +     '<div class="rpt-row"><span class="k">Estimate gallons</span><span class="v">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal' : '—') + '</span></div>'
-      +     '<div class="rpt-row"><span class="k">Engineer-confirmed gallons</span><span class="v">' + (v && v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : 'Not confirmed') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Estimate volume</span><span class="v">' + (volBoth(p.gallonsRep) || '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Engineer-confirmed volume</span><span class="v">' + (volBoth(v && v.confirmed_gallons) || 'Not confirmed') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
-      +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines</div>'
+      +     '<div class="rpt-row"><span class="k">Devices for this pool</span><span class="v">' + (SZ ? esc(SZ.scheduleText(SZ.deviceSchedule([lines]))) : '—') + '</span></div>'
+      +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines &amp; Device Sizing</div>'
       +     linesTable
       +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
       +     divergence
@@ -10725,11 +10771,16 @@ function _engineerReport_renderHtml(bundle){
     +     '<div class="rpt-sec">'
     +       '<div class="rpt-stitle">Engineer</div>'
     +       '<div class="rpt-row"><span class="k">Name</span><span class="v">' + esc(eng.name || '—') + '</span></div>'
+    +       (eng.company ? '<div class="rpt-row"><span class="k">Company</span><span class="v">' + esc(eng.company) + '</span></div>' : '')
     +       (eng.phone ? '<div class="rpt-row"><span class="k">Phone</span><span class="v">' + esc(eng.phone) + '</span></div>' : '')
+    +       (eng.email ? '<div class="rpt-row"><span class="k">Email</span><span class="v">' + esc(eng.email) + '</span></div>' : '')
     +     '</div>'
     +     '<div class="rpt-sec">'
     +       '<div class="rpt-stitle">Verification Summary</div>'
+    +       '<div class="rpt-row"><span class="k">Site pipe standard</span><span class="v">' + ((rec.state_json && rec.state_json.units === 'metric') ? 'Metric (mm) · devices imperial, adapters supplied' : 'Imperial (inches)') + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Pools documented</span><span class="v">' + verifs.length + ' of ' + pools.length + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Device schedule</span><span class="v">' + (window.AR2_SIZING ? esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(verifs.map(function(x){ return x.return_lines || []; })))) : '—') + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Adapters required</span><span class="v">' + (window.AR2_SIZING ? esc(AR2_SIZING.adapterText(AR2_SIZING.adapterSchedule(verifs.map(function(x){ return x.return_lines || []; })))) : '—') + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Pump rooms captured</span><span class="v">' + pumpRooms.length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Photos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='photo';}).length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Videos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='video';}).length + '</span></div>'
@@ -10766,20 +10817,24 @@ function _engineerReport_renderHtml(bundle){
         var v = verifs.find(function(x){ return x.pool_index === p.index; });
         if (!v || v.pump_room_id !== r.id) return null;
         var poolDisplayName = (v && v.pool_name_override) || p.name;
+        var SZr = window.AR2_SIZING;
         var poolLines = (v.return_lines || []).map(function(l){
-          return '<span class="rpt-eng-line-chip">' + (l.count||1) + '&times;' + (l.diameter||'?') + '&quot;</span>';
+          return '<span class="rpt-eng-line-chip">' + (l.count||1) + '&times; ' + esc(SZr ? SZr.pipeText(l) : ((l.diameter||'?') + '″')) + '</span>';
         }).join('');
         if (!poolLines) poolLines = '<span style="color:#888">—</span>';
+        var poolDevs = SZr ? esc(SZr.scheduleText(SZr.deviceSchedule([v.return_lines || []]))) : '—';
+        var vol = v.confirmed_gallons || p.gallonsRep;
         return '<tr>'
           + '<td><b>' + esc(poolDisplayName) + '</b></td>'
-          + '<td>' + (v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' : '—') + '</td>'
+          + '<td>' + (vol ? fn(vol) + ' gal' + (SZr ? ' <span style="color:#777">(' + SZr.showVol(vol, 'm3') + ')</span>' : '') + (v.confirmed_gallons ? '' : ' <span style="color:#777">est.</span>') : '—') + '</td>'
           + '<td>' + poolLines + '</td>'
+          + '<td>' + poolDevs + '</td>'
           + '</tr>';
       })
       .filter(Boolean)
       .join('');
     var poolsServedHtml = poolsServedRows
-      ? '<table class="rpt-tbl"><thead><tr><th>Pool</th><th>Gallons</th><th>Return lines</th></tr></thead><tbody>' + poolsServedRows + '</tbody></table>'
+      ? '<table class="rpt-tbl"><thead><tr><th>Pool</th><th>Volume</th><th>Return lines</th><th>Devices</th></tr></thead><tbody>' + poolsServedRows + '</tbody></table>'
       : '<div class="rpt-row" style="color:#888">No pools linked to this pump room yet.</div>';
     var poolsServedCount = poolsPerRoom[r.id] || 0;
 
@@ -12234,6 +12289,239 @@ function renderEngineerAssignmentList(mountEl){
    action handlers mutate it + persist via Supabase. Auto-save is
    debounced (600ms) and updates engineer_verifications.
    ──────────────────────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   AR2_SIZING — device sizing engine + unit conversions (metric trial)
+   ───────────────────────────────────────────────────────────────────────
+   Canonical storage is imperial everywhere (gallons, gpm, inches). This
+   module converts at the edges and applies the agreed sizing rule:
+     1. design flow = max(entered flow, health-code flow)
+        health-code flow = gallons ÷ (4 h × 60) ÷ lines on the pool
+     2. start from the device matched to the pipe (US: same size; metric:
+        63→2″, 90→3″, 110→4″, 160→6″; 50→2″, 75→3″ by nearest)
+     3. design flow above the device max → upsize (prompt); above 6″ max →
+        parallel 6″ units. Below the device min → flag only.
+   Devices are always imperial; a metric line means an adapter with the
+   device on the receiving end. See "AquaRev Metric Sizing Chart" Rev 0.3.
+   ═══════════════════════════════════════════════════════════════════════ */
+window.AR2_SIZING = (function(){
+  var DEVICES = [
+    { in: 2, model: 'KD2X4X2',  min: 44,  max: 127  },
+    { in: 3, model: 'KD3X6X3',  min: 112, max: 273  },
+    { in: 4, model: 'KD4X8X4',  min: 240, max: 480  },
+    { in: 6, model: 'KD6X12X6', min: 440, max: 1100 }
+  ];
+  // US Schedule 40 PVC — inside diameter in inches
+  var US = [
+    { size: 1.5, label: '1½″', id_in: 1.610, dev: 2 },
+    { size: 2,   label: '2″',  id_in: 2.067, dev: 2 },
+    { size: 3,   label: '3″',  id_in: 3.068, dev: 3 },
+    { size: 4,   label: '4″',  id_in: 4.026, dev: 4 },
+    { size: 6,   label: '6″',  id_in: 6.065, dev: 6 }
+  ];
+  // Metric PVC-U OD (ISO 161-1 / EN 1452), PN10 inside diameter in mm
+  var METRIC = [
+    { size: 50,  label: '50 mm',  dn: 'DN40',  us: '1½″', id_mm: 45.2,  dev: 2 },
+    { size: 63,  label: '63 mm',  dn: 'DN50',  us: '2″',  id_mm: 57.0,  dev: 2 },
+    { size: 75,  label: '75 mm',  dn: 'DN65',  us: '2½″', id_mm: 67.8,  dev: 3 },
+    { size: 90,  label: '90 mm',  dn: 'DN80',  us: '3″',  id_mm: 81.4,  dev: 3 },
+    { size: 110, label: '110 mm', dn: 'DN100', us: '4″',  id_mm: 99.4,  dev: 4 },
+    { size: 160, label: '160 mm', dn: 'DN150', us: '6″',  id_mm: 144.6, dev: 6 }
+  ];
+  var TURNOVER_H = 4;           // calculator default for every body (decision 2026-10-16)
+  var V_MAX_FPS  = 8;           // return-line velocity warning threshold
+  var GAL_PER_M3 = 264.172, L_PER_GAL = 3.785411784, GPM_PER_M3H = 4.402868, GPM_PER_LS = 15.850323;
+
+  function deviceFor(inches){ for (var i=0;i<DEVICES.length;i++) if (DEVICES[i].in === inches) return DEVICES[i]; return null; }
+  function nextDevice(inches){ for (var i=0;i<DEVICES.length;i++) if (DEVICES[i].in > inches) return DEVICES[i]; return null; }
+  function pipeRow(std, size){
+    var list = std === 'metric' ? METRIC : US, n = Number(size);
+    for (var i=0;i<list.length;i++) if (list[i].size === n) return list[i];
+    // nearest listed size
+    var best = null, bd = Infinity;
+    for (var j=0;j<list.length;j++){ var d = Math.abs(list[j].size - n); if (d < bd){ bd = d; best = list[j]; } }
+    return best;
+  }
+  function pipeLabel(std, size){
+    var r = pipeRow(std, size); if (!r) return String(size);
+    return std === 'metric' ? (r.label + ' · ' + r.dn + ' · ' + r.us) : r.label;
+  }
+  function idInches(std, size){
+    var r = pipeRow(std, size); if (!r) return 0;
+    return std === 'metric' ? r.id_mm / 25.4 : r.id_in;
+  }
+  function velocityFps(std, size, gpm){
+    var id = idInches(std, size); if (!(id > 0) || !(gpm > 0)) return 0;
+    return gpm / (2.448 * id * id);
+  }
+  // ── unit conversions (canonical: gallons, gpm) ──
+  var VOL = {
+    gal: { label: 'gal',  toGal: function(v){ return v; },               fromGal: function(g){ return g; },               dp: 0 },
+    m3:  { label: 'm³',   toGal: function(v){ return v * GAL_PER_M3; },  fromGal: function(g){ return g / GAL_PER_M3; },  dp: 1 },
+    L:   { label: 'L',    toGal: function(v){ return v / L_PER_GAL; },   fromGal: function(g){ return g * L_PER_GAL; },   dp: 0 }
+  };
+  var FLOW = {
+    gpm: { label: 'gpm',  toGpm: function(v){ return v; },               fromGpm: function(g){ return g; },               dp: 0 },
+    m3h: { label: 'm³/h', toGpm: function(v){ return v * GPM_PER_M3H; }, fromGpm: function(g){ return g / GPM_PER_M3H; }, dp: 1 },
+    ls:  { label: 'L/s',  toGpm: function(v){ return v * GPM_PER_LS; },  fromGpm: function(g){ return g / GPM_PER_LS; },  dp: 2 }
+  };
+  function fmt(n, dp){
+    if (!isFinite(n)) return '—';
+    if (dp === 1 && Math.abs(n) >= 100) dp = 0;
+    return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dp });
+  }
+  function showVol(gal, unit){ var u = VOL[unit] || VOL.gal; return fmt(u.fromGal(Number(gal)||0), u.dp) + ' ' + u.label; }
+  function showFlow(gpm, unit){ var u = FLOW[unit] || FLOW.gpm; return fmt(u.fromGpm(Number(gpm)||0), u.dp) + ' ' + u.label; }
+  function volToGal(v, unit){ var u = VOL[unit] || VOL.gal; return u.toGal(Number(v)||0); }
+  function flowToGpm(v, unit){ var u = FLOW[unit] || FLOW.gpm; return u.toGpm(Number(v)||0); }
+  function volFromGal(gal, unit){ var u = VOL[unit] || VOL.gal; return u.fromGal(Number(gal)||0); }
+  function flowFromGpm(gpm, unit){ var u = FLOW[unit] || FLOW.gpm; return u.fromGpm(Number(gpm)||0); }
+
+  function codeFlowGpm(gallons, lineCount, turnoverH){
+    var g = Number(gallons) || 0, n = Math.max(1, Number(lineCount) || 1), t = turnoverH || TURNOVER_H;
+    return g > 0 ? g / (t * 60) / n : 0;
+  }
+
+  /* assign({std, size, flowGpm, codeFlowGpm}) →
+     { startDevice, device, design, reason, flags[], upsized, belowMin,
+       underCode, overCapacity, velocityFps, adapter, parallel } */
+  function assign(o){
+    var std = o.std === 'metric' ? 'metric' : 'us';
+    var row = pipeRow(std, o.size);
+    var start = row ? row.dev : 4;
+    var entered = Number(o.flowGpm) || 0, code = Number(o.codeFlowGpm) || 0;
+    var design = Math.max(entered, code);
+    var flags = [], reason = 'matched';
+    var dev = start, parallel = 1, upsized = false, belowMin = false;
+    var startDev = deviceFor(start), d = startDev;
+    if (design > 0 && d){
+      // step up while above max
+      var guard = 0;
+      while (d && design > d.max && guard < 5){
+        var nx = nextDevice(d.in);
+        if (!nx){ // above 6″ max → parallel 6″
+          parallel = Math.ceil(design / d.max);
+          flags.push({ k: 'parallel', msg: 'Design flow ' + Math.round(design) + ' gpm exceeds the 6″ maximum of ' + d.max + ' gpm; split across ' + parallel + ' × 6″ units in parallel.' });
+          reason = 'parallel';
+          break;
+        }
+        d = nx; upsized = true; guard++;
+      }
+      if (upsized){
+        reason = 'upsized';
+        flags.push({ k: 'upsized', msg: 'The ' + startDev.in + '″ device matched to this line is not compatible with the GPM specification (' + Math.round(design) + ' gpm > ' + startDev.max + ' gpm max). Upsized to ' + d.in + '″ (' + d.min + '–' + d.max + ' gpm).' });
+      }
+      if (design < d.min){
+        belowMin = true; reason = reason === 'matched' ? 'below_min' : reason;
+        flags.push({ k: 'below_min', msg: 'Design flow ' + Math.round(design) + ' gpm is below the ' + d.in + '″ device minimum of ' + d.min + ' gpm. Confirm the flow reading before installing.' });
+      }
+      dev = d.in;
+    }
+    var underCode = entered > 0 && code > 0 && entered < code * 0.98;
+    if (underCode) flags.push({ k: 'under_code', msg: 'Entered flow ' + Math.round(entered) + ' gpm is below the health-code flow of ' + Math.round(code) + ' gpm (4 h turnover). Device sized for the code flow.' });
+    var vel = velocityFps(std, o.size, design);
+    var overCap = vel > V_MAX_FPS;
+    if (overCap) flags.push({ k: 'velocity', msg: 'Design flow implies ' + vel.toFixed(1) + ' ft/s in this line (limit ' + V_MAX_FPS + ' ft/s). Check the pipe size or the flow reading.' });
+    return {
+      std: std, size: row ? row.size : o.size, startDevice: start, device: dev, parallel: parallel,
+      design: design, entered: entered, code: code, reason: reason, flags: flags,
+      upsized: upsized, belowMin: belowMin, underCode: underCode, overCapacity: overCap,
+      velocityFps: vel, adapter: std === 'metric' || (std === 'us' && row && row.size !== dev),
+      model: (deviceFor(dev) || {}).model || ''
+    };
+  }
+  // ── Shared renderers for stored lines (Step 4 review, engineer report,
+  //    admin review). Work from the sizing saved on each line; a legacy
+  //    line (diameter only) renders as "N × 4″ → 4″ device".
+  function _e(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function lineStatus(line){
+    var sz = line.sizing || {}; var fl = sz.flags || [];
+    if (line.device_override) return { k: 'override', label: 'Override' };
+    if (fl.indexOf('upsized') !== -1 || fl.indexOf('parallel') !== -1) return { k: 'upsized', label: 'Upsized' };
+    if (fl.indexOf('below_min') !== -1) return { k: 'warn', label: 'Below min' };
+    if (fl.length) return { k: 'warn', label: 'Check' };
+    return { k: 'ok', label: 'In spec' };
+  }
+  function pipeText(line){
+    var std = line.pipe_std || 'us', size = line.pipe_size != null ? line.pipe_size : line.diameter;
+    if (std === 'metric'){ var r = pipeRow('metric', size); return r ? (r.label + ' (' + r.us + ')') : (size + ' mm'); }
+    var u = pipeRow('us', size); return u ? u.label : (size + '″');
+  }
+  function linesText(lines){
+    if (!lines || !lines.length) return '—';
+    return lines.map(function(l){
+      var dev = Number(l.diameter) || (l.sizing && l.sizing.device) || '?';
+      var par = (l.sizing && l.sizing.parallel > 1) ? ' ×' + l.sizing.parallel : '';
+      return (l.count || 1) + ' × ' + pipeText(l) + ' → ' + dev + '″' + par;
+    }).join(' · ');
+  }
+  // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool }
+  function linesTableHtml(lines, opts){
+    opts = opts || {};
+    if (!lines || !lines.length) return '<div class="ar-hyd-empty">No return lines recorded.</div>';
+    var fu = opts.flowUnit || 'gpm';
+    var rows = lines.map(function(l, i){
+      var sz = l.sizing || {}; var st = lineStatus(l);
+      var dev = Number(l.diameter) || sz.device || '?';
+      var flowTxt = l.flow_gpm ? showFlow(l.flow_gpm, l.flow_unit || fu) : (sz.code ? showFlow(sz.code, fu) + '<span class="sub">code flow</span>' : '—');
+      var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? '<span class="sub">' + _e(sz.model) + (sz.adapter ? ' · adapter' : '') + '</span>' : '');
+      var flags = (opts.showFlags !== false && sz.messages && sz.messages.length)
+        ? '<tr class="ar-hyd-flags"><td colspan="5">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
+        : '';
+      return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
+    }).join('');
+    // Fixed column widths so tables on neighbouring pool cards line up.
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:9%"><col style="width:27%"><col style="width:20%"><col style="width:26%"><col style="width:18%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+  // Device schedule — devices by size across a set of lines (count × parallel).
+  function deviceSchedule(linesArrays){
+    var by = {};
+    (linesArrays || []).forEach(function(lines){
+      (lines || []).forEach(function(l){
+        var dev = Number(l.diameter) || (l.sizing && l.sizing.device) || 0; if (!dev) return;
+        var n = (Number(l.count) || 1) * Math.max(1, Number(l.sizing && l.sizing.parallel) || 1);
+        by[dev] = (by[dev] || 0) + n;
+      });
+    });
+    return Object.keys(by).map(Number).sort(function(a,b){ return a-b; }).map(function(d){ var m = deviceFor(d); return { in: d, count: by[d], model: m ? m.model : '' }; });
+  }
+  function scheduleText(sched){
+    if (!sched || !sched.length) return '—';
+    return sched.map(function(x){ return x.count + ' × ' + x.in + '″' + (x.model ? ' (' + x.model + ')' : ''); }).join(' · ');
+  }
+  function lineDeviceCount(l){ return (Number(l.count) || 1) * Math.max(1, Number(l.sizing && l.sizing.parallel) || 1); }
+  // Adapter schedule — one entry per pipe→device pairing that needs a
+  // transition fitting (every metric line, and US lines whose device size
+  // differs from the pipe, e.g. 1½″ → 2″). Count = devices on those lines.
+  function adapterSchedule(linesArrays){
+    var by = {};
+    (linesArrays || []).forEach(function(lines){
+      (lines || []).forEach(function(l){
+        var sz = l.sizing || {};
+        var dev = Number(l.diameter) || sz.device || 0; if (!dev) return;
+        var std = l.pipe_std || 'us', size = l.pipe_size != null ? l.pipe_size : l.diameter;
+        var needs = sz.adapter != null ? !!sz.adapter : (std === 'metric' || Number(size) !== dev);
+        if (!needs) return;
+        var key = pipeText(l) + ' → ' + dev + '″';
+        by[key] = (by[key] || 0) + lineDeviceCount(l);
+      });
+    });
+    return Object.keys(by).map(function(k){ return { label: k, count: by[k] }; });
+  }
+  function adapterText(sched){
+    if (!sched || !sched.length) return 'None required';
+    return sched.map(function(x){ return x.count + ' × ' + x.label; }).join(' · ');
+  }
+  return {
+    DEVICES: DEVICES, US: US, METRIC: METRIC, TURNOVER_H: TURNOVER_H, VOL: VOL, FLOW: FLOW,
+    assign: assign, codeFlowGpm: codeFlowGpm, pipeRow: pipeRow, pipeLabel: pipeLabel, velocityFps: velocityFps,
+    showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
+    deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml,
+    deviceSchedule: deviceSchedule, scheduleText: scheduleText, lineDeviceCount: lineDeviceCount,
+    adapterSchedule: adapterSchedule, adapterText: adapterText
+  };
+})();
+
 window.AR2_ENGINEER = (function(){
 
   // ── Module state ────────────────────────────────────────────────
@@ -12363,9 +12651,26 @@ window.AR2_ENGINEER = (function(){
   function mountEl(){
     return document.getElementById('ar2-bank');
   }
-  function repaint(){
+  function repaint(opts){
     var m = mountEl();
+    // Full re-render replaces the DOM, which resets the window scroll to
+    // the top. Keep the engineer where they were working (Jeff, 2026-10-19):
+    // remember the scroll position and restore it after the paint — unless
+    // the caller is a step change, which deliberately lands at the top.
+    var keep = !(opts && opts.keepScroll === false);
+    var y = keep ? (window.pageYOffset || document.documentElement.scrollTop || 0) : 0;
     if (m && typeof renderEngineerPortalShell === 'function') renderEngineerPortalShell(m);
+    if (keep && y > 0){
+      try {
+        window.scrollTo(0, y);
+        requestAnimationFrame(function(){
+          // Content may have grown/shrunk above the fold (e.g. a new thumb);
+          // clamp to the new document height rather than overshooting.
+          var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          window.scrollTo(0, Math.min(y, maxY));
+        });
+      } catch(_){}
+    }
   }
 
   // ── Cross-reload state persistence ────────────────────────────────
@@ -12811,12 +13116,16 @@ window.AR2_ENGINEER = (function(){
     n = Math.max(1, Math.min(4, n | 0));
     s.currentStep = n;
     _persistActiveState();
-    repaint();
+    repaint({ keepScroll: false });
     // Land the engineer at the top of the calculator chrome on every
     // step transition so they're never half-scrolled down the previous
     // step's form. Same scrollAppTop helper the rest of the calculator
     // uses on its own step advances.
-    if (typeof scrollAppTop === 'function') scrollAppTop();
+    var toTop = function(){
+      try { if (typeof scrollAppTop === 'function') scrollAppTop(); else window.scrollTo(0, 0); } catch(_){ try { window.scrollTo(0, 0); } catch(__){} }
+    };
+    toTop();
+    requestAnimationFrame(toTop);   // after any late layout (images, fonts)
   }
   function isStepComplete(n){
     if (n === 1) return true;  // Briefing is always considered complete (skippable)
@@ -12899,14 +13208,19 @@ window.AR2_ENGINEER = (function(){
       patch.manualGallons = String(v.confirmed_gallons);
       patch.inputMode = 'gallons';
     }
-    // Translate return_lines back to pipe_2in/3in/4in/6in/8in/10in counts
+    // Translate return_lines back to pipe_2in/3in/4in/6in/8in/10in counts.
+    // `diameter` is the EFFECTIVE DEVICE size (rule or override); the pipe
+    // itself lives in pipe_std / pipe_size. The full line spec rides along
+    // so the pool profile card and PDF can show "110 mm line → 4″ device".
     if (Array.isArray(v.return_lines) && v.return_lines.length){
+      patch.return_lines = v.return_lines;
       // Zero the canonical six first so removed lines clear properly.
       patch.pipe_2in = 0; patch.pipe_3in = 0; patch.pipe_4in = 0;
       patch.pipe_6in = 0; patch.pipe_8in = 0; patch.pipe_10in = 0;
       v.return_lines.forEach(function(line){
         var d = Number(line.diameter) || 0;
-        var n = Number(line.count) || 0;
+        // Parallel 6″ units (design flow above 1,100 gpm) multiply the count.
+        var n = (Number(line.count) || 0) * Math.max(1, Number(line.sizing && line.sizing.parallel) || 1);
         if (n <= 0) return;
         if (d === 2)  patch.pipe_2in  += n;
         else if (d === 3)  patch.pipe_3in  += n;
@@ -13703,6 +14017,15 @@ window.AR2_ENGINEER = (function(){
     return '<div class="ar-eng-flow-header">'
       +   '<div class="ar-eng-header-top">'
       +     '<button class="ar-eng-back-btn" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' ' + backLabel + '</button>'
+      // Personal units preference — how THIS user enters and reads volumes
+      // and flows, on every property. Stored on app_users.unit_system.
+      +     '<label class="ar-eng-units-pref" title="Your measurement preference for volumes and flows">'
+      +       '<span>Units</span>'
+      +       '<select data-action="ar-eng-user-units" aria-label="Measurement preference">'
+      +         '<option value="imperial"' + (userUnits() === 'imperial' ? ' selected' : '') + '>Imperial · gal · gpm</option>'
+      +         '<option value="metric"' + (userUnits() === 'metric' ? ' selected' : '') + '>Metric · m³ · m³/h</option>'
+      +       '</select>'
+      +     '</label>'
       +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
       +   '</div>'
       +   adminBanner
@@ -14103,8 +14426,9 @@ window.AR2_ENGINEER = (function(){
       +       '<iframe src="https://www.youtube-nocookie.com/embed/Nh7DkYL6LNA" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
       +     '</div>'
       +     '<ul class="ar-eng-bullets">'
-      +       '<li><b>Confirm property access</b> on Step 2 before you start collecting data on site.</li>'
-      +       '<li><b>Verify each pool</b> on Step 3 — gallons, return lines, diameters, and any notes.</li>'
+      +       '<li><b>Confirm property access</b> on Step 2, and set the <b>site pipe standard</b> — Imperial (inches) or Metric (mm) — so the return-line sizes match what is on the pipe.</li>'
+      +       '<li><b>Verify each pool</b> on Step 3 — confirm the volume, then for every return line record the pipe size and the flow rate from the flow meter or pump curve. The card shows the AquaRev device that fits and flags anything out of specification.</li>'
+      +       '<li><b>Pick your units</b> from the Units menu in the header at any time — gallons and gpm, or m³ and m³/h. The device sizes always stay in inches.</li>'
       +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
       +     '</ul>'
 
@@ -14146,7 +14470,16 @@ window.AR2_ENGINEER = (function(){
       +         '<div class="ar-eng-brief-sizes-foot">Devices need 20" – 40" of straight pipe to install. Note any tight runs in your walkthrough video.</div>'
       +       '</div>'
       +       '<div class="ar-eng-brief-strip">'
-      +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener">'
+      // Specifications + Drawings replace the old PDF link (Jeff, 2026-10-19).
+      +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/specifications" target="_blank" rel="noopener">'
+      +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h8"/></svg>'
+      +           '<span>Installation Specifications<span class="ar-eng-brief-link-sub">Spec 22 51 19 · device data, flow windows, connection, clearances</span></span>'
+      +         '</a>'
+      +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/drawings" target="_blank" rel="noopener">'
+      +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>'
+      +           '<span>Installation Drawing Set<span class="ar-eng-brief-link-sub">Set 100 · pump room plan, flow diagram, union detail, sequence</span></span>'
+      +         '</a>'
+      +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener" style="display:none">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="12" y1="13" x2="12" y2="19"/><polyline points="9 16 12 19 15 16"/></svg>'
       +           '<span>Download full Specifications Guide<span class="ar-eng-brief-link-sub">PDF · device sizing, placement, photo / video checklist</span></span>'
       +         '</a>'
@@ -14195,6 +14528,7 @@ window.AR2_ENGINEER = (function(){
     var rec = s.record || {};
     var pc = s.propertyConfirmation;
     var sj = rec.state_json || {};
+    var isLockedProp = !!(s.assignment && s.assignment.status === 'locked');
     var totalGallons = 0;
     if (sj.manualVolume){
       totalGallons = Number(sj.manualTotalGallons) || 0;
@@ -14245,48 +14579,51 @@ window.AR2_ENGINEER = (function(){
       +       '<span class="ar-admin-review-status ' + esc(asgnStatus) + '">' + esc(statusLabel) + '</span>'
       +     '</div>'
 
-      // ── Metadata strip — Address (with Maps link), Pools on file,
-      //    Total volume (Estimate), Assigned / Sent dates.
-      +     '<div class="ar-admin-review-meta" style="margin-bottom:14px;padding-bottom:14px">'
-      +       '<div class="ar-admin-review-meta-item" style="flex:1 1 100%">'
-      +         '<span class="ar-admin-review-meta-lbl">Address</span>'
-      +         '<span class="ar-admin-review-meta-val">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener" style="margin-left:6px">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span>'
-      +       '</div>'
-      +       '<div class="ar-admin-review-meta-item">'
-      +         '<span class="ar-admin-review-meta-lbl">Total volume</span>'
-      +         '<span class="ar-admin-review-meta-val mono">' + (totalGallons ? fn(Math.round(totalGallons)) + ' gal' : '—') + '</span>'
-      +       '</div>'
-      +       (assignedTxt
-          ? '<div class="ar-admin-review-meta-item">'
-            + '<span class="ar-admin-review-meta-lbl">Assigned</span>'
-            + '<span class="ar-admin-review-meta-val">' + esc(assignedTxt) + '</span>'
-            + '</div>'
-          : '')
-      +       (submittedTxt
-          ? '<div class="ar-admin-review-meta-item">'
-            + '<span class="ar-admin-review-meta-lbl">Last submission</span>'
-            + '<span class="ar-admin-review-meta-val">' + esc(submittedTxt) + '</span>'
-            + '</div>'
-          : '')
+      // ── Facts grid — four quiet facts; the address spans the row.
+      +     '<div class="ar-eng-facts">'
+      +       '<div class="ar-eng-fact span2"><span class="k">Address</span><span class="v">' + esc(addr) + (mapsUrl ? ' <a class="ar-eng-link" href="' + mapsUrl + '" target="_blank" rel="noopener">Open in Maps ' + svgArrowOut() + '</a>' : '') + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Pools on file</span><span class="v mono">' + (s.pools.length || 0) + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Total volume (estimate)</span><span class="v mono">' + (totalGallons ? (userUnits() === 'metric' ? AR2_SIZING.showVol(totalGallons, 'm3') + '<span class="alt">' + fn(Math.round(totalGallons)) + ' gal</span>' : fn(Math.round(totalGallons)) + ' gal<span class="alt">' + AR2_SIZING.showVol(totalGallons, 'm3') + '</span>') : '—') + '</span></div>'
+      +       (assignedTxt ? '<div class="ar-eng-fact"><span class="k">Assigned</span><span class="v">' + esc(assignedTxt) + '</span></div>' : '')
+      +       (submittedTxt ? '<div class="ar-eng-fact"><span class="k">Last sent</span><span class="v">' + esc(submittedTxt) + '</span></div>' : '')
       +     '</div>'
 
-      // ── KPI band — running progress at a glance. Photos cell turns
-      //    amber on 0 (matches the admin review's "no media" warning).
-      +     '<div class="ar-admin-review-kpis">'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pools</div><div class="ar-admin-review-kpi-val">' + (s.pools.length || 0) + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      // ── Site pipe standard — a required decision, so it gets its own
+      //    section rather than a cell in the facts grid. Drives the
+      //    return-line size list and the adapter requirement on Step 3.
+      +     '<div class="ar-eng-section-title">Site pipe standard</div>'
+      +     '<div class="ar-eng-std-card' + (propStd() === 'metric' ? ' metric' : '') + '">'
+      +       '<div class="ar-eng-std-l">'
+      +         '<div class="ar-eng-seg lg" role="radiogroup" aria-label="Site pipe standard">'
+      +           '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'us' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="imperial"' + (isLockedProp ? ' disabled' : '') + '>Imperial <small>inches</small></button>'
+      +           '<button type="button" class="ar-eng-seg-btn' + (propStd() === 'metric' ? ' on' : '') + '" data-action="ar-eng-prop-units" data-units="metric"' + (isLockedProp ? ' disabled' : '') + '>Metric <small>mm</small></button>'
+      +         '</div>'
+      +       '</div>'
+      +       '<div class="ar-eng-std-r">'
+      +         (propStd() === 'metric'
+                ? '<b>Metric site.</b> Return lines are recorded in mm (63, 90, 110, 160). AquaRev devices stay in inches; a transition adapter is supplied for every metric line, device on the receiving end.'
+                : '<b>Imperial site.</b> Return lines are recorded in inches (1½ to 6). Switch to Metric if the pipe is marked in mm.')
+      +         '<div class="ar-eng-hint" style="margin-top:6px">Your own units for volumes and flows are set from the Units menu in the header and do not change this.</div>'
+      +       '</div>'
       +     '</div>'
 
-      // ── Pump-room chips (when any have been added on Step 3 — useful
-      //    on return visits when the engineer revisits Step 2 to verify
-      //    everything before the final submit).
-      +     (pumpRoomCount
-          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
-            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
-            + '</div>'
-          : '')
+      // ── Engineer profile — contact details printed on the report cover.
+      //    Editable in place; saves to app_users (self-update policy).
+      +     (function(){
+              var u = currentUser() || {};
+              var canEdit = !!(u && u.role === 'engineer');
+              var st = s._profileSaveState || '';
+              return '<div class="ar-eng-section-title">Your contact details <span class="ar-eng-hint" style="text-transform:none;letter-spacing:0;font-weight:400">— printed on the verification report</span>'
+                + (st === 'saving' ? '<span class="ar-eng-profile-st">Saving…</span>' : st === 'saved' ? '<span class="ar-eng-profile-st ok">' + svgIconCheck() + ' Saved</span>' : st === 'error' ? '<span class="ar-eng-profile-st err">Save failed</span>' : '')
+                + '</div>'
+                + '<div class="ar-eng-profile">'
+                +   '<label class="ar-eng-profile-f"><span>Name</span><input type="text" data-action="ar-eng-profile-field" data-field="name" value="' + esc(u.name || '') + '" placeholder="Full name" maxlength="80"' + (canEdit ? '' : ' disabled') + ' /></label>'
+                +   '<label class="ar-eng-profile-f"><span>Mobile</span><input type="tel" inputmode="tel" data-action="ar-eng-profile-field" data-field="phone" value="' + esc(u.phone || '') + '" placeholder="+1 555 000 0000" maxlength="40"' + (canEdit ? '' : ' disabled') + ' /></label>'
+                +   '<label class="ar-eng-profile-f"><span>Email</span><input type="email" value="' + esc(u.email || '') + '" disabled title="Your sign-in email is managed by AquaRev" /></label>'
+                +   '<label class="ar-eng-profile-f"><span>Company</span><input type="text" data-action="ar-eng-profile-field" data-field="company" value="' + esc(u.company || '') + '" placeholder="Company or contractor" maxlength="80"' + (canEdit ? '' : ' disabled') + ' /></label>'
+                + '</div>'
+                + (canEdit ? '' : '<div class="ar-eng-hint" style="margin:-8px 0 14px">Reviewers see the engineer\'s details here; only the engineer can edit them.</div>');
+            })()
 
       // ── Rep notes block (preserved from the original) ──────────
       +     (s.assignment && s.assignment.assignment_notes
@@ -14534,13 +14871,99 @@ window.AR2_ENGINEER = (function(){
       + '</div>';
   }
 
+  /* ── Units + sizing helpers (metric trial) ──────────────────────────
+     propStd()   'us' | 'metric' — the SITE's pipe family (state_json.units)
+     userUnits() 'imperial' | 'metric' — this USER's entry/display preference
+     Per-field unit pills override the preference for the session only.  */
+  function propStd(){
+    var sj = (s.record && s.record.state_json) || {};
+    return sj.units === 'metric' ? 'metric' : 'us';
+  }
+  function userUnits(){
+    var u = currentUser();
+    return (u && u.unit_system === 'metric') ? 'metric' : 'imperial';
+  }
+  function volUnitFor(poolIndex){
+    if (!s._volUnit) s._volUnit = {};
+    return s._volUnit[poolIndex] || (userUnits() === 'metric' ? 'm3' : 'gal');
+  }
+  function flowUnitFor(line){
+    return (line && line.flow_unit) || (userUnits() === 'metric' ? 'm3h' : 'gpm');
+  }
+  function poolGallonsFor(p, v){
+    return Number(v && v.confirmed_gallons) || Number(p && p.gallonsRep) || 0;
+  }
+  // Recompute device assignment for every line on a pool. Mutates the line
+  // objects: diameter (effective device, keeps every downstream consumer
+  // working unchanged), device_auto, pipe_std, pipe_size, sizing{}.
+  function recomputeLines(p, v, lines){
+    var std = propStd();
+    var totalLines = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
+    var gal = poolGallonsFor(p, v);
+    var codeGpm = AR2_SIZING.codeFlowGpm(gal, totalLines);
+    var IN_TO_MM = { 1.5: 50, 2: 63, 3: 90, 4: 110, 6: 160 };
+    lines.forEach(function(line){
+      // A line created before the trial carries only `diameter` (inches,
+      // which was also the pipe size). Carry it into the site's family.
+      if (!line.pipe_std) line.pipe_std = std;
+      if (line.pipe_size == null){
+        var dIn = Number(line.diameter) || 4;
+        line.pipe_size = (line.pipe_std === 'metric') ? (IN_TO_MM[dIn] || 110) : dIn;
+      }
+      var r = AR2_SIZING.assign({ std: line.pipe_std, size: line.pipe_size, flowGpm: Number(line.flow_gpm) || 0, codeFlowGpm: codeGpm });
+      line.device_auto = r.device;
+      // An override equal to the rule's answer is no override (e.g. flow
+      // changed and the rule now lands on the size that was picked by hand).
+      if (line.device_override && Number(line.device_override) === Number(r.device)){ line.device_override = null; line.override_reason = ''; }
+      line.diameter = Number(line.device_override) || r.device;   // effective device size
+      line.sizing = { reason: r.reason, design: Math.round(r.design), code: Math.round(codeGpm), entered: Math.round(r.entered),
+                      parallel: r.parallel, velocity: Math.round(r.velocityFps * 10) / 10, adapter: !!r.adapter, model: r.model,
+                      flags: r.flags.map(function(f){ return f.k; }), messages: r.flags.map(function(f){ return f.msg; }) };
+    });
+    return lines;
+  }
+  // Append a "[Sizing]" line to the pool notes for every new flag so the
+  // installer sees it without opening the portal. De-duplicated by text.
+  // Disabled 2026-10-19 (Jeff): system notes stacked up as selections
+  // changed. Flags stay on the card; notes are the engineer's / admin's.
+  function appendSizingNotes(){ return false; }
+  // Both families are always offered (site family first) so an engineer
+  // can re-size an existing line to 110 mm without adding a new one.
+  // Option value = "std:size".
+  function sizeOptionsHtml(std, selected, siteStd){
+    function group(fam, label){
+      var list = fam === 'metric' ? AR2_SIZING.METRIC : AR2_SIZING.US;
+      return '<optgroup label="' + label + '">' + list.map(function(r){
+        var lbl = fam === 'metric' ? (r.label + ' · ' + r.dn + ' · ' + r.us) : r.label;
+        var sel = (fam === std && Number(selected) === r.size) ? ' selected' : '';
+        return '<option value="' + fam + ':' + r.size + '"' + sel + '>' + lbl + '</option>';
+      }).join('') + '</optgroup>';
+    }
+    var first = siteStd === 'metric' ? 'metric' : 'us';
+    return first === 'metric'
+      ? group('metric', 'Metric (mm)') + group('us', 'Imperial (in)')
+      : group('us', 'Imperial (in)') + group('metric', 'Metric (mm)');
+  }
+  function unitPillsHtml(kind, current, attrs){
+    var units = kind === 'vol' ? ['gal','m3','L'] : ['gpm','m3h','ls'];
+    var labels = { gal:'gal', m3:'m³', L:'L', gpm:'gpm', m3h:'m³/h', ls:'L/s' };
+    return '<span class="ar-eng-unit-pills" role="radiogroup">' + units.map(function(u){
+      return '<button type="button" class="ar-eng-unit-pill' + (u === current ? ' on' : '') + '" ' + attrs + ' data-unit="' + u + '">' + labels[u] + '</button>';
+    }).join('') + '</span>';
+  }
+
   function poolCardHtml(p, isLocked){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
     var hasMedia = poolHasMedia(p.index);
     var complete = hasLines && hasMedia && !isLocked;
     var lines = v.return_lines || [];
-    var DIAMETERS = [2, 3, 4, 6, 8];
+    if (lines.length) recomputeLines(p, v, lines);
+    var std = propStd();
+    var volUnit = volUnitFor(p.index);
+    var gal = poolGallonsFor(p, v);
+    var totalLineCount = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
+    var codeGpm = AR2_SIZING.codeFlowGpm(gal, totalLineCount);
     // dis = ' disabled' string we sprinkle on every form control while
     // the card is locked. Buttons get aria-disabled to be safe.
     var dis  = isLocked ? ' disabled' : '';
@@ -14648,12 +15071,13 @@ window.AR2_ENGINEER = (function(){
 
       +   imageBlock
 
-      // — Gallons first —
-      +   '<div class="ar-eng-field"><label>Confirm gallons</label>'
+      // — Volume first — entered in the engineer's unit, stored in gallons.
+      +   '<div class="ar-eng-field"><label>Confirm volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"') + '</label>'
       +     '<div class="ar-eng-inline">'
-      +       '<input type="number" inputmode="numeric" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" value="' + (v.confirmed_gallons || '') + '" placeholder="' + (p.gallonsRep || '') + '"' + dis + ' />'
+      +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + (v.confirmed_gallons ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (p.gallonsRep ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '"' + dis + ' />'
       +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Confirm Estimate</button>' : '')
       +     '</div>'
+      +     (volUnit !== 'gal' && (v.confirmed_gallons || p.gallonsRep) ? '<div class="ar-eng-hint" style="margin-top:4px">= ' + fn(Math.round(v.confirmed_gallons || p.gallonsRep)) + ' gal</div>' : '')
       +     divergenceWarning
       +   '</div>'
 
@@ -14666,19 +15090,45 @@ window.AR2_ENGINEER = (function(){
       +     '</select>'
       +   '</div>'
 
-      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count + diameter per line)</span>') + '</label>'
-      +     '<div class="ar-eng-lines">' + (lines.length ? lines.map(function(line, li){
-              var diaOpts = DIAMETERS.map(function(d){
-                return '<option value="' + d + '"' + (Number(line.diameter) === d ? ' selected' : '') + '>' + d + '" return</option>';
-              }).join('');
-              return '<div class="ar-eng-line">'
-                +   '<div class="ar-eng-line-stepper">'
-                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
-                +     '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
-                +     '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
+      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count · pipe size · flow per line)</span>')
+      +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
+      +     '</label>'
+      +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
+      // Column headers — the lines read as a small table: Qty · Pipe · Flow · Device
+      +       (lines.length ? '<div class="ar-eng-lines-hd"><span>Qty</span><span>Pipe size</span><span>Flow</span><span>Device</span><span></span></div>' : '')
+      +       (lines.length ? lines.map(function(line, li){
+              var lstd = line.pipe_std || std;
+              var fu = flowUnitFor(line);
+              var sz = line.sizing || {};
+              var devEff = Number(line.diameter) || sz.device || 4;
+              var overridden = !!line.device_override;
+              var status = overridden ? 'override' : (sz.flags && sz.flags.length ? (sz.flags.indexOf('upsized') !== -1 || sz.flags.indexOf('parallel') !== -1 ? 'upsized' : 'warn') : 'ok');
+              var statusLabel = status === 'ok' ? 'In spec' : status === 'upsized' ? 'Upsized' : status === 'override' ? 'Override' : (sz.flags && sz.flags.indexOf('below_min') !== -1 ? 'Below min' : 'Check');
+              var flowVal = line.flow_gpm ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(line.flow_gpm, fu), AR2_SIZING.FLOW[fu].dp).replace(/,/g,'') : '';
+              // Device select = rule result + override in one control. First
+              // option is the rule's answer; picking another size is an override.
+              var devSel = '<select class="ar-eng-dev-sel' + (overridden ? ' overridden' : '') + '" data-action="ar-eng-line-override" data-pool="' + p.index + '" data-line="' + li + '" title="Device assigned by the sizing rule. Choose another size to override (reason required)."' + dis + '>'
+                + '<option value=""' + (!overridden ? ' selected' : '') + '>' + (line.device_auto || devEff) + '″ · rule' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + '</option>'
+                + AR2_SIZING.DEVICES.map(function(d){ return '<option value="' + d.in + '"' + (Number(line.device_override) === d.in ? ' selected' : '') + '>' + d.in + '″ · override</option>'; }).join('')
+                + '</select>';
+              return '<div class="ar-eng-line ar-eng-line-v2' + (status !== 'ok' ? ' has-flag' : '') + '">'
+                +   '<div class="ar-eng-line-grid">'
+                +     '<div class="ar-eng-line-stepper" data-col="Qty">'
+                +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="-1" type="button"' + dis + disA + '>−</button>'
+                +       '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
+                +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
+                +     '</div>'
+                +     '<select class="ar-eng-line-dia" data-col="Pipe" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size as marked on the line (imperial or metric)"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size, std) + '</select>'
+                +     '<div class="ar-eng-line-flowcell" data-col="Flow">'
+                +       '<input type="number" inputmode="decimal" step="any" placeholder="' + (codeGpm > 0 ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(codeGpm, fu), AR2_SIZING.FLOW[fu].dp) : '—') + '" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line. Blank = health-code flow."' + dis + ' />'
+                +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
+                +     '</div>'
+                +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span></div>'
+                +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                +   '<select class="ar-eng-line-dia" data-action="ar-eng-line-dia" data-pool="' + p.index + '" data-line="' + li + '"' + dis + '>' + diaOpts + '</select>'
-                +   '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
+                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + '</div>' : '')
+                +   (overridden ? '<input type="text" class="ar-eng-override-reason" data-action="ar-eng-line-override-reason" data-pool="' + p.index + '" data-line="' + li + '" value="' + esc(line.override_reason || '') + '" placeholder="Reason for override (required)" maxlength="160"' + dis + ' />' : '')
+                +   ((sz.messages && sz.messages.length) ? '<div class="ar-eng-line-flags">' + sz.messages.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('') + '</div>' : '')
                 + '</div>';
             }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button"' + dis + disA + '>+ Add return line</button>'
@@ -14803,33 +15253,48 @@ window.AR2_ENGINEER = (function(){
 
       +     sentBanner
 
-      // ── KPI band ──────────────────────────────────────────────
-      +     '<div class="ar-admin-review-kpis">'
-      +       '<div class="ar-admin-review-kpi' + (allReady ? '' : ' warn') + '"><div class="ar-admin-review-kpi-lbl">Pools done</div><div class="ar-admin-review-kpi-val">' + doneCount + ' / ' + s.pools.length + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Pump Rooms</div><div class="ar-admin-review-kpi-val">' + pumpRoomCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi' + (photoCount===0?' warn':'') + '"><div class="ar-admin-review-kpi-lbl">Photos</div><div class="ar-admin-review-kpi-val">' + photoCount + '</div></div>'
-      +       '<div class="ar-admin-review-kpi"><div class="ar-admin-review-kpi-lbl">Videos</div><div class="ar-admin-review-kpi-val">' + videoCount + '</div></div>'
+      // ── Facts grid — same treatment as Step 2: site standard, device
+      //    schedule, progress counters, pump rooms.
+      +     '<div class="ar-eng-facts">'
+      +       '<div class="ar-eng-fact"><span class="k">Site pipe standard</span><span class="v">' + (propStd() === 'metric' ? 'Metric <span class="alt">mm · devices imperial · adapters supplied</span>' : 'Imperial <span class="alt">inches</span>') + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Device schedule</span><span class="v mono" style="font-size:13.5px">' + esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(Object.keys(s.verifications).map(function(k){ return (s.verifications[k] || {}).return_lines || []; })))) + '<span class="alt">Adapters: ' + esc(AR2_SIZING.adapterText(AR2_SIZING.adapterSchedule(Object.keys(s.verifications).map(function(k){ return (s.verifications[k] || {}).return_lines || []; })))) + '</span></span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Pools complete</span><span class="v mono' + (allReady ? '' : ' warn') + '">' + doneCount + ' / ' + s.pools.length + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Pump rooms</span><span class="v">' + (pumpRoomCount ? s.pumpRooms.map(function(r){ return esc(r.label || 'Room'); }).join(' · ') : '<span class="mono">0</span>') + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Photos</span><span class="v mono' + (photoCount===0?' warn':'') + '">' + photoCount + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Videos</span><span class="v mono">' + videoCount + '</span></div>'
       +     '</div>'
 
-      // ── Pump-room chips (when captured) ──────────────────────
-      +     (pumpRoomCount
-          ? '<div class="ar-admin-review-rooms"><span class="ar-admin-review-rooms-lbl">Pump rooms</span>'
-            + s.pumpRooms.map(function(r){ return '<span class="ar-admin-line-chip">' + esc(r.label || 'Room') + '</span>'; }).join('')
-            + '</div>'
-          : '')
-
-      // ── Per-pool readiness checklist — clickable rows jump to that
-      //    pool's card on Step 3 for a quick fix.
-      +     '<div class="ar-eng-readiness">'
-      +       '<div class="ar-eng-readiness-hd"><span>Pool checklist</span><b>' + doneCount + ' / ' + s.pools.length + ' complete</b></div>'
-      +       poolReadiness.map(function(pr){
-              var cls = pr.ready ? ' complete' : '';
-              var missingTxt = pr.ready ? svgIconCheck() + ' Ready to send' : ('Missing: ' + pr.missing.join(' · '));
-              return '<div class="ar-eng-readiness-row' + cls + '" data-action="ar-eng-goto-pool" data-pool-index="' + pr.index + '" role="button" tabindex="0">'
-                + '<span class="ar-eng-readiness-flag">' + (pr.ready ? svgIconCheck() : svgIconWarn()) + '</span>'
-                + '<span class="ar-eng-readiness-name">' + esc(pr.name) + '</span>'
-                + '<span class="ar-eng-readiness-missing">' + missingTxt + '</span>'
-                + '<span class="ar-eng-readiness-chev">›</span>'
+      // ── Per-pool summary — everything captured on Step 3, readable
+      //    without opening the card: volume, water type, pump room, the
+      //    return-line table (pipe · flow · device · status), notes, media.
+      //    Header click jumps to that pool's card.
+      +     '<div class="ar-eng-readiness-hd"><span>Pool summary</span><b>' + doneCount + ' / ' + s.pools.length + ' complete</b></div>'
+      +     '<div class="ar-eng-sum">'
+      +       s.pools.map(function(p){
+              var v = s.verifications[p.index] || { return_lines: [] };
+              var pr = poolReadiness.filter(function(x){ return x.index === p.index; })[0] || { ready: false, missing: [], name: p.name };
+              var gal = Number(v.confirmed_gallons) || 0, est = Number(p.gallonsRep) || 0;
+              var vu = userUnits() === 'metric' ? 'm3' : 'gal';
+              var fu = userUnits() === 'metric' ? 'm3h' : 'gpm';
+              var room = (s.pumpRooms || []).filter(function(r){ return r.id === v.pump_room_id; })[0];
+              var counts = countMediaForPool(p.index);
+              var wt = v.pool_type === 'saltwater' ? 'Saltwater' : v.pool_type === 'fresh' ? 'Fresh / chlorine' : '—';
+              return '<div class="ar-eng-sum-pool' + (pr.ready ? ' ready' : '') + '">'
+                + '<div class="ar-eng-sum-hd" data-action="ar-eng-goto-pool" data-pool-index="' + p.index + '" role="button" tabindex="0">'
+                +   '<span class="ar-eng-readiness-flag">' + (pr.ready ? svgIconCheck() : svgIconWarn()) + '</span>'
+                +   '<span class="ar-eng-sum-name">' + esc(pr.name) + '</span>'
+                +   (p.isEngineerAdded ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '')
+                +   '<span class="ar-eng-sum-edit">Edit ›</span>'
+                + '</div>'
+                + '<div class="ar-eng-sum-facts">'
+                +   '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, vu) : (est ? AR2_SIZING.showVol(est, vu) + ' (estimate)' : '—')) + '</b></span>'
+                +   '<span>Water <b>' + wt + '</b></span>'
+                +   (room ? '<span>Pump room <b>' + esc(room.label || 'Room') + '</b></span>' : '')
+                +   '<span>Media <b>' + counts.photo + ' photo' + (counts.photo===1?'':'s') + ' · ' + counts.video + ' video' + (counts.video===1?'':'s') + '</b></span>'
+                + '</div>'
+                + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true }) + '</div>'
+                + (v.notes ? '<div class="ar-eng-sum-notes">' + esc(v.notes) + '</div>' : '')
+                + (pr.ready ? '' : '<div class="ar-eng-sum-missing">' + svgIconWarn() + ' Missing: ' + pr.missing.join(' · ') + '</div>')
                 + '</div>';
             }).join('')
       +     '</div>'
@@ -14861,6 +15326,11 @@ window.AR2_ENGINEER = (function(){
       // ── Bottom nav ────────────────────────────────────────────
       +     '<div class="ar-eng-actions">'
       +       '<button class="ar-eng-btn secondary" data-action="ar-eng-goto-step" data-step="3" type="button">' + svgIconArrowLeft() + ' Back to pools</button>'
+      // Save progress — flushes every pending edit now and, for non-admin
+      // users, posts a dashboard activity alert without sending for review.
+      +       (locked ? '' : '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-save-progress" type="button"' + (s._progressSaveState === 'saving' ? ' disabled' : '') + '>'
+            + (s._progressSaveState === 'saving' ? 'Saving…' : s._progressSaveState === 'saved' ? svgIconCheck() + ' Saved' : svgIconDownload() + ' Save progress')
+            + '</button>')
       +       (isAdmin
             ? '<button class="ar-eng-btn primary" data-action="ar-eng-close-assignment" type="button">' + svgIconArrowLeft() + ' Back to Archive</button>'
             : '')
@@ -14926,7 +15396,9 @@ window.AR2_ENGINEER = (function(){
     }
     if (action === 'ar-eng-confirm-gallons'){
       var pi = parseInt(target.getAttribute('data-pool'), 10);
-      var val = parseInt(target.value, 10);
+      // Typed in the field's unit (gal · m³ · L); stored as whole gallons.
+      var typed = parseFloat(String(target.value).replace(/,/g, ''));
+      var val = isNaN(typed) ? NaN : Math.round(AR2_SIZING.volToGal(typed, target.getAttribute('data-unit') || 'gal'));
       var pool = s.pools.find(function(x){ return x.index === pi; });
       // Auto-flag discrepancy if engineer's value differs from rep by >5%.
       // Note: when value is cleared / matches within tolerance, clear the
@@ -14937,8 +15409,169 @@ window.AR2_ENGINEER = (function(){
         var diff = Math.abs(newConfirmed - pool.gallonsRep);
         if (diff / pool.gallonsRep > 0.05) discFlag = true;
       }
-      // Silent: don't repaint mid-keystroke or focus + scroll jump.
-      updateVerification(pi, { confirmed_gallons: newConfirmed, has_discrepancy: discFlag }, { silent: true });
+      // Silent: don't repaint mid-keystroke or focus + scroll jump. Lines
+      // are re-sized against the new volume (code flow depends on it).
+      var vG = s.verifications[pi] || { return_lines: [] };
+      var linesG = (vG.return_lines || []).slice();
+      var patchG = { confirmed_gallons: newConfirmed, has_discrepancy: discFlag };
+      if (linesG.length && pool){ vG.confirmed_gallons = newConfirmed; recomputeLines(pool, vG, linesG); patchG.return_lines = linesG; if (appendSizingNotes(vG, linesG)) patchG.notes = vG.notes; }
+      updateVerification(pi, patchG, { silent: true });
+      return true;
+    }
+    // ── Metric trial: units + per-line flow / size / override ──
+    if (action === 'ar-eng-vol-unit'){
+      var piU = parseInt(target.getAttribute('data-pool'), 10);
+      if (!s._volUnit) s._volUnit = {};
+      s._volUnit[piU] = target.getAttribute('data-unit') || 'gal';
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-save-progress'){
+      var cS = client();
+      if (!cS || !s.assignmentId) return true;
+      s._progressSaveState = 'saving';
+      repaint();
+      // 1. Flush every pool with a pending debounce, plus seeded-but-untouched
+      //    pools (same rule as submit) so nothing sits only in memory.
+      var flushes = [];
+      Object.keys(s.verifications).forEach(function(k){
+        var v = s.verifications[k]; if (!v) return;
+        var pending = s._poolSaveTimers && s._poolSaveTimers[k];
+        var seeded = v._seededFromAssessment && Array.isArray(v.return_lines) && v.return_lines.length;
+        if (pending){ clearTimeout(pending); delete s._poolSaveTimers[k]; }
+        if (pending || seeded || v.id){
+          var payload = {
+            assignment_id: s.assignmentId, pool_index: Number(k),
+            confirmed_gallons: v.confirmed_gallons != null ? Number(v.confirmed_gallons) : null,
+            return_lines: v.return_lines || [], notes: v.notes || null,
+            has_discrepancy: !!v.has_discrepancy, discrepancy_reason: v.discrepancy_reason || null,
+            pump_room_id: v.pump_room_id || null, pool_name_override: v.pool_name_override || null,
+            is_engineer_added: !!v.is_engineer_added, pool_type: v.pool_type || null,
+            updated_at: new Date().toISOString()
+          };
+          flushes.push(cS.from('engineer_verifications').upsert(payload, { onConflict: 'assignment_id,pool_index' }).select('id').single()
+            .then(function(rs){ if (rs && rs.data){ v.id = rs.data.id; v._seededFromAssessment = false; try { _propagatePoolToParent(Number(k), v); } catch(_){} } }, function(){}));
+        }
+      });
+      // 2. Property notes still debouncing → write now.
+      if (s._propNotesTimer){ clearTimeout(s._propNotesTimer); s._propNotesTimer = null;
+        flushes.push(cS.from('engineer_assignments').update({ engineer_property_notes: s._propNotesLocal || null, last_modified_at: new Date().toISOString() }).eq('id', s.assignmentId).then(function(){}, function(){})); }
+      // 3. Touch the assignment so "last modified" moves, and bump pending → in_progress.
+      var asgnPatch = { last_modified_at: new Date().toISOString() };
+      if (s.assignment && s.assignment.status === 'pending') asgnPatch.status = 'in_progress';
+      flushes.push(cS.from('engineer_assignments').update(asgnPatch).eq('id', s.assignmentId).then(function(){ if (asgnPatch.status && s.assignment) s.assignment.status = 'in_progress'; }, function(){}));
+      Promise.all(flushes).then(function(){
+        // 4. Dashboard activity for admins + rep — non-admin saves only
+        //    (the RPC returns 0 for admins without inserting).
+        var isAdminS = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
+        var notify = (!isAdminS && window.AR_NOTIFY && AR_NOTIFY.engineerSaved) ? AR_NOTIFY.engineerSaved(s.assignmentId) : Promise.resolve();
+        return notify;
+      }).then(function(){
+        s.saving = false; s.lastSavedAt = new Date(); s.lastSaveError = null; s._progressSaveState = 'saved';
+        repaint();
+        setTimeout(function(){ if (s._progressSaveState === 'saved'){ s._progressSaveState = ''; _safeRepaint(); } }, 3000);
+      }).catch(function(err){
+        s._progressSaveState = ''; s.lastSaveError = (err && err.message) || 'Save failed'; repaint();
+      });
+      return true;
+    }
+    if (action === 'ar-eng-profile-field'){
+      // Name / mobile / company — saved on change (blur or Enter), not per keystroke.
+      var fld = target.getAttribute('data-field');
+      if (['name','phone','company'].indexOf(fld) === -1) return true;
+      var uP = currentUser(), cPf = client();
+      if (!uP || !cPf) return true;
+      var valP = String(target.value || '').trim();
+      if (fld === 'name' && !valP){ target.value = uP.name || ''; return true; }   // never blank the name
+      var patchP = {}; patchP[fld] = valP || null;
+      s._profileSaveState = 'saving';
+      var stEl = document.querySelector('.ar-eng-profile-st'); if (stEl) stEl.textContent = 'Saving…';
+      cPf.from('app_users').update(patchP).eq('id', uP.id).then(function(rs){
+        if (rs && rs.error){ s._profileSaveState = 'error'; try { console.warn('[engineer profile]', rs.error); } catch(_){} }
+        else { uP[fld] = valP; s._profileSaveState = 'saved'; }
+        _safeRepaint();
+        setTimeout(function(){ if (s._profileSaveState === 'saved'){ s._profileSaveState = ''; _safeRepaint(); } }, 2500);
+      }, function(){ s._profileSaveState = 'error'; _safeRepaint(); });
+      return true;
+    }
+    if (action === 'ar-eng-user-units'){
+      var pref = target.value === 'metric' ? 'metric' : 'imperial';
+      var cU = client(), uU = currentUser();
+      if (uU) uU.unit_system = pref;
+      if (cU && uU) cU.from('app_users').update({ unit_system: pref }).eq('id', uU.id).then(function(){}, function(){});
+      s._volUnit = {};   // field pills fall back to the new preference
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-prop-units'){
+      var fam = target.getAttribute('data-units') === 'metric' ? 'metric' : 'imperial';
+      if (!s.record) return true;
+      s.record.state_json = s.record.state_json || {};
+      s.record.state_json.units = fam;
+      var cP = client();
+      if (cP && s.assignmentId){
+        cP.rpc('engineer_apply_record_patch', { p_assignment_id: s.assignmentId, p_patch: { units: fam } })
+          .then(function(rs){ if (rs && rs.error) try { console.warn('[engineer units] ', rs.error); } catch(_){} }, function(){});
+      }
+      // Existing lines keep their own pipe_std; new lines follow the site.
+      repaint();
+      return true;
+    }
+    if (action === 'ar-eng-line-size' || action === 'ar-eng-line-flow' || action === 'ar-eng-line-flow-unit' || action === 'ar-eng-line-flow-src' || action === 'ar-eng-line-override' || action === 'ar-eng-line-override-reason'){
+      var piL = parseInt(target.getAttribute('data-pool'), 10);
+      var liL = parseInt(target.getAttribute('data-line'), 10);
+      var poolL = s.pools.find(function(x){ return x.index === piL; });
+      var vL = s.verifications[piL] || { return_lines: [] };
+      var linesL = (vL.return_lines || []).slice();
+      var line = linesL[liL];
+      if (!line) return true;
+      line = linesL[liL] = JSON.parse(JSON.stringify(line));
+      var silent = false;
+      if (action === 'ar-eng-line-size'){
+        var parts = String(target.value).split(':');
+        if (parts.length === 2){ line.pipe_std = parts[0] === 'metric' ? 'metric' : 'us'; line.pipe_size = parseFloat(parts[1]) || line.pipe_size; }
+        else { line.pipe_std = line.pipe_std || propStd(); line.pipe_size = parseFloat(target.value) || line.pipe_size; }
+      } else if (action === 'ar-eng-line-flow'){
+        var fTyped = parseFloat(String(target.value).replace(/,/g, ''));
+        line.flow_unit = target.getAttribute('data-unit') || flowUnitFor(line);
+        line.flow_gpm = isNaN(fTyped) ? 0 : Math.round(AR2_SIZING.flowToGpm(fTyped, line.flow_unit) * 100) / 100;
+        if (line.flow_gpm && !line.flow_source) line.flow_source = 'meter';
+        silent = true;
+      } else if (action === 'ar-eng-line-flow-unit'){
+        line.flow_unit = target.getAttribute('data-unit') || 'gpm';
+      } else if (action === 'ar-eng-line-flow-src'){
+        line.flow_source = target.value || '';
+        if (line.flow_source === 'code') line.flow_gpm = 0;
+      } else if (action === 'ar-eng-line-override'){
+        var ov = parseInt(target.value, 10);
+        line.device_override = isNaN(ov) ? null : ov;
+        // Choosing the size the rule already gives is not an override.
+        if (line.device_override && Number(line.device_override) === Number(line.device_auto)) line.device_override = null;
+        if (!line.device_override) line.override_reason = '';
+      } else if (action === 'ar-eng-line-override-reason'){
+        line.override_reason = target.value || '';
+        silent = true;
+      }
+      if (poolL) recomputeLines(poolL, vL, linesL);
+      var patchL = { return_lines: linesL };
+      if (appendSizingNotes(vL, linesL)) patchL.notes = vL.notes;
+      updateVerification(piL, patchL, silent ? { silent: true } : undefined);
+      // Flow typing is silent (no repaint); refresh just this line's result
+      // row so the device badge / flags track the number as it is typed.
+      if (silent && action === 'ar-eng-line-flow'){
+        try {
+          var card = target.closest('.ar-eng-line-v2');
+          var res = card && card.querySelector('.ar-eng-line-result .ar-eng-dev-badge');
+          if (res) res.innerHTML = svgIconArrowRight() + ' ' + (line.diameter || line.device_auto) + '″ device' + (line.sizing && line.sizing.parallel > 1 ? ' × ' + line.sizing.parallel : '');
+          var pill = card && card.querySelector('.ar-eng-status-pill');
+          if (pill){ var fl = (line.sizing && line.sizing.flags) || []; var st = line.device_override ? 'override' : (fl.length ? (fl.indexOf('upsized') !== -1 || fl.indexOf('parallel') !== -1 ? 'upsized' : 'warn') : 'ok'); pill.className = 'ar-eng-status-pill ' + st; pill.textContent = st === 'ok' ? 'In spec' : st === 'upsized' ? 'Upsized' : st === 'override' ? 'Override' : (fl.indexOf('below_min') !== -1 ? 'Below min' : 'Check'); }
+          var flagsEl = card && card.querySelector('.ar-eng-line-flags');
+          var msgs = (line.sizing && line.sizing.messages) || [];
+          if (flagsEl) flagsEl.innerHTML = msgs.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('');
+          else if (msgs.length && card){ var fe = document.createElement('div'); fe.className = 'ar-eng-line-flags'; fe.innerHTML = msgs.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join(''); card.appendChild(fe); }
+          if (card) card.classList.toggle('has-flag', !!msgs.length || !!line.device_override);
+        } catch(_){}
+      }
       return true;
     }
     if (action === 'ar-eng-discrepancy-reason'){
@@ -15244,15 +15877,26 @@ window.AR2_ENGINEER = (function(){
     if (action === 'ar-eng-gallons-match'){
       var pi2 = parseInt(target.getAttribute('data-pool'), 10);
       var p = s.pools.find(function(x){ return x.index === pi2; });
-      if (p) updateVerification(pi2, { confirmed_gallons: p.gallonsRep, has_discrepancy: false, discrepancy_reason: null });
+      if (p){
+        var vM = s.verifications[pi2] || { return_lines: [] };
+        var linesM = (vM.return_lines || []).slice();
+        var patchM = { confirmed_gallons: p.gallonsRep, has_discrepancy: false, discrepancy_reason: null };
+        if (linesM.length){ vM.confirmed_gallons = p.gallonsRep; recomputeLines(p, vM, linesM); patchM.return_lines = linesM; if (appendSizingNotes(vM, linesM)) patchM.notes = vM.notes; }
+        updateVerification(pi2, patchM);
+      }
       return true;
     }
     if (action === 'ar-eng-line-add'){
       var pi3 = parseInt(target.getAttribute('data-pool'), 10);
       var existing = s.verifications[pi3] || { return_lines: [] };
       var lines3 = (existing.return_lines || []).slice();
-      lines3.push({ count: 1, diameter: 4 });
-      updateVerification(pi3, { return_lines: lines3 });
+      var stdA = propStd();
+      lines3.push({ count: 1, diameter: 4, pipe_std: stdA, pipe_size: stdA === 'metric' ? 110 : 4, flow_gpm: 0, flow_unit: (userUnits() === 'metric' ? 'm3h' : 'gpm'), flow_source: '' });
+      var poolA = s.pools.find(function(x){ return x.index === pi3; });
+      if (poolA) recomputeLines(poolA, existing, lines3);
+      var patchA = { return_lines: lines3 };
+      if (appendSizingNotes(existing, lines3)) patchA.notes = existing.notes;
+      updateVerification(pi3, patchA);
       return true;
     }
     if (action === 'ar-eng-line-remove'){
@@ -15261,6 +15905,8 @@ window.AR2_ENGINEER = (function(){
       var existing4 = s.verifications[pi4] || { return_lines: [] };
       var lines4 = (existing4.return_lines || []).slice();
       lines4.splice(li4, 1);
+      var poolR = s.pools.find(function(x){ return x.index === pi4; });
+      if (poolR && lines4.length) recomputeLines(poolR, existing4, lines4);   // code flow per line changes
       updateVerification(pi4, { return_lines: lines4 });
       return true;
     }
@@ -15272,11 +15918,16 @@ window.AR2_ENGINEER = (function(){
       var lines5 = (existing5.return_lines || []).slice();
       if (lines5[li5]){
         var newCount = Math.max(1, Math.min(99, (Number(lines5[li5].count) || 1) + delta));
-        lines5[li5] = { count: newCount, diameter: lines5[li5].diameter || 4 };
-        updateVerification(pi5, { return_lines: lines5 });
+        var lc = JSON.parse(JSON.stringify(lines5[li5])); lc.count = newCount; lines5[li5] = lc;
+        var poolC = s.pools.find(function(x){ return x.index === pi5; });
+        if (poolC) recomputeLines(poolC, existing5, lines5);
+        var patchC = { return_lines: lines5 };
+        if (appendSizingNotes(existing5, lines5)) patchC.notes = existing5.notes;
+        updateVerification(pi5, patchC);
       }
       return true;
     }
+    // Legacy handler (pre-trial markup); kept so an old cached render still works.
     if (action === 'ar-eng-line-dia'){
       var pi6 = parseInt(target.getAttribute('data-pool'), 10);
       var li6 = parseInt(target.getAttribute('data-line'), 10);
@@ -15284,7 +15935,7 @@ window.AR2_ENGINEER = (function(){
       var existing6 = s.verifications[pi6] || { return_lines: [] };
       var lines6 = (existing6.return_lines || []).slice();
       if (lines6[li6]){
-        lines6[li6] = { count: lines6[li6].count || 1, diameter: dia };
+        lines6[li6] = { count: lines6[li6].count || 1, diameter: dia, pipe_std: 'us', pipe_size: dia };
         updateVerification(pi6, { return_lines: lines6 });
       }
       return true;
@@ -15358,7 +16009,9 @@ window.AR2_ENGINEER = (function(){
     goToStep: goToStep,
     renderCurrentStep: renderCurrentStep,
     handleAction: handleAction,
-    tryResume: tryResume
+    tryResume: tryResume,
+    // Render hooks used by the visual harness (no data access of their own).
+    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, propertyStep: renderPropertyStep, reviewStep: renderReviewStep, poolsStep: renderPoolsStep }
   };
 })();
 
@@ -16119,6 +16772,18 @@ window.AR_NOTIFY = {
         related_record_id: relatedRecordId || null
       });
     } catch(_){ return Promise.resolve(); }
+  },
+  // "Save progress" on Step 4 — dashboard activity for admins + rep when a
+  // non-admin saves (SECURITY DEFINER notify_engineer_saved; admins → 0 rows).
+  engineerSaved: function(assignmentId){
+    try {
+      var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+      if (!c || !assignmentId) return Promise.resolve({ skipped: true });
+      return c.rpc('notify_engineer_saved', { p_assignment_id: assignmentId }).then(function(rs){
+        if (rs && rs.error){ try { console.warn('[notify_engineer_saved]', rs.error); } catch(_){} return { error: rs.error }; }
+        return rs;
+      }, function(err){ return { error: err }; });
+    } catch(e){ return Promise.resolve({ error: e }); }
   },
   // Engineer-side RPC: notifies admins + rep about an engineer submission.
   // Engineers can't write notifications directly; this routes through
@@ -23284,6 +23949,8 @@ function init(){
     var t = e.target;
     if (!t || !t.hasAttribute || !t.hasAttribute('data-action')) return;
     var a = t.getAttribute('data-action');
+    // Profile fields save on commit (change), never per keystroke.
+    if (a === 'ar-eng-profile-field' && e.type === 'input') return;
     if (a && a.indexOf('ar-eng-') === 0) AR2_ENGINEER.handleAction(a, t);
   }
   root.addEventListener('input', relayEngineerInput);
