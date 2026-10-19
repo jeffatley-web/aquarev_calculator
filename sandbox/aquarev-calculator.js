@@ -12627,15 +12627,16 @@ window.AR2_ENGINEER = (function(){
   function mountEl(){
     return document.getElementById('ar2-bank');
   }
-  function repaint(){
+  function repaint(opts){
     var m = mountEl();
     // Full re-render replaces the DOM, which resets the window scroll to
     // the top. Keep the engineer where they were working (Jeff, 2026-10-19):
-    // remember the scroll position and restore it after the paint.
-    var y = (typeof window !== 'undefined') ? (window.pageYOffset || document.documentElement.scrollTop || 0) : 0;
-    var h = document.documentElement.scrollHeight;
+    // remember the scroll position and restore it after the paint — unless
+    // the caller is a step change, which deliberately lands at the top.
+    var keep = !(opts && opts.keepScroll === false);
+    var y = keep ? (window.pageYOffset || document.documentElement.scrollTop || 0) : 0;
     if (m && typeof renderEngineerPortalShell === 'function') renderEngineerPortalShell(m);
-    if (y > 0){
+    if (keep && y > 0){
       try {
         window.scrollTo(0, y);
         requestAnimationFrame(function(){
@@ -13091,12 +13092,16 @@ window.AR2_ENGINEER = (function(){
     n = Math.max(1, Math.min(4, n | 0));
     s.currentStep = n;
     _persistActiveState();
-    repaint();
+    repaint({ keepScroll: false });
     // Land the engineer at the top of the calculator chrome on every
     // step transition so they're never half-scrolled down the previous
     // step's form. Same scrollAppTop helper the rest of the calculator
     // uses on its own step advances.
-    if (typeof scrollAppTop === 'function') scrollAppTop();
+    var toTop = function(){
+      try { if (typeof scrollAppTop === 'function') scrollAppTop(); else window.scrollTo(0, 0); } catch(_){ try { window.scrollTo(0, 0); } catch(__){} }
+    };
+    toTop();
+    requestAnimationFrame(toTop);   // after any late layout (images, fonts)
   }
   function isStepComplete(n){
     if (n === 1) return true;  // Briefing is always considered complete (skippable)
