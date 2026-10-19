@@ -10780,6 +10780,7 @@ function _engineerReport_renderHtml(bundle){
     +       '<div class="rpt-row"><span class="k">Site pipe standard</span><span class="v">' + ((rec.state_json && rec.state_json.units === 'metric') ? 'Metric (mm) · devices imperial, adapters supplied' : 'Imperial (inches)') + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Pools documented</span><span class="v">' + verifs.length + ' of ' + pools.length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Device schedule</span><span class="v">' + (window.AR2_SIZING ? esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(verifs.map(function(x){ return x.return_lines || []; })))) : '—') + '</span></div>'
+    +       '<div class="rpt-row"><span class="k">Adapters required</span><span class="v">' + (window.AR2_SIZING ? esc(AR2_SIZING.adapterText(AR2_SIZING.adapterSchedule(verifs.map(function(x){ return x.return_lines || []; })))) : '—') + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Pump rooms captured</span><span class="v">' + pumpRooms.length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Photos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='photo';}).length + '</span></div>'
     +       '<div class="rpt-row"><span class="k">Videos collected</span><span class="v">' + media.filter(function(m){return m.media_type==='video';}).length + '</span></div>'
@@ -12489,12 +12490,35 @@ window.AR2_SIZING = (function(){
     return sched.map(function(x){ return x.count + ' × ' + x.in + '″' + (x.model ? ' (' + x.model + ')' : ''); }).join(' · ');
   }
   function lineDeviceCount(l){ return (Number(l.count) || 1) * Math.max(1, Number(l.sizing && l.sizing.parallel) || 1); }
+  // Adapter schedule — one entry per pipe→device pairing that needs a
+  // transition fitting (every metric line, and US lines whose device size
+  // differs from the pipe, e.g. 1½″ → 2″). Count = devices on those lines.
+  function adapterSchedule(linesArrays){
+    var by = {};
+    (linesArrays || []).forEach(function(lines){
+      (lines || []).forEach(function(l){
+        var sz = l.sizing || {};
+        var dev = Number(l.diameter) || sz.device || 0; if (!dev) return;
+        var std = l.pipe_std || 'us', size = l.pipe_size != null ? l.pipe_size : l.diameter;
+        var needs = sz.adapter != null ? !!sz.adapter : (std === 'metric' || Number(size) !== dev);
+        if (!needs) return;
+        var key = pipeText(l) + ' → ' + dev + '″';
+        by[key] = (by[key] || 0) + lineDeviceCount(l);
+      });
+    });
+    return Object.keys(by).map(function(k){ return { label: k, count: by[k] }; });
+  }
+  function adapterText(sched){
+    if (!sched || !sched.length) return 'None required';
+    return sched.map(function(x){ return x.count + ' × ' + x.label; }).join(' · ');
+  }
   return {
     DEVICES: DEVICES, US: US, METRIC: METRIC, TURNOVER_H: TURNOVER_H, VOL: VOL, FLOW: FLOW,
     assign: assign, codeFlowGpm: codeFlowGpm, pipeRow: pipeRow, pipeLabel: pipeLabel, velocityFps: velocityFps,
     showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
     deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml,
-    deviceSchedule: deviceSchedule, scheduleText: scheduleText, lineDeviceCount: lineDeviceCount
+    deviceSchedule: deviceSchedule, scheduleText: scheduleText, lineDeviceCount: lineDeviceCount,
+    adapterSchedule: adapterSchedule, adapterText: adapterText
   };
 })();
 
@@ -15233,7 +15257,7 @@ window.AR2_ENGINEER = (function(){
       //    schedule, progress counters, pump rooms.
       +     '<div class="ar-eng-facts">'
       +       '<div class="ar-eng-fact"><span class="k">Site pipe standard</span><span class="v">' + (propStd() === 'metric' ? 'Metric <span class="alt">mm · devices imperial · adapters supplied</span>' : 'Imperial <span class="alt">inches</span>') + '</span></div>'
-      +       '<div class="ar-eng-fact"><span class="k">Device schedule</span><span class="v mono" style="font-size:13.5px">' + esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(Object.keys(s.verifications).map(function(k){ return (s.verifications[k] || {}).return_lines || []; })))) + '</span></div>'
+      +       '<div class="ar-eng-fact"><span class="k">Device schedule</span><span class="v mono" style="font-size:13.5px">' + esc(AR2_SIZING.scheduleText(AR2_SIZING.deviceSchedule(Object.keys(s.verifications).map(function(k){ return (s.verifications[k] || {}).return_lines || []; })))) + '<span class="alt">Adapters: ' + esc(AR2_SIZING.adapterText(AR2_SIZING.adapterSchedule(Object.keys(s.verifications).map(function(k){ return (s.verifications[k] || {}).return_lines || []; })))) + '</span></span></div>'
       +       '<div class="ar-eng-fact"><span class="k">Pools complete</span><span class="v mono' + (allReady ? '' : ' warn') + '">' + doneCount + ' / ' + s.pools.length + '</span></div>'
       +       '<div class="ar-eng-fact"><span class="k">Pump rooms</span><span class="v">' + (pumpRoomCount ? s.pumpRooms.map(function(r){ return esc(r.label || 'Room'); }).join(' · ') : '<span class="mono">0</span>') + '</span></div>'
       +       '<div class="ar-eng-fact"><span class="k">Photos</span><span class="v mono' + (photoCount===0?' warn':'') + '">' + photoCount + '</span></div>'
