@@ -15392,12 +15392,18 @@ window.AR2_ENGINEER = (function(){
                 +   (p.isEngineerAdded ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '')
                 +   '<span class="ar-eng-sum-edit">Edit ›</span>'
                 + '</div>'
+                // Five fixed cells (label over value) so every card lays out
+                // identically and nothing overruns (Jeff, 2026-10-19).
                 + '<div class="ar-eng-sum-facts">'
-                +   '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, vu) : (est ? AR2_SIZING.showVol(est, vu) + ' (estimate)' : '—')) + '</b></span>'
-                +   '<span>Water <b>' + wt + '</b></span>'
-                +   (room ? '<span>Pump room <b>' + esc(room.label || 'Room') + '</b></span>' : '')
-                +   '<span>Media <b>' + counts.photo + ' photo' + (counts.photo===1?'':'s') + ' · ' + counts.video + ' video' + (counts.video===1?'':'s') + '</b></span>'
-                +   (v.confirmed_at ? '<span>' + (v.confirm_stale ? 'Edited since confirm by' : 'Confirmed by') + ' <b>' + esc(v.confirmed_by_name || 'engineer') + '</b> ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</span>' : '<span>Confirmation <b>pending</b></span>')
+                +   '<div class="ar-eng-sum-fact"><span class="k">Volume</span><b>' + (gal ? AR2_SIZING.showVol(gal, vu) : (est ? AR2_SIZING.showVol(est, vu) + ' (est.)' : '—')) + '</b></div>'
+                +   '<div class="ar-eng-sum-fact"><span class="k">Water</span><b>' + (v.pool_type === 'saltwater' ? 'Saltwater' : v.pool_type === 'fresh' ? 'Fresh/chlorine' : '—') + '</b></div>'
+                +   '<div class="ar-eng-sum-fact"><span class="k">Pump room</span><b>' + (room ? esc(room.label || 'Room') : '—') + '</b></div>'
+                +   '<div class="ar-eng-sum-fact"><span class="k">Photos · Videos</span><b>' + counts.photo + ' · ' + counts.video + '</b></div>'
+                +   '<div class="ar-eng-sum-fact' + (v.confirmed_at ? (v.confirm_stale ? ' stale' : ' ok') : '') + '"><span class="k">Confirmation</span><b>'
+                +     (v.confirmed_at
+                        ? (v.confirm_stale ? 'Edited since confirm' : 'Confirmed') + '<span class="ar-eng-sum-fact-sub">' + esc(v.confirmed_by_name || 'engineer') + ' · ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</span>'
+                        : 'Pending')
+                +   '</b></div>'
                 + '</div>'
                 + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true, std: propStd() }) + '</div>'
                 + (v.notes ? '<div class="ar-eng-sum-notes">' + esc(v.notes) + '</div>' : '')
