@@ -3392,8 +3392,18 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-sum-pool.ready{border-color:rgba(34,197,94,.35);}
 #ar2 .ar-eng-sum-hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer;}
 #ar2 .ar-eng-sum-name{font-weight:700;color:#fff;font-size:14.5px;}
-#ar2 .ar-eng-sum-facts{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#9fc7d8;margin:4px 0 8px;}
-#ar2 .ar-eng-sum-facts b{color:#e0f4fa;font-family:'JetBrains Mono',monospace;font-weight:600;}
+/* Review pool summary facts — fixed 5-column grid, label over value, so
+   cards are uniform and values wrap inside their cell instead of pushing
+   the row (Jeff, 2026-10-19). */
+#ar2 .ar-eng-sum-facts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 12px;margin:8px 0 10px;}
+#ar2 .ar-eng-sum-fact{min-width:0;padding:7px 10px;background:rgba(7,22,40,.45);border:1px solid rgba(0,180,216,.14);border-radius:8px;}
+#ar2 .ar-eng-sum-fact .k{display:block;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:2px;white-space:nowrap;}
+#ar2 .ar-eng-sum-fact b{display:block;color:#e0f4fa;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:12px;line-height:1.35;overflow-wrap:anywhere;}
+#ar2 .ar-eng-sum-fact-sub{display:block;font-family:'DM Sans',sans-serif;font-weight:500;font-size:10.5px;color:#9fc7d8;margin-top:1px;}
+#ar2 .ar-eng-sum-fact.ok b{color:#4ade80;}
+#ar2 .ar-eng-sum-fact.stale b{color:#c4b5fd;}
+@media(max-width:720px){#ar2 .ar-eng-sum-facts{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media(max-width:480px){#ar2 .ar-eng-sum-facts{grid-template-columns:repeat(2,minmax(0,1fr));}}
 #ar2 .ar-eng-sum-missing{font-size:12px;color:#f0a500;margin-top:6px;}
 #ar2 .ar-eng-sum-notes{font-size:12.5px;color:#cfe2eb;background:rgba(4,15,30,.35);border-left:3px solid rgba(0,180,216,.5);border-radius:0 7px 7px 0;padding:7px 10px;margin-top:8px;white-space:pre-wrap;}
 #ar2 .ar-eng-sum-edit{margin-left:auto;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#48cae4;font-weight:700;white-space:nowrap;}
