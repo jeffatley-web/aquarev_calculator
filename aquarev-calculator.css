@@ -3105,6 +3105,18 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-bullets li{padding:6px 0 6px 22px;position:relative;}
 #ar2 .ar-eng-bullets li::before{content:'';position:absolute;left:0;top:14px;width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#48cae4);}
 #ar2 .ar-eng-bullets li b{color:#fff;font-weight:600;}
+/* Step 1 "What we need from you" — four numbered cards (2026-10-19). */
+#ar2 .ar-eng-brief-need{margin:0 0 6px;}
+#ar2 .ar-eng-brief-need-hd{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:#48cae4;text-transform:uppercase;margin-bottom:10px;}
+#ar2 .ar-eng-brief-need-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+@media(max-width:560px){#ar2 .ar-eng-brief-need-grid{grid-template-columns:1fr;}}
+#ar2 .ar-eng-brief-need-item{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;background:rgba(7,22,40,.55);border:1px solid rgba(0,180,216,.2);border-radius:10px;}
+#ar2 .ar-eng-brief-need-num{flex-shrink:0;width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+#ar2 .ar-eng-brief-need-body{min-width:0;}
+#ar2 .ar-eng-brief-need-step{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:#7db8cc;font-weight:700;margin-bottom:1px;}
+#ar2 .ar-eng-brief-need-title{font-size:14px;font-weight:700;color:#fff;line-height:1.25;margin-bottom:3px;}
+#ar2 .ar-eng-brief-need-sub{font-size:12.5px;color:#cfe2eb;line-height:1.5;}
+#ar2 .ar-eng-brief-need-foot{margin-top:10px;font-size:11.5px;color:var(--mu);line-height:1.5;}
 #ar2 .ar-eng-skip-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#cfe2eb;cursor:pointer;user-select:none;margin-bottom:14px;}
 #ar2 .ar-eng-skip-row input{width:16px;height:16px;cursor:pointer;accent-color:#00b4d8;}
 
@@ -3144,11 +3156,25 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 
 /* Install QR card on the briefing step — text on the left, QR on
    the right. Stacks vertically on phones. */
+/* Step 1 advance band — green so "what's next" is unmissable (Jeff, 2026-10-19). */
+#ar2 .ar-eng-brief-go{display:flex;gap:20px;align-items:center;margin:22px 0 4px;padding:20px 22px;background:linear-gradient(135deg,rgba(34,197,94,.18),rgba(22,163,74,.05));border:1px solid rgba(34,197,94,.55);border-radius:12px;box-shadow:0 0 0 4px rgba(34,197,94,.08),0 10px 30px rgba(0,0,0,.25);}
+#ar2 .ar-eng-brief-go-l{flex:1;min-width:0;}
+#ar2 .ar-eng-brief-go-eyebrow{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#4ade80;font-weight:700;margin-bottom:4px;}
+#ar2 .ar-eng-brief-go-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;line-height:1.1;margin-bottom:4px;}
+#ar2 .ar-eng-brief-go-sub{font-size:12.5px;color:#cfe2eb;line-height:1.55;}
+#ar2 .ar-eng-brief-go .ar-eng-brief-go-skip{margin:12px 0 0;color:#9fc7d8;}
+#ar2 .ar-eng-brief-go .ar-eng-brief-go-skip input{accent-color:#22c55e;}
+#ar2 .ar-eng-btn.primary.send-green.ar-eng-brief-go-btn{flex-shrink:0;font-size:14px;font-weight:700;letter-spacing:.6px;padding:15px 24px;color:#fff;box-shadow:0 6px 20px rgba(34,197,94,.35);}
+@media(max-width:640px){#ar2 .ar-eng-brief-go{flex-direction:column;align-items:stretch;}#ar2 .ar-eng-btn.primary.send-green.ar-eng-brief-go-btn{width:100%;}}
 #ar2 .ar-eng-brief-install{display:flex;gap:18px;align-items:center;margin:22px 0 4px;padding:18px 20px;background:linear-gradient(135deg,rgba(0,180,216,.15),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.4);border-radius:12px;}
 #ar2 .ar-eng-brief-install-l{flex:1;min-width:0;}
 #ar2 .ar-eng-brief-install-eyebrow{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:4px;}
 #ar2 .ar-eng-brief-install-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:#fff;line-height:1.2;margin-bottom:6px;}
 #ar2 .ar-eng-brief-install-sub{font-size:12.5px;color:#cfe2eb;line-height:1.55;margin-bottom:12px;}
+#ar2 .ar-eng-brief-install-ways{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0 12px;}
+@media(max-width:560px){#ar2 .ar-eng-brief-install-ways{grid-template-columns:1fr;}}
+#ar2 .ar-eng-brief-install-way{font-size:12px;color:#cfe2eb;line-height:1.5;padding:9px 11px;background:rgba(7,22,40,.5);border:1px solid rgba(0,180,216,.18);border-radius:8px;}
+#ar2 .ar-eng-brief-install-way b{display:block;font-size:10.5px;letter-spacing:1.3px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:3px;}
 #ar2 .ar-eng-brief-install-btn{background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:10px 18px;border-radius:8px;font-family:inherit;font-size:12.5px;font-weight:700;letter-spacing:.4px;cursor:pointer;transition:filter .12s,transform .12s;}
 #ar2 .ar-eng-brief-install-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}
 #ar2 .ar-eng-brief-install-qr{flex-shrink:0;text-align:center;}
@@ -3212,6 +3238,49 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-pool-check{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;letter-spacing:.4px;padding:3px 8px;border-radius:99px;flex-shrink:0;margin-left:auto;white-space:nowrap;}
 #ar2 .ar-eng-pool-check.complete{color:#4ade80;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.32);}
 #ar2 .ar-eng-pool-check.pending{color:#f0a500;background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.32);}
+#ar2 .ar-eng-pool-check.stale{color:#c4b5fd;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.4);}
+#ar2 .ar-eng-pool-check.flagged{color:#fca5a5;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);}
+/* Confirmation model (2026-10-19) */
+#ar2 .ar-eng-prefill-note{font-size:12px;color:#9fc7d8;background:rgba(0,180,216,.06);border:1px dashed rgba(0,180,216,.3);border-radius:8px;padding:7px 11px;margin:10px 0 4px;}
+#ar2 .ar-eng-diff{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#48cae4;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.34);padding:1px 7px;border-radius:99px;margin-left:8px;vertical-align:1px;cursor:help;}
+#ar2 .ar-eng-reset{font-family:inherit;font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:#7db8cc;background:transparent;border:0;padding:0 4px;margin-left:4px;cursor:pointer;text-decoration:underline dotted;}
+#ar2 .ar-eng-reset:hover{color:#fff;}
+#ar2 .ar-eng-line-span{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;margin-top:2px;background:rgba(4,15,30,.3);border:1px solid rgba(0,180,216,.12);border-radius:7px;font-size:12px;color:#cfe2eb;}
+#ar2 .ar-eng-line-span.short{border-color:rgba(239,68,68,.4);}
+#ar2 .ar-eng-line-span.ok,#ar2 .ar-eng-line-span.ticked{border-color:rgba(34,197,94,.35);}
+#ar2 .ar-eng-span-need b{color:#fff;font-family:'JetBrains Mono',monospace;font-weight:600;}
+#ar2 .ar-eng-span-avail{display:inline-flex;align-items:center;gap:6px;}
+#ar2 .ar-eng-span-avail input{width:78px;background:rgba(0,0,0,.22);border:1px solid rgba(0,180,216,.2);color:#fff;padding:5px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none;text-align:right;}
+#ar2 .ar-eng-span-tick{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#cfe2eb;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-weight:500;}
+#ar2 .ar-eng-span-tick input{accent-color:#00b4d8;width:15px;height:15px;margin:0;}
+#ar2 .ar-eng-status-pill.pending{background:rgba(125,184,204,.12);color:#9fc7d8;border-color:rgba(125,184,204,.35);}
+#ar2 .ar-eng-pool-confirm-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,180,216,.14);}
+#ar2 .ar-eng-pool-confirm-txt{flex:1 1 320px;font-size:12.5px;line-height:1.5;color:#9fc7d8;}
+#ar2 .ar-eng-pool-confirm-txt b{color:#e0f4fa;}
+#ar2 .ar-eng-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;align-items:start;}
+#ar2 .ar-eng-two .ar-eng-field{min-width:0;}
+/* Pixel alignment across the two-up row (Jeff, 2026-10-19): the Volume
+   label carries the unit pills (~24px tall) while Water type is one text
+   line, so both labels get the same min-height and the controls share one
+   explicit height (a native select otherwise renders ~2px taller than a
+   text input). */
+#ar2 .ar-eng-two .ar-eng-field > label{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:24px;margin-bottom:6px;}
+#ar2 .ar-eng-two .ar-eng-field > label .ar-eng-unit-pills{margin-left:2px;}
+#ar2 .ar-eng-two .ar-eng-field input[type=number],
+#ar2 .ar-eng-two .ar-eng-field input[type=text],
+#ar2 .ar-eng-two .ar-eng-field select,
+#ar2 .ar-eng-field select.ar-eng-pump-room-select{height:42px;padding-top:0;padding-bottom:0;line-height:40px;}
+#ar2 .ar-eng-two .ar-eng-field select,
+#ar2 .ar-eng-field select.ar-eng-pump-room-select{line-height:normal;}
+#ar2 .ar-eng-two .ar-eng-inline{display:block;}
+@media (max-width:420px){#ar2 .ar-eng-two{grid-template-columns:1fr;}}
+#ar2 .ar-eng-pool-confirmed-by{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#4ade80;}
+#ar2 .ar-eng-pool-check.stale ~ .ar-eng-pool-confirm-row .ar-eng-pool-confirmed-by{color:#c4b5fd;}
+#ar2 .ar-eng-btn.sm{padding:9px 16px;font-size:13px;}
+#ar2 .ar-eng-pool-summary{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12.5px;color:#9fc7d8;padding:8px 0 2px;}
+#ar2 .ar-eng-pool-summary b{color:#e0f4fa;font-family:'JetBrains Mono',monospace;font-weight:600;}
+#ar2 .ar-eng-pool-summary-by{color:#4ade80;}
+#ar2 .ar-eng-pool-summary .ar-eng-tiny{margin-left:auto;}
 #ar2 .ar-eng-pool-check svg{width:11px;height:11px;}
 
 /* Return-line stepper rows */
@@ -3249,8 +3318,8 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
   #ar2 .ar-eng-line-flowcell,#ar2 .ar-eng-line-devcell{flex-wrap:wrap;}
   #ar2 .ar-eng-line-grid .ar-eng-line-x{position:absolute;top:0;right:0;}
 }
-#ar2 .ar-eng-unit-pills{display:inline-flex;gap:2px;padding:2px;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.2);border-radius:7px;vertical-align:middle;}
-#ar2 .ar-eng-unit-pill{font-family:inherit;font-size:10.5px;font-weight:700;letter-spacing:.3px;padding:3px 7px;border-radius:5px;border:0;background:transparent;color:#7db8cc;cursor:pointer;line-height:1.2;}
+#ar2 .ar-eng-unit-pills{display:inline-flex;align-items:center;gap:2px;padding:2px;height:24px;box-sizing:border-box;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.2);border-radius:7px;vertical-align:middle;}
+#ar2 .ar-eng-unit-pill{font-family:inherit;font-size:10.5px;font-weight:700;letter-spacing:.3px;padding:0 7px;height:18px;line-height:18px;border-radius:5px;border:0;background:transparent;color:#7db8cc;cursor:pointer;}
 #ar2 .ar-eng-unit-pill.on{background:rgba(0,180,216,.28);color:#fff;}
 #ar2 .ar-eng-unit-pill:hover{color:#fff;}
 #ar2 .ar-eng-field > label .ar-eng-unit-pills{margin-left:8px;}
@@ -3461,6 +3530,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-return-media-field .ar-eng-return-media-hd{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
 #ar2 .ar-eng-return-media-field .ar-eng-return-media-hd > label{margin:0;}
 #ar2 .ar-eng-media-tally{font-size:10.5px;color:var(--mu);letter-spacing:.3px;font-family:'JetBrains Mono',monospace;margin-left:auto;}
+/* In-card help chip stays blue (Jeff, 2026-10-19); the header Help button is the prominent one. */
 #ar2 .ar-eng-mini-help{width:18px;height:18px;border-radius:50%;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.4);color:#48cae4;font-size:10px;font-weight:700;line-height:1;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;}
 #ar2 .ar-eng-mini-help:hover{background:rgba(0,180,216,.24);color:#fff;}
 
@@ -3481,8 +3551,10 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 
 /* Engineer help button — match the calculator header's .ar-help-icon
    (32x32 circle with aqua tint). Overrides the older 28x28 ? style. */
-#ar2 .ar-eng-help-btn.ar-help-icon{width:32px;height:32px;font-size:16px;background:rgba(0,180,216,.1);border:1px solid rgba(0,180,216,.35);color:var(--t);}
-#ar2 .ar-eng-help-btn.ar-help-icon:hover{background:rgba(0,180,216,.22);border-color:rgba(0,180,216,.7);color:#fff;}
+/* Header Help — solid amber pill with a text label so it is instantly recognizable (Jeff, 2026-10-19). */
+#ar2 .ar-eng-help-btn.ar-help-icon{width:auto;height:32px;padding:0 13px 0 10px;gap:6px;border-radius:99px;font-size:12.5px;font-weight:800;letter-spacing:.4px;background:#f5b942;border:1px solid #f5b942;color:#0a2540;box-shadow:0 0 0 3px rgba(245,185,66,.18);transition:background .12s,box-shadow .12s;}
+#ar2 .ar-eng-help-btn.ar-help-icon svg{width:16px;height:16px;}
+#ar2 .ar-eng-help-btn.ar-help-icon:hover{background:#ffd27a;border-color:#ffd27a;color:#0a2540;box-shadow:0 0 0 4px rgba(245,185,66,.3);}
 
 /* Admin Review Mode — compact pill in the engineer-portal header.
    Replaces the old verbose 2-line banner with a tight aqua chip that
@@ -3604,6 +3676,22 @@ body.pf-engineer-mode #ap2{display:none!important;}
    Pool cards reference these via the per-pool Pump Room dropdown. */
 #ar2 .ar-eng-pump-rooms-section{margin-bottom:22px;padding:18px 18px 16px;background:rgba(0,180,216,.05);border:1px solid rgba(0,180,216,.22);border-radius:14px;}
 #ar2 .ar-eng-pump-rooms-section .ar-eng-section-hd{margin-bottom:14px;}
+/* Section bands + sticky section nav (Step 3) */
+#ar2 .ar-eng-section-band{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;background:linear-gradient(135deg,rgba(0,180,216,.14),rgba(13,45,74,.5));border:1px solid rgba(0,180,216,.35);border-left:4px solid #00b4d8;border-radius:10px;padding:12px 16px;margin:0 0 14px;}
+#ar2 .ar-eng-section-num{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:#48cae4;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(72,202,228,.5);border-radius:50%;}
+#ar2 .ar-eng-section-band .ar-eng-section-eyebrow{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:#fff;margin-bottom:2px;text-transform:uppercase;display:flex;align-items:center;gap:10px;}
+#ar2 .ar-eng-section-count{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.5px;color:#48cae4;background:rgba(0,180,216,.14);border:1px solid rgba(0,180,216,.4);border-radius:99px;padding:2px 9px;text-transform:none;}
+#ar2 .ar-eng-section-band .ar-eng-section-sub{font-size:12.5px;color:#cfe2eb;line-height:1.5;max-width:640px;}
+#ar2 .ar-eng-section-band-r{display:flex;gap:8px;}
+#ar2 .ar-eng-jump{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11px;letter-spacing:1px;text-transform:uppercase;font-weight:700;color:#48cae4;background:transparent;border:1px solid rgba(0,180,216,.4);border-radius:7px;padding:7px 11px;cursor:pointer;white-space:nowrap;}
+#ar2 .ar-eng-jump:hover{background:rgba(0,180,216,.14);color:#fff;}
+#ar2 .ar-eng-secnav{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;gap:8px;align-items:center;background:rgba(4,15,30,.92);backdrop-filter:blur(6px);border:1px solid rgba(0,180,216,.22);border-radius:10px;padding:8px;margin:0 0 14px;}
+#ar2 .ar-eng-secnav-btn{display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:12px;font-weight:600;color:#cfe2eb;background:rgba(13,45,74,.5);border:1px solid rgba(0,180,216,.22);border-radius:8px;padding:7px 12px;cursor:pointer;}
+#ar2 .ar-eng-secnav-btn:hover{border-color:rgba(0,180,216,.6);color:#fff;}
+#ar2 .ar-eng-secnav-btn .n{font-family:'Bebas Neue',sans-serif;font-size:14px;color:#48cae4;}
+#ar2 .ar-eng-secnav-btn b{font-family:'JetBrains Mono',monospace;font-weight:600;color:#48cae4;}
+#ar2 .ar-eng-secnav-btn.next{margin-left:auto;background:rgba(0,180,216,.16);border-color:rgba(0,180,216,.5);color:#fff;}
+@media (max-width:560px){#ar2 .ar-eng-section-band{grid-template-columns:auto 1fr;} #ar2 .ar-eng-section-band-r{grid-column:1 / -1;} #ar2 .ar-eng-secnav{flex-wrap:wrap;} #ar2 .ar-eng-secnav-btn.next{margin-left:0;flex-basis:100%;justify-content:center;}}
 #ar2 .ar-eng-pump-rooms-section .ar-eng-section-eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:4px;}
 #ar2 .ar-eng-pump-rooms-section .ar-eng-section-sub{font-size:12.5px;color:var(--mu);line-height:1.55;max-width:680px;}
 #ar2 .ar-eng-pump-room-empty{font-size:12.5px;color:var(--mu);background:rgba(7,22,40,.4);border:1px dashed rgba(0,180,216,.22);border-radius:10px;padding:14px 16px;margin-bottom:12px;line-height:1.5;}

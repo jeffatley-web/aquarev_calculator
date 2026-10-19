@@ -9854,7 +9854,7 @@ window.AR2_FIELD_REPORT = (function(){
         var asgnIds = asgns.map(function(a){ return a.id; });
         var engIds  = Array.from(new Set(asgns.map(function(a){ return a.engineer_user_id; })));
         return Promise.all([
-          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
+          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
           c.from('engineer_media').select('id,assignment_id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').in('assignment_id', asgnIds).order('uploaded_at',{ascending:true}),
           c.from('engineer_pump_rooms').select('id,assignment_id,label,notes,created_at').in('assignment_id', asgnIds).order('created_at',{ascending:true}),
           engIds.length ? c.from('app_users').select('id,name,phone,role').in('id', engIds) : Promise.resolve({ data: [] })
@@ -10231,7 +10231,7 @@ function _frRenderPoolCard(p, verifs, media, roomLabel){
     // Hydraulics — what the engineer recorded per return line: pipe size as
     // marked, flow reading (or code flow), device assigned, status + flags.
     + ((engLines && engLines.length && window.AR2_SIZING)
-        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true }) + '</div></div>'
+        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true, std: ((bundle.record && bundle.record.state_json && bundle.record.state_json.units) === 'metric' ? 'metric' : 'us') }) + '</div></div>'
         : '')
     + '<div class="ar-fr-pool-media">'
     +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
@@ -10483,7 +10483,7 @@ function generateEngineerReport(assignmentId, opts){
 
   Promise.all([
     c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
     c.from('engineer_media').select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true}),
     c.from('engineer_pump_rooms').select('id,label,notes,created_at').eq('assignment_id', assignmentId).order('created_at',{ascending:true})
   ]).then(function(arr){
@@ -10665,7 +10665,7 @@ function _engineerReport_renderHtml(bundle){
     var SZ = window.AR2_SIZING;
     var lineFlagsHtml = '';
     var linesTable = lines.length
-      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Status</th></tr></thead><tbody>'
+      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Straight run needed</th><th>Status</th></tr></thead><tbody>'
         + lines.map(function(l, li){
             var sz = l.sizing || {};
             var dev = Number(l.diameter) || sz.device || '?';
@@ -10676,7 +10676,11 @@ function _engineerReport_renderHtml(bundle){
             var st = SZ ? SZ.lineStatus(l).label : '—';
             if (sz.messages && sz.messages.length) lineFlagsHtml += sz.messages.map(function(m){ return '<div class="rpt-row" style="display:block;color:#8a5a00;line-height:1.5">Line ' + (li+1) + ': ' + esc(m) + '</div>'; }).join('');
             if (l.device_override && l.override_reason) lineFlagsHtml += '<div class="rpt-row" style="display:block;color:#5b3a8a;line-height:1.5">Line ' + (li+1) + ' override: ' + esc(l.override_reason) + '</div>';
-            return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + esc(st) + '</td></tr>';
+            var spR = SZ ? SZ.spanStatus(l) : null;
+            var stdR = (rec.state_json && rec.state_json.units === 'metric') ? 'metric' : 'us';
+            // Straight run is a requirement only (no on-site measurement field since 2026-10-19).
+            var spanTxt = spR ? SZ.showSpan(spR.required_in, stdR) : '—';
+            return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + spanTxt + '</td><td>' + esc(st) + '</td></tr>';
           }).join('')
         + '</tbody></table>'
         + (lineFlagsHtml ? '<div style="margin-top:6px">' + lineFlagsHtml + '</div>' : '')
@@ -10715,6 +10719,7 @@ function _engineerReport_renderHtml(bundle){
       +     '<div class="rpt-row"><span class="k">Engineer-confirmed volume</span><span class="v">' + (volBoth(v && v.confirmed_gallons) || 'Not confirmed') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Devices for this pool</span><span class="v">' + (SZ ? esc(SZ.scheduleText(SZ.deviceSchedule([lines]))) : '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Pool confirmation</span><span class="v">' + (v && v.confirmed_at ? esc((v.confirm_stale ? 'Edited after confirmation by ' : 'Confirmed by ') + (v.confirmed_by_name || 'engineer') + ' on ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})) : 'Not yet confirmed') + '</span></div>'
       +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines &amp; Device Sizing</div>'
       +     linesTable
       +     (v && v.notes ? '<div class="rpt-stitle" style="margin-top:14px">Engineer Notes</div><div class="rpt-row" style="display:block;color:#333;line-height:1.55">' + esc(v.notes) + '</div>' : '')
@@ -11149,7 +11154,7 @@ function openAdminReviewModal(assignmentId){
   var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
   if (!c) return;
   Promise.all([
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
     c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId),
     c.from('engineer_pump_rooms').select('id,label').eq('assignment_id', assignmentId)
   ]).then(function(arr){
@@ -12455,23 +12460,42 @@ window.AR2_SIZING = (function(){
       return (l.count || 1) + ' × ' + pipeText(l) + ' → ' + dev + '″' + par;
     }).join(' · ');
   }
-  // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool }
+  // ── Straight run needed to install the device: overall length L1 + 8 in
+  //    (4 in clear each side to any fitting), per Spec 22 51 19 / M-301.
+  var SPAN_IN = { 2: 28.25, 3: 32.0, 4: 36.19, 6: 48.0 };
+  function requiredSpanIn(deviceIn){ return SPAN_IN[Number(deviceIn)] || 0; }
+  function showSpan(inches, std){
+    var v = Number(inches) || 0; if (!v) return '—';
+    return std === 'metric' ? Math.round(v * 25.4) + ' mm' : (Math.round(v * 100) / 100) + ' in';
+  }
+  // spanStatus(line) → { k:'ok'|'short'|'ticked'|'unmeasured', label, required_in }
+  function spanStatus(line){
+    var dev = Number(line.diameter) || (line.sizing && line.sizing.device) || 0;
+    var req = requiredSpanIn(dev);
+    var avail = Number(line.span_available_in) || 0;
+    if (avail > 0) return avail >= req ? { k: 'ok', label: 'Span OK', required_in: req } : { k: 'short', label: 'Span short', required_in: req };
+    return { k: 'unmeasured', label: 'Not measured', required_in: req };
+  }
+  // opts: { flowUnit:'gpm'|'m3h'|'ls', compact:bool, showFlags:bool, std:'us'|'metric' (span units) }
   function linesTableHtml(lines, opts){
     opts = opts || {};
     if (!lines || !lines.length) return '<div class="ar-hyd-empty">No return lines recorded.</div>';
-    var fu = opts.flowUnit || 'gpm';
+    var fu = opts.flowUnit || 'gpm', std = opts.std || 'us';
     var rows = lines.map(function(l, i){
-      var sz = l.sizing || {}; var st = lineStatus(l);
+      var sz = l.sizing || {}; var st = lineStatus(l); var sp = spanStatus(l);
       var dev = Number(l.diameter) || sz.device || '?';
       var flowTxt = l.flow_gpm ? showFlow(l.flow_gpm, l.flow_unit || fu) : (sz.code ? showFlow(sz.code, fu) + '<span class="sub">code flow</span>' : '—');
-      var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? '<span class="sub">' + _e(sz.model) + (sz.adapter ? ' · adapter' : '') + '</span>' : '');
+      // Span column removed (Jeff, 2026-10-19): the straight-run requirement
+      // rides on the device sub-line instead of a measured-vs-needed cell.
+      var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '')
+        + '<span class="sub">' + (sz.model ? _e(sz.model) + ' · ' : '') + (sz.adapter ? 'adapter · ' : '') + 'needs ' + showSpan(sp.required_in, std) + ' straight run</span>';
       var flags = (opts.showFlags !== false && sz.messages && sz.messages.length)
         ? '<tr class="ar-hyd-flags"><td colspan="5">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
         : '';
       return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
     }).join('');
     // Fixed column widths so tables on neighbouring pool cards line up.
-    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:9%"><col style="width:27%"><col style="width:20%"><col style="width:26%"><col style="width:18%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:8%"><col style="width:24%"><col style="width:18%"><col style="width:34%"><col style="width:16%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
   // Device schedule — devices by size across a set of lines (count × parallel).
   function deviceSchedule(linesArrays){
@@ -12518,7 +12542,8 @@ window.AR2_SIZING = (function(){
     showVol: showVol, showFlow: showFlow, volToGal: volToGal, flowToGpm: flowToGpm, volFromGal: volFromGal, flowFromGpm: flowFromGpm, fmt: fmt,
     deviceFor: deviceFor, lineStatus: lineStatus, pipeText: pipeText, linesText: linesText, linesTableHtml: linesTableHtml,
     deviceSchedule: deviceSchedule, scheduleText: scheduleText, lineDeviceCount: lineDeviceCount,
-    adapterSchedule: adapterSchedule, adapterText: adapterText
+    adapterSchedule: adapterSchedule, adapterText: adapterText,
+    requiredSpanIn: requiredSpanIn, showSpan: showSpan, spanStatus: spanStatus
   };
 })();
 
@@ -12927,7 +12952,7 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c) return Promise.resolve({});
     return c.from('engineer_verifications')
-      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at,pool_type,confirmed_at,confirmed_by,confirmed_by_name,confirm_stale')
       .eq('assignment_id', assignmentId)
       .then(function(rs){
         if (rs.error) return {};
@@ -13358,6 +13383,7 @@ window.AR2_ENGINEER = (function(){
       pool_name_override: v.pool_name_override || null,
       is_engineer_added: !!v.is_engineer_added,
       pool_type: v.pool_type || null,
+      confirmed_at: v.confirmed_at || null, confirmed_by: v.confirmed_by || null, confirmed_by_name: v.confirmed_by_name || null, confirm_stale: !!v.confirm_stale,
       updated_at: new Date().toISOString()
     };
     c.from('engineer_verifications')
@@ -13408,6 +13434,10 @@ window.AR2_ENGINEER = (function(){
   function updateVerification(poolIndex, patch, opts){
     var v = s.verifications[poolIndex] || { pool_index: poolIndex, return_lines: [] };
     for (var k in patch){ if (patch.hasOwnProperty(k)) v[k] = patch[k]; }
+    // Any edit after confirmation marks the card "Edited since confirm" so a
+    // confirmed state never silently hides a change. The confirm action
+    // itself passes opts.confirm.
+    if (v.confirmed_at && !(opts && opts.confirm)) v.confirm_stale = true;
     s.verifications[poolIndex] = v;
     scheduleSave(poolIndex);
     // Skip the repaint when the caller is a text-input handler (which
@@ -14021,7 +14051,7 @@ window.AR2_ENGINEER = (function(){
       +         '<option value="metric"' + (userUnits() === 'metric' ? ' selected' : '') + '>Metric · m³ · m³/h</option>'
       +       '</select>'
       +     '</label>'
-      +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
+      +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '<span>Help</span></button>'
       +   '</div>'
       +   adminBanner
       +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
@@ -14041,14 +14071,16 @@ window.AR2_ENGINEER = (function(){
     var stepContent = {
       1: ''
         + '<div class="ar-eng-help-section">Step 1 — Briefing</div>'
-        + '<p>A 60–90 second orientation video. Watch once, then check <b>"Don\'t show this again"</b> to skip it on future logins.</p>'
-        + '<p>If you ever want to rewatch it, tap the button below.</p>'
+        + '<p>A short orientation video, then <b>What we need from you</b>: four cards that map to Steps 2–4 (confirm the site, walk the pump room, verify each pool, send to AquaRev). The <b>Specifications reference</b> below them shows where devices install and what pipe shots help, with links to the installation specifications and drawing set.</p>'
+        + '<p>Tap the green <b>Got it — start property review</b> button to move on. Check <b>"Don\'t show this briefing on future visits"</b> to skip straight to Step 2 next time; you can always come back with the button below.</p>'
         + '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconReplay() + ' Watch the briefing again</button>'
-        + '<div class="ar-eng-help-section" style="margin-top:24px">Install on your phone</div>'
-        + '<p>Add AquaRev to your home screen so you can launch it like a regular app.</p>'
-        + '<p><b>iPhone (Safari or Chrome):</b> tap the Share icon at the bottom of the browser, then choose <b>Add to Home Screen</b>.</p>'
-        + '<p><b>Android (Chrome):</b> a blue "Install" banner appears at the bottom — or tap the ⋮ menu and choose <b>Install app</b>.</p>'
-        + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments + signed-in session are remembered on the icon. No browser bars, no URL typing.</p>',
+        + '<div class="ar-eng-help-section" style="margin-top:24px">Install on your computer or phone</div>'
+        + '<p>AquaRev runs as an installed app on either. The install card on Step 1 shows both paths.</p>'
+        + '<p><b>Computer (Chrome or Edge):</b> tap <b>Install on this computer</b> on the card, or use the install icon at the right end of the address bar. AquaRev opens in its own window without browser bars.</p>'
+        + '<p><b>Phone:</b> scan the QR code on the card with your phone\'s camera. On <b>iPhone</b> (Safari or Chrome) tap the Share icon and choose <b>Add to Home Screen</b>. On <b>Android</b> (Chrome) tap <b>Install</b> on the banner, or the ⋮ menu and <b>Install app</b>.</p>'
+        + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments and signed-in session are remembered on the icon. No URL typing in the field.</p>'
+        + '<div class="ar-eng-help-section" style="margin-top:24px">Finding your way</div>'
+        + '<p>The stepper under the header shows where you are; completed steps turn green and are tappable. The amber <b>Help</b> button in the header opens these tips for whichever step you are on. The <b>Units</b> menu beside it switches gallons/gpm and m³/m³·h.</p>',
       2: ''
         + '<div class="ar-eng-help-section">Step 2 — Property review</div>'
         + '<p><b>Site pipe standard.</b> Choose <b>Imperial</b> if the return pipes are marked in inches, <b>Metric</b> if they are marked in millimetres (63, 90, 110, 160). This sets the size list on every return line in Step 3. AquaRev devices always stay in inches; on a metric site AquaRev supplies a transition adapter for each line, with the device on the receiving end.</p>'
@@ -14057,20 +14089,24 @@ window.AR2_ENGINEER = (function(){
         + '<p><b>Your own units</b> (gallons and gpm, or m³ and m³/h) are set from the <b>Units</b> menu in the header. They change how you enter and read volumes and flows; they do not change the site pipe standard.</p>',
       3: ''
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
+        + '<p><b>Two sections.</b> <b>1 Pump Rooms</b> then <b>2 Pools</b>, each with a numbered band and a count. The small bar under the stepper (<i>1 Pump Rooms · 2 Pools 0/3 · Review</i>) stays on screen as you scroll; tap it to jump between sections or straight to Review. The Pools count shows how many pools are confirmed.</p>'
         + '<p><b>Pump rooms.</b> Tap <b>+ Add Pump Room</b> for each equipment room you walk through and give it a short ID (e.g. <i>PR-1</i>). A walkthrough video (30 sec – 2 min) following the supply lines through the treatment system and back to the pool is the most useful thing you can capture, but it is optional and can be added later.</p>'
-        + '<p><b>To mark a pool complete you need one thing: at least one return line.</b> Everything else improves the record but does not block you.</p>'
+        + '<p><b>Every pool card starts pre-filled from the rep\'s assessment.</b> The status pill beside the pool name reads <i>Pending</i>, <i>Flagged</i>, <i>Confirmed</i> or <i>Edited since confirm</i>. Edit only what differs on site, then confirm the pool. Sending for review and confirming a pool both need at least one return line per pool.</p>'
         + '<p style="margin-left:14px"><b>Volume</b> — type the pool volume or tap <i>Confirm Estimate</i> to accept the rep\'s figure. Use the <b>gal · m³ · L</b> pills to enter it in your own unit; it is stored in gallons. A difference of more than 5% from the estimate is flagged for the rep.</p>'
         + '<p style="margin-left:14px"><b>Water type</b> — fresh water / chlorine or saltwater.</p>'
         + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
         + '<p style="margin-left:14px"><b>Status</b> — <i>In spec</i>: flow sits inside the device\'s range. <i>Upsized</i>: flow was above the matched device\'s maximum, so the next size was assigned. <i>Below min</i>: flow is under the device minimum; check the reading before installing. <i>Override</i>: you chose the size yourself. The amber notes under a line explain each flag.</p>'
-        + '<p style="margin-left:14px"><b>Photos and video</b> — optional for now. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously.</p>'
+        + '<p style="margin-left:14px"><b>Straight run</b> — the device line under each return line ends with <i>needs … straight run</i>: the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites the adapter is included). There is nothing to type; just check the run is there before you confirm the pool. If it is shorter, the drawing set shows the fix (rebuild the run as an offset with four 90° elbows) — note it in the pool notes.</p>'
+        + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. You are confirming that the volume, water type, return lines, flows, device sizes and straight runs are correct as verified on site. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
+        + '<p style="margin-left:14px"><b>Edited markers</b> — a small <i>edited</i> tag beside volume or water type means your value differs from the rep\'s assessment; hover it to see the original, or tap <i>reset</i> to put it back.</p>'
+        + '<p style="margin-left:14px"><b>Return-line media</b> — optional for now; the tally shows what is on file. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously. The small <b>?</b> beside the tally lists what to shoot.</p>'
         + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
         + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across, a 1 euro coin about 23 mm. Set one next to the pipe for scale in your photo.</p>',
       4: ''
         + '<div class="ar-eng-help-section">Step 4 — Review and send</div>'
-        + '<p>The top shows the site pipe standard, the <b>device schedule</b> (devices by size for the whole property) with the adapters required, and your progress. Each pool below shows its volume, water type, pump room, the return-line table with pipe, flow, device and status, and your notes. Tap a pool to go back to its card.</p>'
+        + '<p>The top shows the site pipe standard, the <b>device schedule</b> (devices by size for the whole property) with the adapters required, and your progress. Each pool below shows its volume, water type, pump room, media count and confirmation, then the return-line table: qty, pipe, flow, device (with model, adapter and the straight run it needs) and status. Tap <b>Edit</b> on a pool to go back to its card.</p>'
         + '<p><b>Save progress</b> writes everything to AquaRev now without sending for review, and your rep sees a "saved progress" activity on their dashboard. Use it whenever you leave a site part-way through.</p>'
         + '<p><b>Send to AquaRev for review</b> when every pool has at least one return line. Your rep is notified instantly. You can keep editing afterwards; resending just alerts them to the update.</p>'
         + '<p><b>Preview Report</b> shows the verification report in-app; <b>Download PDF</b> opens the print dialog to save it. The report carries the device schedule, adapters, each pool\'s return lines and flows, and your contact details.</p>'
@@ -14417,17 +14453,23 @@ window.AR2_ENGINEER = (function(){
       +   stepperHtml(1)
       +   '<div class="ar-eng-card">'
       +     '<div class="ar-eng-eyebrow">Briefing</div>'
-      +     '<div class="ar-eng-h1">Welcome to AquaRev field verification</div>'
+      +     '<div class="ar-eng-h1">Welcome to AquaRev\'s Field Verification Portal</div>'
       +     '<div class="ar-eng-lede">Below is a quick video briefing on the information and images we are asking for to get best results.</div>'
       +     '<div class="ar-eng-video">'
       +       '<iframe src="https://www.youtube-nocookie.com/embed/Nh7DkYL6LNA" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
       +     '</div>'
-      +     '<ul class="ar-eng-bullets">'
-      +       '<li><b>Confirm property access</b> on Step 2, and set the <b>site pipe standard</b> — Imperial (inches) or Metric (mm) — so the return-line sizes match what is on the pipe.</li>'
-      +       '<li><b>Verify each pool</b> on Step 3 — confirm the volume, then for every return line record the pipe size and the flow rate from the flow meter or pump curve. The card shows the AquaRev device that fits and flags anything out of specification.</li>'
-      +       '<li><b>Pick your units</b> from the Units menu in the header at any time — gallons and gpm, or m³ and m³/h. The device sizes always stay in inches.</li>'
-      +       '<li><b>Send to AquaRev</b> on Step 4 when you\'re done; your rep is notified automatically.</li>'
-      +     '</ul>'
+      // ── What we need from you — four numbered cards, one line each
+      // (rewritten for clarity, Jeff, 2026-10-19).
+      +     '<div class="ar-eng-brief-need">'
+      +       '<div class="ar-eng-brief-need-hd">What we need from you</div>'
+      +       '<div class="ar-eng-brief-need-grid">'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">1</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 2</div><div class="ar-eng-brief-need-title">Confirm the site</div><div class="ar-eng-brief-need-sub">Your contact details, site access and whether pipes are marked in inches or mm.</div></div></div>'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">2</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 3</div><div class="ar-eng-brief-need-title">Walk the pump room</div><div class="ar-eng-brief-need-sub">A short video from the pumps to the return pipes. One per equipment room.</div></div></div>'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">3</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 3</div><div class="ar-eng-brief-need-title">Verify each pool</div><div class="ar-eng-brief-need-sub">Check the volume and water type, then record each return line\'s pipe size and flow. Confirm the card.</div></div></div>'
+      +         '<div class="ar-eng-brief-need-item"><div class="ar-eng-brief-need-num">4</div><div class="ar-eng-brief-need-body"><div class="ar-eng-brief-need-step">Step 4</div><div class="ar-eng-brief-need-title">Send to AquaRev</div><div class="ar-eng-brief-need-sub">Review the summary and send. Your rep is notified automatically.</div></div></div>'
+      +       '</div>'
+      +       '<div class="ar-eng-brief-need-foot">Work in gallons or m³ — switch units any time from the header. Device sizes always show in inches.</div>'
+      +     '</div>'
 
       // ── Specifications briefing supplement ─────────────────────
       // Visual reference drawn from the AquaRev Specifications Guide
@@ -14470,11 +14512,11 @@ window.AR2_ENGINEER = (function(){
       // Specifications + Drawings replace the old PDF link (Jeff, 2026-10-19).
       +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/specifications" target="_blank" rel="noopener">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h8"/></svg>'
-      +           '<span>Installation Specifications<span class="ar-eng-brief-link-sub">Spec 22 51 19 · device data, flow windows, connection, clearances</span></span>'
+      +           '<span>Installation Specifications<span class="ar-eng-brief-link-sub">Device data, flow windows, connection, clearances</span></span>'
       +         '</a>'
       +         '<a class="ar-eng-brief-link" href="https://www.aquarevwater.us/drawings" target="_blank" rel="noopener">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>'
-      +           '<span>Installation Drawing Set<span class="ar-eng-brief-link-sub">Set 100 · pump room plan, flow diagram, union detail, sequence</span></span>'
+      +           '<span>Installation Drawing Set<span class="ar-eng-brief-link-sub">Pump room plan, flow diagram, union detail, sequence</span></span>'
       +         '</a>'
       +         '<a class="ar-eng-brief-link" href="https://cdn.prod.website-files.com/691fa5d63fc3a5a75a65efeb/69fa44eaa430c85d0f2f31c0_c311975351419d65d6c6b92cef07b8bd_Fact%20Sheet_5_V1_FIN.pdf" target="_blank" rel="noopener" style="display:none">'
       +           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="12" y1="13" x2="12" y2="19"/><polyline points="9 16 12 19 15 16"/></svg>'
@@ -14498,24 +14540,34 @@ window.AR2_ENGINEER = (function(){
       +     (window.AR_PWA && !AR_PWA.isStandalone()
           ? '<div class="ar-eng-brief-install">'
             + '<div class="ar-eng-brief-install-l">'
-            +   '<div class="ar-eng-brief-install-eyebrow">Install on your phone</div>'
-            +   '<div class="ar-eng-brief-install-title">Add AquaRev to your home screen</div>'
-            +   '<div class="ar-eng-brief-install-sub">One-tap launch, no browser bars, faster startup. Scan the QR code with your phone\'s camera to open the install page there, or tap the button below to install on this device.</div>'
-            +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">Install on this device</button>'
+            // Two clear paths: computer or phone (Jeff, 2026-10-19).
+            +   '<div class="ar-eng-brief-install-eyebrow">Install the app</div>'
+            +   '<div class="ar-eng-brief-install-title">Use AquaRev on your computer or your phone</div>'
+            +   '<div class="ar-eng-brief-install-ways">'
+            +     '<div class="ar-eng-brief-install-way"><b>On this computer</b>Tap the button to add AquaRev as a desktop app. Opens in its own window, no browser bars.</div>'
+            +     '<div class="ar-eng-brief-install-way"><b>On your phone</b>Scan the QR code with your phone\'s camera and add it to your home screen for easy field access.</div>'
+            +   '</div>'
+            +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">' + (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Install on this phone' : 'Install on this computer') + '</button>'
             + '</div>'
             + '<div class="ar-eng-brief-install-qr">'
-            +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent('https://www.aquarevwater.us/calculator-sandbox?install=1') + '" alt="Scan to install AquaRev" />'
+            +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent(location.origin + location.pathname.replace(/\/$/, '') + '?install=1') + '" alt="Scan to install AquaRev" />'
             +   '<div class="ar-eng-brief-install-qr-cap">Scan with your phone</div>'
             + '</div>'
             + '</div>'
           : '')
 
-      +     '<label class="ar-eng-skip-row">'
-      +       '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
-      +       '<span>Don\'t show this briefing on future visits</span>'
-      +     '</label>'
-      +     '<div class="ar-eng-actions">'
-      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review ' + svgIconArrowRight() + '</button>'
+      // ── Advance band — green so the next step is unmissable (Jeff, 2026-10-19).
+      +     '<div class="ar-eng-brief-go">'
+      +       '<div class="ar-eng-brief-go-l">'
+      +         '<div class="ar-eng-brief-go-eyebrow">Ready to begin</div>'
+      +         '<div class="ar-eng-brief-go-title">Start the property review</div>'
+      +         '<div class="ar-eng-brief-go-sub">Step 2 confirms site access, your contact details and the site pipe standard. Everything can be edited later.</div>'
+      +         '<label class="ar-eng-skip-row ar-eng-brief-go-skip">'
+      +           '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
+      +           '<span>Don\'t show this briefing on future visits</span>'
+      +         '</label>'
+      +       '</div>'
+      +       '<button class="ar-eng-btn primary send-green ar-eng-brief-go-btn" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review ' + svgIconArrowRight() + '</button>'
       +     '</div>'
       +   '</div>'
       + '</div>';
@@ -14678,6 +14730,10 @@ window.AR2_ENGINEER = (function(){
       var v = s.verifications[p.index];
       return v && Array.isArray(v.return_lines) && v.return_lines.length > 0;
     }).length;
+    var confirmedCount = allPools.filter(function(p){
+      var v = s.verifications[p.index];
+      return v && v.confirmed_at && !v.confirm_stale;
+    }).length;
     // Apply Pool 1 to Rest feature was removed (per Jeff 2026-05-25)
     // — engineers should verify each pool individually rather than
     // bulk-copying one pool's setup, which made discrepancies easier
@@ -14694,15 +14750,26 @@ window.AR2_ENGINEER = (function(){
       + '<div class="ar-eng-wrap ar-eng-flow">'
       +   headerHtml('Step 3 of 4 · Pool profiles · ' + doneCount + ' of ' + allPools.length + ' complete')
       +   stepperHtml(3)
+      +   '<div class="ar-eng-secnav">'
+      +     '<button class="ar-eng-secnav-btn" data-action="ar-eng-jump" data-target="rooms" type="button"><span class="n">1</span>Pump Rooms <b>' + (s.pumpRooms || []).length + '</b></button>'
+      +     '<button class="ar-eng-secnav-btn" data-action="ar-eng-jump" data-target="pools" type="button"><span class="n">2</span>Pools <b>' + confirmedCount + '/' + allPools.length + '</b></button>'
+      +     '<button class="ar-eng-secnav-btn next" data-action="ar-eng-goto-step" data-step="4" type="button">Review ' + svgIconArrowRight() + '</button>'
+      +   '</div>'
       +   pumpRoomsSection
       // Hard visual break between the Pump-Rooms section above and the
       // Pools section below. The eyebrow + lede pair mirrors the
       // Pump-Rooms section so the structure is symmetric and the
       // engineer's ask shifts unmistakably from rooms → pools.
-      +   '<div class="ar-eng-pools-section">'
-      +     '<div class="ar-eng-section-hd">'
-      +       '<div class="ar-eng-section-eyebrow">Pools</div>'
-      +       '<div class="ar-eng-section-sub">Verify each pool below — gallons, water type, return lines, and at least one return-line photo. Link each pool to the pump room that serves it. It is ideal if you can also take a photo of the size stamp directly on the pipe for certainty.</div>'
+      +   '<div class="ar-eng-pools-section" id="ar-eng-sec-pools">'
+      +     '<div class="ar-eng-section-band">'
+      +       '<div class="ar-eng-section-num">2</div>'
+      +       '<div class="ar-eng-section-band-l">'
+      +         '<div class="ar-eng-section-eyebrow">Pools <span class="ar-eng-section-count">' + confirmedCount + ' / ' + allPools.length + ' confirmed</span></div>'
+      +         '<div class="ar-eng-section-sub">Each card is pre-filled from the assessment. Check the volume, water type, pump room and return lines against the site, then confirm the specifications. A photo of the size stamp on the pipe is ideal if you can get one.</div>'
+      +       '</div>'
+      +       '<div class="ar-eng-section-band-r">'
+      +         '<button class="ar-eng-jump" data-action="ar-eng-jump" data-target="rooms" type="button">' + svgIconArrowLeft() + ' Pump rooms</button>'
+      +       '</div>'
       +     '</div>'
       +     lockBanner
       +     applyToolbar
@@ -14784,10 +14851,16 @@ window.AR2_ENGINEER = (function(){
       ? ''
       : '<button class="ar-eng-add-pump-room" data-action="ar-eng-pump-room-add" type="button">+ Add Pump Room</button>';
     return ''
-      + '<div class="ar-eng-pump-rooms-section">'
-      +   '<div class="ar-eng-section-hd">'
-      +     '<div class="ar-eng-section-eyebrow">Pump Rooms</div>'
-      +     '<div class="ar-eng-section-sub">ID the pump room and take a quick walkthrough video, then link each pool and return pipes to the pump room below in the pools section.</div>'
+      + '<div class="ar-eng-pump-rooms-section" id="ar-eng-sec-rooms">'
+      +   '<div class="ar-eng-section-band">'
+      +     '<div class="ar-eng-section-num">1</div>'
+      +     '<div class="ar-eng-section-band-l">'
+      +       '<div class="ar-eng-section-eyebrow">Pump Rooms <span class="ar-eng-section-count">' + rooms.length + '</span></div>'
+      +       '<div class="ar-eng-section-sub">ID each equipment room and, if you can, take a short walkthrough video. Pools link to their room in the next section.</div>'
+      +     '</div>'
+      +     '<div class="ar-eng-section-band-r">'
+      +       '<button class="ar-eng-jump" data-action="ar-eng-jump" data-target="pools" type="button">Pools ' + svgIconArrowRight() + '</button>'
+      +     '</div>'
       +   '</div>'
       +   (cards
           ? '<div class="ar-eng-pump-room-grid">' + cards + '</div>'
@@ -14955,10 +15028,20 @@ window.AR2_ENGINEER = (function(){
     var v = s.verifications[p.index] || { return_lines: [] };
     var hasLines = Array.isArray(v.return_lines) && v.return_lines.length > 0;
     var hasMedia = poolHasMedia(p.index);
-    var complete = hasLines && !isLocked;   // media optional (2026-10-19)
     var lines = v.return_lines || [];
     if (lines.length) recomputeLines(p, v, lines);
     var std = propStd();
+    // ── Confirmation model (2026-10-19): the card is confirmed as a whole.
+    //    Pending → Confirmed (by engineer or admin) → Edited since confirm.
+    var isConfirmed = !!v.confirmed_at && !v.confirm_stale;
+    var isStale     = !!v.confirmed_at && !!v.confirm_stale;
+    var anyFlag     = lines.some(function(l){ return l.sizing && l.sizing.flags && l.sizing.flags.length; });
+    var spanOkAll   = true;   // straight run is recorded, not gated (Jeff, 2026-10-19)
+    var canConfirm  = hasLines && !isLocked;
+    var complete    = isConfirmed && !isLocked;
+    var expanded    = !!(s._expandedPools && s._expandedPools[p.index]);
+    var collapsed   = isConfirmed && !expanded;
+    var confirmedTxt = v.confirmed_at ? ('Confirmed by ' + (v.confirmed_by_name || 'engineer') + ' · ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})) : '';
     var volUnit = volUnitFor(p.index);
     var gal = poolGallonsFor(p, v);
     var totalLineCount = lines.reduce(function(a, l){ return a + (Number(l.count) || 1); }, 0);
@@ -15044,9 +15127,9 @@ window.AR2_ENGINEER = (function(){
     if (!complete){
       var missing = [];
       if (!hasLines) missing.push('add at least one return line');
-      if (missing.length){
+      if (!isLocked && missing.length){
         missingHint = '<div class="ar-eng-pool-missing">'
-          + svgIconWarn() + ' To complete this pool: ' + missing.join(' &amp; ') + '.'
+          + svgIconWarn() + ' To confirm this pool: ' + missing.join(' &amp; ') + '.'
           + '</div>';
       }
     }
@@ -15059,36 +15142,56 @@ window.AR2_ENGINEER = (function(){
       +     '</label>'
       +     engAddedBadge
       +     deleteBtn
-      +     '<div class="ar-eng-pool-meta">' + (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate) · ' : '') + (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) + '</div>'
-      // Always render the status pill so the head row reserves space and
-      // the engineer can see at a glance which pools still need work.
-      +     (complete
-              ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Complete</div>'
-              : '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
+      // Status pill — one state for the whole card. Sits on the name row,
+      // ahead of the full-width meta line, so name + status share a row
+      // (Jeff, 2026-10-19).
+      +     (isLocked   ? '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Locked</div>'
+            : isConfirmed ? '<div class="ar-eng-pool-check complete">' + svgIconCheck() + ' Confirmed</div>'
+            : isStale     ? '<div class="ar-eng-pool-check stale">' + svgIconWarn() + ' Edited since confirm</div>'
+            : anyFlag     ? '<div class="ar-eng-pool-check flagged">' + svgIconWarn() + ' Flagged</div>'
+            :               '<div class="ar-eng-pool-check pending">' + svgIconClock() + ' Pending</div>')
+      +     '<div class="ar-eng-pool-meta">' + [ (p.gallonsRep ? fn(p.gallonsRep) + ' gal (Estimate)' : ''), (p.depth ? p.depth + ' ft deep' : (p.isEngineerAdded ? 'New pool found on-site' : '')) ].filter(Boolean).join(' · ') + '</div>'
       +   '</div>'
-
+      // Collapsed summary for a confirmed card: one line, Edit to reopen.
+      +   (collapsed
+            ? '<div class="ar-eng-pool-summary">'
+              + '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, volUnit) : '—') + '</b></span>'
+              + '<span>Water <b>' + (v.pool_type === 'saltwater' ? 'Saltwater' : 'Fresh / chlorine') + '</b></span>'
+              + '<span>Lines <b>' + esc(AR2_SIZING.linesText(lines)) + '</b></span>'
+              + (lines.some(function(l){ return l.span_available_in; }) ? '<span>Run <b>' + lines.map(function(l){ return l.span_available_in ? AR2_SIZING.showSpan(l.span_available_in, std) : '—'; }).join(' · ') + '</b></span>' : '')
+              + '<span class="ar-eng-pool-summary-by">' + esc(confirmedTxt) + '</span>'
+              + '<button class="ar-eng-tiny" data-action="ar-eng-pool-expand" data-pool="' + p.index + '" type="button">' + svgIconPencil() + ' Edit</button>'
+              + '</div>'
+            : '')
+      + (collapsed ? '</div>' : (''
+      +   '<div class="ar-eng-prefill-note">' + (p.isEngineerAdded ? 'New pool recorded on site. Fill in what you can, then confirm the pool.' : 'Pre-filled from the rep\'s assessment. Edit anything that differs on site, then confirm the pool.') + '</div>'
       +   imageBlock
 
       // — Volume first — entered in the engineer's unit, stored in gallons.
-      +   '<div class="ar-eng-field"><label>Confirm volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"') + '</label>'
+      +   '<div class="ar-eng-two">'
+      +   '<div class="ar-eng-field"><label>Volume ' + unitPillsHtml('vol', volUnit, 'data-action="ar-eng-vol-unit" data-pool="' + p.index + '"')
+      +       ((v.confirmed_gallons && p.gallonsRep && Number(v.confirmed_gallons) !== Number(p.gallonsRep)) ? '<span class="ar-eng-diff" title="Assessment: ' + fn(p.gallonsRep) + ' gal">edited</span><button class="ar-eng-reset" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button" title="Reset to the assessment value"' + dis + disA + '>reset</button>' : '')
+      +     '</label>'
       +     '<div class="ar-eng-inline">'
-      +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + (v.confirmed_gallons ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (p.gallonsRep ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '"' + dis + ' />'
-      +       (p.gallonsRep ? '<button class="ar-eng-tiny" data-action="ar-eng-gallons-match" data-pool="' + p.index + '" type="button"' + dis + disA + '>Confirm Estimate</button>' : '')
+      +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + ((v.confirmed_gallons || p.gallonsRep) ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons || p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (volUnit === 'gal' ? 'gallons' : volUnit === 'm3' ? 'm³' : 'litres') + '"' + dis + ' />'
       +     '</div>'
       +     (volUnit !== 'gal' && (v.confirmed_gallons || p.gallonsRep) ? '<div class="ar-eng-hint" style="margin-top:4px">= ' + fn(Math.round(v.confirmed_gallons || p.gallonsRep)) + ' gal</div>' : '')
       +     divergenceWarning
       +   '</div>'
 
       // — Water type (moved below gallons) —
-      +   '<div class="ar-eng-field"><label>Water type' + (v._seededFromAssessment && v.pool_type ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm</span>' : '') + '</label>'
+      +   '<div class="ar-eng-field"><label>Water type' + ((v.pool_type && p.repPoolType && ((v.pool_type === 'saltwater') !== (p.repPoolType === 'saltwater'))) ? ' <span class="ar-eng-diff" title="Assessment: ' + (p.repPoolType === 'saltwater' ? 'Saltwater' : 'Fresh / chlorine') + '">edited</span>' : '') + '</label>'
       +     '<select class="ar-eng-pool-type-select" data-action="ar-eng-pool-type" data-pool="' + p.index + '"' + dis + '>'
       +       '<option value=""' + (!v.pool_type ? ' selected' : '') + '>— Select water type —</option>'
       +       '<option value="fresh"' + (v.pool_type === 'fresh' ? ' selected' : '') + '>Fresh Water / Chlorine</option>'
       +       '<option value="saltwater"' + (v.pool_type === 'saltwater' ? ' selected' : '') + '>Saltwater</option>'
       +     '</select>'
       +   '</div>'
+      +   '</div>'
+      // Pump room sits with the pool identity, ahead of the return lines.
+      +   pumpRoomLinkHtml
 
-      +   '<div class="ar-eng-field"><label>Return lines' + (v._seededFromAssessment && lines.length ? ' <span class="ar-eng-prefilled-tag">From assessment · confirm or edit</span>' : ' <span class="ar-eng-hint">(count · pipe size · flow per line)</span>')
+      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count · pipe size · flow · straight run per line)</span>'
       +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
       +     '</label>'
       +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
@@ -15124,15 +15227,14 @@ window.AR2_ENGINEER = (function(){
                 +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span></div>'
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + '</div>' : '')
+                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</div>' : '')
+                // Straight run: the requirement is shown in the device line above ("needs … straight run"); no entry field (Jeff, 2026-10-19).
                 +   (overridden ? '<input type="text" class="ar-eng-override-reason" data-action="ar-eng-line-override-reason" data-pool="' + p.index + '" data-line="' + li + '" value="' + esc(line.override_reason || '') + '" placeholder="Reason for override (required)" maxlength="160"' + dis + ' />' : '')
                 +   ((sz.messages && sz.messages.length) ? '<div class="ar-eng-line-flags">' + sz.messages.map(function(m){ return '<div class="ar-eng-line-flag">' + svgIconWarn() + ' ' + esc(m) + '</div>'; }).join('') + '</div>' : '')
                 + '</div>';
             }).join('') : '<div class="ar-eng-empty-mini">No lines added yet</div>') + '</div>'
       +     '<button class="ar-eng-add-line" data-action="ar-eng-line-add" data-pool="' + p.index + '" type="button"' + dis + disA + '>+ Add return line</button>'
       +   '</div>'
-
-      +   pumpRoomLinkHtml
 
       +   '<div class="ar-eng-field"><label>Notes <span class="ar-eng-hint">(optional)</span></label>'
       +     '<textarea data-action="ar-eng-notes" data-pool="' + p.index + '" rows="2" placeholder="Anything unusual on this pool?"' + dis + '>' + esc(v.notes || '') + '</textarea>'
@@ -15145,10 +15247,8 @@ window.AR2_ENGINEER = (function(){
       // share one row when there's space.
       +   '<div class="ar-eng-field ar-eng-return-media-field">'
       +     '<div class="ar-eng-return-media-hd">'
-      +       '<label>Return-line media</label>'
-      +       (hasMedia
-              ? '<span class="ar-eng-pill green sm">' + svgIconCheck() + ' Captured</span>'
-              : '<span class="ar-eng-pill sm" style="background:rgba(125,184,204,.12);color:#9fc7d8;border:1px solid rgba(125,184,204,.3)">Optional</span>')
+      +       '<label>Return-line media <span class="ar-eng-hint">(optional)</span></label>'
+      // "Captured" pill dropped (Jeff, 2026-10-19) — the tally already says what's on file.
       +       '<span class="ar-eng-media-tally">' + counts.photo + '/10 photos · ' + counts.video + '/4 videos</span>'
       +       '<button class="ar-eng-mini-help" data-action="ar-eng-return-media-tip" type="button" aria-label="What to shoot" title="One clear close-up per pipe size showing diameter, plus a wider shot of the full return wall. Pan video helps for clustered piping.">?</button>'
       +     '</div>'
@@ -15159,7 +15259,16 @@ window.AR2_ENGINEER = (function(){
       +     '</div>'
       +   '</div>'
       +   missingHint
-      + '</div>';
+      // ── Confirm pool — one action for the whole card.
+      +   '<div class="ar-eng-pool-confirm-row">'
+      +     '<span class="ar-eng-pool-confirm-txt">'
+      +       (v.confirmed_at ? '<span class="ar-eng-pool-confirmed-by">' + (isStale ? svgIconWarn() + ' Edited since ' : svgIconCheck() + ' ') + esc(confirmedTxt) + '</span><br>' : '')
+      +       '<b>Confirmation of pool specifications.</b> The volume, water type, return lines, flows, device sizes and straight runs above are correct as verified on site.'
+      +     '</span>'
+      +     '<button class="ar-eng-btn ' + (canConfirm ? 'send-green' : 'secondary') + ' sm" data-action="ar-eng-pool-confirm" data-pool="' + p.index + '" type="button"' + (canConfirm ? '' : ' disabled') + '>' + svgIconCheck() + ' ' + (isStale ? 'Re-confirm specifications' : isConfirmed ? 'Confirmed' : 'Confirm specifications') + '</button>'
+      +   '</div>'
+      + '</div>'))
+      ;
   }
 
   function renderReviewStep(mount){
@@ -15288,8 +15397,9 @@ window.AR2_ENGINEER = (function(){
                 +   '<span>Water <b>' + wt + '</b></span>'
                 +   (room ? '<span>Pump room <b>' + esc(room.label || 'Room') + '</b></span>' : '')
                 +   '<span>Media <b>' + counts.photo + ' photo' + (counts.photo===1?'':'s') + ' · ' + counts.video + ' video' + (counts.video===1?'':'s') + '</b></span>'
+                +   (v.confirmed_at ? '<span>' + (v.confirm_stale ? 'Edited since confirm by' : 'Confirmed by') + ' <b>' + esc(v.confirmed_by_name || 'engineer') + '</b> ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</span>' : '<span>Confirmation <b>pending</b></span>')
                 + '</div>'
-                + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true }) + '</div>'
+                + '<div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(v.return_lines || [], { flowUnit: fu, compact: true, std: propStd() }) + '</div>'
                 + (v.notes ? '<div class="ar-eng-sum-notes">' + esc(v.notes) + '</div>' : '')
                 + (pr.ready ? '' : '<div class="ar-eng-sum-missing">' + svgIconWarn() + ' Missing: ' + pr.missing.join(' · ') + '</div>')
                 + '</div>';
@@ -15416,6 +15526,68 @@ window.AR2_ENGINEER = (function(){
       return true;
     }
     // ── Metric trial: units + per-line flow / size / override ──
+    // ── Straight run per line + pool confirmation ──
+    if (action === 'ar-eng-line-span' || action === 'ar-eng-line-span-ok'){
+      var piS = parseInt(target.getAttribute('data-pool'), 10);
+      var liS = parseInt(target.getAttribute('data-line'), 10);
+      var vS = s.verifications[piS] || { return_lines: [] };
+      var linesS = (vS.return_lines || []).slice();
+      if (!linesS[liS]) return true;
+      var lineS = linesS[liS] = JSON.parse(JSON.stringify(linesS[liS]));
+      var silentS = false;
+      if (action === 'ar-eng-line-span'){
+        var typedS = parseFloat(String(target.value).replace(/,/g, ''));
+        var stdS = target.getAttribute('data-std') === 'metric' ? 'metric' : 'us';
+        lineS.span_available_in = isNaN(typedS) || typedS <= 0 ? 0 : (stdS === 'metric' ? typedS / 25.4 : typedS);
+        silentS = true;
+      } else {
+        lineS.span_confirmed = !!target.checked;
+      }
+      updateVerification(piS, { return_lines: linesS }, silentS ? { silent: true } : undefined);
+      if (silentS){
+        // Refresh just this line's span row so the status tracks the number.
+        try {
+          var rowS = target.closest('.ar-eng-line-span');
+          var spS = AR2_SIZING.spanStatus(lineS);
+          var pillS = rowS && rowS.querySelector('.ar-eng-status-pill');
+          if (pillS){ pillS.className = 'ar-eng-status-pill ' + (spS.k === 'ok' || spS.k === 'ticked' ? 'ok' : spS.k === 'short' ? 'warn' : 'pending'); pillS.textContent = spS.label; }
+          if (rowS) rowS.className = 'ar-eng-line-span ' + spS.k;
+        } catch(_){}
+      }
+      return true;
+    }
+    if (action === 'ar-eng-pool-confirm'){
+      var piC = parseInt(target.getAttribute('data-pool'), 10);
+      var poolC = s.pools.find(function(x){ return x.index === piC; });
+      var vC = s.verifications[piC] || { pool_index: piC, return_lines: [] };
+      var linesC = vC.return_lines || [];
+      if (poolC && linesC.length) recomputeLines(poolC, vC, linesC);
+      if (!linesC.length) return true;
+      var uC = currentUser() || {};
+      var who = (uC.name || 'engineer') + (uC.role === 'admin' ? ' (admin)' : '');
+      var patchC = {
+        confirmed_at: new Date().toISOString(), confirmed_by: uC.id || null, confirmed_by_name: who, confirm_stale: false,
+        return_lines: linesC
+      };
+      // Accepting the pre-filled estimate counts as confirming it.
+      if (vC.confirmed_gallons == null && poolC && poolC.gallonsRep) patchC.confirmed_gallons = poolC.gallonsRep;
+      if (!s._expandedPools) s._expandedPools = {};
+      s._expandedPools[piC] = false;   // collapse to the summary line
+      updateVerification(piC, patchC, { confirm: true });
+      return true;
+    }
+    if (action === 'ar-eng-jump'){
+      var tgt = document.getElementById(target.getAttribute('data-target') === 'rooms' ? 'ar-eng-sec-rooms' : 'ar-eng-sec-pools');
+      if (tgt){ try { tgt.scrollIntoView({ behavior: 'smooth', block: 'start' }); window.scrollBy(0, -64); } catch(_){ tgt.scrollIntoView(); } }
+      return true;
+    }
+    if (action === 'ar-eng-pool-expand'){
+      var piE = parseInt(target.getAttribute('data-pool'), 10);
+      if (!s._expandedPools) s._expandedPools = {};
+      s._expandedPools[piE] = true;
+      repaint();
+      return true;
+    }
     if (action === 'ar-eng-vol-unit'){
       var piU = parseInt(target.getAttribute('data-pool'), 10);
       if (!s._volUnit) s._volUnit = {};
@@ -15444,6 +15616,7 @@ window.AR2_ENGINEER = (function(){
             has_discrepancy: !!v.has_discrepancy, discrepancy_reason: v.discrepancy_reason || null,
             pump_room_id: v.pump_room_id || null, pool_name_override: v.pool_name_override || null,
             is_engineer_added: !!v.is_engineer_added, pool_type: v.pool_type || null,
+            confirmed_at: v.confirmed_at || null, confirmed_by: v.confirmed_by || null, confirmed_by_name: v.confirmed_by_name || null, confirm_stale: !!v.confirm_stale,
             updated_at: new Date().toISOString()
           };
           flushes.push(cS.from('engineer_verifications').upsert(payload, { onConflict: 'assignment_id,pool_index' }).select('id').single()
@@ -16008,7 +16181,7 @@ window.AR2_ENGINEER = (function(){
     handleAction: handleAction,
     tryResume: tryResume,
     // Render hooks used by the visual harness (no data access of their own).
-    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, propertyStep: renderPropertyStep, reviewStep: renderReviewStep, poolsStep: renderPoolsStep }
+    _render: { poolCardHtml: poolCardHtml, headerHtml: headerHtml, briefingStep: renderBriefingStep, propertyStep: renderPropertyStep, reviewStep: renderReviewStep, poolsStep: renderPoolsStep }
   };
 })();
 
@@ -23274,7 +23447,7 @@ function showInstallAppModal(){
       +     '<circle cx="46" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
       +     '<circle cx="66" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
       +     '<rect x="82" y="48" width="248" height="20" rx="10" fill="#0a2540" stroke="rgba(255,255,255,.18)"/>'
-      +     '<text x="92" y="62" font-size="9" fill="rgba(255,255,255,.6)" font-family="JetBrains Mono, monospace">aquarevwater.us/calculator-sandbox</text>'
+      +     '<text x="92" y="62" font-size="9" fill="rgba(255,255,255,.6)" font-family="JetBrains Mono, monospace">' + (location.host + location.pathname.replace(/\/$/, '')).replace(/^www\./, '').replace(/[<&]/g, '') + '</text>'
       +     '<g class="ar-install-target">'
       +       '<rect x="306" y="48" width="20" height="20" rx="4" fill="rgba(72,202,228,.25)" stroke="#48cae4" stroke-width="2"/>'
       +       '<rect x="310" y="53" width="12" height="9" rx="1" fill="none" stroke="#48cae4" stroke-width="1.6"/>'
@@ -23374,7 +23547,9 @@ function showInstallAppModal(){
   // QR code — encodes the install URL so a user on desktop can scan
   // it from their phone (or vice versa) to land on the installable
   // page. qrserver.com is free, returns PNG, no auth.
-  var installUrl = 'https://www.aquarevwater.us/calculator-sandbox?install=1';
+  // Derived from the page the user is on, so production QR codes point at
+  // production and sandbox at sandbox (fixed 2026-10-19; was hard-coded).
+  var installUrl = location.origin + location.pathname.replace(/\/$/, '') + '?install=1';
   var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data='
     + encodeURIComponent(installUrl);
   var qrHtml = '<div class="ar-install-qr">'
