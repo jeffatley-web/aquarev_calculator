@@ -14943,17 +14943,19 @@ window.AR2_ENGINEER = (function(){
                 +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
                 +     '</div>'
                 +     '<select class="ar-eng-line-dia" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size (' + (lstd === 'metric' ? 'metric OD' : 'US nominal') + ')"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size) + '</select>'
-                +     '<div class="ar-eng-line-flow">'
-                +       '<input type="number" inputmode="decimal" step="any" placeholder="flow" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line"' + dis + ' />'
-                +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
-                +     '</div>'
+                +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
+                +   '</div>'
+                // Row 2 — flow reading + unit · source
+                +   '<div class="ar-eng-line-row flow">'
+                +     '<span class="ar-eng-line-lbl">Flow</span>'
+                +     '<input type="number" inputmode="decimal" step="any" placeholder="—" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line"' + dis + ' />'
+                +     unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
                 +     '<select class="ar-eng-line-src" data-action="ar-eng-line-flow-src" data-pool="' + p.index + '" data-line="' + li + '" title="Where the flow figure comes from"' + dis + '>'
-                +       '<option value=""' + (!line.flow_source ? ' selected' : '') + '>Flow source…</option>'
+                +       '<option value=""' + (!line.flow_source ? ' selected' : '') + '>Source…</option>'
                 +       '<option value="meter"' + (line.flow_source === 'meter' ? ' selected' : '') + '>Flow meter</option>'
                 +       '<option value="pump"' + (line.flow_source === 'pump' ? ' selected' : '') + '>Pump curve</option>'
-                +       '<option value="code"' + (line.flow_source === 'code' ? ' selected' : '') + '>Code flow (no reading)</option>'
+                +       '<option value="code"' + (line.flow_source === 'code' ? ' selected' : '') + '>No reading · use code flow</option>'
                 +     '</select>'
-                +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
                 // Row 2 — device result · status · override
                 +   '<div class="ar-eng-line-result">'
