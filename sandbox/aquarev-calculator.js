@@ -15396,9 +15396,9 @@ window.AR2_ENGINEER = (function(){
                 // identically and nothing overruns (Jeff, 2026-10-19).
                 + '<div class="ar-eng-sum-facts">'
                 +   '<div class="ar-eng-sum-fact"><span class="k">Volume</span><b>' + (gal ? AR2_SIZING.showVol(gal, vu) : (est ? AR2_SIZING.showVol(est, vu) + ' (est.)' : '—')) + '</b></div>'
-                +   '<div class="ar-eng-sum-fact"><span class="k">Water</span><b>' + wt + '</b></div>'
+                +   '<div class="ar-eng-sum-fact"><span class="k">Water</span><b>' + (v.pool_type === 'saltwater' ? 'Saltwater' : v.pool_type === 'fresh' ? 'Fresh/chlorine' : '—') + '</b></div>'
                 +   '<div class="ar-eng-sum-fact"><span class="k">Pump room</span><b>' + (room ? esc(room.label || 'Room') : '—') + '</b></div>'
-                +   '<div class="ar-eng-sum-fact"><span class="k">Media</span><b>' + counts.photo + ' photo' + (counts.photo===1?'':'s') + ' · ' + counts.video + ' video' + (counts.video===1?'':'s') + '</b></div>'
+                +   '<div class="ar-eng-sum-fact"><span class="k">Photos · Videos</span><b>' + counts.photo + ' · ' + counts.video + '</b></div>'
                 +   '<div class="ar-eng-sum-fact' + (v.confirmed_at ? (v.confirm_stale ? ' stale' : ' ok') : '') + '"><span class="k">Confirmation</span><b>'
                 +     (v.confirmed_at
                         ? (v.confirm_stale ? 'Edited since confirm' : 'Confirmed') + '<span class="ar-eng-sum-fact-sub">' + esc(v.confirmed_by_name || 'engineer') + ' · ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '</span>'
