@@ -14049,7 +14049,7 @@ window.AR2_ENGINEER = (function(){
       +         '<option value="metric"' + (userUnits() === 'metric' ? ' selected' : '') + '>Metric · m³ · m³/h</option>'
       +       '</select>'
       +     '</label>'
-      +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '</button>'
+      +     '<button class="ar-eng-help-btn ar-help-icon" data-action="ar-eng-help-open" type="button" title="Help & tips" aria-label="Help">' + svgIconHelp() + '<span>Help</span></button>'
       +   '</div>'
       +   adminBanner
       +   '<div class="ar-eng-prop-title">' + esc((s.record && s.record.property_name) || 'Assignment') + '</div>'
