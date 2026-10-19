@@ -15224,10 +15224,8 @@ window.AR2_ENGINEER = (function(){
       // share one row when there's space.
       +   '<div class="ar-eng-field ar-eng-return-media-field">'
       +     '<div class="ar-eng-return-media-hd">'
-      +       '<label>Return-line media</label>'
-      +       (hasMedia
-              ? '<span class="ar-eng-pill green sm">' + svgIconCheck() + ' Captured</span>'
-              : '<span class="ar-eng-pill sm" style="background:rgba(125,184,204,.12);color:#9fc7d8;border:1px solid rgba(125,184,204,.3)">Optional</span>')
+      +       '<label>Return-line media <span class="ar-eng-hint">(optional)</span></label>'
+      // "Captured" pill dropped (Jeff, 2026-10-19) — the tally already says what's on file.
       +       '<span class="ar-eng-media-tally">' + counts.photo + '/10 photos · ' + counts.video + '/4 videos</span>'
       +       '<button class="ar-eng-mini-help" data-action="ar-eng-return-media-tip" type="button" aria-label="What to shoot" title="One clear close-up per pipe size showing diameter, plus a wider shot of the full return wall. Pan video helps for clustered piping.">?</button>'
       +     '</div>'
