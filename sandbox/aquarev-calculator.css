@@ -3144,6 +3144,16 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 
 /* Install QR card on the briefing step — text on the left, QR on
    the right. Stacks vertically on phones. */
+/* Step 1 advance band — green so "what's next" is unmissable (Jeff, 2026-10-19). */
+#ar2 .ar-eng-brief-go{display:flex;gap:20px;align-items:center;margin:22px 0 4px;padding:20px 22px;background:linear-gradient(135deg,rgba(34,197,94,.18),rgba(22,163,74,.05));border:1px solid rgba(34,197,94,.55);border-radius:12px;box-shadow:0 0 0 4px rgba(34,197,94,.08),0 10px 30px rgba(0,0,0,.25);}
+#ar2 .ar-eng-brief-go-l{flex:1;min-width:0;}
+#ar2 .ar-eng-brief-go-eyebrow{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:#4ade80;font-weight:700;margin-bottom:4px;}
+#ar2 .ar-eng-brief-go-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:#fff;line-height:1.1;margin-bottom:4px;}
+#ar2 .ar-eng-brief-go-sub{font-size:12.5px;color:#cfe2eb;line-height:1.55;}
+#ar2 .ar-eng-brief-go .ar-eng-brief-go-skip{margin:12px 0 0;color:#9fc7d8;}
+#ar2 .ar-eng-brief-go .ar-eng-brief-go-skip input{accent-color:#22c55e;}
+#ar2 .ar-eng-btn.primary.send-green.ar-eng-brief-go-btn{flex-shrink:0;font-size:14px;font-weight:700;letter-spacing:.6px;padding:15px 24px;color:#fff;box-shadow:0 6px 20px rgba(34,197,94,.35);}
+@media(max-width:640px){#ar2 .ar-eng-brief-go{flex-direction:column;align-items:stretch;}#ar2 .ar-eng-btn.primary.send-green.ar-eng-brief-go-btn{width:100%;}}
 #ar2 .ar-eng-brief-install{display:flex;gap:18px;align-items:center;margin:22px 0 4px;padding:18px 20px;background:linear-gradient(135deg,rgba(0,180,216,.15),rgba(72,202,228,.04));border:1px solid rgba(0,180,216,.4);border-radius:12px;}
 #ar2 .ar-eng-brief-install-l{flex:1;min-width:0;}
 #ar2 .ar-eng-brief-install-eyebrow{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:4px;}

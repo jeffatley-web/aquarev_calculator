@@ -14448,7 +14448,7 @@ window.AR2_ENGINEER = (function(){
       +   stepperHtml(1)
       +   '<div class="ar-eng-card">'
       +     '<div class="ar-eng-eyebrow">Briefing</div>'
-      +     '<div class="ar-eng-h1">Welcome to AquaRev field verification</div>'
+      +     '<div class="ar-eng-h1">Welcome to AquaRev\'s Field Verification Portal</div>'
       +     '<div class="ar-eng-lede">Below is a quick video briefing on the information and images we are asking for to get best results.</div>'
       +     '<div class="ar-eng-video">'
       +       '<iframe src="https://www.youtube-nocookie.com/embed/Nh7DkYL6LNA" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
@@ -14541,12 +14541,18 @@ window.AR2_ENGINEER = (function(){
             + '</div>'
           : '')
 
-      +     '<label class="ar-eng-skip-row">'
-      +       '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
-      +       '<span>Don\'t show this briefing on future visits</span>'
-      +     '</label>'
-      +     '<div class="ar-eng-actions">'
-      +       '<button class="ar-eng-btn primary" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review ' + svgIconArrowRight() + '</button>'
+      // ── Advance band — green so the next step is unmissable (Jeff, 2026-10-19).
+      +     '<div class="ar-eng-brief-go">'
+      +       '<div class="ar-eng-brief-go-l">'
+      +         '<div class="ar-eng-brief-go-eyebrow">Ready to begin</div>'
+      +         '<div class="ar-eng-brief-go-title">Start the property review</div>'
+      +         '<div class="ar-eng-brief-go-sub">Step 2 confirms site access, your contact details and the site pipe standard. Everything can be edited later.</div>'
+      +         '<label class="ar-eng-skip-row ar-eng-brief-go-skip">'
+      +           '<input type="checkbox" data-action="ar-eng-toggle-briefing-skip"' + (currentUser() && currentUser().briefing_skipped ? ' checked' : '') + ' />'
+      +           '<span>Don\'t show this briefing on future visits</span>'
+      +         '</label>'
+      +       '</div>'
+      +       '<button class="ar-eng-btn primary send-green ar-eng-brief-go-btn" data-action="ar-eng-goto-step" data-step="2" type="button">Got it — start property review ' + svgIconArrowRight() + '</button>'
       +     '</div>'
       +   '</div>'
       + '</div>';
