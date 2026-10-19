@@ -10665,7 +10665,7 @@ function _engineerReport_renderHtml(bundle){
     var SZ = window.AR2_SIZING;
     var lineFlagsHtml = '';
     var linesTable = lines.length
-      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Straight run</th><th>Status</th></tr></thead><tbody>'
+      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Straight run needed</th><th>Status</th></tr></thead><tbody>'
         + lines.map(function(l, li){
             var sz = l.sizing || {};
             var dev = Number(l.diameter) || sz.device || '?';
@@ -10678,7 +10678,8 @@ function _engineerReport_renderHtml(bundle){
             if (l.device_override && l.override_reason) lineFlagsHtml += '<div class="rpt-row" style="display:block;color:#5b3a8a;line-height:1.5">Line ' + (li+1) + ' override: ' + esc(l.override_reason) + '</div>';
             var spR = SZ ? SZ.spanStatus(l) : null;
             var stdR = (rec.state_json && rec.state_json.units === 'metric') ? 'metric' : 'us';
-            var spanTxt = spR ? ((spR.k === 'ok' || spR.k === 'short') ? SZ.showSpan(l.span_available_in, stdR) + ' <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>' : 'Not measured <span style="color:#777">(needs ' + SZ.showSpan(spR.required_in, stdR) + ')</span>') : '—';
+            // Straight run is a requirement only (no on-site measurement field since 2026-10-19).
+            var spanTxt = spR ? SZ.showSpan(spR.required_in, stdR) : '—';
             return '<tr><td>' + (l.count||1) + '</td><td>' + esc(pipe) + (sz.adapter ? ' <span style="color:#777">· adapter</span>' : '') + '</td><td>' + flow + '</td><td>' + dev + '″' + (sz.model ? ' <span style="color:#777">' + esc(sz.model) + '</span>' : '') + '</td><td>' + (SZ ? SZ.lineDeviceCount(l) : (l.count||1)) + '</td><td>' + spanTxt + '</td><td>' + esc(st) + '</td></tr>';
           }).join('')
         + '</tbody></table>'
@@ -12484,16 +12485,17 @@ window.AR2_SIZING = (function(){
       var sz = l.sizing || {}; var st = lineStatus(l); var sp = spanStatus(l);
       var dev = Number(l.diameter) || sz.device || '?';
       var flowTxt = l.flow_gpm ? showFlow(l.flow_gpm, l.flow_unit || fu) : (sz.code ? showFlow(sz.code, fu) + '<span class="sub">code flow</span>' : '—');
-      var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '') + (sz.model ? '<span class="sub">' + _e(sz.model) + (sz.adapter ? ' · adapter' : '') + '</span>' : '');
-      var spanTxt = (sp.k === 'ok' || sp.k === 'short' ? showSpan(l.span_available_in, std) : '—')
-        + '<span class="sub">needs ' + showSpan(sp.required_in, std) + (sz.adapter ? ' + adapter' : '') + '</span>';
+      // Span column removed (Jeff, 2026-10-19): the straight-run requirement
+      // rides on the device sub-line instead of a measured-vs-needed cell.
+      var devTxt = dev + '″' + (sz.parallel > 1 ? ' × ' + sz.parallel : '')
+        + '<span class="sub">' + (sz.model ? _e(sz.model) + ' · ' : '') + (sz.adapter ? 'adapter · ' : '') + 'needs ' + showSpan(sp.required_in, std) + ' straight run</span>';
       var flags = (opts.showFlags !== false && sz.messages && sz.messages.length)
-        ? '<tr class="ar-hyd-flags"><td colspan="6">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
+        ? '<tr class="ar-hyd-flags"><td colspan="5">' + sz.messages.map(function(m){ return '<div>⚠ ' + _e(m) + '</div>'; }).join('') + (l.device_override && l.override_reason ? '<div>Override reason: ' + _e(l.override_reason) + '</div>' : '') + '</td></tr>'
         : '';
-      return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td class="sp ' + sp.k + '">' + spanTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
+      return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
     }).join('');
     // Fixed column widths so tables on neighbouring pool cards line up.
-    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:7%"><col style="width:23%"><col style="width:17%"><col style="width:22%"><col style="width:16%"><col style="width:15%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Span</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:8%"><col style="width:24%"><col style="width:18%"><col style="width:34%"><col style="width:16%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
   // Device schedule — devices by size across a set of lines (count × parallel).
   function deviceSchedule(linesArrays){
@@ -14069,14 +14071,16 @@ window.AR2_ENGINEER = (function(){
     var stepContent = {
       1: ''
         + '<div class="ar-eng-help-section">Step 1 — Briefing</div>'
-        + '<p>A 60–90 second orientation video. Watch once, then check <b>"Don\'t show this again"</b> to skip it on future logins.</p>'
-        + '<p>If you ever want to rewatch it, tap the button below.</p>'
+        + '<p>A short orientation video, then <b>What we need from you</b>: four cards that map to Steps 2–4 (confirm the site, walk the pump room, verify each pool, send to AquaRev). The <b>Specifications reference</b> below them shows where devices install and what pipe shots help, with links to the installation specifications and drawing set.</p>'
+        + '<p>Tap the green <b>Got it — start property review</b> button to move on. Check <b>"Don\'t show this briefing on future visits"</b> to skip straight to Step 2 next time; you can always come back with the button below.</p>'
         + '<button class="ar-eng-btn ghost-aq" data-action="ar-eng-goto-step" data-step="1" type="button">' + svgIconReplay() + ' Watch the briefing again</button>'
-        + '<div class="ar-eng-help-section" style="margin-top:24px">Install on your phone</div>'
-        + '<p>Add AquaRev to your home screen so you can launch it like a regular app.</p>'
-        + '<p><b>iPhone (Safari or Chrome):</b> tap the Share icon at the bottom of the browser, then choose <b>Add to Home Screen</b>.</p>'
-        + '<p><b>Android (Chrome):</b> a blue "Install" banner appears at the bottom — or tap the ⋮ menu and choose <b>Install app</b>.</p>'
-        + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments + signed-in session are remembered on the icon. No browser bars, no URL typing.</p>',
+        + '<div class="ar-eng-help-section" style="margin-top:24px">Install on your computer or phone</div>'
+        + '<p>AquaRev runs as an installed app on either. The install card on Step 1 shows both paths.</p>'
+        + '<p><b>Computer (Chrome or Edge):</b> tap <b>Install on this computer</b> on the card, or use the install icon at the right end of the address bar. AquaRev opens in its own window without browser bars.</p>'
+        + '<p><b>Phone:</b> scan the QR code on the card with your phone\'s camera. On <b>iPhone</b> (Safari or Chrome) tap the Share icon and choose <b>Add to Home Screen</b>. On <b>Android</b> (Chrome) tap <b>Install</b> on the banner, or the ⋮ menu and <b>Install app</b>.</p>'
+        + '<p style="font-size:11px;color:#7db8cc">Once installed, your assignments and signed-in session are remembered on the icon. No URL typing in the field.</p>'
+        + '<div class="ar-eng-help-section" style="margin-top:24px">Finding your way</div>'
+        + '<p>The stepper under the header shows where you are; completed steps turn green and are tappable. The amber <b>Help</b> button in the header opens these tips for whichever step you are on. The <b>Units</b> menu beside it switches gallons/gpm and m³/m³·h.</p>',
       2: ''
         + '<div class="ar-eng-help-section">Step 2 — Property review</div>'
         + '<p><b>Site pipe standard.</b> Choose <b>Imperial</b> if the return pipes are marked in inches, <b>Metric</b> if they are marked in millimetres (63, 90, 110, 160). This sets the size list on every return line in Step 3. AquaRev devices always stay in inches; on a metric site AquaRev supplies a transition adapter for each line, with the device on the receiving end.</p>'
@@ -14085,23 +14089,24 @@ window.AR2_ENGINEER = (function(){
         + '<p><b>Your own units</b> (gallons and gpm, or m³ and m³/h) are set from the <b>Units</b> menu in the header. They change how you enter and read volumes and flows; they do not change the site pipe standard.</p>',
       3: ''
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
+        + '<p><b>Two sections.</b> <b>1 Pump Rooms</b> then <b>2 Pools</b>, each with a numbered band and a count. The small bar under the stepper (<i>1 Pump Rooms · 2 Pools 0/3 · Review</i>) stays on screen as you scroll; tap it to jump between sections or straight to Review. The Pools count shows how many pools are confirmed.</p>'
         + '<p><b>Pump rooms.</b> Tap <b>+ Add Pump Room</b> for each equipment room you walk through and give it a short ID (e.g. <i>PR-1</i>). A walkthrough video (30 sec – 2 min) following the supply lines through the treatment system and back to the pool is the most useful thing you can capture, but it is optional and can be added later.</p>'
-        + '<p><b>Every field starts pre-filled from the rep\'s assessment.</b> Edit only what differs on site, then confirm the pool. Sending for review and confirming a pool both need at least one return line per pool.</p>'
+        + '<p><b>Every pool card starts pre-filled from the rep\'s assessment.</b> The status pill beside the pool name reads <i>Pending</i>, <i>Flagged</i>, <i>Confirmed</i> or <i>Edited since confirm</i>. Edit only what differs on site, then confirm the pool. Sending for review and confirming a pool both need at least one return line per pool.</p>'
         + '<p style="margin-left:14px"><b>Volume</b> — type the pool volume or tap <i>Confirm Estimate</i> to accept the rep\'s figure. Use the <b>gal · m³ · L</b> pills to enter it in your own unit; it is stored in gallons. A difference of more than 5% from the estimate is flagged for the rep.</p>'
         + '<p style="margin-left:14px"><b>Water type</b> — fresh water / chlorine or saltwater.</p>'
         + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
         + '<p style="margin-left:14px"><b>Status</b> — <i>In spec</i>: flow sits inside the device\'s range. <i>Upsized</i>: flow was above the matched device\'s maximum, so the next size was assigned. <i>Below min</i>: flow is under the device minimum; check the reading before installing. <i>Override</i>: you chose the size yourself. The amber notes under a line explain each flag.</p>'
-        + '<p style="margin-left:14px"><b>Straight run</b> — under each line, <i>needs</i> is the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites add the adapter allowance). Check it on site before confirming the pool; if the run is shorter, the drawing set shows the fix (rebuild the run as an offset with four 90° elbows) — note it in the pool notes.</p>'
-        + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
+        + '<p style="margin-left:14px"><b>Straight run</b> — the device line under each return line ends with <i>needs … straight run</i>: the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites the adapter is included). There is nothing to type; just check the run is there before you confirm the pool. If it is shorter, the drawing set shows the fix (rebuild the run as an offset with four 90° elbows) — note it in the pool notes.</p>'
+        + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. You are confirming that the volume, water type, return lines, flows, device sizes and straight runs are correct as verified on site. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
         + '<p style="margin-left:14px"><b>Edited markers</b> — a small <i>edited</i> tag beside volume or water type means your value differs from the rep\'s assessment; hover it to see the original, or tap <i>reset</i> to put it back.</p>'
-        + '<p style="margin-left:14px"><b>Photos and video</b> — optional for now. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously.</p>'
+        + '<p style="margin-left:14px"><b>Return-line media</b> — optional for now; the tally shows what is on file. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously. The small <b>?</b> beside the tally lists what to shoot.</p>'
         + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
         + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across, a 1 euro coin about 23 mm. Set one next to the pipe for scale in your photo.</p>',
       4: ''
         + '<div class="ar-eng-help-section">Step 4 — Review and send</div>'
-        + '<p>The top shows the site pipe standard, the <b>device schedule</b> (devices by size for the whole property) with the adapters required, and your progress. Each pool below shows its volume, water type, pump room, the return-line table with pipe, flow, device and status, and your notes. Tap a pool to go back to its card.</p>'
+        + '<p>The top shows the site pipe standard, the <b>device schedule</b> (devices by size for the whole property) with the adapters required, and your progress. Each pool below shows its volume, water type, pump room, media count and confirmation, then the return-line table: qty, pipe, flow, device (with model, adapter and the straight run it needs) and status. Tap <b>Edit</b> on a pool to go back to its card.</p>'
         + '<p><b>Save progress</b> writes everything to AquaRev now without sending for review, and your rep sees a "saved progress" activity on their dashboard. Use it whenever you leave a site part-way through.</p>'
         + '<p><b>Send to AquaRev for review</b> when every pool has at least one return line. Your rep is notified instantly. You can keep editing afterwards; resending just alerts them to the update.</p>'
         + '<p><b>Preview Report</b> shows the verification report in-app; <b>Download PDF</b> opens the print dialog to save it. The report carries the device schedule, adapters, each pool\'s return lines and flows, and your contact details.</p>'
@@ -14545,7 +14550,7 @@ window.AR2_ENGINEER = (function(){
             +   '<button class="ar-eng-brief-install-btn" data-action="show-install-app" type="button">' + (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'Install on this phone' : 'Install on this computer') + '</button>'
             + '</div>'
             + '<div class="ar-eng-brief-install-qr">'
-            +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent('https://www.aquarevwater.us/calculator-sandbox?install=1') + '" alt="Scan to install AquaRev" />'
+            +   '<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data=' + encodeURIComponent(location.origin + location.pathname.replace(/\/$/, '') + '?install=1') + '" alt="Scan to install AquaRev" />'
             +   '<div class="ar-eng-brief-install-qr-cap">Scan with your phone</div>'
             + '</div>'
             + '</div>'
@@ -23442,7 +23447,7 @@ function showInstallAppModal(){
       +     '<circle cx="46" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
       +     '<circle cx="66" cy="58" r="7" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>'
       +     '<rect x="82" y="48" width="248" height="20" rx="10" fill="#0a2540" stroke="rgba(255,255,255,.18)"/>'
-      +     '<text x="92" y="62" font-size="9" fill="rgba(255,255,255,.6)" font-family="JetBrains Mono, monospace">aquarevwater.us/calculator-sandbox</text>'
+      +     '<text x="92" y="62" font-size="9" fill="rgba(255,255,255,.6)" font-family="JetBrains Mono, monospace">' + (location.host + location.pathname.replace(/\/$/, '')).replace(/^www\./, '').replace(/[<&]/g, '') + '</text>'
       +     '<g class="ar-install-target">'
       +       '<rect x="306" y="48" width="20" height="20" rx="4" fill="rgba(72,202,228,.25)" stroke="#48cae4" stroke-width="2"/>'
       +       '<rect x="310" y="53" width="12" height="9" rx="1" fill="none" stroke="#48cae4" stroke-width="1.6"/>'
@@ -23542,7 +23547,9 @@ function showInstallAppModal(){
   // QR code — encodes the install URL so a user on desktop can scan
   // it from their phone (or vice versa) to land on the installable
   // page. qrserver.com is free, returns PNG, no auth.
-  var installUrl = 'https://www.aquarevwater.us/calculator-sandbox?install=1';
+  // Derived from the page the user is on, so production QR codes point at
+  // production and sandbox at sandbox (fixed 2026-10-19; was hard-coded).
+  var installUrl = location.origin + location.pathname.replace(/\/$/, '') + '?install=1';
   var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&color=040f1e&bgcolor=ffffff&data='
     + encodeURIComponent(installUrl);
   var qrHtml = '<div class="ar-install-qr">'
