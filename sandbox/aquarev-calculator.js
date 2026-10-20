@@ -10666,7 +10666,7 @@ function _engineerReport_renderHtml(bundle){
     var SZ = window.AR2_SIZING;
     var lineFlagsHtml = '';
     var linesTable = lines.length
-      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe</th><th>Flow</th><th>Device</th><th>Devices</th><th>Straight run needed</th><th>Status</th></tr></thead><tbody>'
+      ? '<table class="rpt-tbl"><thead><tr><th>Lines</th><th>Return pipe size</th><th>Flow rate</th><th>Device</th><th>Devices</th><th>Straight run needed</th><th>Status</th></tr></thead><tbody>'
         + lines.map(function(l, li){
             var sz = l.sizing || {};
             var dev = Number(l.diameter) || sz.device || '?';
@@ -12497,7 +12497,7 @@ window.AR2_SIZING = (function(){
       return '<tr><td>' + (l.count || 1) + '</td><td>' + _e(pipeText(l)) + '</td><td>' + flowTxt + '</td><td>' + devTxt + '</td><td><span class="ar-hyd-pill ' + st.k + '">' + st.label + '</span></td></tr>' + flags;
     }).join('');
     // Fixed column widths so tables on neighbouring pool cards line up.
-    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:8%"><col style="width:24%"><col style="width:18%"><col style="width:34%"><col style="width:16%"></colgroup><thead><tr><th>Qty</th><th>Pipe</th><th>Flow</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    return '<table class="ar-hyd-tbl' + (opts.compact ? ' compact' : '') + '"><colgroup><col style="width:8%"><col style="width:24%"><col style="width:18%"><col style="width:34%"><col style="width:16%"></colgroup><thead><tr><th>Qty</th><th>Return pipe size</th><th>Flow rate</th><th>Device</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
   // Device schedule — devices by size across a set of lines (count × parallel).
   function deviceSchedule(linesArrays){
@@ -14098,7 +14098,7 @@ window.AR2_ENGINEER = (function(){
         + '<p><b>Every pool card starts pre-filled from the rep\'s assessment.</b> The status pill beside the pool name reads <i>Pending</i>, <i>Flagged</i>, <i>Confirmed</i> or <i>Edited since confirm</i>. Edit only what differs on site, then confirm the pool. Sending for review and confirming a pool both need at least one return line per pool.</p>'
         + '<p style="margin-left:14px"><b>Volume</b> — type the pool volume or tap <i>Confirm Estimate</i> to accept the rep\'s figure. Use the <b>gal · m³ · L</b> pills to enter it in your own unit; it is stored in gallons. A difference of more than 5% from the estimate is flagged for the rep.</p>'
         + '<p style="margin-left:14px"><b>Water type</b> — fresh water / chlorine or saltwater.</p>'
-        + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
+        + '<p style="margin-left:14px"><b>Return lines</b> — one row per pipe configuration. <b>Qty</b> is how many lines of that size. <b>Return pipe size</b> is the size marked on the pipe; inch and millimetre sizes are both listed, with the site\'s family first. <b>Flow rate</b> is the reading from the flow meter or pump curve for that line, in gpm, m³/h or L/s; leave it blank and the health-code flow (volume ÷ 4 h turnover ÷ lines) is used. <b>Device</b> shows the AquaRev size the sizing rule assigns; choose another size only for a field reason, and type the reason in the box that appears.</p>'
         + '<p style="margin-left:14px"><b>Status</b> — <i>In spec</i>: flow sits inside the device\'s range. <i>Upsized</i>: flow was above the matched device\'s maximum, so the next size was assigned. <i>Below min</i>: flow is under the device minimum; check the reading before installing. <i>Override</i>: you chose the size yourself. The amber notes under a line explain each flag.</p>'
         + '<p style="margin-left:14px"><b>Straight run</b> — the device line under each return line ends with <i>needs … straight run</i>: the straight pipe the assigned device requires (its length plus 8 in of clearance; on metric sites the adapter is included). There is nothing to type; just check the run is there before you confirm the pool. If it is shorter, the drawing set shows the fix (rebuild the run as an offset with four 90° elbows) — note it in the pool notes.</p>'
         + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. You are confirming that the volume, water type, return lines, flows, device sizes and straight runs are correct as verified on site. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
@@ -15214,7 +15214,7 @@ window.AR2_ENGINEER = (function(){
       +     '</label>'
       +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
       // Column headers — the lines read as a small table: Qty · Pipe · Flow · Device
-      +       (lines.length ? '<div class="ar-eng-lines-hd"><span>Qty</span><span>Pipe size</span><span>Flow</span><span>Device</span><span></span></div>' : '')
+      +       (lines.length ? '<div class="ar-eng-lines-hd"><span>Qty</span><span>Return pipe size</span><span>Flow rate</span><span>Device</span><span></span></div>' : '')
       +       (lines.length ? lines.map(function(line, li){
               var lstd = line.pipe_std || std;
               var fu = flowUnitFor(line);
@@ -15237,8 +15237,8 @@ window.AR2_ENGINEER = (function(){
                 +       '<span class="ar-eng-line-count">' + (Number(line.count) || 1) + '</span>'
                 +       '<button class="ar-eng-line-step" data-action="ar-eng-line-count" data-pool="' + p.index + '" data-line="' + li + '" data-d="+1" type="button"' + dis + disA + '>+</button>'
                 +     '</div>'
-                +     '<select class="ar-eng-line-dia" data-col="Pipe" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size as marked on the line (imperial or metric)"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size, std) + '</select>'
-                +     '<div class="ar-eng-line-flowcell" data-col="Flow">'
+                +     '<select class="ar-eng-line-dia" data-col="Return pipe size" data-action="ar-eng-line-size" data-pool="' + p.index + '" data-line="' + li + '" title="Pipe size as marked on the line (imperial or metric)"' + dis + '>' + sizeOptionsHtml(lstd, line.pipe_size, std) + '</select>'
+                +     '<div class="ar-eng-line-flowcell" data-col="Flow rate">'
                 +       '<input type="number" inputmode="decimal" step="any" placeholder="' + (codeGpm > 0 ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(codeGpm, fu), AR2_SIZING.FLOW[fu].dp) : '—') + '" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line. Blank = health-code flow."' + dis + ' />'
                 +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
                 +     '</div>'
