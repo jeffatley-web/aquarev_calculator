@@ -3395,7 +3395,7 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 /* Review pool summary facts — fixed 5-column grid, label over value, so
    cards are uniform and values wrap inside their cell instead of pushing
    the row (Jeff, 2026-10-19). */
-#ar2 .ar-eng-sum-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,1.7fr);gap:8px 12px;margin:8px 0 10px;}
+#ar2 .ar-eng-sum-facts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) minmax(0,1.7fr);gap:8px 10px;margin:8px 0 10px;}
 #ar2 .ar-eng-sum-fact{min-width:0;min-height:64px;box-sizing:border-box;padding:7px 10px;background:rgba(7,22,40,.45);border:1px solid rgba(0,180,216,.14);border-radius:8px;}
 #ar2 .ar-eng-sum-fact .k{display:block;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:#7db8cc;font-weight:600;margin-bottom:2px;white-space:nowrap;}
 #ar2 .ar-eng-sum-fact b{display:block;color:#e0f4fa;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:12px;line-height:1.35;overflow-wrap:break-word;}
@@ -3409,6 +3409,10 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-sum-edit{margin-left:auto;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#48cae4;font-weight:700;white-space:nowrap;}
 #ar2 .ar-fr-pool-hyd{margin-top:10px;}
 #ar2 .ar-eng-seg{display:inline-flex;gap:2px;padding:2px;background:rgba(7,22,40,.6);border:1px solid rgba(0,180,216,.22);border-radius:8px;}
+/* Yes/No segment sized to match the 42px controls in a two-up row (sub-meter toggle, 2026-10-20). */
+#ar2 .ar-eng-seg.ar-eng-ynseg{display:flex;width:100%;height:42px;box-sizing:border-box;}
+#ar2 .ar-eng-seg.ar-eng-ynseg .ar-eng-seg-btn{flex:1;font-size:13px;}
+#ar2 .ar-eng-field-placeholder{height:42px;box-sizing:border-box;display:flex;align-items:center;padding:0 12px;border:1px dashed rgba(0,180,216,.25);border-radius:8px;font-size:12px;color:var(--mu);}
 #ar2 .ar-eng-seg-btn{font-family:inherit;font-size:12px;font-weight:600;padding:5px 12px;border-radius:6px;border:0;background:transparent;color:#7db8cc;cursor:pointer;}
 #ar2 .ar-eng-seg-btn.on{background:linear-gradient(135deg,rgba(0,180,216,.3),rgba(72,202,228,.22));color:#fff;}
 #ar2 .ar-eng-seg-btn:disabled{opacity:.5;cursor:default;}

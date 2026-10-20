@@ -9854,7 +9854,7 @@ window.AR2_FIELD_REPORT = (function(){
         var asgnIds = asgns.map(function(a){ return a.id; });
         var engIds  = Array.from(new Set(asgns.map(function(a){ return a.engineer_user_id; })));
         return Promise.all([
-          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
+          c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale,has_sub_meter').in('assignment_id', asgnIds).order('pool_index',{ascending:true}),
           c.from('engineer_media').select('id,assignment_id,pool_index,pump_room_id,storage_path,media_type,filename_original,size_bytes,uploaded_at').in('assignment_id', asgnIds).order('uploaded_at',{ascending:true}),
           c.from('engineer_pump_rooms').select('id,assignment_id,label,notes,created_at').in('assignment_id', asgnIds).order('created_at',{ascending:true}),
           engIds.length ? c.from('app_users').select('id,name,phone,role').in('id', engIds) : Promise.resolve({ data: [] })
@@ -10226,6 +10226,7 @@ function _frRenderPoolCard(p, verifs, media, roomLabel){
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Water type</div><div>' + esc(typeLabel(p.repType)) + '</div><div>' + esc(typeLabel(v.pool_type)) + dot(typeState) + '</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Return lines</div><div>' + esc(linesToText(p.repLines)) + '</div><div>' + esc(window.AR2_SIZING ? AR2_SIZING.linesText(engLines) : linesToText(engLines)) + dot(linesState) + '</div></div>'
     +     '<div class="ar-fr-cmp-row"><div class="lbl">Pump room</div><div>—</div><div>' + esc(roomName) + '</div></div>'
+    +     '<div class="ar-fr-cmp-row"><div class="lbl">Sub-meter</div><div>—</div><div>' + (v.has_sub_meter ? 'Yes' : 'No') + '</div></div>'
     +   '</div>'
     + '</div>'
     // Hydraulics — what the engineer recorded per return line: pipe size as
@@ -10483,7 +10484,7 @@ function generateEngineerReport(assignmentId, opts){
 
   Promise.all([
     c.from('engineer_assignments').select('id,engineer_user_id,property_id,portfolio_id,assessment_id,assignment_notes,status,assigned_at,submitted_at,reviewed_at').eq('id', assignmentId).single(),
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale,has_sub_meter').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
     c.from('engineer_media').select('id,pool_index,pump_room_id,storage_path,media_type,filename_original,caption,uploaded_at').eq('assignment_id', assignmentId).order('uploaded_at',{ascending:true}),
     c.from('engineer_pump_rooms').select('id,label,notes,created_at').eq('assignment_id', assignmentId).order('created_at',{ascending:true})
   ]).then(function(arr){
@@ -10718,6 +10719,7 @@ function _engineerReport_renderHtml(bundle){
       +     '<div class="rpt-row"><span class="k">Estimate volume</span><span class="v">' + (volBoth(p.gallonsRep) || '—') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Engineer-confirmed volume</span><span class="v">' + (volBoth(v && v.confirmed_gallons) || 'Not confirmed') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Linked pump room</span><span class="v">' + (pumpRoom ? esc(pumpRoom.label) : '—') + '</span></div>'
+      +     '<div class="rpt-row"><span class="k">Replacement water sub-meter</span><span class="v">' + (v && v.has_sub_meter ? 'Yes' : 'No') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Devices for this pool</span><span class="v">' + (SZ ? esc(SZ.scheduleText(SZ.deviceSchedule([lines]))) : '—') + '</span></div>'
       +     '<div class="rpt-row"><span class="k">Pool confirmation</span><span class="v">' + (v && v.confirmed_at ? esc((v.confirm_stale ? 'Edited after confirmation by ' : 'Confirmed by ') + (v.confirmed_by_name || 'engineer') + ' on ' + new Date(v.confirmed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})) : 'Not yet confirmed') + '</span></div>'
       +     '<div class="rpt-stitle" style="margin-top:14px">Return Lines &amp; Device Sizing</div>'
@@ -11154,7 +11156,7 @@ function openAdminReviewModal(assignmentId){
   var c = AR2_CLOUD.getClient && AR2_CLOUD.getClient();
   if (!c) return;
   Promise.all([
-    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
+    c.from('engineer_verifications').select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,updated_at,confirmed_at,confirmed_by_name,confirm_stale,has_sub_meter').eq('assignment_id', assignmentId).order('pool_index',{ascending:true}),
     c.from('engineer_media').select('id,pool_index,media_type').eq('assignment_id', assignmentId),
     c.from('engineer_pump_rooms').select('id,label').eq('assignment_id', assignmentId)
   ]).then(function(arr){
@@ -12952,7 +12954,7 @@ window.AR2_ENGINEER = (function(){
     var c = client();
     if (!c) return Promise.resolve({});
     return c.from('engineer_verifications')
-      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at,pool_type,confirmed_at,confirmed_by,confirmed_by_name,confirm_stale')
+      .select('id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,updated_at,pool_type,confirmed_at,confirmed_by,confirmed_by_name,confirm_stale,has_sub_meter')
       .eq('assignment_id', assignmentId)
       .then(function(rs){
         if (rs.error) return {};
@@ -13383,6 +13385,7 @@ window.AR2_ENGINEER = (function(){
       pool_name_override: v.pool_name_override || null,
       is_engineer_added: !!v.is_engineer_added,
       pool_type: v.pool_type || null,
+      has_sub_meter: !!v.has_sub_meter,
       confirmed_at: v.confirmed_at || null, confirmed_by: v.confirmed_by || null, confirmed_by_name: v.confirmed_by_name || null, confirm_stale: !!v.confirm_stale,
       updated_at: new Date().toISOString()
     };
@@ -13481,6 +13484,7 @@ window.AR2_ENGINEER = (function(){
         pool_name_override: v.pool_name_override || null,
         is_engineer_added: !!v.is_engineer_added,
         pool_type:         v.pool_type || null,
+        has_sub_meter:     !!v.has_sub_meter,
         updated_at:        new Date().toISOString()
       };
       seedFlushPromises.push(
@@ -14100,7 +14104,7 @@ window.AR2_ENGINEER = (function(){
         + '<p style="margin-left:14px"><b>Confirm pool</b> — once the lines are right, tap <b>Confirm specifications</b>. You are confirming that the volume, water type, return lines, flows, device sizes and straight runs are correct as verified on site. The card collapses to a one-line summary with your name and the date; tap <b>Edit</b> to reopen it. Any later change marks the pool <i>Edited since confirm</i> until you re-confirm, so nothing changes silently. Admins reviewing the assignment can confirm or edit the same way.</p>'
         + '<p style="margin-left:14px"><b>Edited markers</b> — a small <i>edited</i> tag beside volume or water type means your value differs from the rep\'s assessment; hover it to see the original, or tap <i>reset</i> to put it back.</p>'
         + '<p style="margin-left:14px"><b>Return-line media</b> — optional for now; the tally shows what is on file. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously. The small <b>?</b> beside the tally lists what to shoot.</p>'
-        + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
+        + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Beside it, set <b>Replacement water sub-meter</b> to <b>Yes</b> if the pool\'s make-up water runs through its own meter (it defaults to No). Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
         + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across, a 1 euro coin about 23 mm. Set one next to the pipe for scale in your photo.</p>',
@@ -15080,17 +15084,30 @@ window.AR2_ENGINEER = (function(){
 
     // Pump-room linkage dropdown — only rendered when at least one
     // pump room exists. Engineers can leave it unlinked (— None —).
-    var pumpRoomLinkHtml = '';
+    // Pump room + replacement-water sub-meter share one row (Jeff, 2026-10-20).
+    var pumpRoomCell = '';
     if (s.pumpRooms && s.pumpRooms.length){
       var selectedId = v.pump_room_id || '';
       var opts = '<option value="">— Not linked —</option>'
         + s.pumpRooms.map(function(r){
             return '<option value="' + esc(r.id) + '"' + (r.id === selectedId ? ' selected' : '') + '>' + esc(r.label) + '</option>';
           }).join('');
-      pumpRoomLinkHtml = '<div class="ar-eng-field"><label>Pump room <span class="ar-eng-hint">link this pool to its equipment room</span></label>'
+      pumpRoomCell = '<div class="ar-eng-field"><label>Pump room <span class="ar-eng-hint">link this pool to its equipment room</span></label>'
         + '<select class="ar-eng-pump-room-select" data-action="ar-eng-pump-room-link" data-pool="' + p.index + '">' + opts + '</select>'
         + '</div>';
+    } else {
+      pumpRoomCell = '<div class="ar-eng-field"><label>Pump room</label>'
+        + '<div class="ar-eng-field-placeholder">Add a pump room in section 1 to link this pool</div>'
+        + '</div>';
     }
+    var hasSub = !!v.has_sub_meter;
+    var subMeterCell = '<div class="ar-eng-field"><label>Replacement water sub-meter <span class="ar-eng-hint">does this pool have one?</span></label>'
+      + '<div class="ar-eng-seg ar-eng-ynseg" role="radiogroup" aria-label="Replacement water sub-meter">'
+      +   '<button type="button" class="ar-eng-seg-btn' + (!hasSub ? ' on' : '') + '" data-action="ar-eng-sub-meter" data-pool="' + p.index + '" data-val="no"' + dis + '>No</button>'
+      +   '<button type="button" class="ar-eng-seg-btn' + (hasSub ? ' on' : '') + '" data-action="ar-eng-sub-meter" data-pool="' + p.index + '" data-val="yes"' + dis + '>Yes</button>'
+      + '</div>'
+      + '</div>';
+    var pumpRoomLinkHtml = '<div class="ar-eng-two">' + pumpRoomCell + subMeterCell + '</div>';
 
     var thumbsHtml = poolMedia.map(function(m){
       if (m._uploading){
@@ -15157,6 +15174,7 @@ window.AR2_ENGINEER = (function(){
             ? '<div class="ar-eng-pool-summary">'
               + '<span>Volume <b>' + (gal ? AR2_SIZING.showVol(gal, volUnit) : '—') + '</b></span>'
               + '<span>Water <b>' + (v.pool_type === 'saltwater' ? 'Saltwater' : 'Fresh / chlorine') + '</b></span>'
+              + '<span>Sub-meter <b>' + (v.has_sub_meter ? 'Yes' : 'No') + '</b></span>'
               + '<span>Lines <b>' + esc(AR2_SIZING.linesText(lines)) + '</b></span>'
               + (lines.some(function(l){ return l.span_available_in; }) ? '<span>Run <b>' + lines.map(function(l){ return l.span_available_in ? AR2_SIZING.showSpan(l.span_available_in, std) : '—'; }).join(' · ') + '</b></span>' : '')
               + '<span class="ar-eng-pool-summary-by">' + esc(confirmedTxt) + '</span>'
@@ -15398,6 +15416,7 @@ window.AR2_ENGINEER = (function(){
                 +   '<div class="ar-eng-sum-fact"><span class="k">Volume</span><b>' + (gal ? AR2_SIZING.showVol(gal, vu) : (est ? AR2_SIZING.showVol(est, vu) + ' (est.)' : '—')) + '</b></div>'
                 +   '<div class="ar-eng-sum-fact"><span class="k">Water</span><b>' + wt + '</b></div>'
                 +   '<div class="ar-eng-sum-fact"><span class="k">Pump room</span><b>' + (room ? esc(room.label || 'Room') : '—') + '</b></div>'
+                +   '<div class="ar-eng-sum-fact"><span class="k">Sub-meter</span><b>' + (v.has_sub_meter ? 'Yes' : 'No') + '</b></div>'
                 +   '<div class="ar-eng-sum-fact"><span class="k">Photos · Videos</span><b>' + counts.photo + ' · ' + counts.video + '</b></div>'
                 +   '<div class="ar-eng-sum-fact' + (v.confirmed_at ? (v.confirm_stale ? ' stale' : ' ok') : '') + '"><span class="k">Confirmation</span><b>'
                 +     (v.confirmed_at
@@ -15891,6 +15910,12 @@ window.AR2_ENGINEER = (function(){
         // refresh state from server on failure
         fetchPumpRooms(s.assignmentId).then(function(rs){ s.pumpRooms = rs; repaint(); });
       });
+      return true;
+    }
+    if (action === 'ar-eng-sub-meter'){
+      // Replacement-water sub-meter Yes/No (default No).
+      var smPool = parseInt(target.getAttribute('data-pool'), 10);
+      updateVerification(smPool, { has_sub_meter: target.getAttribute('data-val') === 'yes' });
       return true;
     }
     if (action === 'ar-eng-pump-room-link'){
