@@ -14456,7 +14456,7 @@ window.AR2_ENGINEER = (function(){
       +     '<div class="ar-eng-h1">Welcome to AquaRev\'s Field Verification Portal</div>'
       +     '<div class="ar-eng-lede">Below is a quick video briefing on the information and images we are asking for to get best results.</div>'
       +     '<div class="ar-eng-video">'
-      +       '<iframe src="https://www.youtube-nocookie.com/embed/WSPnO5VhQOc" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
+      +       '<iframe src="https://www.youtube-nocookie.com/embed/979kyf0n1gs" title="AquaRev Field Briefing" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
       +     '</div>'
       // ── What we need from you — four numbered cards, one line each
       // (rewritten for clarity, Jeff, 2026-10-19).
