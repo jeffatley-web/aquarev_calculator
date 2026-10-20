@@ -325,7 +325,7 @@ function showCalcPasswordModal(onUnlock){
     +'</label>'
     +'<button id="ar2-calc-pw-unlock" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#fff;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;font-family:inherit;width:100%">Unlock</button>'
     +(cloudMode
-      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.55">Locked out or forgot your code?<br>Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b> or email <a href="mailto:water@aquarevwater.com" style="color:#48cae4;text-decoration:none"><b>water@aquarevwater.com</b></a></div>'
+      ? '<div id="ar2-calc-pw-help" style="font-size:10.5px;color:#7db8cc;margin-top:14px;line-height:1.55">Locked out or forgot your code?<br>Call <b style="color:#cfe2eb">'+(window.AR2_CLOUD?AR2_CLOUD.SUPPORT_PHONE:'')+'</b> or email <a href="mailto:water@aquarevwater.us" style="color:#48cae4;text-decoration:none"><b>water@aquarevwater.us</b></a></div>'
       : '')
   +'</div>';
   document.body.appendChild(m);
