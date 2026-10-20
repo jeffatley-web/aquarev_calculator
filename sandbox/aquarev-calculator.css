@@ -3242,6 +3242,8 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-pool-check.flagged{color:#fca5a5;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);}
 /* Confirmation model (2026-10-19) */
 #ar2 .ar-eng-prefill-note{font-size:12px;color:#9fc7d8;background:rgba(0,180,216,.06);border:1px dashed rgba(0,180,216,.3);border-radius:8px;padding:7px 11px;margin:10px 0 4px;}
+/* Engineer-added pool: amber tint so it reads differently from a rep pre-fill (2026-10-20). */
+#ar2 .ar-eng-prefill-note.eng{color:#f3d9a0;background:rgba(245,185,66,.07);border-color:rgba(245,185,66,.4);}
 #ar2 .ar-eng-diff{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#48cae4;background:rgba(0,180,216,.12);border:1px solid rgba(0,180,216,.34);padding:1px 7px;border-radius:99px;margin-left:8px;vertical-align:1px;cursor:help;}
 #ar2 .ar-eng-reset{font-family:inherit;font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:#7db8cc;background:transparent;border:0;padding:0 4px;margin-left:4px;cursor:pointer;text-decoration:underline dotted;}
 #ar2 .ar-eng-reset:hover{color:#fff;}
