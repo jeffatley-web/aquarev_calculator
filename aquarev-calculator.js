@@ -15077,7 +15077,12 @@ window.AR2_ENGINEER = (function(){
       imageBlock = '<div class="ar-eng-pool-image-stub">' + svgIconCamera() + ' Engineer-added pool · no reference image</div>';
     }
 
-    var engAddedBadge = p.isEngineerAdded ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '';
+    // "Engineer-made" = added on site by the engineer. True when the pool
+    // list flags it OR the saved verification row says so (covers the case
+    // where the rep's assessment later gains a body at the same index, so
+    // the card still reads as the engineer's pool, not a rep pre-fill).
+    var engineerMade = !!(p.isEngineerAdded || v.is_engineer_added);
+    var engAddedBadge = engineerMade ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '';
     var deleteBtn = p.isEngineerAdded
       ? '<button class="ar-eng-thumb-x" data-action="ar-eng-pool-remove" data-pool="' + p.index + '" type="button" aria-label="Remove this engineer-added pool">' + svgIconClose() + '</button>'
       : '';
@@ -15182,7 +15187,7 @@ window.AR2_ENGINEER = (function(){
               + '</div>'
             : '')
       + (collapsed ? '</div>' : (''
-      +   '<div class="ar-eng-prefill-note">' + (p.isEngineerAdded ? 'New pool recorded on site. Fill in what you can, then confirm the pool.' : 'Pre-filled from the rep\'s assessment. Edit anything that differs on site, then confirm the pool.') + '</div>'
+      +   '<div class="ar-eng-prefill-note' + (engineerMade ? ' eng' : '') + '">' + (engineerMade ? 'Added on site by the engineer. Enter the volume, water type and return lines as measured, then confirm the pool.' : 'Pre-filled from the rep\'s assessment. Edit anything that differs on site, then confirm the pool.') + '</div>'
       +   imageBlock
 
       // — Volume first — entered in the engineer's unit, stored in gallons.
