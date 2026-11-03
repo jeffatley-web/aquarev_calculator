@@ -1838,8 +1838,9 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-foot-logo{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:3px;color:#fff;flex-shrink:0;}
 #ar2-report .rpt-foot-info{font-size:9px;color:#4a7a90;text-align:right;line-height:1.6;}
 /* ── Engineer Summary page (portfolio export, 2026-11-03) ── */
-#ar2-report .rpt-engs-hd{background:linear-gradient(to right,#071628,#0a2540);color:#fff;padding:18px 32px 16px;display:flex;justify-content:space-between;gap:24px;align-items:flex-start;flex-shrink:0;}
+#ar2-report .rpt-engs-hd{background:linear-gradient(to right,#071628,#0a2540);color:#fff;padding:16px 32px 14px;display:flex;justify-content:space-between;gap:24px;align-items:center;flex-shrink:0;border-top:1px solid rgba(0,180,216,.22);}
 #ar2-report .rpt-engs-hd.compact{padding:12px 32px;}
+#ar2-report .rpt-engs-cont{display:inline-block;vertical-align:middle;margin-left:8px;font-family:'DM Sans',sans-serif;font-size:9px;letter-spacing:1.6px;text-transform:uppercase;color:#48cae4;border:1px solid rgba(72,202,228,.45);border-radius:99px;padding:2px 8px;}
 #ar2-report .rpt-engs-eyebrow{font-size:8px;letter-spacing:3.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:5px;}
 #ar2-report .rpt-engs-title{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;line-height:1;color:#fff;}
 #ar2-report .rpt-engs-sub{font-size:10px;color:#9fc7d8;margin-top:5px;}
@@ -1898,6 +1899,40 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-engs-notes{background:#f3f7fa;border:1px solid #d7dee6;border-radius:6px;padding:8px 12px;font-size:10.5px;line-height:1.5;color:#2b3a48;}
 #ar2-report .rpt-engs-notes b{color:#0a2540;}
 @media print{#ar2-report .rpt-engs-hd,#ar2-report .rpt-engs-kpis,#ar2-report .rpt-engs-tbl thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+/* ── AR_SPLASH: post-login loading overlay (water splash + bubbles), 2026-11-03.
+   Markup is created by JS (no embed re-paste needed). ── */
+#ar-splash{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:2147483000;-webkit-tap-highlight-color:transparent;touch-action:none;background:radial-gradient(120% 90% at 50% 20%,#0d2c4d 0%,#071a30 45%,#040f1e 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;opacity:1;visibility:visible;transition:opacity .55s ease,visibility 0s linear 0s;font-family:'DM Sans',sans-serif;}
+#ar-splash.is-hidden{opacity:0;visibility:hidden;transition:opacity .55s ease,visibility 0s linear .55s;pointer-events:none;}
+#ar-splash canvas{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;display:block;}
+#ar-splash .ars-water{position:absolute;left:-10%;right:-10%;bottom:0;height:8%;transition:height .6s cubic-bezier(.22,.8,.3,1);pointer-events:none;}
+#ar-splash .ars-water svg{position:absolute;left:0;top:-38px;width:100%;height:40px;display:block;}
+#ar-splash .ars-water .body{position:absolute;top:0;right:0;bottom:0;left:0;background:linear-gradient(180deg,rgba(0,180,216,.32),rgba(0,180,216,.12) 40%,rgba(0,120,160,.10));}
+#ar-splash .ars-wave{animation:ars-wave 4.2s linear infinite;}
+#ar-splash .ars-wave.b{animation-duration:6.5s;animation-direction:reverse;opacity:.55;}
+@keyframes ars-wave{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+#ar-splash .ars-centre{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;transform:translateY(-4vh);}
+#ar-splash .ars-mark{position:relative;width:118px;height:118px;display:grid;place-items:center;}
+#ar-splash .ars-ring{position:absolute;top:0;right:0;bottom:0;left:0;border-radius:50%;border:1.5px solid rgba(72,202,228,.55);opacity:0;animation:ars-ring 2.4s ease-out infinite;}
+#ar-splash .ars-ring:nth-child(2){animation-delay:.8s}#ar-splash .ars-ring:nth-child(3){animation-delay:1.6s}
+@keyframes ars-ring{0%{transform:scale(.55);opacity:0}12%{opacity:.9}100%{transform:scale(1.55);opacity:0}}
+#ar-splash .ars-drop{width:64px;height:64px;filter:drop-shadow(0 10px 24px rgba(0,180,216,.45));animation:ars-bob 2.8s ease-in-out infinite;}
+@keyframes ars-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+#ar-splash .ars-word{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:7px;color:#fff;line-height:1;text-shadow:0 2px 18px rgba(0,180,216,.35);}
+#ar-splash .ars-word span{color:#48cae4;}
+#ar-splash .ars-sub{font-size:10px;letter-spacing:3.5px;text-transform:uppercase;color:#7db8cc;margin-top:-6px;}
+#ar-splash .ars-status{margin-top:10px;font-size:13px;color:#cfe2eb;min-height:18px;}
+#ar-splash .ars-status .dots::after{content:'';animation:ars-dots 1.4s steps(4,end) infinite;}
+@keyframes ars-dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}100%{content:''}}
+#ar-splash .ars-bar{width:220px;height:3px;border-radius:99px;background:rgba(125,184,204,.18);overflow:hidden;}
+#ar-splash .ars-bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#00b4d8,#48cae4);box-shadow:0 0 12px rgba(72,202,228,.7);transition:width .5s cubic-bezier(.22,.8,.3,1);}
+#ar-splash .ars-pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:#7db8cc;letter-spacing:1px;}
+#ar-splash.is-done .ars-centre{animation:ars-lift .55s cubic-bezier(.4,0,.2,1) forwards;}
+@keyframes ars-lift{to{transform:translateY(-10vh);opacity:0}}
+@media (prefers-reduced-motion:reduce){#ar-splash .ars-ring,#ar-splash .ars-drop,#ar-splash .ars-wave,#ar-splash .ars-status .dots::after{animation:none!important}#ar-splash canvas{display:none}}
+/* Phones: tighter stack, narrower wordmark; short/landscape viewports: cap the water so it never reaches the progress text. */
+@media (max-width:480px){#ar-splash .ars-word{font-size:28px;letter-spacing:5px}#ar-splash .ars-mark{width:100px;height:100px}#ar-splash .ars-drop{width:56px;height:56px}#ar-splash .ars-bar{width:180px}}
+@media (max-height:560px){#ar-splash .ars-centre{gap:8px;transform:translateY(-8vh)}#ar-splash .ars-mark{width:80px;height:80px}#ar-splash .ars-drop{width:44px;height:44px}#ar-splash .ars-word{font-size:24px;letter-spacing:4px}#ar-splash .ars-sub{display:none}#ar-splash .ars-water{max-height:22%}}
+@supports (padding-bottom:env(safe-area-inset-bottom)){#ar-splash .ars-centre{padding-bottom:env(safe-area-inset-bottom)}}
 /* ── Archive ── */
 #ar2 .ar-bank-wrap{max-width:1320px;margin:0 auto;padding:0 0 60px;width:100%;box-sizing:border-box;}
 #ar2 .ar-bank-hero{display:flex;justify-content:space-between;align-items:center;height:58px;border-bottom:1px solid rgba(255,255,255,.06);}
