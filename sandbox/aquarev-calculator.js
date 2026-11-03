@@ -7304,12 +7304,15 @@ function buildEngineerSummaryPageHtml(prop, b, pName, today){
   // ── Markup ──
   function header(sub){
     return '<div class="rpt-es-head">'
-      + '<div class="rpt-es-head-left"><div class="rpt-es-logo">Engineer Summary</div><div class="rpt-es-logo-sub">AQUAREV WATER · FIELD VERIFICATION</div></div>'
+      + '<div class="rpt-es-head-left"><div class="rpt-es-logo">Engineer Summary</div><div class="rpt-es-logo-sub">AQUAREV WATER</div></div>'
       + '<div class="rpt-es-head-right"><div class="rpt-es-prop-name">' + esc(pName) + '</div><div class="rpt-es-prop-date">' + esc(today) + (sub ? ' · ' + esc(sub) : '') + '</div></div>'
       + '</div>';
   }
+  // Title band: property + address on the left, status + engineer on the
+  // right. The page-type band above already says "Engineer Summary", so no
+  // eyebrow here (Jeff, 2026-11-03: duplicated headers).
   var titleBand = '<div class="rpt-engs-hd">'
-    + '<div><div class="rpt-engs-eyebrow">Engineer Field Verification · Summary</div><div class="rpt-engs-title">' + esc(prop.property_name || 'Property') + '</div>'
+    + '<div><div class="rpt-engs-title">' + esc(prop.property_name || 'Property') + '</div>'
     + '<div class="rpt-engs-sub">' + (prop.country ? '<b>' + esc(prop.country) + '</b>' : '') + (prop.formatted_address ? (prop.country ? ' · ' : '') + esc(prop.formatted_address) : '') + '</div></div>'
     + '<div class="rpt-engs-hd-r"><span class="rpt-engs-pill ' + stt[0] + '"><span class="dot"></span>' + esc(stt[1]) + '</span>'
     + '<div class="rpt-engs-eng"><b>' + esc(eng.name || 'Engineer') + '</b>' + (eng.company ? esc(eng.company) + ' · ' : '') + 'assigned ' + d(asgn.assigned_at) + '<br>Last activity ' + d(asgn.last_modified_at) + ' · ' + (asgn.submitted_at ? 'sent for review ' + d(asgn.submitted_at) : 'not yet sent for review') + '</div></div>'
@@ -7392,7 +7395,7 @@ function buildEngineerSummaryPageHtml(prop, b, pName, today){
     var poolsHtml = chunk.map(function(p){ return poolBlock(p, roster.indexOf(p) + 1); }).join('');
     pages.push('<div class="rpt-es-page rpt-engs-page">'
       + header(chunks.length > 1 ? 'page ' + (pi+1) + ' of ' + chunks.length : '')
-      + (pi === 0 ? titleBand + kpis : '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-eyebrow">Engineer Field Verification · Summary (continued)</div><div class="rpt-engs-title">' + esc(prop.property_name || 'Property') + '</div></div></div>')
+      + (pi === 0 ? titleBand + kpis : '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(prop.property_name || 'Property') + ' <span class="rpt-engs-cont">continued</span></div></div></div>')
       + '<div class="rpt-engs-body">'
       + (pi === 0 ? '<div class="rpt-engs-two">' + statusRows + sched + '</div>' : '')
       + '<div class="rpt-engs-sec"><div class="rpt-engs-stitle">Pools <span>estimate → engineer-confirmed · ' + roster.length + ' pool' + (roster.length === 1 ? '' : 's') + ' on record</span></div>' + (poolsHtml || '<div class="muted">No pools on this record.</div>') + '</div>'
