@@ -2962,11 +2962,18 @@ window.AR2_PF = (function(){
     // 2026-11-03). _loadAssignmentsForPortfolio sets
     // engineerAssignmentsByPortfolio[pid] (possibly []) once fetched.
     var engAsgnsLoadedForPid = !!(pfState.engineerAssignmentsByPortfolio && pfState.engineerAssignmentsByPortfolio[pid]);
-    if (isAdminKickoff && slot && slot.rows && !engAsgnsLoadedForPid){
+    // One fetch per portfolio per cache lifetime. Without this in-flight
+    // guard a fetch that resolves without populating the cache (early
+    // return, network error, PostgREST timeout) re-triggers itself on
+    // the re-render → request storm → API timeouts for every other
+    // query on the page (seen 2026-11-03 as blank Field Report + chips).
+    if (!pfState._engAsgnFetchFor) pfState._engAsgnFetchFor = {};
+    if (isAdminKickoff && slot && slot.rows && !engAsgnsLoadedForPid && !pfState._engAsgnFetchFor[pid]){
+      pfState._engAsgnFetchFor[pid] = true;
       Promise.all([_loadActiveEngineers(), _loadAssignmentsForPortfolio(pid)]).then(function(){
         var live = document.getElementById('ar2-bank-overview-mount');
         if (live) renderPortfolioOverview(live);
-      });
+      }, function(){ /* keep the guard set; the report button has its own DB fallback */ });
     }
     // Weighting chip label — "Weighting: per property" or "Weighting: 80%".
     portfolioDefaults(pid).then(function(d){
@@ -11337,6 +11344,7 @@ function adminReviewSetStatus(newStatus){
     if (window.AR2_PF && AR2_PF._state){
       AR2_PF._state.engineerAssignmentsByProperty = null;
       AR2_PF._state.engineerAssignmentsByPortfolio = null;
+      AR2_PF._state._engAsgnFetchFor = null; // allow one fresh fetch per portfolio
     }
   });
 }
