@@ -4253,11 +4253,18 @@ window.AR2_PF = (function(){
     };
     if (skipSave || !pfState.loadedProperty){ done(); return Promise.resolve(); }
     return saveCurrentProperty().then(done, function(err){
-      // Save failed — surface it but still allow exit so the user can
-      // navigate away. They'll see the error indicator next time they
-      // open this property.
+      // Save failed — say so and STAY on the property so nothing is lost
+      // silently (a swallowed failure here is how "Save & Close" appeared
+      // to work while writing nothing — Jeff, 2026-11-03). The rep can fix
+      // the cause and retry, or explicitly choose to leave without saving.
       try { console.warn('[AR2_PF] save before exit failed:', err); } catch(_){}
-      done();
+      var msg = (err && err.message) || String(err || 'unknown error');
+      var leave = confirm('This property could not be saved:\n\n' + msg + '\n\nLeave anyway and discard the unsaved changes?\n\nChoose Cancel to stay on the property and try Save again.');
+      if (leave){ done(); return; }
+      pfState.saveStatus = 'error';
+      pfState.saveError  = msg;
+      _renderSubbar();
+      throw err;
     });
   }
 
@@ -4334,20 +4341,29 @@ window.AR2_PF = (function(){
       var evMap = (S && S._engineerVerifiedPools) || {};
       var evKeys = Object.keys(evMap);
       if (evKeys.length && Array.isArray(S.bodies) && S.bodies.length){
-        var anyEngineerMerged = false;
+        var anyEngineerMerged = false, anyComparable = false;
         for (var i = 0; i < evKeys.length; i++){
           var poolIdx = parseInt(evKeys[i], 10);
           var b = S.bodies[poolIdx];
           var ev = evMap[evKeys[i]];
-          if (!b || !ev || !Array.isArray(ev.return_lines)) continue;
-          // Expected pipe_2in count for this body from engineer's spec
-          var expected = 0;
+          if (!b || !ev || !Array.isArray(ev.return_lines) || !ev.return_lines.length) continue;
+          // Expected per-size device counts for this body from the engineer's
+          // spec — ANY size, not just 2″ (the old 2″-only check rejected every
+          // save on properties whose engineer lines were 3/4/6″ — Jeff,
+          // Sofitel KL V2, 2026-11-03).
+          var expected = {};
           ev.return_lines.forEach(function(line){
-            if (parseInt(line.diameter, 10) === 2) expected += (parseInt(line.count, 10) || 0);
+            var sz = parseInt(line.diameter, 10) || 0;
+            var cnt = (parseInt(line.count, 10) || 0) * Math.max(1, parseInt(line.sizing && line.sizing.parallel, 10) || 1);
+            if (sz > 0 && cnt > 0) expected[sz] = (expected[sz] || 0) + cnt;
           });
-          if (expected > 0 && (b.pipe_2in|0) === expected){ anyEngineerMerged = true; break; }
+          var sizes = Object.keys(expected);
+          if (!sizes.length) continue;
+          anyComparable = true;
+          var matches = sizes.every(function(sz){ return (b['pipe_' + sz + 'in']|0) === expected[sz]; });
+          if (matches){ anyEngineerMerged = true; break; }
         }
-        if (!anyEngineerMerged){
+        if (anyComparable && !anyEngineerMerged){
           try { console.warn('[AR2_PF] saveCurrentProperty aborted — engineer verifications present but not merged into S.bodies (would clobber DB engineer overrides)'); } catch(_){}
           return Promise.reject(new Error('engineer hydration not complete — save aborted to prevent data loss'));
         }
@@ -10364,6 +10380,7 @@ window.__arFieldReportRender = renderFieldReport;
 // Harness accessors (the bundle is an IIFE, so S / render are private).
 window.__arCalcState = function(){ return S; };
 window.__arRender = function(){ return render(); };
+window.__arConsumeMapPoolBodies = function(){ return consumeMapPoolBodies(); };
 
 /* General notes / comments from the engineer (engineer_property_notes
    on the assignment). Renders only when at least one assignment has a
@@ -10593,6 +10610,19 @@ function _frRenderKpis(bundle){
   var verifs   = bundle.verifications || [];
   var media    = bundle.media         || [];
   var pumpRooms= bundle.pumpRooms     || [];
+  // "Pools documented" = pools that are ON THE RECORD (rep bodies or
+  // engineer-added) with any engineer data. Orphaned verification rows for
+  // pools that were since removed no longer inflate the count (2026-11-03).
+  var rosterLen = 0;
+  try {
+    if (S && S.manualVolume) rosterLen = Math.max(1, Number(S.manualPoolCount) || 1);
+    else if (S && Array.isArray(S.bodies)) rosterLen = S.bodies.length;
+  } catch(_){}
+  var poolsDocumented = verifs.filter(function(v){
+    var onRecord = v.is_engineer_added || (Number(v.pool_index) < rosterLen);
+    var hasData = (Array.isArray(v.return_lines) && v.return_lines.length) || Number(v.confirmed_gallons) > 0 || !!v.confirmed_at;
+    return onRecord && hasData;
+  }).length;
   var photos = media.filter(function(m){ return m.media_type === 'photo'; }).length;
   var videos = media.filter(function(m){ return m.media_type === 'video'; }).length;
   // Estimate total — pull from the current S state since it's already
@@ -10625,7 +10655,7 @@ function _frRenderKpis(bundle){
       + '</div>';
   }
   return '<div class="ar-fr-kpis">'
-    + tile('Pools documented', String(verifs.length), null, null)
+    + tile('Pools documented', String(poolsDocumented), rosterLen ? 'of ' + rosterLen + ' on record' : null, null)
     + tile('Pump rooms',       String(pumpRooms.length), null, null)
     + tile('Photos',           String(photos), null, null)
     + tile('Videos',           String(videos), null, null)
@@ -15544,7 +15574,6 @@ window.AR2_ENGINEER = (function(){
       +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + ((v.confirmed_gallons || p.gallonsRep) ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons || p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (volUnit === 'gal' ? 'gallons' : volUnit === 'm3' ? 'm³' : 'litres') + '"' + dis + ' />'
       +     '</div>'
       +     (volUnit !== 'gal' && (v.confirmed_gallons || p.gallonsRep) ? '<div class="ar-eng-hint" style="margin-top:4px">= ' + fn(Math.round(v.confirmed_gallons || p.gallonsRep)) + ' gal</div>' : '')
-      +     divergenceWarning
       +   '</div>'
 
       // — Water type (moved below gallons) —
@@ -15556,10 +15585,13 @@ window.AR2_ENGINEER = (function(){
       +     '</select>'
       +   '</div>'
       +   '</div>'
+      // Volume variance strip spans both columns so the Water type column
+      // doesn't open a hole beside it (card polish, 2026-11-03).
+      +   divergenceWarning
       // Pump room sits with the pool identity, ahead of the return lines.
       +   pumpRoomLinkHtml
 
-      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count · pipe size · flow · straight run per line)</span>'
+      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(qty · pipe size · flow rate · device, then confirm each straight run)</span>'
       +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
       +     '</label>'
       +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
@@ -15592,10 +15624,14 @@ window.AR2_ENGINEER = (function(){
                 +       '<input type="number" inputmode="decimal" step="any" placeholder="' + (codeGpm > 0 ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(codeGpm, fu), AR2_SIZING.FLOW[fu].dp) : '—') + '" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line. Blank = health-code flow."' + dis + ' />'
                 +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
                 +     '</div>'
-                +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span></div>'
+                +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '</div>'
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</div>' : '')
+                // Status pill leads the meta row (moved out of the device cell so
+                // the select keeps its full width — card polish, 2026-11-03).
+                +   '<div class="ar-eng-line-meta"><span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span>'
+                +     (sz.design ? '<span class="ar-eng-line-meta-txt">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</span>' : '')
+                +   '</div>'
                 // Straight run: the requirement is shown in the device line above; the
                 // engineer ACKNOWLEDGES it per device with this tick (Jeff, 2026-11-03).
                 // Required before the pool can be confirmed.
@@ -17930,6 +17966,41 @@ function consumeMapPoolBodies(){
   // Pull in the property name too if one was set in Map Pool
   var pname=(AR2_MAP.getPropertyName && AR2_MAP.getPropertyName()) || '';
   if(pname && !S.propertyName) S.propertyName=pname;
+  // Merge, don't replace (2026-11-03). A mapped pool that matches an
+  // existing body (same polygon id, else same label) keeps that body's
+  // label, water type, notes and — when an engineer has verified the pool
+  // — its engineer-merged pipe counts. Geometry, area, depth and image
+  // still come from the map. Previously S.bodies was overwritten wholesale,
+  // so a stale map snapshot silently undid the engineer's verification.
+  try {
+    var prevBodies = Array.isArray(S.bodies) ? S.bodies : [];
+    var evPools = (S._engineerVerifiedPools) || {};
+    var PK = ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'];
+    mapped = mapped.map(function(mb){
+      var mid = mb.polygon && mb.polygon.id;
+      var prevIdx = -1;
+      for (var pi = 0; pi < prevBodies.length; pi++){
+        var pb = prevBodies[pi];
+        if (mid && pb.polygon && pb.polygon.id === mid){ prevIdx = pi; break; }
+      }
+      if (prevIdx < 0){
+        for (var pj = 0; pj < prevBodies.length; pj++){
+          if (prevBodies[pj].label && mb.label && String(prevBodies[pj].label).trim().toLowerCase() === String(mb.label).trim().toLowerCase()){ prevIdx = pj; break; }
+        }
+      }
+      if (prevIdx < 0) return mb;
+      var prev = prevBodies[prevIdx];
+      mb.id = prev.id || mb.id;
+      if (prev.label) mb.label = prev.label;
+      if (prev.poolType) mb.poolType = prev.poolType;
+      if (prev.notes && !mb.notes) mb.notes = prev.notes;
+      if (prev.co2Use) mb.co2Use = true;
+      if (evPools[prevIdx] && Array.isArray(evPools[prevIdx].return_lines) && evPools[prevIdx].return_lines.length){
+        PK.forEach(function(k){ mb[k] = prev[k] | 0; });
+      }
+      return mb;
+    });
+  } catch(_){}
   S.bodies=mapped;
   // When any mapped body carries device counts, flip on "Devices by Pool" so
   // those per-pool values display on Step 1, and roll them up into the
