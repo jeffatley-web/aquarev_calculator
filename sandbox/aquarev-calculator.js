@@ -25,7 +25,7 @@ window.AR_SPLASH = (function(){
       +   '<div class="ars-mark"><span class="ars-ring"></span><span class="ars-ring"></span><span class="ars-ring"></span>'
       +     '<svg class="ars-drop" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="ars-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#48cae4"/><stop offset="1" stop-color="#0077b6"/></linearGradient></defs>'
       +     '<path d="M32 4 C 32 4, 10 30, 10 40 a22 22 0 0 0 44 0 C 54 30, 32 4, 32 4 Z" fill="url(#ars-g)"/><path d="M22 40 a10 10 0 0 0 7 9" stroke="rgba(255,255,255,.75)" stroke-width="3" stroke-linecap="round" fill="none"/></svg></div>'
-      +   '<div class="ars-word">AQUAREV <span>WATER</span></div><div class="ars-sub">ROI Calculator</div>'
+      +   '<div class="ars-word">AQUAREV <span>WATER</span></div>'
       +   '<div class="ars-status"><span class="ars-label">Loading</span><span class="dots"></span></div>'
       +   '<div class="ars-bar"><i class="ars-fill"></i></div><div class="ars-pct">0%</div>'
       + '</div>';
