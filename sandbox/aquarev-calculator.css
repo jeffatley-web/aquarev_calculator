@@ -3630,7 +3630,7 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-pool-card.locked .ar-eng-pool-name-edit{opacity:.55;pointer-events:none;}
 #ar2 .ar-eng-pool-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;}
 #ar2 .ar-eng-pool-head .ar-eng-pool-meta{flex-basis:100%;}
-#ar2 .ar-eng-pool-head .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;}
+#ar2 .ar-eng-pool-head .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;opacity:1;}
 #ar2 .ar-eng-pool-added-pill{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#4ade80;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.4);padding:2px 8px;border-radius:99px;}
 
 /* Locked-card overlay state — pool cards disable until pump rooms get
