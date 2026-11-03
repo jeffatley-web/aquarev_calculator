@@ -15574,7 +15574,6 @@ window.AR2_ENGINEER = (function(){
       +       '<input type="number" inputmode="decimal" step="any" data-action="ar-eng-confirm-gallons" data-pool="' + p.index + '" data-unit="' + volUnit + '" value="' + ((v.confirmed_gallons || p.gallonsRep) ? AR2_SIZING.fmt(AR2_SIZING.volFromGal(v.confirmed_gallons || p.gallonsRep, volUnit), AR2_SIZING.VOL[volUnit].dp).replace(/,/g,'') : '') + '" placeholder="' + (volUnit === 'gal' ? 'gallons' : volUnit === 'm3' ? 'm³' : 'litres') + '"' + dis + ' />'
       +     '</div>'
       +     (volUnit !== 'gal' && (v.confirmed_gallons || p.gallonsRep) ? '<div class="ar-eng-hint" style="margin-top:4px">= ' + fn(Math.round(v.confirmed_gallons || p.gallonsRep)) + ' gal</div>' : '')
-      +     divergenceWarning
       +   '</div>'
 
       // — Water type (moved below gallons) —
@@ -15586,10 +15585,13 @@ window.AR2_ENGINEER = (function(){
       +     '</select>'
       +   '</div>'
       +   '</div>'
+      // Volume variance strip spans both columns so the Water type column
+      // doesn't open a hole beside it (card polish, 2026-11-03).
+      +   divergenceWarning
       // Pump room sits with the pool identity, ahead of the return lines.
       +   pumpRoomLinkHtml
 
-      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(count · pipe size · flow · straight run per line)</span>'
+      +   '<div class="ar-eng-field"><label>Return lines <span class="ar-eng-hint">(qty · pipe size · flow rate · device, then confirm each straight run)</span>'
       +       (codeGpm > 0 ? '<span class="ar-eng-codeflow" title="Health-code flow: volume ÷ 4 h turnover ÷ lines">Code flow ' + AR2_SIZING.showFlow(codeGpm, flowUnitFor(lines[0])) + ' / line</span>' : '')
       +     '</label>'
       +     '<div class="ar-eng-lines ar-eng-lines-tbl">'
@@ -15622,10 +15624,14 @@ window.AR2_ENGINEER = (function(){
                 +       '<input type="number" inputmode="decimal" step="any" placeholder="' + (codeGpm > 0 ? AR2_SIZING.fmt(AR2_SIZING.flowFromGpm(codeGpm, fu), AR2_SIZING.FLOW[fu].dp) : '—') + '" data-action="ar-eng-line-flow" data-pool="' + p.index + '" data-line="' + li + '" data-unit="' + fu + '" value="' + flowVal + '" title="Measured or pump-curve flow on this line. Blank = health-code flow."' + dis + ' />'
                 +       unitPillsHtml('flow', fu, 'data-action="ar-eng-line-flow-unit" data-pool="' + p.index + '" data-line="' + li + '"' + disA)
                 +     '</div>'
-                +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '<span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span></div>'
+                +     '<div class="ar-eng-line-devcell" data-col="Device">' + devSel + '</div>'
                 +     '<button class="ar-eng-line-x" data-action="ar-eng-line-remove" data-pool="' + p.index + '" data-line="' + li + '" type="button" aria-label="Remove line"' + dis + disA + '>' + svgIconClose() + '</button>'
                 +   '</div>'
-                +   (sz.design ? '<div class="ar-eng-line-meta">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</div>' : '')
+                // Status pill leads the meta row (moved out of the device cell so
+                // the select keeps its full width — card polish, 2026-11-03).
+                +   '<div class="ar-eng-line-meta"><span class="ar-eng-status-pill ' + status + '">' + statusLabel + '</span>'
+                +     (sz.design ? '<span class="ar-eng-line-meta-txt">' + (sz.model ? '<span class="mono">' + esc(sz.model) + '</span> · ' : '') + 'design ' + AR2_SIZING.showFlow(sz.design, fu) + (sz.entered ? '' : ' (code flow)') + (sz.velocity ? ' · ' + sz.velocity + ' ft/s' : '') + (sz.adapter ? ' · adapter required' : '') + ' · needs ' + AR2_SIZING.showSpan(AR2_SIZING.requiredSpanIn(devEff), std) + ' straight run</span>' : '')
+                +   '</div>'
                 // Straight run: the requirement is shown in the device line above; the
                 // engineer ACKNOWLEDGES it per device with this tick (Jeff, 2026-11-03).
                 // Required before the pool can be confirmed.

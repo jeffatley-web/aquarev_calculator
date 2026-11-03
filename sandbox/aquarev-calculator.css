@@ -3378,6 +3378,23 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
 #ar2 .ar-eng-line-run.ok{border-style:solid;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.06);color:#86efac;}
 #ar2 .ar-eng-line-run.ok svg{width:12px;height:12px;vertical-align:-2px;margin-right:2px;}
 #ar2 .ar-eng-line-run input:disabled{cursor:not-allowed;opacity:.6;}
+/* ── Pool card polish (Jeff, 2026-11-03): one control height across the
+   return-line row, status pill leads the meta row, consistent 6px rhythm
+   between meta / straight-run / flags, full-width variance strip, and a
+   shorter reference image so the data stays above the fold. ── */
+#ar2 .ar-eng-line-dia,#ar2 .ar-eng-line-flowcell input,#ar2 .ar-eng-dev-sel{height:40px;padding-top:0;padding-bottom:0;box-sizing:border-box;}
+#ar2 .ar-eng-line-flowcell input{line-height:38px;}
+#ar2 .ar-eng-line-step,#ar2 .ar-eng-line-x{width:32px;height:32px;}
+#ar2 .ar-eng-line-grid{align-items:center;}
+#ar2 .ar-eng-line-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:0;margin-top:6px;}
+#ar2 .ar-eng-line-meta .ar-eng-status-pill{font-size:9.5px;padding:2px 8px;}
+#ar2 .ar-eng-line-meta-txt{line-height:1.4;}
+#ar2 .ar-eng-field label.ar-eng-line-run,#ar2 .ar-eng-line-run{margin:6px 0 0;}
+#ar2 .ar-eng-line-flags{margin-top:6px;}
+#ar2 .ar-eng-discrepancy{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;padding:8px 12px;margin:-6px 0 12px;}
+#ar2 .ar-eng-discrepancy-title{margin-bottom:0;}
+#ar2 .ar-eng-discrepancy-body{margin-bottom:0;}
+#ar2 .ar-eng-pool-image img{max-height:180px;}
 @media (max-width:720px){
   #ar2 .ar-eng-lines-hd{display:none;}
   #ar2 .ar-eng-line-grid{grid-template-columns:1fr 1fr;}
