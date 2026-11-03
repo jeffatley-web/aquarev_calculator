@@ -10199,11 +10199,30 @@ function renderFieldReport(){
   // is async; we paint a skeleton now and repaint once the bundle
   // lands. _fieldReportDirty short-circuits the repaint loop.
   if (ref && (!st.bundle || st.recordId !== ref.id) && !st.loading){
+    var _frLoadedFor = ref.id;
     AR2_FIELD_REPORT.load().then(function(){
       // Async repaint — only if the user is still on the Report step
-      // (they may have navigated away during the fetch).
-      if (S.step === 5 && typeof render === 'function') render();
+      // (they may have navigated away during the fetch). A throw inside
+      // render() used to leave the skeleton on screen forever (Jeff,
+      // 2026-11-03) — surface it as an error panel instead.
+      try { if (S.step === 5 && typeof render === 'function') render(); }
+      catch(frRenderErr){
+        try { console.error('[Field Report] render failed', frRenderErr); } catch(_){}
+        var stE = AR2_FIELD_REPORT.state(); stE.loading = false; stE.error = 'Could not draw the field report: ' + ((frRenderErr && frRenderErr.message) || frRenderErr);
+        var elE = document.getElementById('ar2-form'); if (elE && S.step === 5) elE.innerHTML = renderFieldReport();
+      }
+    }, function(frLoadErr){
+      var stL = AR2_FIELD_REPORT.state(); stL.loading = false; stL.error = (frLoadErr && frLoadErr.message) || 'Could not load the field report.';
+      try { if (S.step === 5 && typeof render === 'function') render(); } catch(_){}
     });
+    // Watchdog — if nothing settles in 20 s, stop spinning and say so.
+    setTimeout(function(){
+      var stW = AR2_FIELD_REPORT.state();
+      if (stW.loading && stW.recordId === _frLoadedFor){
+        stW.loading = false; stW.error = 'The field report is taking too long to load. Check your connection, then leave this step and come back to retry.';
+        try { if (S.step === 5 && typeof render === 'function') render(); } catch(_){}
+      }
+    }, 20000);
   }
   // No record yet — could be a fresh-blank assessment OR a recalled
   // session where the record id wasn't stashed (e.g. browser refresh
@@ -10276,6 +10295,7 @@ function renderFieldReport(){
   // for the hero. Multi-engineer records still render only one hero
   // block in this skeleton ship; per-engineer breakdown will land in
   // a later sub-ship.
+  try {
   var asgn = b.assignments[0];
   var eng  = b.engineerById[asgn.engineer_user_id] || {};
   var statusPill = (function(){
@@ -10330,7 +10350,15 @@ function renderFieldReport(){
     + _frRenderPoolCompare(b)
     + _frRenderEngineerPropertyNotes(b)
     + '</div>';
+  } catch(frErr){
+    try { console.error('[Field Report] section render failed', frErr); } catch(_){}
+    return '<div class="ar-fr-wrap"><div class="ar-fr-empty error">'
+      + '<div class="ar-fr-empty-title">Couldn\'t draw the field report</div>'
+      + '<div class="ar-fr-empty-body">' + esc((frErr && frErr.message) || String(frErr)) + '<br><span style="font-size:11px;color:var(--mu)">The engineer\'s data is intact. Leave this step and come back to retry, or open the Engineer Report from the portfolio row.</span></div>'
+      + '</div></div>';
+  }
 }
+window.__arFieldReportRender = renderFieldReport;
 
 /* General notes / comments from the engineer (engineer_property_notes
    on the assignment). Renders only when at least one assignment has a
