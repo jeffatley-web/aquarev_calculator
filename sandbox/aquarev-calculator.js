@@ -14160,6 +14160,7 @@ window.AR2_ENGINEER = (function(){
         + '<p style="margin-left:14px"><b>Edited markers</b> — a small <i>edited</i> tag beside volume or water type means your value differs from the rep\'s assessment; hover it to see the original, or tap <i>reset</i> to put it back.</p>'
         + '<p style="margin-left:14px"><b>Return-line media</b> — optional for now; the tally shows what is on file. A close-up of each pipe size showing the diameter and a wider shot of the return wall help the rep enormously. The small <b>?</b> beside the tally lists what to shoot.</p>'
         + '<p>Use the <b>Pump room</b> dropdown on each pool card to tell the rep which equipment room serves it. Beside it, set <b>Replacement water sub-meter</b> to <b>Yes</b> if the pool\'s make-up water runs through its own meter (it defaults to No). Use <b>Notes</b> for anything unusual; nothing is written there automatically.</p>'
+        + '<p><b>Removing a pool.</b> If the assessment lists a pool that does not exist on site (a spa counted twice, for example), tap the <b>×</b> in the card header. You will be asked to confirm, because the pool is removed from the rep\'s assessment file as well as from your verification, along with any photos or videos you added to it. The rep and AquaRev are notified. A property must keep at least one pool.</p>'
         + '<p><b>Pipe diameters at a glance:</b></p>'
         + pipeDiameterReferenceSvg()
         + '<p style="font-size:11px;color:#7db8cc">Tip: a US quarter is about 1 inch across, a 1 euro coin about 23 mm. Set one next to the pipe for scale in your photo.</p>',
@@ -15138,9 +15139,12 @@ window.AR2_ENGINEER = (function(){
     // the card still reads as the engineer's pool, not a rep pre-fill).
     var engineerMade = !!(p.isEngineerAdded || v.is_engineer_added);
     var engAddedBadge = engineerMade ? '<span class="ar-eng-pool-added-pill">Engineer-added</span>' : '';
-    var deleteBtn = p.isEngineerAdded
-      ? '<button class="ar-eng-thumb-x" data-action="ar-eng-pool-remove" data-pool="' + p.index + '" type="button" aria-label="Remove this engineer-added pool">' + svgIconClose() + '</button>'
-      : '';
+    // Remove button on every card (Jeff, 2026-11-03). Engineer-added pools
+    // delete locally; rep pools also come off the assessment file via the
+    // engineer_remove_pool RPC after an explicit confirmation. Hidden when
+    // the assignment is locked.
+    var deleteBtn = isLocked ? ''
+      : '<button class="ar-eng-thumb-x" data-action="ar-eng-pool-remove" data-pool="' + p.index + '" type="button" aria-label="' + (p.isEngineerAdded ? 'Remove this engineer-added pool' : 'Remove this pool from the property and the assessment') + '" title="' + (p.isEngineerAdded ? 'Remove pool' : 'Remove pool (also removes it from the assessment)') + '">' + svgIconClose() + '</button>';
 
     // Pump-room linkage dropdown — only rendered when at least one
     // pump room exists. Engineers can leave it unlinked (— None —).
@@ -16015,7 +16019,61 @@ window.AR2_ENGINEER = (function(){
       // it nukes the verification row + any media attached to it.
       var rmIdx = parseInt(target.getAttribute('data-pool'), 10);
       var rmV = s.verifications[rmIdx];
-      if (!rmV || !rmV.is_engineer_added) return true;
+      if (!rmV || !rmV.is_engineer_added){
+        // ── Rep pool: remove from the property AND the assessment file ──
+        // (Jeff, 2026-11-03). Server-side RPC rewrites the record's pool
+        // list, deletes this pool's verification + media on every
+        // assignment for the record, re-indexes the rest, and notifies
+        // admins + the rep so the KPIs get re-saved.
+        if (s.assignment && s.assignment.status === 'locked') return true;
+        var rmPool = s.pools.find(function(x){ return x.index === rmIdx; });
+        var rmLabel = (rmV && rmV.pool_name_override) || (rmPool && rmPool.name) || ('Pool ' + (rmIdx + 1));
+        if (s.pools.length <= 1){ alert('This is the only pool on the record. A property needs at least one pool.'); return true; }
+        if (!(s.assignment && (s.assignment.property_id || s.assignment.assessment_id))){ alert('Pools can only be removed from a property or assessment assignment.'); return true; }
+        var rmMediaN = s.media.filter(function(m){ return m.pool_index === rmIdx; }).length;
+        var msg = 'Remove "' + rmLabel + '" from this property?\n\n'
+          + 'This also removes the pool from the rep\'s ASSESSMENT file, so the assessment will no longer list it.'
+          + (rmMediaN ? ' The ' + rmMediaN + ' photo/video file' + (rmMediaN === 1 ? '' : 's') + ' and any verification recorded for this pool are deleted too.' : ' Any verification recorded for this pool is deleted too.')
+          + '\n\nThis cannot be undone. Remove the pool?';
+        if (!confirm(msg)) return true;
+        var cR = client();
+        if (!cR) return true;
+        target.disabled = true;
+        cR.rpc('engineer_remove_pool', { p_assignment_id: s.assignmentId, p_pool_index: rmIdx }).then(function(rs){
+          if (rs && rs.error){ target.disabled = false; alert('Could not remove the pool: ' + rs.error.message); return; }
+          var out = (rs && rs.data) || {};
+          // Mirror the server change locally so the step repaints without a refetch.
+          try {
+            var sj = (s.record && s.record.state_json) || {};
+            if (sj.manualVolume){
+              var nM = Math.max(1, Number(sj.manualPoolCount) || 1);
+              sj.manualPoolCount = nM - 1;
+              sj.manualTotalGallons = Math.round((Number(sj.manualTotalGallons) || 0) * (nM - 1) / nM);
+            } else if (Array.isArray(sj.bodies)){
+              sj.bodies.splice(rmIdx, 1);
+            }
+            s.pools = derivePoolList(s.record);
+          } catch(_){}
+          var nextV = {};
+          Object.keys(s.verifications).forEach(function(k){
+            var i = Number(k); if (i === rmIdx) return;
+            var v = s.verifications[k]; var ni = i > rmIdx ? i - 1 : i;
+            v.pool_index = ni; nextV[ni] = v;
+          });
+          s.verifications = nextV;
+          s.media = s.media.filter(function(m){ return m.pool_index !== rmIdx; }).map(function(m){
+            if (m.pool_index != null && m.pool_index > rmIdx) m.pool_index = m.pool_index - 1;
+            return m;
+          });
+          s._expandedPools = {};
+          s.lastSavedAt = new Date();
+          var paths = Array.isArray(out.media_paths) ? out.media_paths.filter(Boolean) : [];
+          if (paths.length){ try { cR.storage.from('engineer-media').remove(paths).catch(function(){}); } catch(_){} }
+          repaint();
+          try { showEngInfoModal('Pool removed', '<p style="margin:0"><b>' + esc(out.removed_label || rmLabel) + '</b> has been removed from this property and from the rep\'s assessment file. The record now lists ' + (out.pools_remaining != null ? out.pools_remaining : s.pools.length) + ' pool' + ((out.pools_remaining != null ? out.pools_remaining : s.pools.length) === 1 ? '' : 's') + '. Your rep has been notified.</p>'); } catch(_){}
+        }, function(err){ target.disabled = false; alert('Could not remove the pool: ' + ((err && err.message) || err)); });
+        return true;
+      }
       if (!confirm('Remove this engineer-added pool? Any media uploaded to it will also be removed.')) return true;
       var c = client();
       if (!c) return true;
