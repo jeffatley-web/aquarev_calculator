@@ -390,7 +390,9 @@ function showCalcPasswordModal(onUnlock){
   var subtitle = cloudMode
     ? 'Enter your access code to sign in.'
     : 'Enter the passcode to access the calculator.';
-  m.innerHTML='<div style="background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:36px 32px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;">'
+  m.innerHTML='<div style="position:relative;background:linear-gradient(145deg,#0a2540,#071628);border:1px solid rgba(0,180,216,.3);border-radius:12px;padding:36px 32px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;">'
+    // Close → back to the website home page (Jeff, 2026-11-03).
+    +'<button type="button" id="ar2-gate-close" aria-label="Close and return to the website" title="Return to aquarevwater.us" style="position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.06);border:1px solid rgba(125,184,204,.35);color:#9fc7d8;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:background .12s,color .12s,border-color .12s" onmouseover="this.style.background=\'rgba(0,180,216,.18)\';this.style.color=\'#fff\';this.style.borderColor=\'rgba(0,180,216,.6)\'" onmouseout="this.style.background=\'rgba(255,255,255,.06)\';this.style.color=\'#9fc7d8\';this.style.borderColor=\'rgba(125,184,204,.35)\'">&times;</button>'
     +'<div style="font-family:\'Bebas Neue\',sans-serif;font-size:30px;letter-spacing:5px;color:#fff;margin-bottom:4px">AQUAREV WATER</div>'
     +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#48cae4;font-weight:600;margin-bottom:18px">Assessment Portal</div>'
     +'<div style="font-size:13px;color:#cfe2eb;line-height:1.6;margin-bottom:18px">'+subtitle+'</div>'
@@ -424,6 +426,9 @@ function showCalcPasswordModal(onUnlock){
       : '')
   +'</div>';
   document.body.appendChild(m);
+  // × on the card → leave the portal for the website home page.
+  var gateClose=document.getElementById('ar2-gate-close');
+  if(gateClose) gateClose.onclick=function(){ try { location.href='https://www.aquarevwater.us/'; } catch(_){} };
   var input=document.getElementById('ar2-calc-pw-input');
   var err=document.getElementById('ar2-calc-pw-err');
   var remember=document.getElementById('ar2-calc-pw-remember');
