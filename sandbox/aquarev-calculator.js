@@ -3024,6 +3024,10 @@ window.AR2_PF = (function(){
       propertyProfileLayout:'cards',        // 'cards' | 'list-by-country'
       poolProfiles:         true,
       poolProfilesLayout:   'cards',        // 'cards' | 'list' (compact rows grouped by property)
+      // Engineer Summary — one-page field-verification summary per
+      // property, printed right after that property's pool profiles.
+      // Properties with no engineer assignment are skipped. Off by default.
+      engineerSummary:      false,
       perProperty:          true,
       // Per-property Assessment pages — one full assessment page per
       // property, grouped after Property Profiles and BEFORE the Pool
@@ -3202,6 +3206,7 @@ window.AR2_PF = (function(){
       +     _expRow('propertyAssessments', 'Property Assessment Pages', 'One assessment page per property, immediately before that property\'s pool profile cards', st.propertyAssessments)
       +     _expRow('poolProfiles',    'Property Pool Profiles','Pool detail grouped by property — cards or compact list',                                          st.poolProfiles)
       +     _expSubRow('poolProfilesLayout',    [{value:'cards',label:'Cards'},{value:'list',label:'List'}],                                  st.poolProfilesLayout)
+      +     _expRow('engineerSummary', 'Engineer Summary',     'One-page field verification summary per property, after its pool profiles — properties without an engineer are skipped', st.engineerSummary)
       +     quoteRow
       +     _expRow('stdTerms',        'Purchase Terms and Conditions', 'Pulls from Quote section 6 if configured',                                                st.stdTerms)
       +     _expRow('backCover',       'Back Cover',           '',                                                                                                  st.backCover)
@@ -5890,11 +5895,23 @@ function buildPortfolioReportPreview(pid, mode){
   });
   var rollupP = AR2_PF.getRollup(pid).catch(function(){ return null; });
   var quoteP  = (st.quoteReady ? AR2_PF.loadQuote(pid).catch(function(){ return null; }) : Promise.resolve(null));
+  // Engineer Summary pages need every property's field-verification
+  // bundle. Loaded in bulk (one query per table) only when the toggle is on.
+  var engP = st.engineerSummary
+    ? loadStatesP.then(function(states){ return loadEngineerSummaryBundles((states || []).map(function(p){ return p.id; })); }).catch(function(){ return {}; })
+    : Promise.resolve({});
 
-  return Promise.all([loadStatesP, rollupP, quoteP]).then(function(arr){
+  return Promise.all([loadStatesP, rollupP, quoteP, engP]).then(function(arr){
     var states = arr[0] || [];
     var roll   = arr[1] || {};
     var quote  = arr[2] || null;
+    var engByProp = arr[3] || {};
+    var stateById = {}; states.forEach(function(p){ if (p && p.id) stateById[p.id] = p; });
+    function engSummaryFor(propId){
+      var b = engByProp[propId]; var p = stateById[propId];
+      if (!b || !p || !st.engineerSummary) return '';
+      try { return buildEngineerSummaryPageHtml(p, b, pName, today); } catch(e){ try { console.warn('[Engineer Summary]', e); } catch(_){} return ''; }
+    }
     var today  = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
     // Compute line items if quote is ready — same logic the Quote builder uses.
@@ -6075,12 +6092,17 @@ function buildPortfolioReportPreview(pid, mode){
                 ppEls[pe].parentNode.removeChild(ppEls[pe]);
               }
               var rest = capTmp.innerHTML;
-              _capByProp.push({ name: prop.property_name || ('Property ' + (pi+1)), rest: (rest && rest.trim()) ? rest : '', pools: _pools });
+              _capByProp.push({ id: prop.id, name: prop.property_name || ('Property ' + (pi+1)), rest: (rest && rest.trim()) ? rest : '', pools: _pools });
             } catch(splitErr){
               // Defensive: if split fails, keep the whole capture as this
               // property's block, verbatim.
-              _capByProp.push({ name: prop.property_name || ('Property ' + (pi+1)), rest: window.__pfCapturedHtml, pools: [] });
+              _capByProp.push({ id: prop.id, name: prop.property_name || ('Property ' + (pi+1)), rest: window.__pfCapturedHtml, pools: [] });
             }
+          } else {
+            // Nothing captured (e.g. assessment pages off and no pool cards)
+            // — keep a placeholder bucket so the Engineer Summary can still
+            // print in property order.
+            _capByProp.push({ id: prop.id, name: prop.property_name || ('Property ' + (pi+1)), rest: '', pools: [] });
           }
         }
       } finally {
@@ -6108,12 +6130,20 @@ function buildPortfolioReportPreview(pid, mode){
         var _blk = _capByProp[cbi];
         if (st.propertyAssessments && _blk.rest) pushSec({ t: _blk.name + ' — Assessment', sub: true }, _blk.rest);
         for (var cbp = 0; cbp < _blk.pools.length; cbp++) pushSec(cbp === 0 ? { t: _blk.name + ' — Pool Profiles', sub: true } : null, _blk.pools[cbp]);
+        // Engineer Summary — after this property's assessment + pool pages.
+        var _engHtml = engSummaryFor(_blk.id);
+        if (_engHtml) pushSec({ t: _blk.name + ' — Engineer Summary', sub: true }, _engHtml);
       }
       for (var pli = 0; pli < plPages.length; pli++) pushSec(pli === 0 ? 'Pool Profiles (List)' : null, plPages[pli]);
     } else {
       // No capture pass needed (no cards, no per-property assessments) —
-      // the compact list, if selected, still goes here.
+      // the compact list, if selected, still goes here, then any Engineer
+      // Summaries in property order.
       for (var pli2 = 0; pli2 < plPages.length; pli2++) pushSec(pli2 === 0 ? 'Pool Profiles (List)' : null, plPages[pli2]);
+      for (var esi = 0; esi < states.length; esi++){
+        var _esHtml = engSummaryFor(states[esi].id);
+        if (_esHtml) pushSec({ t: (states[esi].property_name || ('Property ' + (esi+1))) + ' — Engineer Summary', sub: true }, _esHtml);
+      }
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -7143,6 +7173,217 @@ function buildPortfolioPoolProfilesListPages(pName, states, today){
 /* P7: Portfolio quote page — replicates the single-property quote chrome
    (Seller / Prepared For / Quote-meta top row + Equipment line items table
    + subtotal stack + footer) but with portfolio-rolled data. */
+/* ───────────────────────────────────────────────────────────────
+   Engineer Summary page (portfolio export) — Jeff, 2026-11-03.
+   One Letter page per property summarising the engineer's field
+   verification: status, KPI band, verification rows + device schedule
+   (engineer vs assessment), one block per pool (facts strip + return
+   lines), pump rooms, flags for AquaRev review, engineer notes.
+   Data comes from loadEngineerSummaryBundles(); the renderer is pure.
+   ─────────────────────────────────────────────────────────────── */
+function loadEngineerSummaryBundles(propertyIds){
+  var c = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+  var ids = (propertyIds || []).filter(Boolean);
+  if (!c || !ids.length) return Promise.resolve({});
+  return c.from('engineer_assignments')
+    .select('id,engineer_user_id,property_id,status,assignment_notes,engineer_property_notes,assigned_at,last_modified_at,submitted_at,reviewed_at,locked_at')
+    .in('property_id', ids)
+    .then(function(rs){
+      var asgns = (rs && rs.data) || [];
+      if (!asgns.length) return {};
+      var aIds = asgns.map(function(a){ return a.id; });
+      var eIds = Array.from(new Set(asgns.map(function(a){ return a.engineer_user_id; }).filter(Boolean)));
+      return Promise.all([
+        c.from('engineer_verifications').select('id,assignment_id,pool_index,confirmed_gallons,return_lines,notes,has_discrepancy,discrepancy_reason,pump_room_id,pool_name_override,is_engineer_added,pool_type,confirmed_at,confirmed_by_name,confirm_stale,has_sub_meter').in('assignment_id', aIds).order('pool_index', { ascending: true }),
+        c.from('engineer_media').select('id,assignment_id,pool_index,pump_room_id,media_type').in('assignment_id', aIds),
+        c.from('engineer_pump_rooms').select('id,assignment_id,label,notes,created_at').in('assignment_id', aIds).order('created_at', { ascending: true }),
+        eIds.length ? c.from('app_users').select('id,name,phone,company').in('id', eIds) : Promise.resolve({ data: [] })
+      ]).then(function(arr){
+        var verifs = arr[0].data || [], media = arr[1].data || [], rooms = arr[2].data || [];
+        var engById = {}; (arr[3].data || []).forEach(function(e){ engById[e.id] = e; });
+        var byProp = {};
+        asgns.forEach(function(a){ (byProp[a.property_id] = byProp[a.property_id] || []).push(a); });
+        var out = {};
+        Object.keys(byProp).forEach(function(propId){
+          var list = window.arPickPrimaryAssignments ? arPickPrimaryAssignments(byProp[propId], verifs) : byProp[propId];
+          var a = list[0];
+          out[propId] = {
+            asgn: a,
+            engineer: engById[a.engineer_user_id] || {},
+            verifs: verifs.filter(function(v){ return v.assignment_id === a.id; }),
+            media:  media.filter(function(m){ return m.assignment_id === a.id; }),
+            rooms:  rooms.filter(function(r){ return r.assignment_id === a.id; })
+          };
+        });
+        return out;
+      });
+    }, function(){ return {}; });
+}
+
+function buildEngineerSummaryPageHtml(prop, b, pName, today){
+  var SZ = window.AR2_SIZING;
+  var sj = (prop && prop.state_json) || {};
+  var asgn = b.asgn || {}, eng = b.engineer || {}, verifs = b.verifs || [], media = b.media || [], rooms = b.rooms || [];
+  var std = (sj.units === 'metric') ? 'metric' : 'us';
+  function d(x){ return x ? new Date(x).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : '—'; }
+  function pct(a, bb){ return (a > 0 && bb > 0) ? Math.round((a - bb) / bb * 100) : null; }
+  function deltaHtml(conf, est){
+    var p = pct(conf, est); if (p === null) return '';
+    var cls = Math.abs(p) <= 5 ? 'ok' : 'up';
+    return ' <em class="rpt-engs-delta ' + cls + '">' + (p > 0 ? '+' : '') + p + '%</em>';
+  }
+  // ── Pool roster (rep bodies + engineer-added) ──
+  var roster = [];
+  if (sj.manualVolume){
+    var nM = Math.max(1, Number(sj.manualPoolCount) || 1), perM = Math.round((Number(sj.manualTotalGallons) || 0) / nM);
+    for (var im = 0; im < nM; im++) roster.push({ index: im, name: 'Pool ' + (im+1), estGal: perM, repType: '', depth: '', repLines: [] });
+  } else if (Array.isArray(sj.bodies)){
+    sj.bodies.forEach(function(bd, i){
+      var rl = [];
+      ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'].forEach(function(k){ var n = Number(bd[k]) || 0; if (n > 0) rl.push({ count: n, diameter: parseInt(k.split('_')[1], 10) }); });
+      roster.push({ index: i, name: bd.label || ('Pool ' + (i+1)), estGal: (typeof bodyGallons === 'function') ? Math.round(bodyGallons(bd) || 0) : 0, repType: bd.poolType === 'saltwater' ? 'saltwater' : (bd.poolType === 'chlorine' ? 'fresh' : ''), depth: bd.depth || '', repLines: rl });
+    });
+  }
+  verifs.forEach(function(v){
+    if (v.is_engineer_added && !roster.some(function(p){ return p.index === v.pool_index; })) roster.push({ index: v.pool_index, name: v.pool_name_override || ('Pool ' + (v.pool_index+1)), estGal: 0, repType: '', depth: '', repLines: [], engineerAdded: true });
+  });
+  roster.sort(function(a, bb){ return a.index - bb.index; });
+  var vByIdx = {}; verifs.forEach(function(v){ vByIdx[v.pool_index] = v; });
+  var roomById = {}; rooms.forEach(function(r){ roomById[r.id] = r; });
+
+  // ── KPIs ──
+  var confirmedPools = roster.filter(function(p){ var v = vByIdx[p.index]; return v && v.confirmed_at && !v.confirm_stale; }).length;
+  var photos = media.filter(function(m){ return m.media_type === 'photo'; }).length;
+  var videos = media.filter(function(m){ return m.media_type === 'video'; }).length;
+  var roomsWithVideo = rooms.filter(function(r){ return media.some(function(m){ return m.media_type === 'video' && m.pump_room_id === r.id; }); }).length;
+  var estTotal = 0, confTotal = 0;
+  roster.forEach(function(p){ estTotal += p.estGal || 0; var v = vByIdx[p.index]; if (v && v.confirmed_gallons) confTotal += Number(v.confirmed_gallons) || 0; });
+  var assessBySize = {}; roster.forEach(function(p){ p.repLines.forEach(function(l){ assessBySize[l.diameter] = (assessBySize[l.diameter] || 0) + l.count; }); });
+  var engSched = SZ ? SZ.deviceSchedule(verifs.map(function(v){ return v.return_lines || []; })) : [];
+  var engBySize = {}; engSched.forEach(function(x){ engBySize[x.in] = x.count; });
+  var sizes = Array.from(new Set(Object.keys(assessBySize).concat(Object.keys(engBySize)).map(Number))).sort(function(a, bb){ return a - bb; });
+  var engDev = 0, assessDev = 0; sizes.forEach(function(sz){ engDev += engBySize[sz] || 0; assessDev += assessBySize[sz] || 0; });
+  var devMatch = sizes.every(function(sz){ return (engBySize[sz] || 0) === (assessBySize[sz] || 0); });
+  var adapters = SZ ? SZ.adapterSchedule(verifs.map(function(v){ return v.return_lines || []; })) : [];
+  var adapterBySize = {}; (adapters || []).forEach(function(a){ var key = Number(a.device || a.in || a.dev); if (key) adapterBySize[key] = (adapterBySize[key] || 0) + (Number(a.count) || 0); });
+  var volDelta = pct(confTotal, estTotal);
+
+  var statusMap = { pending:['amber','Pending'], in_progress:['yellow','In progress'], submitted:['blue','Sent for review'], reviewed:['green','Reviewed'], locked:['gray','Locked'] };
+  var stt = statusMap[asgn.status] || ['gray', asgn.status || 'Unknown'];
+  var lastConf = null; verifs.forEach(function(v){ if (v.confirmed_at && (!lastConf || v.confirmed_at > lastConf.confirmed_at)) lastConf = v; });
+
+  // ── Flags ──
+  var flags = [];
+  roster.forEach(function(p){
+    var v = vByIdx[p.index]; if (!v) return;
+    (v.return_lines || []).forEach(function(l){ var sz = l.sizing || {}; (sz.messages || []).forEach(function(m){ flags.push('<b>' + esc(v.pool_name_override || p.name) + ' · ' + esc(SZ ? SZ.pipeText(l) : ((l.diameter||'?') + '″')) + ' line:</b> ' + esc(m)); }); });
+    if (v.has_discrepancy && v.discrepancy_reason) flags.push('<b>' + esc(v.pool_name_override || p.name) + ' · discrepancy:</b> ' + esc(v.discrepancy_reason));
+    if (v.confirmed_at && v.confirm_stale) flags.push('<b>' + esc(v.pool_name_override || p.name) + ':</b> edited after confirmation — needs re-confirmation by the engineer.');
+    var pv = pct(Number(v.confirmed_gallons) || 0, p.estGal); if (pv !== null && Math.abs(pv) > 5) flags.push('<b>' + esc(v.pool_name_override || p.name) + ' · volume:</b> engineer-confirmed volume is ' + Math.abs(pv) + '% ' + (pv > 0 ? 'above' : 'below') + ' the assessment estimate. Savings and payback on the assessment page use the estimate.');
+  });
+  roster.forEach(function(p){ if (!vByIdx[p.index] || !(vByIdx[p.index].return_lines || []).length) flags.push('<b>' + esc(p.name) + ':</b> not yet documented by the engineer.'); });
+
+  // ── Markup ──
+  function header(sub){
+    return '<div class="rpt-es-head">'
+      + '<div class="rpt-es-head-left"><div class="rpt-es-logo">Engineer Summary</div><div class="rpt-es-logo-sub">AQUAREV WATER · FIELD VERIFICATION</div></div>'
+      + '<div class="rpt-es-head-right"><div class="rpt-es-prop-name">' + esc(pName) + '</div><div class="rpt-es-prop-date">' + esc(today) + (sub ? ' · ' + esc(sub) : '') + '</div></div>'
+      + '</div>';
+  }
+  var titleBand = '<div class="rpt-engs-hd">'
+    + '<div><div class="rpt-engs-eyebrow">Engineer Field Verification · Summary</div><div class="rpt-engs-title">' + esc(prop.property_name || 'Property') + '</div>'
+    + '<div class="rpt-engs-sub">' + (prop.country ? '<b>' + esc(prop.country) + '</b>' : '') + (prop.formatted_address ? (prop.country ? ' · ' : '') + esc(prop.formatted_address) : '') + '</div></div>'
+    + '<div class="rpt-engs-hd-r"><span class="rpt-engs-pill ' + stt[0] + '"><span class="dot"></span>' + esc(stt[1]) + '</span>'
+    + '<div class="rpt-engs-eng"><b>' + esc(eng.name || 'Engineer') + '</b>' + (eng.company ? esc(eng.company) + ' · ' : '') + 'assigned ' + d(asgn.assigned_at) + '<br>Last activity ' + d(asgn.last_modified_at) + ' · ' + (asgn.submitted_at ? 'sent for review ' + d(asgn.submitted_at) : 'not yet sent for review') + '</div></div>'
+    + '</div>';
+  var kpis = '<div class="rpt-engs-kpis">'
+    + '<div class="rpt-engs-kpi"><div class="l">Pools confirmed</div><div class="v ' + (confirmedPools === roster.length && roster.length ? 'green' : '') + '">' + confirmedPools + ' / ' + roster.length + '</div><div class="s">' + (confirmedPools === roster.length ? 'all pools on record' : (roster.length - confirmedPools) + ' awaiting confirmation') + '</div></div>'
+    + '<div class="rpt-engs-kpi"><div class="l">Pump rooms</div><div class="v">' + rooms.length + '</div><div class="s">' + (rooms.length ? (rooms.length - roomsWithVideo) + ' walkthrough' + ((rooms.length - roomsWithVideo) === 1 ? '' : 's') + ' pending' : 'none captured') + '</div></div>'
+    + '<div class="rpt-engs-kpi"><div class="l">Devices confirmed</div><div class="v teal">' + engDev + '</div><div class="s">assessment ' + assessDev + ' · ' + (devMatch ? 'match' : 'changed') + '</div></div>'
+    + '<div class="rpt-engs-kpi"><div class="l">Confirmed volume</div><div class="v ' + (volDelta === null ? '' : (Math.abs(volDelta) <= 5 ? 'green' : 'amber')) + '">' + (confTotal ? fn(confTotal) : '—') + '</div><div class="s">' + (confTotal ? 'gal · ' + (volDelta === null ? '' : ((volDelta > 0 ? '+' : '') + volDelta + '% vs ')) + fn(estTotal) + ' est.' : 'estimate ' + fn(estTotal) + ' gal') + '</div></div>'
+    + '<div class="rpt-engs-kpi"><div class="l">Site media</div><div class="v">' + (photos + videos) + '</div><div class="s">' + photos + ' photo' + (photos === 1 ? '' : 's') + ' · ' + videos + ' video' + (videos === 1 ? '' : 's') + '</div></div>'
+    + '</div>';
+  var statusRows = '<div class="rpt-engs-sec"><div class="rpt-engs-stitle">Verification status</div>'
+    + '<div class="rpt-engs-row"><span class="k">Status</span><span class="v">' + esc(stt[1]) + '</span></div>'
+    + '<div class="rpt-engs-row"><span class="k">Engineer</span><span class="v">' + esc(eng.name || '—') + (eng.phone ? ' · ' + esc(eng.phone) : '') + '</span></div>'
+    + '<div class="rpt-engs-row"><span class="k">Site pipe standard</span><span class="v">' + (std === 'metric' ? 'Metric (mm)' : 'Imperial (inches)') + '</span></div>'
+    + '<div class="rpt-engs-row"><span class="k">Assigned</span><span class="v mono">' + d(asgn.assigned_at) + '</span></div>'
+    + '<div class="rpt-engs-row"><span class="k">Sent for review</span><span class="v mono">' + d(asgn.submitted_at) + '</span></div>'
+    + '<div class="rpt-engs-row"><span class="k">Reviewed by AquaRev</span><span class="v mono">' + d(asgn.reviewed_at) + '</span></div>'
+    + '<div class="rpt-engs-row"><span class="k">Last pool confirmation</span><span class="v mono">' + (lastConf ? d(lastConf.confirmed_at) + ' · ' + esc(lastConf.confirmed_by_name || 'engineer') : '—') + '</span></div>'
+    + '</div>';
+  var schedRows = sizes.map(function(sz){
+    var m = SZ ? SZ.deviceFor(sz) : null; var e = engBySize[sz] || 0, a = assessBySize[sz] || 0;
+    return '<tr><td class="mono">' + sz + '″</td><td class="mono">' + esc(m ? m.model : '—') + '</td><td class="num">' + e + '</td><td class="num">' + a + '</td><td>' + (adapterBySize[sz] ? adapterBySize[sz] + ' required' : 'None') + '</td><td><span class="rpt-engs-tag ' + (e === a ? 'ok' : 'warn') + '">' + (e === a ? 'Match' : (e > a ? '+' + (e - a) : (e - a))) + '</span></td></tr>';
+  }).join('');
+  var spanNote = sizes.filter(function(sz){ return engBySize[sz]; }).map(function(sz){ return (SZ ? SZ.showSpan(SZ.requiredSpanIn(sz), std) : '') + ' (' + sz + '″)'; }).join(' · ');
+  var sched = '<div class="rpt-engs-sec"><div class="rpt-engs-stitle">Device schedule <span>engineer-confirmed vs assessment</span></div>'
+    + '<table class="rpt-engs-tbl"><thead><tr><th>Device</th><th>Model</th><th class="num">Engineer</th><th class="num">Assessment</th><th>Adapters</th><th>Match</th></tr></thead><tbody>'
+    + (schedRows || '<tr><td colspan="6" class="muted">No devices recorded yet.</td></tr>')
+    + '<tr class="tot"><td colspan="2">Total devices</td><td class="num"><b>' + engDev + '</b></td><td class="num"><b>' + assessDev + '</b></td><td colspan="2">' + (spanNote ? 'Straight run needed · ' + esc(spanNote) : '') + '</td></tr>'
+    + '</tbody></table></div>';
+  function poolBlock(p, pos){
+    var v = vByIdx[p.index] || {};
+    var lines = v.return_lines || [];
+    var pm = media.filter(function(m){ return m.pool_index === p.index; });
+    var pPhotos = pm.filter(function(m){ return m.media_type === 'photo'; }).length, pVideos = pm.filter(function(m){ return m.media_type === 'video'; }).length;
+    var conf = v.confirmed_at ? (v.confirm_stale ? '<span class="rpt-engs-tag warn">Edited since confirm</span>' : '<span class="rpt-engs-tag ok">Confirmed</span>') : (lines.length ? '<span class="rpt-engs-tag info">In progress</span>' : '<span class="rpt-engs-tag na">Not started</span>');
+    var typeTxt = function(t){ return t === 'saltwater' ? 'Saltwater' : (t === 'fresh' || t === 'chlorine') ? 'Fresh / chlorine' : '—'; };
+    var linesRows = lines.map(function(l){
+      var sz = l.sizing || {}; var dev = Number(l.diameter) || sz.device || 0;
+      var flowTxt = l.flow_gpm ? (SZ ? SZ.showFlow(l.flow_gpm, 'gpm') : fn(l.flow_gpm) + ' gpm') : (sz.code ? (SZ ? SZ.showFlow(sz.code, 'gpm') : fn(sz.code) + ' gpm') + ' <span class="inl">code flow</span>' : '—');
+      var stL = SZ ? SZ.lineStatus(l) : { k: 'na', label: '—' };
+      var sameAsRep = p.repLines.some(function(r){ return r.diameter === (Number(l.pipe_size) || l.diameter) && (l.pipe_std || 'us') === 'us'; });
+      return '<tr><td class="num">' + (l.count || 1) + '</td><td class="mono">' + esc(SZ ? SZ.pipeText(l) : ((l.diameter||'?') + '″')) + (sameAsRep ? ' <span class="inl">as assessed</span>' : '') + '</td><td class="mono">' + flowTxt + '</td><td class="mono">' + dev + '″' + (sz.model ? ' · ' + esc(sz.model) : '') + (sz.adapter ? ' <span class="inl">adapter</span>' : '') + '</td><td class="mono">' + (dev && SZ ? SZ.showSpan(SZ.requiredSpanIn(dev), std) : '—') + '</td><td><span class="rpt-engs-tag ' + (stL.k === 'ok' ? 'ok' : (stL.k === 'na' ? 'na' : 'warn')) + '">' + esc(stL.label) + '</span>' + ((sz.messages && sz.messages.length) ? ' <span class="inl">' + esc(sz.messages[0].replace(/\.\s.*$/, '')) + '</span>' : '') + '</td></tr>';
+    }).join('');
+    return '<div class="rpt-engs-pool">'
+      + '<div class="rpt-engs-pool-hd"><div class="rpt-engs-pool-name">' + esc(v.pool_name_override || p.name) + '<span class="rpt-engs-pool-meta">Pool ' + pos + ' of ' + roster.length + (p.depth ? ' · ' + esc(p.depth) + ' ft deep' : '') + (p.engineerAdded ? ' · engineer-added' : '') + '</span></div>'
+      + '<div class="rpt-engs-pool-conf">' + conf + (v.confirmed_at ? ' <span class="rpt-engs-pool-meta">' + d(v.confirmed_at) + ' · ' + esc(v.confirmed_by_name || 'engineer') + '</span>' : '') + '</div></div>'
+      + '<div class="rpt-engs-facts">'
+      +   '<div class="rpt-engs-fact"><span class="fk">Volume · estimate</span><span class="fv mono">' + (p.estGal ? fn(p.estGal) + ' gal' : '—') + '</span></div>'
+      +   '<div class="rpt-engs-fact hi"><span class="fk">Volume · confirmed</span><span class="fv mono">' + (v.confirmed_gallons ? fn(v.confirmed_gallons) + ' gal' + deltaHtml(Number(v.confirmed_gallons), p.estGal) : '—') + '</span></div>'
+      +   '<div class="rpt-engs-fact"><span class="fk">Water type</span><span class="fv">' + typeTxt(v.pool_type) + (v.pool_type && p.repType && v.pool_type === p.repType ? '<em>as assessed</em>' : (v.pool_type && p.repType ? '<em>assessed ' + typeTxt(p.repType) + '</em>' : '')) + '</span></div>'
+      +   '<div class="rpt-engs-fact"><span class="fk">Pump room</span><span class="fv">' + esc(v.pump_room_id && roomById[v.pump_room_id] ? roomById[v.pump_room_id].label : '—') + '</span></div>'
+      +   '<div class="rpt-engs-fact"><span class="fk">Sub-meter</span><span class="fv">' + (v.has_sub_meter ? 'Yes' : 'No') + '</span></div>'
+      +   '<div class="rpt-engs-fact"><span class="fk">Media</span><span class="fv">' + (pPhotos + pVideos ? pPhotos + ' photo' + (pPhotos === 1 ? '' : 's') + (pVideos ? ' · ' + pVideos + ' video' + (pVideos === 1 ? '' : 's') : '') : '—') + '</span></div>'
+      + '</div>'
+      + '<table class="rpt-engs-tbl lines"><thead><tr><th class="num">Lines</th><th>Return pipe size</th><th>Flow rate</th><th>Device</th><th>Straight run</th><th>Status</th></tr></thead><tbody>'
+      + (linesRows || '<tr><td colspan="6" class="muted">No return lines recorded yet.</td></tr>')
+      + '</tbody></table></div>';
+  }
+  var roomRows = rooms.map(function(r){
+    var rm = media.filter(function(m){ return m.pump_room_id === r.id; });
+    var hasVid = rm.some(function(m){ return m.media_type === 'video'; }); var ph = rm.filter(function(m){ return m.media_type === 'photo'; }).length;
+    var served = verifs.filter(function(v){ return v.pump_room_id === r.id; }).length;
+    return '<tr><td><b>' + esc(r.label || 'Pump room') + '</b></td><td class="num">' + served + '</td><td>' + (hasVid ? '<span class="rpt-engs-tag ok">Uploaded</span>' : '<span class="rpt-engs-tag na">Not uploaded</span>') + '</td><td class="num">' + ph + '</td><td class="muted">' + (r.notes ? esc(r.notes) : '—') + '</td></tr>';
+  }).join('');
+  var roomsSec = '<div class="rpt-engs-sec"><div class="rpt-engs-stitle">Pump rooms</div>'
+    + '<table class="rpt-engs-tbl"><thead><tr><th>Room</th><th class="num">Pools served</th><th>Walkthrough video</th><th class="num">Photos</th><th>Notes</th></tr></thead><tbody>'
+    + (roomRows || '<tr><td colspan="5" class="muted">No pump rooms captured on this assignment.</td></tr>') + '</tbody></table></div>';
+  var flagsSec = flags.length ? '<div class="rpt-engs-flags"><b>Flags for AquaRev review</b><ul>' + flags.slice(0, 6).map(function(f){ return '<li>' + f + '</li>'; }).join('') + (flags.length > 6 ? '<li>+ ' + (flags.length - 6) + ' more in the full report</li>' : '') + '</ul></div>' : '';
+  var notesSec = (asgn.engineer_property_notes && String(asgn.engineer_property_notes).trim()) ? '<div class="rpt-engs-notes"><b>Engineer notes.</b> ' + esc(String(asgn.engineer_property_notes).trim()).replace(/\n/g, '<br>') + '</div>' : '';
+  var footer = '<div class="rpt-foot rpt-es-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Engineer Verification Summary · one page per property · full report with photos and return-line detail available in the AquaRev Calculator<br>Generated ' + esc(today) + ' · Confidential</div></div>';
+
+  // ── Pagination: 4 pool blocks per page; rooms/flags/notes on the last page ──
+  var PER = 4, pages = [], chunks = [];
+  for (var ci = 0; ci < roster.length; ci += PER) chunks.push(roster.slice(ci, ci + PER));
+  if (!chunks.length) chunks.push([]);
+  chunks.forEach(function(chunk, pi){
+    var last = pi === chunks.length - 1;
+    var poolsHtml = chunk.map(function(p){ return poolBlock(p, roster.indexOf(p) + 1); }).join('');
+    pages.push('<div class="rpt-es-page rpt-engs-page">'
+      + header(chunks.length > 1 ? 'page ' + (pi+1) + ' of ' + chunks.length : '')
+      + (pi === 0 ? titleBand + kpis : '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-eyebrow">Engineer Field Verification · Summary (continued)</div><div class="rpt-engs-title">' + esc(prop.property_name || 'Property') + '</div></div></div>')
+      + '<div class="rpt-engs-body">'
+      + (pi === 0 ? '<div class="rpt-engs-two">' + statusRows + sched + '</div>' : '')
+      + '<div class="rpt-engs-sec"><div class="rpt-engs-stitle">Pools <span>estimate → engineer-confirmed · ' + roster.length + ' pool' + (roster.length === 1 ? '' : 's') + ' on record</span></div>' + (poolsHtml || '<div class="muted">No pools on this record.</div>') + '</div>'
+      + (last ? roomsSec + flagsSec + notesSec : '')
+      + '</div>' + footer + '</div>');
+  });
+  return pages.join('');
+}
+window.__arEngSummaryPage = buildEngineerSummaryPageHtml;
+
 function buildPortfolioQuotePageHtml(pName, quote, lineItems, states, today){
   var qDate = today;
   // Header band — matches Executive Summary look (.rpt-es-head).
