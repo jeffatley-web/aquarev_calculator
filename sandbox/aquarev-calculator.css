@@ -3384,13 +3384,14 @@ body.pf-enabled #ap2 .ap-pf-picker[data-pf-only].is-active{display:block!importa
    shorter reference image so the data stays above the fold. ── */
 #ar2 .ar-eng-line-dia,#ar2 .ar-eng-line-flowcell input,#ar2 .ar-eng-dev-sel{height:40px;padding-top:0;padding-bottom:0;box-sizing:border-box;}
 #ar2 .ar-eng-line-flowcell input{line-height:38px;}
-#ar2 .ar-eng-line-step,#ar2 .ar-eng-line-x{width:32px;height:32px;}
+#ar2 .ar-eng-line-step,#ar2 .ar-eng-line-grid .ar-eng-line-x,#ar2 .ar-eng-line .ar-eng-line-x{width:32px;height:32px;}
 #ar2 .ar-eng-line-grid{align-items:center;}
-#ar2 .ar-eng-line-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:0;margin-top:6px;}
+/* The line container already spaces its children 8px apart — no extra margins. */
+#ar2 .ar-eng-line-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:0;margin:0;}
 #ar2 .ar-eng-line-meta .ar-eng-status-pill{font-size:9.5px;padding:2px 8px;}
 #ar2 .ar-eng-line-meta-txt{line-height:1.4;}
-#ar2 .ar-eng-field label.ar-eng-line-run,#ar2 .ar-eng-line-run{margin:6px 0 0;}
-#ar2 .ar-eng-line-flags{margin-top:6px;}
+#ar2 .ar-eng-field label.ar-eng-line-run,#ar2 .ar-eng-line-run{margin:0;}
+#ar2 .ar-eng-line-flags{margin:0;}
 #ar2 .ar-eng-discrepancy{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;padding:8px 12px;margin:-6px 0 12px;}
 #ar2 .ar-eng-discrepancy-title{margin-bottom:0;}
 #ar2 .ar-eng-discrepancy-body{margin-bottom:0;}
