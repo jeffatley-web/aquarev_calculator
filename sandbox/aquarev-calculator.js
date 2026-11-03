@@ -1,6 +1,97 @@
 (function(){
 'use strict';
 
+/* ═══════════════════════════════════════════════════════════════════
+   AR_SPLASH — post-login loading overlay (water splash + bubbles).
+   Design preview: design/loading-splash/AquaRev_Loading_Preview.html.
+   API: show(label) · label(text) · progress(0..1) · done() · abort()
+   Min 900 ms on screen (no flash), 9 s ceiling (never traps the user),
+   honours prefers-reduced-motion. All calls are no-ops when not shown.
+   ═══════════════════════════════════════════════════════════════════ */
+window.AR_SPLASH = (function(){
+  var el = null, cv, ctx, W, H, raf = null, running = false, shownAt = 0, ceilingTimer = null, visible = false;
+  var bubbles = [], drops = [], ripples = [], reduced = false;
+  var DPR = Math.min(2, window.devicePixelRatio || 1);
+  function build(){
+    if (el) return el;
+    el = document.createElement('div'); el.id = 'ar-splash'; el.className = 'is-hidden';
+    el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    el.innerHTML = '<canvas class="ars-canvas"></canvas>'
+      + '<div class="ars-water"><svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true">'
+      +   '<path class="ars-wave" fill="rgba(0,180,216,.32)" d="M0 20 Q 75 2 150 20 T 300 20 T 450 20 T 600 20 T 750 20 T 900 20 T 1050 20 T 1200 20 T 1350 20 T 1500 20 T 1650 20 T 1800 20 T 1950 20 T 2100 20 T 2250 20 T 2400 20 V40 H0 Z"/>'
+      +   '<path class="ars-wave b" fill="rgba(72,202,228,.22)" d="M0 24 Q 100 8 200 24 T 400 24 T 600 24 T 800 24 T 1000 24 T 1200 24 T 1400 24 T 1600 24 T 1800 24 T 2000 24 T 2200 24 T 2400 24 V40 H0 Z"/>'
+      + '</svg><div class="body"></div></div>'
+      + '<div class="ars-centre">'
+      +   '<div class="ars-mark"><span class="ars-ring"></span><span class="ars-ring"></span><span class="ars-ring"></span>'
+      +     '<svg class="ars-drop" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="ars-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#48cae4"/><stop offset="1" stop-color="#0077b6"/></linearGradient></defs>'
+      +     '<path d="M32 4 C 32 4, 10 30, 10 40 a22 22 0 0 0 44 0 C 54 30, 32 4, 32 4 Z" fill="url(#ars-g)"/><path d="M22 40 a10 10 0 0 0 7 9" stroke="rgba(255,255,255,.75)" stroke-width="3" stroke-linecap="round" fill="none"/></svg></div>'
+      +   '<div class="ars-word">AQUAREV <span>WATER</span></div><div class="ars-sub">ROI Calculator</div>'
+      +   '<div class="ars-status"><span class="ars-label">Loading</span><span class="dots"></span></div>'
+      +   '<div class="ars-bar"><i class="ars-fill"></i></div><div class="ars-pct">0%</div>'
+      + '</div>';
+    document.body.appendChild(el);
+    cv = el.querySelector('.ars-canvas'); ctx = cv.getContext('2d');
+    return el;
+  }
+  function size(){ W = el.clientWidth; H = el.clientHeight; cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+  function rnd(a, b){ return a + Math.random() * (b - a); }
+  function newBubble(anywhere){ var r = rnd(2, 9); return { x: rnd(0, W), y: anywhere ? rnd(0, H) : H + r + rnd(0, 60), r: r, vy: rnd(18, 42) * (r / 6), wob: rnd(0, Math.PI * 2), wobA: rnd(6, 18), wobF: rnd(.6, 1.4), a: rnd(.25, .7) }; }
+  function splash(){
+    var cx = W / 2, cy = H / 2 - H * 0.04 + 8;
+    for (var i = 0; i < 46; i++){ var ang = rnd(-Math.PI, 0), sp = rnd(180, 420); drops.push({ x: cx + rnd(-20, 20), y: cy + rnd(-10, 10), vx: Math.cos(ang) * sp * rnd(.4, 1), vy: Math.sin(ang) * sp, r: rnd(1.6, 4.2), life: 1, decay: rnd(.55, .95) }); }
+    for (var k = 0; k < 3; k++) ripples.push({ r: 20, a: .7, delay: k * .12, w: 2.2 - k * .5 });
+  }
+  var last = 0;
+  function frame(t){
+    if (!running) return;
+    raf = requestAnimationFrame(frame);
+    var dt = Math.min(.05, (t - last) / 1000 || 0); last = t;
+    ctx.clearRect(0, 0, W, H);
+    var cx = W / 2, cy = H / 2 - H * 0.04 + 8, i;
+    for (i = ripples.length - 1; i >= 0; i--){ var rp = ripples[i]; if (rp.delay > 0){ rp.delay -= dt; continue; } rp.r += (260 - rp.r) * dt * 1.6 + 40 * dt; rp.a -= dt * .55; if (rp.a <= 0){ ripples.splice(i, 1); continue; } ctx.beginPath(); ctx.ellipse(cx, cy + 22, rp.r, rp.r * .34, 0, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(72,202,228,' + rp.a.toFixed(3) + ')'; ctx.lineWidth = rp.w; ctx.stroke(); }
+    for (i = drops.length - 1; i >= 0; i--){ var p = drops[i]; p.vy += 900 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= p.decay * dt; if (p.life <= 0 || p.y > H){ drops.splice(i, 1); continue; } ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(160,230,245,' + (p.life * .9).toFixed(3) + ')'; ctx.fill(); }
+    for (i = 0; i < bubbles.length; i++){ var q = bubbles[i]; q.y -= q.vy * dt; q.wob += q.wobF * dt; var x = q.x + Math.sin(q.wob) * q.wobA; if (q.y < -q.r - 10){ bubbles[i] = newBubble(false); continue; }
+      ctx.beginPath(); ctx.arc(x, q.y, q.r, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(125,210,235,' + (q.a * .9).toFixed(3) + ')'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, q.y, q.r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(72,202,228,' + (q.a * .14).toFixed(3) + ')'; ctx.fill();
+      ctx.beginPath(); ctx.arc(x - q.r * .35, q.y - q.r * .35, Math.max(.6, q.r * .22), 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,' + (q.a * .8).toFixed(3) + ')'; ctx.fill(); }
+  }
+  function stop(){ running = false; if (raf) cancelAnimationFrame(raf); raf = null; window.removeEventListener('resize', size); }
+  function show(label){
+    try {
+      build();
+      reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      el.classList.remove('is-hidden', 'is-done'); el.setAttribute('aria-busy', 'true');
+      visible = true; shownAt = performance.now();
+      setLabel(label || 'Loading'); progress(0);
+      bubbles = []; drops = []; ripples = [];
+      size(); window.addEventListener('resize', size);
+      if (!reduced){ for (var i = 0, n = Math.round(Math.min(90, W * H / 14000)); i < n; i++) bubbles.push(newBubble(true)); splash(); running = true; last = performance.now(); raf = requestAnimationFrame(frame); }
+      clearTimeout(ceilingTimer); ceilingTimer = setTimeout(done, 9000);
+    } catch(_){}
+  }
+  function setLabel(t){ if (!visible || !el) return; var n = el.querySelector('.ars-label'); if (n) n.textContent = t; }
+  function progress(p){
+    if (!visible || !el) return;
+    p = Math.max(0, Math.min(1, Number(p) || 0));
+    el.querySelector('.ars-fill').style.width = (p * 100).toFixed(1) + '%';
+    el.querySelector('.ars-pct').textContent = Math.round(p * 100) + '%';
+    el.querySelector('.ars-water').style.height = (8 + p * 26) + '%';
+  }
+  function done(){
+    if (!visible || !el) return;
+    clearTimeout(ceilingTimer);
+    var wait = Math.max(0, 900 - (performance.now() - shownAt));
+    setTimeout(function(){
+      if (!visible) return;
+      progress(1); el.classList.add('is-done'); el.querySelector('.ars-water').style.height = '115%';
+      if (!reduced) splash();
+      setTimeout(function(){ visible = false; el.classList.add('is-hidden'); el.setAttribute('aria-busy', 'false'); stop(); }, 620);
+    }, wait);
+  }
+  function abort(){ if (!el) return; clearTimeout(ceilingTimer); visible = false; el.classList.add('is-hidden'); el.classList.remove('is-done'); stop(); }
+  return { show: show, label: setLabel, progress: progress, done: done, abort: abort, isVisible: function(){ return visible; } };
+})();
+
 /* ── SVG Icon set — replaces all emoji ── */
 var I={
   check:  '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6l3 3 5-5"/></svg>',
@@ -403,8 +494,11 @@ function showCalcPasswordModal(onUnlock){
     err.textContent='';
     unlockBtn.disabled=true;
     unlockBtn.textContent='Signing in…';
+    // Loading overlay covers the gate → first view (water splash + bubbles).
+    try { if (window.AR_SPLASH) AR_SPLASH.show('Signing you in'); } catch(_){}
     AR2_CLOUD.gateLogin(code, email).then(function(u){
       // Successful login — close gate, run migration prompt, then unlock app
+      try { if (window.AR_SPLASH){ AR_SPLASH.progress(.35); AR_SPLASH.label('Loading your workspace'); } } catch(_){}
       if(m.parentNode) m.parentNode.removeChild(m);
       CALC_UNLOCKED=true;
       try { localStorage.setItem(CALC_REMEMBER_KEY, '1'); } catch(e){}
@@ -425,6 +519,8 @@ function showCalcPasswordModal(onUnlock){
         promptMigrateLocalArchive(items.length, function(){ onUnlock(); });
       }).catch(function(){ onUnlock(); });
     }).catch(function(res){
+      // Login failed — drop the overlay immediately so the gate's error shows.
+      try { if (window.AR_SPLASH) AR_SPLASH.abort(); } catch(_){}
       unlockBtn.disabled=false;
       unlockBtn.textContent='Unlock';
       var b = (res && res.body) || {};
@@ -8249,7 +8345,16 @@ function seedFirstPropertyFromMapPools(newPortfolio){
     if (ticks > 240) { clearInterval(iv); return; }
     if (!window.AR2_CLOUD || !AR2_CLOUD.isReady()) return;
     clearInterval(iv);
+    // Loading overlay: route to the first view, then release once the
+    // chrome has painted (two frames + a short settle for data tiles).
+    try { if (window.AR_SPLASH && AR_SPLASH.isVisible()){ AR_SPLASH.progress(.7); AR_SPLASH.label(AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin() ? 'Preparing your dashboard' : 'Preparing the calculator'); } } catch(_){}
     applyPfBody();
+    try {
+      if (window.AR_SPLASH && AR_SPLASH.isVisible()){
+        AR_SPLASH.progress(.9);
+        requestAnimationFrame(function(){ requestAnimationFrame(function(){ setTimeout(function(){ AR_SPLASH.label('Ready'); AR_SPLASH.done(); }, 500); }); });
+      }
+    } catch(_){}
     // Welcome modal — first-time or post-update prompt for the guided tour.
     // Slight delay so the calculator chrome is fully painted (the tour
     // targets need to exist when/if the user accepts).
