@@ -10556,7 +10556,7 @@ function _frRenderPoolCard(p, verifs, media, roomLabel){
     // Hydraulics — what the engineer recorded per return line: pipe size as
     // marked, flow reading (or code flow), device assigned, status + flags.
     + ((engLines && engLines.length && window.AR2_SIZING)
-        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true, std: ((bundle.record && bundle.record.state_json && bundle.record.state_json.units) === 'metric' ? 'metric' : 'us') }) + '</div></div>'
+        ? '<div class="ar-fr-pool-hyd"><div class="ar-fr-pool-media-hd">Return lines &amp; device sizing</div><div class="ar-hyd-wrap">' + AR2_SIZING.linesTableHtml(engLines, { flowUnit: 'gpm', compact: true, std: ((typeof S !== 'undefined' && S && S.units === 'metric') ? 'metric' : 'us') }) + '</div></div>'
         : '')
     + '<div class="ar-fr-pool-media">'
     +   '<div class="ar-fr-pool-media-hd">Return-line media <span>' + photos.length + ' photo' + (photos.length===1?'':'s') + ' · ' + videos.length + ' video' + (videos.length===1?'':'s') + '</span></div>'
