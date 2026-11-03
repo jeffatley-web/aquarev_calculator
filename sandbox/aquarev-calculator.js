@@ -2954,7 +2954,15 @@ window.AR2_PF = (function(){
     // render. Only fetched when the property rows are loaded (depends on
     // their ids) AND when the cache hasn't been populated yet.
     var isAdminKickoff = !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin());
-    if (isAdminKickoff && slot && slot.rows && !pfState.engineerAssignmentsByProperty){
+    // Gate per PORTFOLIO, not on the cache object existing. The old check
+    // (`!pfState.engineerAssignmentsByProperty`) was only true before the
+    // first portfolio loaded, so every portfolio opened after that never
+    // fetched its assignments and the Engineer Report button reported
+    // "No engineer assignment exists" (Jeff, Sofitel KL Damansara V2,
+    // 2026-11-03). _loadAssignmentsForPortfolio sets
+    // engineerAssignmentsByPortfolio[pid] (possibly []) once fetched.
+    var engAsgnsLoadedForPid = !!(pfState.engineerAssignmentsByPortfolio && pfState.engineerAssignmentsByPortfolio[pid]);
+    if (isAdminKickoff && slot && slot.rows && !engAsgnsLoadedForPid){
       Promise.all([_loadActiveEngineers(), _loadAssignmentsForPortfolio(pid)]).then(function(){
         var live = document.getElementById('ar2-bank-overview-mount');
         if (live) renderPortfolioOverview(live);
@@ -4642,6 +4650,9 @@ window.AR2_PF = (function(){
     engineerAssignmentsForProperty: function(pid){
       return (pfState.engineerAssignmentsByProperty || {})[pid] || [];
     },
+    // Lets the portfolio-row Engineer Report button back-fill the cache
+    // after an on-demand lookup (2026-11-03).
+    _insertAssignmentIntoCache: _insertAssignmentIntoCache,
     engineerAssignmentsForPortfolio: function(pid){
       return (pfState.engineerAssignmentsByPortfolio || {})[pid] || [];
     },
@@ -10583,6 +10594,9 @@ function _engineerReport_loadRecord(asgn){
   return Promise.resolve({});
 }
 
+// Harness hook so the renderer can be exercised with a synthetic bundle
+// (no session needed) when verifying report changes.
+window.__arEngReportRender = function(bundle){ return _engineerReport_renderHtml(bundle); };
 function _engineerReport_renderHtml(bundle){
   var rep = document.getElementById('ar2-report');
   if (!rep) return;
@@ -21679,16 +21693,34 @@ function handleClick(e){
         var rptName = pfAct.getAttribute('data-pf-prop-name') || 'this property';
         var rptAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
           ? AR2_PF.engineerAssignmentsForProperty(rptId) : [];
-        if (!rptAsgns.length){
+        var _rptNone = function(){
           alert('No engineer assignment exists for "' + rptName + '" yet.\n\nThe Engineer Report is built from the engineer\'s on-site verifications — assign an engineer first.');
-          return;
-        }
-        if (typeof generateEngineerReport !== 'function'){
-          alert('Engineer report generator not loaded — refresh the page and try again.');
-          return;
-        }
-        try { generateEngineerReport(rptAsgns[0].id, { previewOnly: true }); }
-        catch(err){ alert('Could not generate engineer report: ' + ((err && err.message) || err)); }
+        };
+        var _rptFire = function(asgnId){
+          if (typeof generateEngineerReport !== 'function'){
+            alert('Engineer report generator not loaded — refresh the page and try again.');
+            return;
+          }
+          try { generateEngineerReport(asgnId, { previewOnly: true }); }
+          catch(err){ alert('Could not generate engineer report: ' + ((err && err.message) || err)); }
+        };
+        if (rptAsgns.length){ _rptFire(rptAsgns[0].id); return; }
+        // Cache miss (portfolio opened before its assignments loaded, or
+        // cache cleared after an admin review) — look the assignment up
+        // directly instead of telling the admin none exists.
+        var cRpt = (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null;
+        if (!cRpt){ _rptNone(); return; }
+        cRpt.from('engineer_assignments')
+          .select('id,engineer_user_id,property_id,portfolio_id,assessment_id,status,assignment_notes,assigned_at,last_modified_at,submitted_at')
+          .eq('property_id', rptId)
+          .order('submitted_at', { ascending: false, nullsFirst: false })
+          .order('assigned_at', { ascending: false })
+          .then(function(rs){
+            var rows = (rs && rs.data) || [];
+            if (!rows.length){ _rptNone(); return; }
+            try { rows.forEach(function(a){ if (window.AR2_PF && AR2_PF._insertAssignmentIntoCache) AR2_PF._insertAssignmentIntoCache(a); }); } catch(_){}
+            _rptFire(rows[0].id);
+          }, function(){ _rptNone(); });
         return;
       }
 
