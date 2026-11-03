@@ -1837,6 +1837,67 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-foot{background:#040f1e;padding:12px 32px;display:flex;justify-content:space-between;align-items:center;gap:20px;}
 #ar2-report .rpt-foot-logo{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:3px;color:#fff;flex-shrink:0;}
 #ar2-report .rpt-foot-info{font-size:9px;color:#4a7a90;text-align:right;line-height:1.6;}
+/* ── Engineer Summary page (portfolio export, 2026-11-03) ── */
+#ar2-report .rpt-engs-hd{background:linear-gradient(to right,#071628,#0a2540);color:#fff;padding:18px 32px 16px;display:flex;justify-content:space-between;gap:24px;align-items:flex-start;flex-shrink:0;}
+#ar2-report .rpt-engs-hd.compact{padding:12px 32px;}
+#ar2-report .rpt-engs-eyebrow{font-size:8px;letter-spacing:3.5px;text-transform:uppercase;color:#48cae4;font-weight:700;margin-bottom:5px;}
+#ar2-report .rpt-engs-title{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;line-height:1;color:#fff;}
+#ar2-report .rpt-engs-sub{font-size:10px;color:#9fc7d8;margin-top:5px;}
+#ar2-report .rpt-engs-sub b{color:#fff;font-weight:600;}
+#ar2-report .rpt-engs-hd-r{text-align:right;min-width:220px;}
+#ar2-report .rpt-engs-pill{display:inline-flex;align-items:center;gap:6px;font-size:9px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:5px 11px;border-radius:99px;border:1px solid;}
+#ar2-report .rpt-engs-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+#ar2-report .rpt-engs-pill.yellow{color:#fde68a;background:rgba(250,204,21,.12);border-color:rgba(250,204,21,.45);}
+#ar2-report .rpt-engs-pill.amber{color:#fcd34d;background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.45);}
+#ar2-report .rpt-engs-pill.blue{color:#93c5fd;background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.45);}
+#ar2-report .rpt-engs-pill.green{color:#86efac;background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.45);}
+#ar2-report .rpt-engs-pill.gray{color:#cbd5e1;background:rgba(148,163,184,.14);border-color:rgba(148,163,184,.45);}
+#ar2-report .rpt-engs-eng{margin-top:9px;font-size:9.5px;color:#9fc7d8;line-height:1.6;}
+#ar2-report .rpt-engs-eng b{display:block;font-size:12px;color:#fff;font-weight:600;}
+#ar2-report .rpt-engs-kpis{display:grid;grid-template-columns:repeat(5,1fr);background:#040f1e;border-bottom:3px solid #00b4d8;flex-shrink:0;}
+#ar2-report .rpt-engs-kpi{padding:12px 12px;text-align:center;border-right:1px solid rgba(0,180,216,.15);}
+#ar2-report .rpt-engs-kpi:last-child{border-right:none;}
+#ar2-report .rpt-engs-kpi .l{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#fff;margin-bottom:5px;}
+#ar2-report .rpt-engs-kpi .v{font-family:'JetBrains Mono',monospace;font-size:21px;font-weight:700;color:#fff;line-height:1;}
+#ar2-report .rpt-engs-kpi .v.green{color:#4ade80;}#ar2-report .rpt-engs-kpi .v.teal{color:#48cae4;}#ar2-report .rpt-engs-kpi .v.amber{color:#fbbf24;}
+#ar2-report .rpt-engs-kpi .s{font-size:8.5px;color:#7db8cc;margin-top:5px;}
+#ar2-report .rpt-engs-body{padding:14px 32px 0;display:flex;flex-direction:column;gap:11px;font-size:11px;line-height:1.45;color:#222;}
+#ar2-report .rpt-engs-two{display:grid;grid-template-columns:1fr 1.15fr;gap:22px;}
+#ar2-report .rpt-engs-stitle{font-size:8px;letter-spacing:3.5px;text-transform:uppercase;font-weight:700;color:#00b4d8;padding-bottom:5px;border-bottom:1.5px solid #00b4d8;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+#ar2-report .rpt-engs-stitle span{letter-spacing:.3px;text-transform:none;font-weight:500;color:#5b6b7a;font-size:9px;}
+#ar2-report .rpt-engs-row{display:flex;justify-content:space-between;align-items:baseline;padding:3.5px 0;border-bottom:1px solid #f0f0f0;font-size:10.5px;gap:10px;}
+#ar2-report .rpt-engs-row .k{color:#5b6b7a;}#ar2-report .rpt-engs-row .v{font-weight:600;text-align:right;}#ar2-report .rpt-engs-row .v.mono{font-family:'JetBrains Mono',monospace;font-weight:500;}
+#ar2-report .rpt-engs-tbl{width:100%;border-collapse:collapse;font-size:10.5px;}
+#ar2-report .rpt-engs-tbl thead tr{background:#040f1e;}
+#ar2-report .rpt-engs-tbl th{text-align:left;padding:6px 8px;font-size:7.5px;letter-spacing:1.8px;text-transform:uppercase;color:#90d4e8;font-weight:600;white-space:nowrap;}
+#ar2-report .rpt-engs-tbl td{padding:6px 8px;border-bottom:1px solid #eef2f5;vertical-align:top;text-align:left;}
+#ar2-report .rpt-engs-tbl td.num,#ar2-report .rpt-engs-tbl th.num{text-align:right;font-family:'JetBrains Mono',monospace;}
+#ar2-report .rpt-engs-tbl .mono{font-family:'JetBrains Mono',monospace;font-size:10px;}
+#ar2-report .rpt-engs-tbl .muted,#ar2-report .rpt-engs-body .muted{color:#6b7a88;}
+#ar2-report .rpt-engs-tbl tr.tot td{color:#6b7a88;}
+#ar2-report .rpt-engs-tbl.lines th{padding:5px 12px;}#ar2-report .rpt-engs-tbl.lines td{padding:6px 12px;border-bottom:none;}
+#ar2-report .rpt-engs-tag{display:inline-block;font-size:8px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:2px 7px;border-radius:99px;white-space:nowrap;}
+#ar2-report .rpt-engs-tag.ok{color:#15803d;background:#dcfce7;}#ar2-report .rpt-engs-tag.warn{color:#9a3412;background:#ffedd5;}#ar2-report .rpt-engs-tag.info{color:#0e7490;background:#cffafe;}#ar2-report .rpt-engs-tag.na{color:#64748b;background:#f1f5f9;}
+#ar2-report .rpt-engs-pool{border:1px solid #d7dee6;border-radius:8px;overflow:hidden;margin-bottom:8px;}
+#ar2-report .rpt-engs-pool-hd{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 12px;background:#f3f7fa;border-bottom:1px solid #d7dee6;}
+#ar2-report .rpt-engs-pool-name{font-size:12.5px;font-weight:700;color:#0a2540;}
+#ar2-report .rpt-engs-pool-meta{font-size:9.5px;font-weight:500;color:#5b6b7a;margin-left:6px;}
+#ar2-report .rpt-engs-pool-conf{display:flex;align-items:center;gap:6px;}
+#ar2-report .rpt-engs-facts{display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid #eef2f5;}
+#ar2-report .rpt-engs-fact{padding:7px 12px;border-right:1px solid #eef2f5;min-width:0;}
+#ar2-report .rpt-engs-fact:last-child{border-right:none;}#ar2-report .rpt-engs-fact.hi{background:#fffaf0;}
+#ar2-report .rpt-engs-fact .fk{display:block;font-size:7.5px;letter-spacing:1.6px;text-transform:uppercase;color:#5b6b7a;font-weight:600;margin-bottom:2px;white-space:nowrap;}
+#ar2-report .rpt-engs-fact .fv{display:block;font-size:11px;font-weight:600;color:#1b2a38;line-height:1.3;}
+#ar2-report .rpt-engs-fact .fv.mono{font-family:'JetBrains Mono',monospace;font-weight:500;}
+#ar2-report .rpt-engs-fact .fv em{font-style:normal;font-weight:500;font-size:9px;color:#6b7a88;display:block;}
+#ar2-report .rpt-engs-delta{display:inline!important;font-size:10px!important;font-family:'JetBrains Mono',monospace;font-weight:700!important;}
+#ar2-report .rpt-engs-delta.up{color:#b45309!important;}#ar2-report .rpt-engs-delta.ok{color:#15803d!important;}
+#ar2-report .rpt-engs-body .inl{font-size:9px;color:#6b7a88;font-family:'DM Sans',sans-serif;}
+#ar2-report .rpt-engs-flags{border:1px solid #f0cf8a;border-left:4px solid #b86e00;background:#fff8e8;border-radius:6px;padding:8px 12px;font-size:10.5px;line-height:1.5;color:#4a3300;}
+#ar2-report .rpt-engs-flags > b{color:#b45309;}#ar2-report .rpt-engs-flags ul{margin:4px 0 0;padding-left:16px;}#ar2-report .rpt-engs-flags li b{color:#b45309;}
+#ar2-report .rpt-engs-notes{background:#f3f7fa;border:1px solid #d7dee6;border-radius:6px;padding:8px 12px;font-size:10.5px;line-height:1.5;color:#2b3a48;}
+#ar2-report .rpt-engs-notes b{color:#0a2540;}
+@media print{#ar2-report .rpt-engs-hd,#ar2-report .rpt-engs-kpis,#ar2-report .rpt-engs-tbl thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 /* ── Archive ── */
 #ar2 .ar-bank-wrap{max-width:1320px;margin:0 auto;padding:0 0 60px;width:100%;box-sizing:border-box;}
 #ar2 .ar-bank-hero{display:flex;justify-content:space-between;align-items:center;height:58px;border-bottom:1px solid rgba(255,255,255,.06);}
@@ -3630,7 +3691,7 @@ body.pf-engineer-mode #ap2{display:none!important;}
 #ar2 .ar-eng-pool-card.locked .ar-eng-pool-name-edit{opacity:.55;pointer-events:none;}
 #ar2 .ar-eng-pool-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;}
 #ar2 .ar-eng-pool-head .ar-eng-pool-meta{flex-basis:100%;}
-#ar2 .ar-eng-pool-head .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;}
+#ar2 .ar-eng-pool-head .ar-eng-thumb-x{position:static;width:26px;height:26px;flex-shrink:0;opacity:1;}
 #ar2 .ar-eng-pool-added-pill{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#4ade80;background:rgba(34,197,94,.16);border:1px solid rgba(34,197,94,.4);padding:2px 8px;border-radius:99px;}
 
 /* Locked-card overlay state — pool cards disable until pump rooms get
