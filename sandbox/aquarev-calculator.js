@@ -10359,6 +10359,9 @@ function renderFieldReport(){
   }
 }
 window.__arFieldReportRender = renderFieldReport;
+// Harness accessors (the bundle is an IIFE, so S / render are private).
+window.__arCalcState = function(){ return S; };
+window.__arRender = function(){ return render(); };
 
 /* General notes / comments from the engineer (engineer_property_notes
    on the assignment). Renders only when at least one assignment has a
