@@ -10610,6 +10610,19 @@ function _frRenderKpis(bundle){
   var verifs   = bundle.verifications || [];
   var media    = bundle.media         || [];
   var pumpRooms= bundle.pumpRooms     || [];
+  // "Pools documented" = pools that are ON THE RECORD (rep bodies or
+  // engineer-added) with any engineer data. Orphaned verification rows for
+  // pools that were since removed no longer inflate the count (2026-11-03).
+  var rosterLen = 0;
+  try {
+    if (S && S.manualVolume) rosterLen = Math.max(1, Number(S.manualPoolCount) || 1);
+    else if (S && Array.isArray(S.bodies)) rosterLen = S.bodies.length;
+  } catch(_){}
+  var poolsDocumented = verifs.filter(function(v){
+    var onRecord = v.is_engineer_added || (Number(v.pool_index) < rosterLen);
+    var hasData = (Array.isArray(v.return_lines) && v.return_lines.length) || Number(v.confirmed_gallons) > 0 || !!v.confirmed_at;
+    return onRecord && hasData;
+  }).length;
   var photos = media.filter(function(m){ return m.media_type === 'photo'; }).length;
   var videos = media.filter(function(m){ return m.media_type === 'video'; }).length;
   // Estimate total — pull from the current S state since it's already
@@ -10642,7 +10655,7 @@ function _frRenderKpis(bundle){
       + '</div>';
   }
   return '<div class="ar-fr-kpis">'
-    + tile('Pools documented', String(verifs.length), null, null)
+    + tile('Pools documented', String(poolsDocumented), rosterLen ? 'of ' + rosterLen + ' on record' : null, null)
     + tile('Pump rooms',       String(pumpRooms.length), null, null)
     + tile('Photos',           String(photos), null, null)
     + tile('Videos',           String(videos), null, null)
