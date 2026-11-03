@@ -7265,7 +7265,8 @@ function buildEngineerSummaryPageHtml(prop, b, pName, today){
   var engDev = 0, assessDev = 0; sizes.forEach(function(sz){ engDev += engBySize[sz] || 0; assessDev += assessBySize[sz] || 0; });
   var devMatch = sizes.every(function(sz){ return (engBySize[sz] || 0) === (assessBySize[sz] || 0); });
   var adapters = SZ ? SZ.adapterSchedule(verifs.map(function(v){ return v.return_lines || []; })) : [];
-  var adapterBySize = {}; (adapters || []).forEach(function(a){ var key = Number(a.device || a.in || a.dev); if (key) adapterBySize[key] = (adapterBySize[key] || 0) + (Number(a.count) || 0); });
+  // adapterSchedule() rows are { label: '<pipe> → <device>″', count }.
+  var adapterBySize = {}; (adapters || []).forEach(function(a){ var key = parseInt(String(a.label || '').split('→').pop(), 10); if (key) adapterBySize[key] = (adapterBySize[key] || 0) + (Number(a.count) || 0); });
   var volDelta = pct(confTotal, estTotal);
 
   var statusMap = { pending:['amber','Pending'], in_progress:['yellow','In progress'], submitted:['blue','Sent for review'], reviewed:['green','Reviewed'], locked:['gray','Locked'] };
