@@ -2961,14 +2961,18 @@ window.AR2_PF = (function(){
     // "No engineer assignment exists" (Jeff, Sofitel KL Damansara V2,
     // 2026-11-03). _loadAssignmentsForPortfolio sets
     // engineerAssignmentsByPortfolio[pid] (possibly []) once fetched.
-    var engAsgnsLoadedForPid = !!(pfState.engineerAssignmentsByPortfolio && pfState.engineerAssignmentsByPortfolio[pid]);
+    // Gate ONLY on the dedicated per-portfolio fetch flag. Do not use
+    // engineerAssignmentsByPortfolio[pid] as the signal: the Portfolios
+    // list pre-fills that slot with [] for every portfolio (portfolio-
+    // scoped loader), which made this kickoff skip the per-PROPERTY
+    // fetch and left every chip on "+ Assign engineer" (2026-11-03).
     // One fetch per portfolio per cache lifetime. Without this in-flight
     // guard a fetch that resolves without populating the cache (early
     // return, network error, PostgREST timeout) re-triggers itself on
     // the re-render → request storm → API timeouts for every other
     // query on the page (seen 2026-11-03 as blank Field Report + chips).
     if (!pfState._engAsgnFetchFor) pfState._engAsgnFetchFor = {};
-    if (isAdminKickoff && slot && slot.rows && !engAsgnsLoadedForPid && !pfState._engAsgnFetchFor[pid]){
+    if (isAdminKickoff && slot && slot.rows && !pfState._engAsgnFetchFor[pid]){
       pfState._engAsgnFetchFor[pid] = true;
       Promise.all([_loadActiveEngineers(), _loadAssignmentsForPortfolio(pid)]).then(function(){
         var live = document.getElementById('ar2-bank-overview-mount');
