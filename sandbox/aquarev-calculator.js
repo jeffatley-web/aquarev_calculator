@@ -9817,6 +9817,31 @@ function setAdminActiveTab(tabId){
    portfolio). Visible to admins + the record-owner User role; RLS
    blocks everything else.
 
+   arPickPrimaryAssignments(asgns, verifs) — orders a record's
+   assignments so the one with real field data comes first:
+     1. most verification rows (when verifs are supplied)
+     2. status priority: locked > reviewed > submitted > in_progress > pending
+     3. most recently modified
+   Shared by the Field Report, the portfolio-row Engineer Report button
+   and the calculator Report button. */
+window.arPickPrimaryAssignments = function(asgns, verifs){
+  var list = (asgns || []).slice();
+  var byAsgn = {};
+  (verifs || []).forEach(function(v){ if (v && v.assignment_id) byAsgn[v.assignment_id] = (byAsgn[v.assignment_id] || 0) + 1; });
+  var pri = { locked:5, reviewed:4, submitted:3, in_progress:2, pending:1 };
+  list.sort(function(a, b){
+    var va = byAsgn[a.id] || 0, vb = byAsgn[b.id] || 0;
+    if (va !== vb) return vb - va;
+    var pa = pri[a.status] || 0, pb = pri[b.status] || 0;
+    if (pa !== pb) return pb - pa;
+    var ta = Date.parse(a.last_modified_at || a.assigned_at || 0) || 0;
+    var tb = Date.parse(b.last_modified_at || b.assigned_at || 0) || 0;
+    return tb - ta;
+  });
+  return list;
+};
+/*
+
    Skeleton scope (this ship): role-gated stepper entry, async data
    load with caching, hero band with status / engineer / actions, and
    the empty-state for records that have no engineer assignment yet.
@@ -9882,8 +9907,12 @@ window.AR2_FIELD_REPORT = (function(){
           engIds.length ? c.from('app_users').select('id,name,phone,role').in('id', engIds) : Promise.resolve({ data: [] })
         ]).then(function(arr){
           var engineerById = {}; (arr[3].data || []).forEach(function(e){ engineerById[e.id] = e; });
+          // Primary assignment = the one with real field data, not merely
+          // the newest row. An empty duplicate "pending" assignment created
+          // after the engineer's work would otherwise front the hero and
+          // mask the real report (2026-11-03).
           s.bundle = {
-            assignments:   asgns,
+            assignments:   window.arPickPrimaryAssignments ? arPickPrimaryAssignments(asgns, arr[0].data || []) : asgns,
             verifications: arr[0].data || [],
             media:         arr[1].data || [],
             pumpRooms:     arr[2].data || [],
@@ -21527,7 +21556,7 @@ function handleClick(e){
     var engAsgns = (window.AR2_PF && AR2_PF.engineerAssignmentsForProperty)
       ? AR2_PF.engineerAssignmentsForProperty(engPid) : [];
     if (engAsgns.length){
-      _fireEngReport(engAsgns[0].id);
+      _fireEngReport(arPickPrimaryAssignments(engAsgns)[0].id);
       return;
     }
     // Last resort — fetch from DB. RLS lets corp engineers see
@@ -21716,7 +21745,7 @@ function handleClick(e){
           try { generateEngineerReport(asgnId, { previewOnly: true }); }
           catch(err){ alert('Could not generate engineer report: ' + ((err && err.message) || err)); }
         };
-        if (rptAsgns.length){ _rptFire(rptAsgns[0].id); return; }
+        if (rptAsgns.length){ _rptFire(arPickPrimaryAssignments(rptAsgns)[0].id); return; }
         // Cache miss (portfolio opened before its assignments loaded, or
         // cache cleared after an admin review) — look the assignment up
         // directly instead of telling the admin none exists.
@@ -21731,7 +21760,7 @@ function handleClick(e){
             var rows = (rs && rs.data) || [];
             if (!rows.length){ _rptNone(); return; }
             try { rows.forEach(function(a){ if (window.AR2_PF && AR2_PF._insertAssignmentIntoCache) AR2_PF._insertAssignmentIntoCache(a); }); } catch(_){}
-            _rptFire(rows[0].id);
+            _rptFire(arPickPrimaryAssignments(rows)[0].id);
           }, function(){ _rptNone(); });
         return;
       }
