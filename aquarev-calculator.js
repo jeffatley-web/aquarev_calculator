@@ -85,11 +85,15 @@ window.AR_SPLASH = (function(){
       if (!visible) return;
       progress(1); el.classList.add('is-done'); el.querySelector('.ars-water').style.height = '115%';
       if (!reduced) splash();
-      setTimeout(function(){ visible = false; el.classList.add('is-hidden'); el.setAttribute('aria-busy', 'false'); stop(); }, 620);
+      setTimeout(function(){ visible = false; el.classList.add('is-hidden'); el.setAttribute('aria-busy', 'false'); stop(); hideCurtain(); }, 620);
     }, wait);
   }
   function abort(){ if (!el) return; clearTimeout(ceilingTimer); visible = false; el.classList.add('is-hidden'); el.classList.remove('is-done'); stop(); }
-  return { show: show, label: setLabel, progress: progress, done: done, abort: abort, isVisible: function(){ return visible; } };
+  // Pre-paint curtain: an inline element the Webflow embed paints on the
+  // very first frame (before our CSS/JS arrive). It sits under the gate and
+  // under this overlay, and is released here once the app is ready.
+  function hideCurtain(){ try { if (typeof window.__arCurtainHide === 'function') window.__arCurtainHide(); } catch(_){} }
+  return { show: show, label: setLabel, progress: progress, done: done, abort: abort, hideCurtain: hideCurtain, isVisible: function(){ return visible; } };
 })();
 
 /* ── SVG Icon set — replaces all emoji ── */
@@ -8353,6 +8357,10 @@ function seedFirstPropertyFromMapPools(newPortfolio){
       if (window.AR_SPLASH && AR_SPLASH.isVisible()){
         AR_SPLASH.progress(.9);
         requestAnimationFrame(function(){ requestAnimationFrame(function(){ setTimeout(function(){ AR_SPLASH.label('Ready'); AR_SPLASH.done(); }, 500); }); });
+      } else {
+        // No login splash this session (gate skipped) — release the
+        // pre-paint curtain once the first view has painted.
+        requestAnimationFrame(function(){ requestAnimationFrame(function(){ setTimeout(function(){ if (window.AR_SPLASH) AR_SPLASH.hideCurtain(); }, 300); }); });
       }
     } catch(_){}
     // Welcome modal — first-time or post-update prompt for the guided tour.
