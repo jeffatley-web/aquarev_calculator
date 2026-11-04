@@ -426,6 +426,10 @@ function showCalcPasswordModal(onUnlock){
       : '')
   +'</div>';
   document.body.appendChild(m);
+  // Pre-paint curtain (Webflow page head): while the gate is up, keep the
+  // curtain under it so the website never shows through the backdrop.
+  // It is released by AR_SPLASH.done() once the workspace has painted.
+  try { if (typeof window.__arCurtainHold === 'function') window.__arCurtainHold(); } catch(_){}
   // × on the card → leave the portal for the website home page.
   var gateClose=document.getElementById('ar2-gate-close');
   if(gateClose) gateClose.onclick=function(){ try { location.href='https://www.aquarevwater.us/'; } catch(_){} };
