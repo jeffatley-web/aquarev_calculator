@@ -1644,8 +1644,15 @@ window.AR2_PF = (function(){
         +   '<button class="ar-pf-prop-snap" data-pf-action="open-pf-snapshot" data-pf-snap-portfolio="' + p.id + '" type="button" aria-label="Open portfolio snapshot" data-pf-tip="Snapshot" data-pf-tip-tone="purple">'
         +     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
         +   '</button>'
+        // Punch list drawer (spec deliverables across the portfolio).
+        +   ((window.AR_PUNCH && AR_PUNCH.canUse())
+            ? '<button class="ar-pf-prop-punch" data-pf-action="open-pf-punch" data-pf-punch-portfolio="' + p.id + '" type="button" aria-label="Open portfolio punch list" data-pf-tip="Punch list" data-pf-tip-tone="green">'
+            +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>'
+            + '</button>'
+            : '')
         + '</div>'
-        + '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer" id="ar-pf-pf-snap-' + p.id + '" data-pf-snap-drawer="' + p.id + '"></div>';
+        + '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer" id="ar-pf-pf-snap-' + p.id + '" data-pf-snap-drawer="' + p.id + '"></div>'
+        + '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer ar-punch-drawer" id="ar-pf-pf-punch-' + p.id + '" data-pf-punch-drawer="' + p.id + '"></div>';
     }).join('');
 
     mount.innerHTML = '<div class="ar-pf-panel">' + hero
@@ -2985,6 +2992,17 @@ window.AR2_PF = (function(){
           +         '<path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/>'
           +       '</svg>'
           +     '</button>'
+          // Punch list — spec deliverables per pool (drawer). Admins can
+          // override cells; reps see it read-only; corp engineers don't.
+          +     ((window.AR_PUNCH && AR_PUNCH.canUse())
+              ? '<button class="ar-pf-prop-punch" data-pf-action="open-punch" data-pf-property="' + prop.id + '" type="button" aria-label="Open punch list" data-pf-tip="Punch list" data-pf-tip-tone="green">'
+              +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+              +     '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>'
+              +     '<rect x="9" y="3" width="6" height="4" rx="1"/>'
+              +     '<path d="M9 14l2 2 4-4"/>'
+              +   '</svg>'
+              + '</button>'
+              : '')
           // Preview PDF (existing) — portrait Assessment + Pool Profile cards.
           +     '<button class="ar-pf-prop-prev" data-pf-action="preview-property-report" data-pf-property="' + prop.id + '" data-pf-prop-name="' + esc(prop.property_name || 'this property') + '" type="button" aria-label="Preview PDF report" data-pf-tip="Preview PDF" data-pf-tip-tone="green">'
           +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
@@ -5258,6 +5276,519 @@ function submitImportCsv(){
    never state_json — so it stays fast on image-heavy portfolios.
    The roll-up is cached into AR2_PF._state.rollup so the list row KPIs
    ("Properties" / "Investment") fill in on the next render. */
+/* ═══════════════════════════════════════════════════════════════════
+   PUNCH LIST — specification deliverables per pool / spa
+   (Jeff, 2026-11-10). A drawer under a property row (Portfolio
+   overview) or a portfolio row (Portfolios list) that scores the eight
+   items needed to confirm device requirements:
+     name · volume · water type · return lines · flow rate ·
+     sub-meter · pump room · photos/video
+   Auto status per item:  ok (engineer-confirmed) · pending (entered,
+   not confirmed, or partial) · missing.  Admins can override any cell
+   to Complete / Outstanding (punch_list_items table, "M" badge).
+   Data: punchlist_bodies RPC (lite bodies, no images) +
+   loadEngineerSummaryBundles (verifications, media, pump rooms) +
+   punch_list_items overrides.  Exports: PDF (print pipeline) + CSV.
+   ═══════════════════════════════════════════════════════════════════ */
+var AR_PUNCH = (function(){
+  var ITEMS = [
+    { k:'name',         l:'Body of water',  s:'Name' },
+    { k:'volume',       l:'Volume',         s:'Volume' },
+    { k:'water_type',   l:'Water type',     s:'Water' },
+    { k:'return_lines', l:'Return lines',   s:'Lines' },
+    { k:'flow_rate',    l:'Flow rate',      s:'Flow' },
+    { k:'sub_meter',    l:'Sub-meter',      s:'Sub-meter' },
+    { k:'pump_room',    l:'Pump room',      s:'Pump room' },
+    { k:'media',        l:'Photos / video', s:'Media' }
+  ];
+  var STATE_LABEL = { ok:'Confirmed', pending:'Pending', missing:'Outstanding' };
+  var _data = {};     // scopeKey -> loaded + computed data
+  var _pop = null;    // open popover element
+
+  function client(){ return (window.AR2_CLOUD && AR2_CLOUD.getClient) ? AR2_CLOUD.getClient() : null; }
+  function isAdmin(){ try { return !!(window.AR2_CLOUD && AR2_CLOUD.isAdmin && AR2_CLOUD.isAdmin()); } catch(_){ return false; } }
+  function isCorp(){ try { return !!(window.AR2_CLOUD && AR2_CLOUD.isCorpEngineer && AR2_CLOUD.isCorpEngineer()); } catch(_){ return false; } }
+  function num(n){ return (typeof fn === 'function') ? fn(Number(n) || 0) : String(Math.round(Number(n) || 0)); }
+  function dt(x){ try { return x ? new Date(x).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : '—'; } catch(_){ return '—'; } }
+  function dtl(x){ try { return x ? new Date(x).toLocaleString('en-US', { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '—'; } catch(_){ return '—'; } }
+  function scopeKey(scope){ return scope.portfolioId ? ('pf:' + scope.portfolioId) : ('pp:' + scope.propertyId); }
+  function attr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+  /* ── Load ──────────────────────────────────────────────────────── */
+  function load(scope){
+    var c = client();
+    if (!c) return Promise.reject(new Error('cloud not ready'));
+    return c.rpc('punchlist_bodies', { p_portfolio_id: scope.portfolioId || null, p_property_id: scope.propertyId || null }).then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      var props = Array.isArray(rs.data) ? rs.data : [];
+      var ids = props.map(function(p){ return p.id; });
+      if (!ids.length) return { props: [], bundles: {}, overrides: {} };
+      return Promise.all([
+        (typeof loadEngineerSummaryBundles === 'function') ? loadEngineerSummaryBundles(ids) : Promise.resolve({}),
+        c.from('punch_list_items').select('id,property_id,pool_key,item_key,status,note,set_by_name,set_at').in('property_id', ids)
+      ]).then(function(arr){
+        var ov = {};
+        ((arr[1] && arr[1].data) || []).forEach(function(r){
+          var byPool = ov[r.property_id] = ov[r.property_id] || {};
+          (byPool[r.pool_key] = byPool[r.pool_key] || {})[r.item_key] = r;
+        });
+        return { props: props, bundles: arr[0] || {}, overrides: ov };
+      });
+    });
+  }
+
+  /* ── Evaluate ──────────────────────────────────────────────────── */
+  function roster(prop, b){
+    var out = [], bodies = Array.isArray(prop.bodies) ? prop.bodies : [];
+    var SIZES = ['pipe_2in','pipe_3in','pipe_4in','pipe_6in','pipe_8in','pipe_10in'];
+    if (prop.manualVolume){
+      var nM = Math.max(1, Number(prop.manualPoolCount) || 1), per = Math.round((Number(prop.manualTotalGallons) || 0) / nM);
+      for (var i = 0; i < nM; i++) out.push({ index:i, key:'idx:' + i, label:'Pool ' + (i + 1), estGal:per, repType:'', repLines:[], isDefaultName:true });
+    } else {
+      bodies.forEach(function(bd, i){
+        var rl = [];
+        SIZES.forEach(function(k){ var n = Number(bd[k]) || 0; if (n > 0) rl.push({ count:n, diameter:parseInt(k.split('_')[1], 10) }); });
+        var g = 0; try { g = Math.round((typeof bodyGallons === 'function' ? bodyGallons(bd) : 0) || 0); } catch(_){ g = 0; }
+        out.push({ index:i, key: bd.id ? String(bd.id) : ('idx:' + i), label: bd.label || '', estGal:g, repType: bd.poolType || '', repLines:rl, isDefaultName: !bd.label || /^pool\s*\d+$/i.test(bd.label) });
+      });
+    }
+    (b.verifs || []).forEach(function(v){
+      if (v.is_engineer_added && !out.some(function(p){ return p.index === v.pool_index; })){
+        out.push({ index:v.pool_index, key:'idx:' + v.pool_index, label:v.pool_name_override || '', estGal:0, repType:'', repLines:[], engineerAdded:true, isDefaultName: !v.pool_name_override });
+      }
+    });
+    out.sort(function(a, bb){ return a.index - bb.index; });
+    return out;
+  }
+  function evalPool(p, v, media, roomById, metric){
+    var confirmed = !!(v && v.confirmed_at && !v.confirm_stale);
+    var items = {};
+    function mk(state, text, detail){ return { state:state, text:text, detail:detail || '' }; }
+    function vol(g){ return metric ? (num(g / 264.172) + ' m³') : (num(g) + ' gal'); }
+    function lines(ls){ return ls.map(function(l){ return (l.count || 1) + ' × ' + (l.diameter || '?') + '″'; }).join(' · '); }
+    var nm = (v && v.pool_name_override) || p.label;
+    items.name = !nm ? mk('missing', 'Unnamed')
+      : (p.isDefaultName && !(v && v.pool_name_override)) ? mk('pending', nm, 'default name — confirm with the property')
+      : mk(confirmed ? 'ok' : 'pending', nm, confirmed ? 'confirmed by engineer' : 'entered, not yet confirmed');
+    var cg = v ? (Number(v.confirmed_gallons) || 0) : 0, eg = p.estGal || 0;
+    items.volume = cg > 0 ? mk(confirmed ? 'ok' : 'pending', vol(cg), eg ? ('assessment ' + vol(eg)) : '')
+      : eg > 0 ? mk('pending', vol(eg), 'assessment estimate — engineer has not confirmed')
+      : mk('missing', 'No volume');
+    var wt = (v && v.pool_type) || p.repType;
+    var wtTxt = /salt/i.test(wt || '') ? 'Salt' : (wt ? 'Chlorine' : '');
+    items.water_type = wt ? mk((v && v.pool_type && confirmed) ? 'ok' : 'pending', wtTxt, (v && v.pool_type) ? (confirmed ? 'confirmed by engineer' : 'entered, not yet confirmed') : 'from assessment')
+      : mk('missing', 'Not set');
+    var el = (v && Array.isArray(v.return_lines)) ? v.return_lines : [];
+    items.return_lines = el.length ? mk(confirmed ? 'ok' : 'pending', lines(el), confirmed ? 'confirmed by engineer' : 'entered, not yet confirmed')
+      : p.repLines.length ? mk('pending', lines(p.repLines), 'assessment pre-fill — engineer has not documented the lines')
+      : mk('missing', 'No return lines');
+    var flows = el.map(function(l){ return Number(l.flow_gpm) || 0; });
+    var withFlow = flows.filter(function(f){ return f > 0; }).length;
+    var flowTxt = flows.map(function(f){ return f ? (metric ? num(f * 0.2271) + ' m³/h' : num(f) + ' gpm') : '—'; }).join(' · ');
+    items.flow_rate = !el.length ? mk('missing', 'No flow recorded')
+      : withFlow === el.length ? mk(confirmed ? 'ok' : 'pending', flowTxt, confirmed ? 'confirmed by engineer' : 'entered, not yet confirmed')
+      : withFlow ? mk('pending', flowTxt, (el.length - withFlow) + ' line' + ((el.length - withFlow) === 1 ? '' : 's') + ' without a flow rate')
+      : mk('missing', 'No flow recorded');
+    items.sub_meter = v ? mk(confirmed ? 'ok' : 'pending', v.has_sub_meter ? 'Yes' : 'No', confirmed ? 'confirmed by engineer' : 'answered, pool not yet confirmed')
+      : mk('missing', 'Not answered');
+    var room = (v && v.pump_room_id) ? roomById[v.pump_room_id] : null;
+    items.pump_room = room ? mk(confirmed ? 'ok' : 'pending', room.label || 'Pump room', confirmed ? 'confirmed by engineer' : 'assigned, pool not yet confirmed')
+      : mk('missing', 'Not assigned');
+    var ph = media.filter(function(m){ return m.pool_index === p.index && m.media_type === 'photo'; }).length;
+    var vd = media.filter(function(m){ return m.pool_index === p.index && m.media_type === 'video'; }).length;
+    var rm = room ? media.filter(function(m){ return m.pump_room_id === room.id; }).length : 0;
+    var mTxt = ph + ' photo' + (ph === 1 ? '' : 's') + (vd ? ' · ' + vd + ' video' + (vd === 1 ? '' : 's') : '') + (room ? ' · room ' + rm : '');
+    items.media = (ph >= 1 && (!room || rm >= 1)) ? mk('ok', mTxt, 'pool photo' + (room ? ' and pump-room media' : '') + ' on file')
+      : (ph + vd + rm) > 0 ? mk('pending', mTxt, (room && !rm) ? 'pump-room photo or video missing' : 'return-line photo missing')
+      : mk('missing', 'No media');
+    return items;
+  }
+  function computeProp(prop, b, ov){
+    b = b || {}; ov = ov || {};
+    var pools = roster(prop, b), media = b.media || [], rooms = b.rooms || [];
+    var vByIdx = {}; (b.verifs || []).forEach(function(v){ vByIdx[v.pool_index] = v; });
+    var roomById = {}; rooms.forEach(function(r){ roomById[r.id] = r; });
+    var metric = prop.units === 'metric';
+    var tot = { ok:0, pending:0, missing:0, total:0, manual:0 };
+    pools.forEach(function(p){
+      var v = vByIdx[p.index] || null;
+      p.verif = v;
+      p.confirmed = !!(v && v.confirmed_at && !v.confirm_stale);
+      p.items = evalPool(p, v, media, roomById, metric);
+      p.ok = 0;
+      ITEMS.forEach(function(it){
+        var cell = p.items[it.k];
+        cell.auto = cell.state;
+        var o = ov[p.key] && ov[p.key][it.k];
+        if (o){ cell.state = o.status === 'complete' ? 'ok' : 'missing'; cell.manual = true; cell.override = o; tot.manual++; }
+        tot[cell.state]++; tot.total++;
+        if (cell.state === 'ok') p.ok++;
+      });
+    });
+    tot.pct = tot.total ? Math.round(tot.ok / tot.total * 100) : 0;
+    var status = !pools.length ? 'none' : tot.ok === tot.total ? 'ok' : (tot.ok + tot.pending) > 0 ? 'pending' : 'missing';
+    return { prop:prop, pools:pools, tot:tot, status:status, asgn:b.asgn || null, engineer:b.engineer || {}, media:media, rooms:rooms };
+  }
+  function computeAll(raw){
+    var out = { props: [], tot:{ ok:0, pending:0, missing:0, total:0, manual:0, pools:0, propsDone:0 } };
+    raw.props.forEach(function(prop){
+      var r = computeProp(prop, raw.bundles[prop.id], raw.overrides[prop.id]);
+      out.props.push(r);
+      out.tot.ok += r.tot.ok; out.tot.pending += r.tot.pending; out.tot.missing += r.tot.missing; out.tot.total += r.tot.total; out.tot.manual += r.tot.manual;
+      out.tot.pools += r.pools.length; if (r.status === 'ok') out.tot.propsDone++;
+    });
+    out.tot.pct = out.tot.total ? Math.round(out.tot.ok / out.tot.total * 100) : 0;
+    out.raw = raw;
+    return out;
+  }
+
+  /* ── Render: drawer pieces ─────────────────────────────────────── */
+  function bar(t){
+    if (!t.total) return '<div class="ar-punch-bar"></div>';
+    return '<div class="ar-punch-bar"><i class="ok" style="width:' + (t.ok / t.total * 100) + '%"></i><i class="pending" style="width:' + (t.pending / t.total * 100) + '%"></i><i class="missing" style="width:' + (t.missing / t.total * 100) + '%"></i></div>';
+  }
+  function pill(status){
+    var m = { ok:['ok','Complete'], pending:['pending','In progress'], missing:['missing','Not started'], none:['none','No pools'] }[status] || ['none', status];
+    return '<span class="ar-punch-pill ' + m[0] + '">' + m[1] + '</span>';
+  }
+  function legend(){
+    return '<div class="ar-punch-legend"><span><i class="ar-punch-dot ok"></i>Confirmed</span><span><i class="ar-punch-dot pending"></i>Pending — entered or partial, not confirmed</span><span><i class="ar-punch-dot missing"></i>Outstanding</span><span><b style="color:#48cae4">M</b>&nbsp;Admin override</span></div>';
+  }
+  function chip(r, p, it, scope){
+    var cell = p.items[it.k], admin = isAdmin();
+    var title = it.l + ': ' + STATE_LABEL[cell.state] + (cell.manual ? ' (admin override' + (cell.override && cell.override.set_by_name ? ' by ' + cell.override.set_by_name : '') + ')' : '') + (cell.detail ? ' — ' + cell.detail : '') + (cell.override && cell.override.note ? '\nNote: ' + cell.override.note : '');
+    var inner = '<i class="ar-punch-dot ' + cell.state + '"></i><span class="t">' + esc(cell.text) + '</span>';
+    if (admin) return '<button type="button" class="ar-punch-chip st-' + cell.state + (cell.manual ? ' manual' : '') + '" data-punch-act="chip" data-scope="' + attr(scopeKey(scope)) + '" data-prop="' + attr(r.prop.id) + '" data-pool="' + attr(p.key) + '" data-item="' + attr(it.k) + '" title="' + attr(title) + '">' + inner + '</button>';
+    return '<span class="ar-punch-chip st-' + cell.state + (cell.manual ? ' manual' : '') + '" title="' + attr(title) + '">' + inner + '</span>';
+  }
+  function matrix(r, scope){
+    if (!r.pools.length) return '<div class="ar-punch-empty">No pools or spas on this property yet. Add bodies of water in the assessment first.</div>';
+    var head = '<tr><th>Pool / spa</th>' + ITEMS.map(function(it){ return '<th>' + esc(it.l) + '</th>'; }).join('') + '</tr>';
+    var rows = r.pools.map(function(p){
+      var sub = p.engineerAdded ? 'added by engineer' : (p.confirmed ? 'confirmed ' + dt(p.verif.confirmed_at) : (p.verif ? 'engineer in progress' : 'awaiting engineer'));
+      return '<tr><td class="pool">' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + '<span class="pct">' + p.ok + '/' + ITEMS.length + '</span><small>' + esc(sub) + '</small></td>'
+        + ITEMS.map(function(it){ return '<td>' + chip(r, p, it, scope) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    return '<div class="ar-punch-tbl-wrap"><table class="ar-punch-tbl"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function kpis(t, extra){
+    var done = t.total - t.ok;
+    return '<div class="ar-punch-kpis">'
+      + (extra || '')
+      + '<div class="ar-punch-kpi"><div class="l">Items complete</div><div class="v ' + (t.total && t.ok === t.total ? 'ok' : (t.ok ? 'warn' : 'bad')) + '">' + t.ok + ' / ' + t.total + '</div><div class="s">' + t.pct + '% · ' + (done ? done + ' open' : 'all delivered') + '</div></div>'
+      + '<div class="ar-punch-kpi"><div class="l">Pending</div><div class="v warn">' + t.pending + '</div><div class="s">entered, not confirmed</div></div>'
+      + '<div class="ar-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + t.missing + '</div><div class="s">' + (t.manual ? t.manual + ' admin override' + (t.manual === 1 ? '' : 's') : 'nothing overridden') + '</div></div>'
+      + '</div>';
+  }
+  function engLine(r){
+    var e = r.engineer || {}, a = r.asgn;
+    if (!a) return 'No engineer assigned';
+    return esc(e.name || 'Engineer') + ' · ' + esc(a.status || '').replace('_', ' ') + ' · last activity ' + dt(a.last_modified_at || a.assigned_at);
+  }
+  function propertyDrawerHtml(data, scope){
+    var r = data.props[0];
+    if (!r) return '<div class="ar-punch-empty">Property not found or not visible to you.</div>';
+    return '<div class="ar-punch" data-punch-scope="' + attr(scopeKey(scope)) + '">'
+      + '<div class="ar-punch-head"><div><div class="ar-punch-title">Punch list · ' + esc(r.prop.property_name || 'Property') + '</div><div class="ar-punch-sub">' + engLine(r) + ' · <b>' + r.pools.length + '</b> pool' + (r.pools.length === 1 ? '' : 's') + '</div></div>'
+      + '<div class="ar-punch-acts"><button type="button" class="ar-punch-btn" data-punch-act="csv" data-scope="' + attr(scopeKey(scope)) + '">CSV</button><button type="button" class="ar-punch-btn primary" data-punch-act="pdf" data-scope="' + attr(scopeKey(scope)) + '">Summary PDF</button><button type="button" class="ar-punch-btn x" data-punch-act="close-prop" data-prop="' + attr(r.prop.id) + '" aria-label="Close">&times;</button></div></div>'
+      + kpis(r.tot, '<div class="ar-punch-kpi"><div class="l">Status</div><div class="v" style="font-size:13px;margin-top:6px">' + pill(r.status) + '</div><div class="s">' + bar(r.tot) + '</div></div>')
+      + legend() + matrix(r, scope) + '</div>';
+  }
+  function portfolioDrawerHtml(data, scope, pfName){
+    var t = data.tot;
+    var blocks = data.props.map(function(r, i){
+      return '<div class="ar-punch-prop' + (data.props.length === 1 ? ' open' : '') + '" data-punch-prop="' + attr(r.prop.id) + '">'
+        + '<div class="ar-punch-prop-hd" data-punch-act="toggle-prop" role="button" tabindex="0"><span class="chev">▶</span>'
+        + '<div class="nm">' + (i + 1) + '. ' + esc(r.prop.property_name || 'Untitled property') + '<small>' + esc(r.prop.country || r.prop.formatted_address || '') + '</small></div>'
+        + '<div class="eng">' + engLine(r) + '</div>'
+        + '<div class="barc">' + bar(r.tot) + '</div>'
+        + '<div class="cnt">' + r.tot.ok + ' / ' + r.tot.total + '</div>'
+        + '<div>' + pill(r.status) + '</div></div>'
+        + '<div class="ar-punch-prop-body">' + matrix(r, scope) + '</div></div>';
+    }).join('');
+    return '<div class="ar-punch" data-punch-scope="' + attr(scopeKey(scope)) + '">'
+      + '<div class="ar-punch-head"><div><div class="ar-punch-title">Punch list · ' + esc(pfName || 'Portfolio') + '</div><div class="ar-punch-sub"><b>' + data.props.length + '</b> propert' + (data.props.length === 1 ? 'y' : 'ies') + ' · <b>' + t.pools + '</b> pool' + (t.pools === 1 ? '' : 's') + ' · <b>' + t.propsDone + '</b> complete</div></div>'
+      + '<div class="ar-punch-acts"><button type="button" class="ar-punch-btn" data-punch-act="expand-all">Expand all</button><button type="button" class="ar-punch-btn" data-punch-act="csv" data-scope="' + attr(scopeKey(scope)) + '">CSV</button><button type="button" class="ar-punch-btn primary" data-punch-act="pdf" data-scope="' + attr(scopeKey(scope)) + '">Summary PDF</button><button type="button" class="ar-punch-btn x" data-punch-act="close-pf" data-pf="' + attr(scope.portfolioId) + '" aria-label="Close">&times;</button></div></div>'
+      + kpis(t, '<div class="ar-punch-kpi"><div class="l">Properties complete</div><div class="v ' + (data.props.length && t.propsDone === data.props.length ? 'ok' : '') + '">' + t.propsDone + ' / ' + data.props.length + '</div><div class="s">' + bar(t) + '</div></div>')
+      + legend() + (blocks || '<div class="ar-punch-empty">No properties in this portfolio yet.</div>') + '</div>';
+  }
+
+  /* ── Drawers ───────────────────────────────────────────────────── */
+  function renderInto(el, scope){
+    var key = scopeKey(scope);
+    el.innerHTML = '<div class="ar-pf-snap-loading">Loading punch list…</div>';
+    return load(scope).then(function(raw){
+      var data = computeAll(raw);
+      data.scope = scope;
+      _data[key] = data;
+      if (!el.isConnected) return data;
+      el.innerHTML = scope.portfolioId ? portfolioDrawerHtml(data, scope, scope.name) : propertyDrawerHtml(data, scope);
+      return data;
+    }, function(err){
+      el.innerHTML = '<div class="ar-pf-snap-err">Could not load punch list: ' + esc((err && err.message) || String(err)) + '</div>';
+    });
+  }
+  function rerender(key){
+    var data = _data[key]; if (!data) return;
+    var el = document.querySelector('.ar-punch[data-punch-scope="' + key + '"]');
+    if (!el) return;
+    var openIds = Array.prototype.map.call(el.querySelectorAll('.ar-punch-prop.open'), function(n){ return n.getAttribute('data-punch-prop'); });
+    var fresh = computeAll(data.raw); fresh.scope = data.scope; _data[key] = fresh;
+    var html = data.scope.portfolioId ? portfolioDrawerHtml(fresh, data.scope, data.scope.name) : propertyDrawerHtml(fresh, data.scope);
+    var wrap = el.parentNode; wrap.innerHTML = html;
+    openIds.forEach(function(id){ var n = wrap.querySelector('.ar-punch-prop[data-punch-prop="' + id + '"]'); if (n) n.classList.add('open'); });
+  }
+  function toggleProperty(propertyId){
+    if (!propertyId) return;
+    var drawerId = 'ar-punch-prop-' + propertyId;
+    var existing = document.getElementById(drawerId);
+    var row = document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]');
+    var trigger = row ? row.querySelector('.ar-pf-prop-punch') : null;
+    if (existing){
+      existing.classList.remove('open');
+      if (trigger) trigger.classList.remove('is-open');
+      setTimeout(function(){ if (existing.parentNode && !existing.classList.contains('open')) existing.parentNode.removeChild(existing); }, 320);
+      return;
+    }
+    if (!row) return;
+    var drawer = document.createElement('div');
+    drawer.id = drawerId;
+    drawer.className = 'ar-pf-prop-snap-drawer ar-punch-drawer';
+    row.parentNode.insertBefore(drawer, row.nextSibling);
+    if (trigger) trigger.classList.add('is-open');
+    requestAnimationFrame(function(){ drawer.classList.add('open'); });
+    renderInto(drawer, { propertyId: propertyId });
+  }
+  function togglePortfolio(portfolioId){
+    if (!portfolioId) return;
+    var drawer = document.getElementById('ar-pf-pf-punch-' + portfolioId);
+    var btn = document.querySelector('[data-pf-punch-portfolio="' + portfolioId + '"]');
+    if (!drawer) return;
+    if (drawer.classList.contains('open')){
+      drawer.classList.remove('open'); if (btn) btn.classList.remove('is-open'); return;
+    }
+    var others = document.querySelectorAll('.ar-pf-pf-snap-drawer.open');
+    for (var i = 0; i < others.length; i++) others[i].classList.remove('open');
+    var openBtns = document.querySelectorAll('.is-open[data-pf-snap-portfolio], .is-open[data-pf-punch-portfolio]');
+    for (var j = 0; j < openBtns.length; j++) openBtns[j].classList.remove('is-open');
+    drawer.classList.add('open'); if (btn) btn.classList.add('is-open');
+    var pfRow = ((window.AR2_PF && AR2_PF._state && AR2_PF._state.portfolios) || []).filter(function(p){ return p && p.id === portfolioId; })[0] || {};
+    renderInto(drawer, { portfolioId: portfolioId, name: pfRow.name || '' });
+  }
+
+  /* ── Admin override popover ────────────────────────────────────── */
+  function closePop(){ if (_pop && _pop.parentNode) _pop.parentNode.removeChild(_pop); _pop = null; }
+  function openPop(chipEl){
+    closePop();
+    var key = chipEl.getAttribute('data-scope'), propId = chipEl.getAttribute('data-prop'), poolKey = chipEl.getAttribute('data-pool'), itemKey = chipEl.getAttribute('data-item');
+    var data = _data[key]; if (!data) return;
+    var r = data.props.filter(function(x){ return x.prop.id === propId; })[0]; if (!r) return;
+    var p = r.pools.filter(function(x){ return x.key === poolKey; })[0]; if (!p) return;
+    var it = ITEMS.filter(function(x){ return x.k === itemKey; })[0]; if (!it) return;
+    var cell = p.items[itemKey], o = cell.override || null;
+    var pop = document.createElement('div');
+    pop.className = 'ar-punch-pop';
+    pop.innerHTML = '<div class="ttl">' + esc(it.l) + '</div><div class="nm">' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + ' · ' + esc(r.prop.property_name || '') + '</div>'
+      + '<div class="auto">Automatic status: <b>' + STATE_LABEL[cell.auto] + '</b> — ' + esc(cell.text) + (cell.detail ? ' (' + esc(cell.detail) + ')' : '') + '</div>'
+      + '<textarea placeholder="Note for stakeholders (optional) — e.g. confirmed by phone with the chief engineer">' + esc((o && o.note) || '') + '</textarea>'
+      + '<div class="row"><button type="button" class="ar-punch-btn ok" data-pop="complete">Mark complete</button><button type="button" class="ar-punch-btn bad" data-pop="outstanding">Mark outstanding</button></div>'
+      + '<div class="row" style="margin-top:6px"><button type="button" class="ar-punch-btn" data-pop="clear"' + (o ? '' : ' disabled style="opacity:.45"') + '>Use automatic status</button><button type="button" class="ar-punch-btn" data-pop="cancel">Cancel</button></div>'
+      + (o ? '<div class="meta">Override set by ' + esc(o.set_by_name || 'admin') + ' · ' + esc(dtl(o.set_at)) + '</div>' : '')
+      + '<div class="err"></div>';
+    document.body.appendChild(pop);
+    var rect = chipEl.getBoundingClientRect(), w = 300, h = pop.offsetHeight || 220;
+    var left = Math.min(Math.max(8, rect.left), window.innerWidth - w - 8);
+    var top = (rect.bottom + 8 + h > window.innerHeight) ? Math.max(8, rect.top - h - 8) : rect.bottom + 8;
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    _pop = pop;
+    pop.addEventListener('click', function(e){
+      var b = e.target.closest('[data-pop]'); if (!b) return;
+      e.stopPropagation();
+      var act = b.getAttribute('data-pop');
+      if (act === 'cancel'){ closePop(); return; }
+      var note = (pop.querySelector('textarea').value || '').trim();
+      var btns = pop.querySelectorAll('button'); for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+      saveOverride(data, r, p, itemKey, act, note).then(function(){ closePop(); rerender(key); }, function(err){
+        for (var k = 0; k < btns.length; k++) btns[k].disabled = false;
+        pop.querySelector('.err').textContent = 'Could not save: ' + ((err && err.message) || String(err));
+      });
+    });
+    setTimeout(function(){ pop.querySelector('textarea').focus(); }, 30);
+  }
+  function saveOverride(data, r, p, itemKey, act, note){
+    var c = client(); if (!c) return Promise.reject(new Error('cloud not ready'));
+    var ov = data.raw.overrides;
+    var byProp = ov[r.prop.id] = ov[r.prop.id] || {};
+    var byPool = byProp[p.key] = byProp[p.key] || {};
+    if (act === 'clear'){
+      return c.from('punch_list_items').delete().eq('property_id', r.prop.id).eq('pool_key', p.key).eq('item_key', itemKey).then(function(rs){
+        if (rs.error) throw new Error(rs.error.message);
+        delete byPool[itemKey];
+      });
+    }
+    var u = (window.AR2_CLOUD && AR2_CLOUD.getUser) ? AR2_CLOUD.getUser() : null;
+    var row = { property_id: r.prop.id, pool_key: p.key, item_key: itemKey, status: act, note: note || null, set_by: (u && u.id) || null, set_by_name: (u && (u.name || u.email)) || 'Admin', set_at: new Date().toISOString() };
+    return c.from('punch_list_items').upsert(row, { onConflict: 'property_id,pool_key,item_key' }).select('id,property_id,pool_key,item_key,status,note,set_by_name,set_at').single().then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      byPool[itemKey] = rs.data || row;
+    });
+  }
+
+  /* ── Exports ───────────────────────────────────────────────────── */
+  function csv(key){
+    var data = _data[key]; if (!data) return;
+    var rows = [['Portfolio','Property','Country','Engineer','Assignment status','Pool / spa','Item','Status','Admin override','Value','Detail','Note','Override by','Override at']];
+    var pfName = data.scope.name || '';
+    data.props.forEach(function(r){
+      r.pools.forEach(function(p){
+        ITEMS.forEach(function(it){
+          var cell = p.items[it.k], o = cell.override || {};
+          rows.push([pfName, r.prop.property_name || '', r.prop.country || '', (r.engineer && r.engineer.name) || '', (r.asgn && r.asgn.status) || 'unassigned', p.items.name.text || ('Pool ' + (p.index + 1)), it.l, STATE_LABEL[cell.state], cell.manual ? 'Yes' : 'No', cell.text, cell.detail, o.note || '', o.set_by_name || '', o.set_at || '']);
+        });
+      });
+    });
+    var body = rows.map(function(rw){ return rw.map(function(v){ v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
+    var blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'AquaRev_PunchList_' + ((pfName || (data.props[0] && data.props[0].prop.property_name) || 'export').replace(/[^A-Za-z0-9]+/g, '_')) + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); if (a.parentNode) a.parentNode.removeChild(a); }, 500);
+  }
+  function tag(state, manual){ return '<span class="rpt-engs-tag ' + (state === 'ok' ? 'ok' : (state === 'pending' ? 'warn' : 'bad')) + (manual ? ' m' : '') + '">' + STATE_LABEL[state] + '</span>'; }
+  function rptBar(t){ return t.total ? '<div class="rpt-punch-bar"><i class="ok" style="width:' + (t.ok / t.total * 100) + '%"></i><i class="pending" style="width:' + (t.pending / t.total * 100) + '%"></i><i class="missing" style="width:' + (t.missing / t.total * 100) + '%"></i></div>' : ''; }
+  function rptPage(title, right, today, body, foot){
+    return '<div class="rpt-es-page rpt-engs-page">'
+      + '<div class="rpt-es-head"><div class="rpt-es-head-left"><div class="rpt-es-logo">Punch List</div><div class="rpt-es-logo-sub">AQUAREV WATER</div></div>'
+      + '<div class="rpt-es-head-right"><div class="rpt-es-prop-name">' + esc(title) + '</div><div class="rpt-es-prop-date">' + esc(today) + (right ? ' · ' + esc(right) : '') + '</div></div></div>'
+      + body
+      + '<div class="rpt-foot rpt-es-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Specification deliverables punch list · ' + esc(foot || '') + '<br>Confirmed = verified by the field engineer · Pending = entered or partial, not yet confirmed · Outstanding = not delivered · M = status set by AquaRev admin</div></div>'
+      + '</div>';
+  }
+  function chunk(arr, n){ var out = []; for (var i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
+  function propertyPages(r, today, headTitle, pageTag){
+    var pages = [], pools = r.pools.length ? r.pools : [];
+    var titleBand = '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(r.prop.property_name || 'Property') + '</div><div class="rpt-engs-sub">' + (r.prop.country ? '<b>' + esc(r.prop.country) + '</b>' : '') + (r.prop.formatted_address ? (r.prop.country ? ' · ' : '') + esc(r.prop.formatted_address) : '') + '</div></div>'
+      + '<div class="rpt-engs-hd-r"><div class="rpt-engs-eng"><b>' + esc((r.engineer && r.engineer.name) || 'No engineer assigned') + '</b>' + (r.asgn ? esc(String(r.asgn.status || '').replace('_', ' ')) + ' · last activity ' + dt(r.asgn.last_modified_at || r.asgn.assigned_at) : '') + '</div></div></div>';
+    var kp = '<div class="rpt-punch-kpis">'
+      + '<div class="rpt-punch-kpi"><div class="l">Status</div><div class="v" style="font-size:11px;margin-top:5px">' + tag(r.status === 'none' ? 'missing' : r.status) + '</div><div class="s">' + rptBar(r.tot) + '</div></div>'
+      + '<div class="rpt-punch-kpi"><div class="l">Items complete</div><div class="v ' + (r.tot.total && r.tot.ok === r.tot.total ? 'ok' : (r.tot.ok ? 'warn' : 'bad')) + '">' + r.tot.ok + ' / ' + r.tot.total + '</div><div class="s">' + r.tot.pct + '% of ' + pools.length + ' pool' + (pools.length === 1 ? '' : 's') + ' × ' + ITEMS.length + ' items</div></div>'
+      + '<div class="rpt-punch-kpi"><div class="l">Pending</div><div class="v warn">' + r.tot.pending + '</div><div class="s">entered, not confirmed</div></div>'
+      + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + r.tot.missing + '</div><div class="s">' + (r.tot.manual ? r.tot.manual + ' admin override' + (r.tot.manual === 1 ? '' : 's') : 'no overrides') + '</div></div></div>';
+    var open = [];
+    pools.forEach(function(p){ ITEMS.forEach(function(it){ var c = p.items[it.k]; if (c.state !== 'ok') open.push('<li class="' + c.state + '"><b>' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + ' · ' + esc(it.l) + ':</b> ' + esc(c.detail || c.text) + (c.override && c.override.note ? ' — <i>' + esc(c.override.note) + '</i>' : '') + '</li>'); }); });
+    var groups = pools.length ? chunk(pools, 11) : [[]];
+    groups.forEach(function(g, gi){
+      var tbl = g.length ? '<table class="rpt-engs-tbl rpt-punch-tbl"><thead><tr><th>Pool / spa</th>' + ITEMS.map(function(it){ return '<th>' + esc(it.s) + '</th>'; }).join('') + '</tr></thead><tbody>'
+        + g.map(function(p){ return '<tr><td class="pool">' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + '<small>' + p.ok + ' / ' + ITEMS.length + (p.engineerAdded ? ' · engineer added' : '') + '</small></td>' + ITEMS.map(function(it){ var c = p.items[it.k]; return '<td>' + tag(c.state, c.manual) + '<span class="val">' + esc(c.text) + '</span></td>'; }).join('') + '</tr>'; }).join('')
+        + '</tbody></table>' : '<div style="padding:14px 0;color:#64748b">No pools or spas on record for this property.</div>';
+      var openHtml = (gi === groups.length - 1 && open.length) ? '<div class="rpt-engs-stitle" style="margin-top:12px">Open items (' + open.length + ')</div><ul class="rpt-punch-list">' + open.slice(0, 26).join('') + (open.length > 26 ? '<li class="pending">… and ' + (open.length - 26) + ' more in the CSV export</li>' : '') + '</ul>' : '';
+      pages.push(rptPage(headTitle, pageTag + (groups.length > 1 ? ' · pools ' + (gi * 11 + 1) + '–' + (gi * 11 + g.length) : ''), today, titleBand + '<div class="rpt-punch-body">' + (gi === 0 ? kp : '') + tbl + openHtml + '</div>', (r.prop.property_name || '')));
+    });
+    return pages.join('');
+  }
+  function pdf(key){
+    var data = _data[key]; if (!data) return;
+    var today = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+    var pages = '';
+    var fileBase;
+    if (data.scope.portfolioId){
+      var pfName = data.scope.name || 'Portfolio';
+      fileBase = 'AquaRev_PunchList_' + pfName.replace(/[^A-Za-z0-9]+/g, '_');
+      var t = data.tot;
+      var kp = '<div class="rpt-punch-kpis">'
+        + '<div class="rpt-punch-kpi"><div class="l">Properties complete</div><div class="v ' + (data.props.length && t.propsDone === data.props.length ? 'ok' : '') + '">' + t.propsDone + ' / ' + data.props.length + '</div><div class="s">' + rptBar(t) + '</div></div>'
+        + '<div class="rpt-punch-kpi"><div class="l">Items complete</div><div class="v ' + (t.total && t.ok === t.total ? 'ok' : (t.ok ? 'warn' : 'bad')) + '">' + t.ok + ' / ' + t.total + '</div><div class="s">' + t.pct + '% across ' + t.pools + ' pool' + (t.pools === 1 ? '' : 's') + '</div></div>'
+        + '<div class="rpt-punch-kpi"><div class="l">Pending</div><div class="v warn">' + t.pending + '</div><div class="s">entered, not confirmed</div></div>'
+        + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + t.missing + '</div><div class="s">' + (t.manual ? t.manual + ' admin override' + (t.manual === 1 ? '' : 's') : 'no overrides') + '</div></div></div>';
+      chunk(data.props, 24).forEach(function(g, gi){
+        var tbl = '<table class="rpt-engs-tbl rpt-punch-tbl"><thead><tr><th>#</th><th>Property</th><th>Engineer</th><th>Pools</th><th>Complete</th><th>Pending</th><th>Outstanding</th><th>Progress</th><th>Status</th></tr></thead><tbody>'
+          + g.map(function(r, i){ return '<tr><td>' + (gi * 24 + i + 1) + '</td><td class="pool">' + esc(r.prop.property_name || '') + '<small>' + esc(r.prop.country || '') + '</small></td><td>' + esc((r.engineer && r.engineer.name) || '—') + '</td><td>' + r.pools.length + '</td><td>' + r.tot.ok + ' / ' + r.tot.total + '</td><td>' + r.tot.pending + '</td><td>' + r.tot.missing + '</td><td>' + rptBar(r.tot) + '</td><td>' + tag(r.status === 'none' ? 'missing' : r.status) + '</td></tr>'; }).join('')
+          + '</tbody></table>';
+        var band = '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(pfName) + '</div><div class="rpt-engs-sub">Portfolio summary · ' + data.props.length + ' propert' + (data.props.length === 1 ? 'y' : 'ies') + '</div></div></div>';
+        pages += rptPage(pfName, 'Summary' + (gi ? ' (cont.)' : ''), today, band + '<div class="rpt-punch-body">' + (gi === 0 ? kp : '') + tbl + '</div>', pfName);
+      });
+      data.props.forEach(function(r){ pages += propertyPages(r, today, pfName, r.prop.property_name || 'Property'); });
+    } else {
+      var r0 = data.props[0]; if (!r0) return;
+      fileBase = 'AquaRev_PunchList_' + (r0.prop.property_name || 'Property').replace(/[^A-Za-z0-9]+/g, '_');
+      pages = propertyPages(r0, today, r0.prop.property_name || 'Property', 'Property');
+    }
+    var rep = document.getElementById('ar2-report');
+    if (!rep){ alert('Report container missing — refresh and try again.'); return; }
+    rep.innerHTML = pages;
+    preview('Punch List — Preview', fileBase);
+  }
+  // Full-viewport preview + print, same pattern as the Engineer Report preview.
+  function preview(title, fileBase){
+    var rep = document.getElementById('ar2-report'); if (!rep) return;
+    var orientEl = document.getElementById('ar2-orient');
+    if (!orientEl){ orientEl = document.createElement('style'); orientEl.id = 'ar2-orient'; document.head.appendChild(orientEl); }
+    orientEl.textContent = '@media print{@page{size:portrait;margin:0mm;}}';
+    var hiddenEls = [], kids = document.body.children;
+    for (var bi = 0; bi < kids.length; bi++){
+      if (kids[bi].id !== 'ar2-report' && kids[bi].id !== 'ar2-orient'){ hiddenEls.push({ el: kids[bi], prev: kids[bi].style.cssText }); kids[bi].style.cssText += 'display:none!important;'; }
+    }
+    var rParent = rep.parentNode, rNext = rep.nextSibling;
+    if (rep.parentNode !== document.body) document.body.appendChild(rep);
+    rep.style.cssText = 'display:block;'; rep.classList.add('is-preview');
+    var origTitle = document.title;
+    var tb = document.createElement('div');
+    tb.id = 'ar2-punch-preview-toolbar';
+    tb.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#040f1e;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 2px 10px rgba(0,0,0,.4);font-family:"DM Sans","Helvetica Neue",Arial,sans-serif;';
+    tb.innerHTML = '<button id="ar2-punch-prev-back" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">← Close Preview</button>'
+      + '<div style="color:#fff;font-size:13px;font-weight:600;letter-spacing:.5px">' + esc(title) + '</div>'
+      + '<button id="ar2-punch-prev-dl" style="background:linear-gradient(135deg,#00b4d8,#48cae4);color:#040f1e;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">Download PDF</button>';
+    document.body.appendChild(tb);
+    rep.style.paddingTop = '56px';
+    var restored = false;
+    function restore(){
+      if (restored) return; restored = true;
+      document.title = origTitle;
+      if (tb.parentNode) tb.parentNode.removeChild(tb);
+      rep.style.cssText = 'display:none;'; rep.classList.remove('is-preview'); rep.style.paddingTop = '';
+      if (rNext) rParent.insertBefore(rep, rNext); else rParent.appendChild(rep);
+      for (var i = 0; i < hiddenEls.length; i++) hiddenEls[i].el.style.cssText = hiddenEls[i].prev;
+      window.scrollTo(0, 0);
+      if (orientEl && orientEl.parentNode) orientEl.parentNode.removeChild(orientEl);
+      document.removeEventListener('keydown', onKey);
+    }
+    document.getElementById('ar2-punch-prev-back').onclick = restore;
+    document.getElementById('ar2-punch-prev-dl').onclick = function(){
+      if (tb.parentNode) tb.parentNode.removeChild(tb);
+      rep.style.paddingTop = '';
+      document.title = fileBase + '_' + new Date().toISOString().slice(0, 10);
+      window.addEventListener('afterprint', function onAfter(){ window.removeEventListener('afterprint', onAfter); setTimeout(restore, 100); });
+      window.print();
+      setTimeout(function(){ if (!restored) restore(); }, 3000);
+    };
+    var onKey = function(e){ if (e.key === 'Escape') restore(); };
+    document.addEventListener('keydown', onKey);
+    window.scrollTo(0, 0);
+  }
+
+  /* ── Delegated clicks inside drawers / popover ─────────────────── */
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    if (_pop && !_pop.contains(t) && !(t.closest && t.closest('[data-punch-act="chip"]'))) closePop();
+    var el = t.closest ? t.closest('[data-punch-act]') : null;
+    if (!el) return;
+    e.stopPropagation(); e.preventDefault();
+    var act = el.getAttribute('data-punch-act');
+    if (act === 'chip'){ if (_pop && _pop.getAttribute('data-for') === el.getAttribute('data-pool') + '|' + el.getAttribute('data-item')) { closePop(); return; } openPop(el); if (_pop) _pop.setAttribute('data-for', el.getAttribute('data-pool') + '|' + el.getAttribute('data-item')); return; }
+    if (act === 'toggle-prop'){ var blk = el.closest('.ar-punch-prop'); if (blk) blk.classList.toggle('open'); return; }
+    if (act === 'expand-all'){ var root = el.closest('.ar-punch'); var blks = root ? root.querySelectorAll('.ar-punch-prop') : []; var anyClosed = Array.prototype.some.call(blks, function(b){ return !b.classList.contains('open'); }); Array.prototype.forEach.call(blks, function(b){ b.classList.toggle('open', anyClosed); }); el.textContent = anyClosed ? 'Collapse all' : 'Expand all'; return; }
+    if (act === 'csv'){ csv(el.getAttribute('data-scope')); return; }
+    if (act === 'pdf'){ pdf(el.getAttribute('data-scope')); return; }
+    if (act === 'close-prop'){ toggleProperty(el.getAttribute('data-prop')); return; }
+    if (act === 'close-pf'){ togglePortfolio(el.getAttribute('data-pf')); return; }
+  }, true);
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closePop(); });
+
+  return { ITEMS: ITEMS, load: load, compute: computeAll, toggleProperty: toggleProperty, togglePortfolio: togglePortfolio, csv: csv, pdf: pdf, canUse: function(){ return !isCorp(); }, isAdmin: isAdmin, _data: _data };
+})();
+window.AR_PUNCH = AR_PUNCH;
+
 function togglePfPortfolioSnapshot(portfolioId){
   if (!portfolioId) return;
   var drawer = document.getElementById('ar-pf-pf-snap-' + portfolioId);
@@ -22220,6 +22751,19 @@ function handleClick(e){
         e.stopPropagation();
         var pfSnapId = pfAct.getAttribute('data-pf-snap-portfolio');
         if (pfSnapId && typeof togglePfPortfolioSnapshot === 'function') togglePfPortfolioSnapshot(pfSnapId);
+        return;
+      }
+      // Punch list drawers — property row (overview) and portfolio row (list).
+      if (act === 'open-punch'){
+        e.stopPropagation();
+        var punchPid = pfAct.getAttribute('data-pf-property');
+        if (punchPid && window.AR_PUNCH) AR_PUNCH.toggleProperty(punchPid);
+        return;
+      }
+      if (act === 'open-pf-punch'){
+        e.stopPropagation();
+        var punchPfId = pfAct.getAttribute('data-pf-punch-portfolio');
+        if (punchPfId && window.AR_PUNCH) AR_PUNCH.togglePortfolio(punchPfId);
         return;
       }
 
