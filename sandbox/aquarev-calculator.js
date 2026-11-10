@@ -5702,7 +5702,7 @@ var AR_PUNCH = (function(){
         + '<div class="rpt-punch-kpi"><div class="l">Pending</div><div class="v warn">' + t.pending + '</div><div class="s">entered, not confirmed</div></div>'
         + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + t.missing + '</div><div class="s">' + (t.manual ? t.manual + ' admin override' + (t.manual === 1 ? '' : 's') : 'no overrides') + '</div></div></div>';
       chunk(data.props, 24).forEach(function(g, gi){
-        var tbl = '<table class="rpt-engs-tbl rpt-punch-tbl"><thead><tr><th>#</th><th>Property</th><th>Engineer</th><th>Pools</th><th>Complete</th><th>Pending</th><th>Outstanding</th><th>Progress</th><th>Status</th></tr></thead><tbody>'
+        var tbl = '<table class="rpt-engs-tbl rpt-punch-tbl summary"><thead><tr><th>#</th><th>Property</th><th>Engineer</th><th>Pools</th><th>Complete</th><th>Pending</th><th>Outstanding</th><th>Progress</th><th>Status</th></tr></thead><tbody>'
           + g.map(function(r, i){ return '<tr><td>' + (gi * 24 + i + 1) + '</td><td class="pool">' + esc(r.prop.property_name || '') + '<small>' + esc(r.prop.country || '') + '</small></td><td>' + esc((r.engineer && r.engineer.name) || '—') + '</td><td>' + r.pools.length + '</td><td>' + r.tot.ok + ' / ' + r.tot.total + '</td><td>' + r.tot.pending + '</td><td>' + r.tot.missing + '</td><td>' + rptBar(r.tot) + '</td><td>' + tag(r.status === 'none' ? 'missing' : r.status) + '</td></tr>'; }).join('')
           + '</tbody></table>';
         var band = '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(pfName) + '</div><div class="rpt-engs-sub">Portfolio summary · ' + data.props.length + ' propert' + (data.props.length === 1 ? 'y' : 'ies') + '</div></div></div>';
