@@ -5734,8 +5734,8 @@ var AR_PUNCH = (function(){
   function tag(state, manual){ return '<span class="rpt-engs-tag ' + (state === 'ok' ? 'ok' : (state === 'pending' ? 'warn' : 'bad')) + (manual ? ' m' : '') + '">' + STATE_LABEL[state] + '</span>'; }
   function rptBar(t){ return t.total ? '<div class="rpt-punch-bar"><i class="ok" style="width:' + (t.ok / t.total * 100) + '%"></i><i class="pending" style="width:' + (t.pending / t.total * 100) + '%"></i><i class="missing" style="width:' + (t.missing / t.total * 100) + '%"></i></div>' : ''; }
   function rptPage(title, right, today, body, foot){
-    return '<div class="rpt-es-page rpt-engs-page">'
-      + '<div class="rpt-es-head"><div class="rpt-es-head-left"><div class="rpt-es-logo">Punch List</div><div class="rpt-es-logo-sub">AQUAREV WATER</div></div>'
+    return '<div class="rpt-es-page rpt-engs-page rpt-punch-page">'
+      + '<div class="rpt-es-head"><div class="rpt-es-head-left"><div class="rpt-es-logo">Punch List</div><div class="rpt-es-logo-sub">AQUAREV WATER · Specification deliverables</div></div>'
       + '<div class="rpt-es-head-right"><div class="rpt-es-prop-name">' + esc(title) + '</div><div class="rpt-es-prop-date">' + esc(today) + (right ? ' · ' + esc(right) : '') + '</div></div></div>'
       + body
       + '<div class="rpt-foot rpt-es-foot"><div class="rpt-foot-logo">AQUAREV WATER</div><div class="rpt-foot-info">Specification deliverables punch list · ' + esc(foot || '') + '<br>Confirmed = verified by the field engineer · Pending = entered or partial, not yet confirmed · Outstanding = not delivered · M = status set by AquaRev admin</div></div>'

@@ -1915,6 +1915,29 @@ body.pf-property-mode #ar2 [data-pf-prop-hide]{display:none !important;}
 #ar2-report .rpt-punch-dg{border:1px solid #d7dee6;border-radius:8px;padding:8px 10px;margin-bottom:8px;break-inside:avoid;}
 #ar2-report .rpt-punch-dg-hd{font-size:10px;color:#0a2540;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
 #ar2-report .rpt-punch-dg .rpt-punch-list{margin-top:5px;}
+/* Document styling for the punch list pages: white throughout, rules
+   instead of dark bands, outlined tags — reads as a report, not a
+   screenshot of the app (Jeff, 2026-11-10). */
+#ar2-report .rpt-punch-page{box-shadow:none;}
+#ar2-report .rpt-punch-page .rpt-es-head{background:#fff;border-bottom:2px solid #0a2540;padding:16px 32px 10px;}
+#ar2-report .rpt-punch-page .rpt-es-logo{color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-es-logo-sub{color:#0077b6;}
+#ar2-report .rpt-punch-page .rpt-es-prop-name{color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-es-prop-date{color:#64748b;}
+#ar2-report .rpt-punch-page .rpt-engs-hd,#ar2-report .rpt-punch-page .rpt-engs-hd.compact{background:#fff;border-top:none;border-bottom:1px solid #d7dee6;padding:14px 32px 12px;color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-engs-title{color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-engs-sub{color:#475569;}
+#ar2-report .rpt-punch-page .rpt-engs-sub b{color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-engs-eng{color:#475569;margin-top:0;}
+#ar2-report .rpt-punch-page .rpt-engs-eng b{color:#0a2540;display:block;font-size:11px;}
+#ar2-report .rpt-punch-page .rpt-engs-tbl thead tr{background:#f1f5f9;}
+#ar2-report .rpt-punch-page .rpt-engs-tbl th{color:#334155;border-bottom:1px solid #cbd5e1;}
+#ar2-report .rpt-punch-page .rpt-engs-stitle{color:#0a2540;border-bottom-color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-punch-kpi{background:#fff;}
+#ar2-report .rpt-punch-page .rpt-engs-tag{background:#fff;border:1px solid currentColor;}
+#ar2-report .rpt-punch-page .rpt-foot{background:#fff;border-top:1px solid #d7dee6;padding:10px 32px;}
+#ar2-report .rpt-punch-page .rpt-foot-logo{color:#0a2540;}
+#ar2-report .rpt-punch-page .rpt-foot-info{color:#64748b;}
 #ar2-report .rpt-engs-pool{border:1px solid #d7dee6;border-radius:8px;overflow:hidden;margin-bottom:8px;}
 #ar2-report .rpt-engs-pool-hd{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 12px;background:#f3f7fa;border-bottom:1px solid #d7dee6;}
 #ar2-report .rpt-engs-pool-name{font-size:12.5px;font-weight:700;color:#0a2540;}
