@@ -5297,6 +5297,7 @@ var AR_PUNCH = (function(){
     { k:'water_type',   l:'Water type',     s:'Water' },
     { k:'return_lines', l:'Return lines',   s:'Lines' },
     { k:'flow_rate',    l:'Flow rate',      s:'Flow' },
+    { k:'span_confirmed', l:'Span confirmed', s:'Span' },
     { k:'sub_meter',    l:'Sub-meter',      s:'Sub-meter' },
     { k:'pump_room',    l:'Pump room',      s:'Pump room' },
     { k:'media',        l:'Photos / video', s:'Media' }
@@ -5400,6 +5401,15 @@ var AR_PUNCH = (function(){
       : withFlow === el.length ? mk(confirmed ? 'ok' : 'pending', flowTxt, confirmed ? 'confirmed by engineer' : 'entered, not yet confirmed')
       : withFlow ? mk('pending', flowTxt, (el.length - withFlow) + ' line' + ((el.length - withFlow) === 1 ? '' : 's') + ' without a flow rate')
       : mk('missing', 'No flow recorded');
+    // Span confirmed: the engineer's per-line acknowledgement that the
+    // straight run required by the device size exists on site.
+    var SZ = window.AR2_SIZING, spanOk = el.filter(function(l){ return !!l.span_confirmed; }).length;
+    var spanReq = el.map(function(l){ var dev = Number(l.diameter) || ((l.sizing || {}).device) || 0; try { return (dev && SZ && SZ.requiredSpanIn && SZ.showSpan) ? SZ.showSpan(SZ.requiredSpanIn(dev), metric ? 'metric' : 'us') : ''; } catch(_){ return ''; } }).filter(Boolean);
+    var spanReqTxt = spanReq.length ? ' · required ' + spanReq.filter(function(x, i, a){ return a.indexOf(x) === i; }).join(' / ') : '';
+    items.span_confirmed = !el.length ? mk('missing', 'No return lines')
+      : spanOk === el.length ? mk('ok', spanOk + ' / ' + el.length + ' line' + (el.length === 1 ? '' : 's'), 'straight run confirmed on site' + spanReqTxt)
+      : spanOk ? mk('pending', spanOk + ' / ' + el.length + ' lines', (el.length - spanOk) + ' line' + ((el.length - spanOk) === 1 ? '' : 's') + ' not yet confirmed' + spanReqTxt)
+      : mk('missing', '0 / ' + el.length + ' line' + (el.length === 1 ? '' : 's'), 'straight run not confirmed' + spanReqTxt);
     items.sub_meter = v ? mk(confirmed ? 'ok' : 'pending', v.has_sub_meter ? 'Yes' : 'No', confirmed ? 'confirmed by engineer' : 'answered, pool not yet confirmed')
       : mk('missing', 'Not answered');
     var room = (v && v.pump_room_id) ? roomById[v.pump_room_id] : null;
