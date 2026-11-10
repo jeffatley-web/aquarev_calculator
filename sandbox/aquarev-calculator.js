@@ -5322,17 +5322,28 @@ var AR_PUNCH = (function(){
       if (rs.error) throw new Error(rs.error.message);
       var props = Array.isArray(rs.data) ? rs.data : [];
       var ids = props.map(function(p){ return p.id; });
-      if (!ids.length) return { props: [], bundles: {}, overrides: {} };
+      var pfId = scope.portfolioId || (props[0] && props[0].portfolio_id) || null;
+      if (!ids.length) return { props: [], bundles: {}, overrides: {}, comments: { portfolio: [], byProp: {} } };
+      // Comments: portfolio-level (only when opened from the portfolio row)
+      // plus every property in scope.
+      var cmQ = c.from('punch_list_comments').select('id,portfolio_id,property_id,body,set_by_name,set_at').order('set_at', { ascending: true });
+      cmQ = (scope.portfolioId && pfId) ? cmQ.or('portfolio_id.eq.' + pfId + ',property_id.in.(' + ids.join(',') + ')') : cmQ.in('property_id', ids);
       return Promise.all([
         (typeof loadEngineerSummaryBundles === 'function') ? loadEngineerSummaryBundles(ids) : Promise.resolve({}),
-        c.from('punch_list_items').select('id,property_id,pool_key,item_key,status,note,set_by_name,set_at').in('property_id', ids)
+        c.from('punch_list_items').select('id,property_id,pool_key,item_key,status,note,set_by_name,set_at').in('property_id', ids),
+        cmQ.then(function(rs){ return rs; }, function(){ return { data: [] }; })
       ]).then(function(arr){
         var ov = {};
         ((arr[1] && arr[1].data) || []).forEach(function(r){
           var byPool = ov[r.property_id] = ov[r.property_id] || {};
           (byPool[r.pool_key] = byPool[r.pool_key] || {})[r.item_key] = r;
         });
-        return { props: props, bundles: arr[0] || {}, overrides: ov };
+        var cm = { portfolio: [], byProp: {} };
+        ((arr[2] && arr[2].data) || []).forEach(function(r){
+          if (r.property_id) (cm.byProp[r.property_id] = cm.byProp[r.property_id] || []).push(r);
+          else if (r.portfolio_id) cm.portfolio.push(r);
+        });
+        return { props: props, bundles: arr[0] || {}, overrides: ov, comments: cm, portfolioId: pfId };
       });
     });
   }
@@ -5473,15 +5484,36 @@ var AR_PUNCH = (function(){
     }).join('');
     return '<div class="ar-punch-tbl-wrap"><table class="ar-punch-tbl"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>';
   }
-  function kpis(t, extra){
-    var done = t.total - t.ok;
+  // Outstanding = everything not yet complete (awaiting confirmation +
+  // not delivered). Jeff, 2026-11-10: the headline count is what remains.
+  function remainText(t){
+    var rem = t.total - t.ok;
+    if (!rem) return t.total ? 'all items delivered' : 'no items yet';
+    return t.pending + ' awaiting confirmation · ' + t.missing + ' not delivered';
+  }
+  function kpis(t, extra, nComments){
+    var rem = t.total - t.ok;
     return '<div class="ar-punch-kpis">'
       + (extra || '')
-      + '<div class="ar-punch-kpi"><div class="l">Items complete</div><div class="v ' + (t.total && t.ok === t.total ? 'ok' : (t.ok ? 'warn' : 'bad')) + '">' + t.ok + ' / ' + t.total + '</div><div class="s">' + t.pct + '% · ' + (done ? done + ' open' : 'all delivered') + '</div></div>'
-      + '<div class="ar-punch-kpi"><div class="l">Pending</div><div class="v warn">' + t.pending + '</div><div class="s">entered, not confirmed</div></div>'
-      + '<div class="ar-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + t.missing + '</div><div class="s">' + (t.manual ? t.manual + ' admin override' + (t.manual === 1 ? '' : 's') : 'nothing overridden') + '</div></div>'
+      + '<div class="ar-punch-kpi"><div class="l">Items complete</div><div class="v ' + (t.total && t.ok === t.total ? 'ok' : (t.ok ? 'warn' : 'bad')) + '">' + t.ok + ' / ' + t.total + '</div><div class="s">' + t.pct + '% complete</div></div>'
+      + '<div class="ar-punch-kpi"><div class="l">Outstanding</div><div class="v ' + (rem ? 'bad' : 'ok') + '">' + rem + '</div><div class="s">' + remainText(t) + '</div></div>'
+      + '<div class="ar-punch-kpi"><div class="l">Admin activity</div><div class="v">' + t.manual + '<span style="font-size:11px;color:#9fc7d8"> override' + (t.manual === 1 ? '' : 's') + '</span></div><div class="s">' + (nComments || 0) + ' comment' + (nComments === 1 ? '' : 's') + '</div></div>'
       + '</div>';
   }
+  /* ── Comments (portfolio- or property-level log) ───────────────── */
+  function commentsHtml(list, scope, target){
+    list = list || [];
+    var admin = isAdmin();
+    var rows = list.map(function(cm){
+      return '<div class="ar-punch-cm"><div class="ar-punch-cm-meta"><b>' + esc(cm.set_by_name || 'Admin') + '</b> · ' + esc(dtl(cm.set_at)) + (admin ? ' <button type="button" class="ar-punch-cm-del" data-punch-act="del-comment" data-scope="' + attr(scopeKey(scope)) + '" data-id="' + attr(cm.id) + '" title="Delete comment">&times;</button>' : '') + '</div><div class="ar-punch-cm-body">' + esc(cm.body).replace(/\n/g, '<br>') + '</div></div>';
+    }).join('');
+    var form = admin
+      ? '<div class="ar-punch-cm-form"><textarea placeholder="Add a comment for stakeholders — e.g. what the property still needs to send, who is chasing it, target date" data-punch-cm-input></textarea><button type="button" class="ar-punch-btn primary" data-punch-act="add-comment" data-scope="' + attr(scopeKey(scope)) + '" data-target="' + attr(target) + '">Add comment</button></div>'
+      : '';
+    return '<div class="ar-punch-cms"><div class="ar-punch-cms-title">Comments <span>' + list.length + '</span></div>' + (rows || '<div class="ar-punch-cm-empty">No comments yet.</div>') + form + '</div>';
+  }
+  function propComments(data, propId){ return (data.raw && data.raw.comments && data.raw.comments.byProp[propId]) || []; }
+  function pfComments(data){ return (data.raw && data.raw.comments && data.raw.comments.portfolio) || []; }
   function engLine(r){
     var e = r.engineer || {}, a = r.asgn;
     if (!a) return 'No engineer assigned';
@@ -5493,8 +5525,8 @@ var AR_PUNCH = (function(){
     return '<div class="ar-punch" data-punch-scope="' + attr(scopeKey(scope)) + '">'
       + '<div class="ar-punch-head"><div><div class="ar-punch-title">Punch list · ' + esc(r.prop.property_name || 'Property') + '</div><div class="ar-punch-sub">' + engLine(r) + ' · <b>' + r.pools.length + '</b> pool' + (r.pools.length === 1 ? '' : 's') + '</div></div>'
       + '<div class="ar-punch-acts"><button type="button" class="ar-punch-btn" data-punch-act="csv" data-scope="' + attr(scopeKey(scope)) + '">CSV</button><button type="button" class="ar-punch-btn primary" data-punch-act="pdf" data-scope="' + attr(scopeKey(scope)) + '">Summary PDF</button><button type="button" class="ar-punch-btn x" data-punch-act="close-prop" data-prop="' + attr(r.prop.id) + '" aria-label="Close">&times;</button></div></div>'
-      + kpis(r.tot, '<div class="ar-punch-kpi"><div class="l">Status</div><div class="v" style="font-size:13px;margin-top:6px">' + pill(r.status) + '</div><div class="s">' + bar(r.tot) + '</div></div>')
-      + legend() + matrix(r, scope) + '</div>';
+      + kpis(r.tot, '<div class="ar-punch-kpi"><div class="l">Status</div><div class="v" style="font-size:13px;margin-top:6px">' + pill(r.status) + '</div><div class="s">' + bar(r.tot) + '</div></div>', propComments(data, r.prop.id).length)
+      + legend() + matrix(r, scope) + commentsHtml(propComments(data, r.prop.id), scope, 'prop:' + r.prop.id) + '</div>';
   }
   function portfolioDrawerHtml(data, scope, pfName){
     var t = data.tot;
@@ -5504,15 +5536,17 @@ var AR_PUNCH = (function(){
         + '<div class="nm">' + (i + 1) + '. ' + esc(r.prop.property_name || 'Untitled property') + '<small>' + esc(r.prop.country || r.prop.formatted_address || '') + '</small></div>'
         + '<div class="eng">' + engLine(r) + '</div>'
         + '<div class="barc">' + bar(r.tot) + '</div>'
-        + '<div class="cnt">' + r.tot.ok + ' / ' + r.tot.total + '</div>'
+        + '<div class="cnt">' + r.tot.ok + ' / ' + r.tot.total + '<small>' + (r.tot.total - r.tot.ok) + ' open</small></div>'
         + '<div>' + pill(r.status) + '</div></div>'
-        + '<div class="ar-punch-prop-body">' + matrix(r, scope) + '</div></div>';
+        + '<div class="ar-punch-prop-body">' + matrix(r, scope) + commentsHtml(propComments(data, r.prop.id), scope, 'prop:' + r.prop.id) + '</div></div>';
     }).join('');
+    var nCm = pfComments(data).length; data.props.forEach(function(r){ nCm += propComments(data, r.prop.id).length; });
     return '<div class="ar-punch" data-punch-scope="' + attr(scopeKey(scope)) + '">'
       + '<div class="ar-punch-head"><div><div class="ar-punch-title">Punch list · ' + esc(pfName || 'Portfolio') + '</div><div class="ar-punch-sub"><b>' + data.props.length + '</b> propert' + (data.props.length === 1 ? 'y' : 'ies') + ' · <b>' + t.pools + '</b> pool' + (t.pools === 1 ? '' : 's') + ' · <b>' + t.propsDone + '</b> complete</div></div>'
-      + '<div class="ar-punch-acts"><button type="button" class="ar-punch-btn" data-punch-act="expand-all">Expand all</button><button type="button" class="ar-punch-btn" data-punch-act="csv" data-scope="' + attr(scopeKey(scope)) + '">CSV</button><button type="button" class="ar-punch-btn primary" data-punch-act="pdf" data-scope="' + attr(scopeKey(scope)) + '">Summary PDF</button><button type="button" class="ar-punch-btn x" data-punch-act="close-pf" data-pf="' + attr(scope.portfolioId) + '" aria-label="Close">&times;</button></div></div>'
-      + kpis(t, '<div class="ar-punch-kpi"><div class="l">Properties complete</div><div class="v ' + (data.props.length && t.propsDone === data.props.length ? 'ok' : '') + '">' + t.propsDone + ' / ' + data.props.length + '</div><div class="s">' + bar(t) + '</div></div>')
-      + legend() + (blocks || '<div class="ar-punch-empty">No properties in this portfolio yet.</div>') + '</div>';
+      + '<div class="ar-punch-acts"><button type="button" class="ar-punch-btn" data-punch-act="expand-all">Expand all</button><button type="button" class="ar-punch-btn" data-punch-act="csv" data-scope="' + attr(scopeKey(scope)) + '">CSV</button><button type="button" class="ar-punch-btn" data-punch-act="pdf-full" data-scope="' + attr(scopeKey(scope)) + '">Full PDF</button><button type="button" class="ar-punch-btn primary" data-punch-act="pdf" data-scope="' + attr(scopeKey(scope)) + '">Summary PDF</button><button type="button" class="ar-punch-btn x" data-punch-act="close-pf" data-pf="' + attr(scope.portfolioId) + '" aria-label="Close">&times;</button></div></div>'
+      + kpis(t, '<div class="ar-punch-kpi"><div class="l">Properties complete</div><div class="v ' + (data.props.length && t.propsDone === data.props.length ? 'ok' : '') + '">' + t.propsDone + ' / ' + data.props.length + '</div><div class="s">' + bar(t) + '</div></div>', nCm)
+      + legend() + (blocks || '<div class="ar-punch-empty">No properties in this portfolio yet.</div>')
+      + '<div class="ar-punch-cms-title" style="margin-top:14px">Portfolio comments</div>' + commentsHtml(pfComments(data), scope, 'pf:' + scope.portfolioId) + '</div>';
   }
 
   /* ── Drawers ───────────────────────────────────────────────────── */
@@ -5649,6 +5683,9 @@ var AR_PUNCH = (function(){
         });
       });
     });
+    // Comment log rows after the item rows (Item = "Comment").
+    pfComments(data).forEach(function(cm){ rows.push([pfName, '', '', '', '', '', 'Comment', '', '', '', '', cm.body || '', cm.set_by_name || '', cm.set_at || '']); });
+    data.props.forEach(function(r){ propComments(data, r.prop.id).forEach(function(cm){ rows.push([pfName, r.prop.property_name || '', r.prop.country || '', (r.engineer && r.engineer.name) || '', (r.asgn && r.asgn.status) || 'unassigned', '', 'Comment', '', '', '', '', cm.body || '', cm.set_by_name || '', cm.set_at || '']); }); });
     var body = rows.map(function(rw){ return rw.map(function(v){ v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
     var blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
@@ -5668,58 +5705,119 @@ var AR_PUNCH = (function(){
       + '</div>';
   }
   function chunk(arr, n){ var out = []; for (var i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
-  function propertyPages(r, today, headTitle, pageTag){
+  function propertyPages(r, today, headTitle, pageTag, comments){
     var pages = [], pools = r.pools.length ? r.pools : [];
     var titleBand = '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(r.prop.property_name || 'Property') + '</div><div class="rpt-engs-sub">' + (r.prop.country ? '<b>' + esc(r.prop.country) + '</b>' : '') + (r.prop.formatted_address ? (r.prop.country ? ' · ' : '') + esc(r.prop.formatted_address) : '') + '</div></div>'
       + '<div class="rpt-engs-hd-r"><div class="rpt-engs-eng"><b>' + esc((r.engineer && r.engineer.name) || 'No engineer assigned') + '</b>' + (r.asgn ? esc(String(r.asgn.status || '').replace('_', ' ')) + ' · last activity ' + dt(r.asgn.last_modified_at || r.asgn.assigned_at) : '') + '</div></div></div>';
     var kp = '<div class="rpt-punch-kpis">'
       + '<div class="rpt-punch-kpi"><div class="l">Status</div><div class="v" style="font-size:11px;margin-top:5px">' + tag(r.status === 'none' ? 'missing' : r.status) + '</div><div class="s">' + rptBar(r.tot) + '</div></div>'
       + '<div class="rpt-punch-kpi"><div class="l">Items complete</div><div class="v ' + (r.tot.total && r.tot.ok === r.tot.total ? 'ok' : (r.tot.ok ? 'warn' : 'bad')) + '">' + r.tot.ok + ' / ' + r.tot.total + '</div><div class="s">' + r.tot.pct + '% of ' + pools.length + ' pool' + (pools.length === 1 ? '' : 's') + ' × ' + ITEMS.length + ' items</div></div>'
-      + '<div class="rpt-punch-kpi"><div class="l">Pending</div><div class="v warn">' + r.tot.pending + '</div><div class="s">entered, not confirmed</div></div>'
-      + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + r.tot.missing + '</div><div class="s">' + (r.tot.manual ? r.tot.manual + ' admin override' + (r.tot.manual === 1 ? '' : 's') : 'no overrides') + '</div></div></div>';
+      + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v ' + ((r.tot.total - r.tot.ok) ? 'bad' : 'ok') + '">' + (r.tot.total - r.tot.ok) + '</div><div class="s">' + remainText(r.tot) + '</div></div>'
+      + '<div class="rpt-punch-kpi"><div class="l">Admin activity</div><div class="v">' + r.tot.manual + '</div><div class="s">override' + (r.tot.manual === 1 ? '' : 's') + ' · ' + (comments || []).length + ' comment' + ((comments || []).length === 1 ? '' : 's') + '</div></div></div>';
     var open = [];
     pools.forEach(function(p){ ITEMS.forEach(function(it){ var c = p.items[it.k]; if (c.state !== 'ok') open.push('<li class="' + c.state + '"><b>' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + ' · ' + esc(it.l) + ':</b> ' + esc(c.detail || c.text) + (c.override && c.override.note ? ' — <i>' + esc(c.override.note) + '</i>' : '') + '</li>'); }); });
+    var cmHtml = rptComments(comments);
     var groups = pools.length ? chunk(pools, 11) : [[]];
     groups.forEach(function(g, gi){
       var tbl = g.length ? '<table class="rpt-engs-tbl rpt-punch-tbl"><thead><tr><th>Pool / spa</th>' + ITEMS.map(function(it){ return '<th>' + esc(it.s) + '</th>'; }).join('') + '</tr></thead><tbody>'
         + g.map(function(p){ return '<tr><td class="pool">' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + '<small>' + p.ok + ' / ' + ITEMS.length + (p.engineerAdded ? ' · engineer added' : '') + '</small></td>' + ITEMS.map(function(it){ var c = p.items[it.k]; return '<td>' + tag(c.state, c.manual) + '<span class="val">' + esc(c.text) + '</span></td>'; }).join('') + '</tr>'; }).join('')
         + '</tbody></table>' : '<div style="padding:14px 0;color:#64748b">No pools or spas on record for this property.</div>';
-      var openHtml = (gi === groups.length - 1 && open.length) ? '<div class="rpt-engs-stitle" style="margin-top:12px">Open items (' + open.length + ')</div><ul class="rpt-punch-list">' + open.slice(0, 26).join('') + (open.length > 26 ? '<li class="pending">… and ' + (open.length - 26) + ' more in the CSV export</li>' : '') + '</ul>' : '';
-      pages.push(rptPage(headTitle, pageTag + (groups.length > 1 ? ' · pools ' + (gi * 11 + 1) + '–' + (gi * 11 + g.length) : ''), today, titleBand + '<div class="rpt-punch-body">' + (gi === 0 ? kp : '') + tbl + openHtml + '</div>', (r.prop.property_name || '')));
+      var last = gi === groups.length - 1;
+      var openHtml = (last && open.length) ? '<div class="rpt-engs-stitle" style="margin-top:12px">Open items (' + open.length + ')</div><ul class="rpt-punch-list">' + open.slice(0, 22).join('') + (open.length > 22 ? '<li class="pending">… and ' + (open.length - 22) + ' more in the CSV export</li>' : '') + '</ul>' : '';
+      pages.push(rptPage(headTitle, pageTag + (groups.length > 1 ? ' · pools ' + (gi * 11 + 1) + '–' + (gi * 11 + g.length) : ''), today, titleBand + '<div class="rpt-punch-body">' + (gi === 0 ? kp : '') + tbl + openHtml + (last ? cmHtml : '') + '</div>', (r.prop.property_name || '')));
     });
     return pages.join('');
   }
-  function pdf(key){
+  function rptComments(list, title){
+    list = list || [];
+    if (!list.length) return '';
+    return '<div class="rpt-engs-stitle" style="margin-top:12px">' + esc(title || 'Comments') + ' (' + list.length + ')</div><div class="rpt-punch-cms">'
+      + list.slice(-8).map(function(cm){ return '<div class="rpt-punch-cm"><div class="m">' + esc(cm.set_by_name || 'Admin') + ' · ' + esc(dtl(cm.set_at)) + '</div><div class="b">' + esc(cm.body).replace(/\n/g, '<br>') + '</div></div>'; }).join('')
+      + (list.length > 8 ? '<div class="rpt-punch-cm"><div class="m">… ' + (list.length - 8) + ' earlier comment' + (list.length - 8 === 1 ? '' : 's') + ' in the calculator</div></div>' : '') + '</div>';
+  }
+  // mode: 'summary' (portfolio roll-up + outstanding digest + comments) or
+  // 'full' (summary pages followed by one page per property).
+  function pdf(key, mode){
     var data = _data[key]; if (!data) return;
     var today = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
     var pages = '';
     var fileBase;
     if (data.scope.portfolioId){
       var pfName = data.scope.name || 'Portfolio';
-      fileBase = 'AquaRev_PunchList_' + pfName.replace(/[^A-Za-z0-9]+/g, '_');
-      var t = data.tot;
+      var full = mode === 'full';
+      fileBase = 'AquaRev_PunchList_' + (full ? 'Full_' : 'Summary_') + pfName.replace(/[^A-Za-z0-9]+/g, '_');
+      var t = data.tot, rem = t.total - t.ok;
+      var nCm = pfComments(data).length; data.props.forEach(function(r){ nCm += propComments(data, r.prop.id).length; });
       var kp = '<div class="rpt-punch-kpis">'
         + '<div class="rpt-punch-kpi"><div class="l">Properties complete</div><div class="v ' + (data.props.length && t.propsDone === data.props.length ? 'ok' : '') + '">' + t.propsDone + ' / ' + data.props.length + '</div><div class="s">' + rptBar(t) + '</div></div>'
         + '<div class="rpt-punch-kpi"><div class="l">Items complete</div><div class="v ' + (t.total && t.ok === t.total ? 'ok' : (t.ok ? 'warn' : 'bad')) + '">' + t.ok + ' / ' + t.total + '</div><div class="s">' + t.pct + '% across ' + t.pools + ' pool' + (t.pools === 1 ? '' : 's') + '</div></div>'
-        + '<div class="rpt-punch-kpi"><div class="l">Pending</div><div class="v warn">' + t.pending + '</div><div class="s">entered, not confirmed</div></div>'
-        + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v bad">' + t.missing + '</div><div class="s">' + (t.manual ? t.manual + ' admin override' + (t.manual === 1 ? '' : 's') : 'no overrides') + '</div></div></div>';
-      chunk(data.props, 24).forEach(function(g, gi){
-        var tbl = '<table class="rpt-engs-tbl rpt-punch-tbl summary"><thead><tr><th>#</th><th>Property</th><th>Engineer</th><th>Pools</th><th>Complete</th><th>Pending</th><th>Outstanding</th><th>Progress</th><th>Status</th></tr></thead><tbody>'
-          + g.map(function(r, i){ return '<tr><td>' + (gi * 24 + i + 1) + '</td><td class="pool">' + esc(r.prop.property_name || '') + '<small>' + esc(r.prop.country || '') + '</small></td><td>' + esc((r.engineer && r.engineer.name) || '—') + '</td><td>' + r.pools.length + '</td><td>' + r.tot.ok + ' / ' + r.tot.total + '</td><td>' + r.tot.pending + '</td><td>' + r.tot.missing + '</td><td>' + rptBar(r.tot) + '</td><td>' + tag(r.status === 'none' ? 'missing' : r.status) + '</td></tr>'; }).join('')
+        + '<div class="rpt-punch-kpi"><div class="l">Outstanding</div><div class="v ' + (rem ? 'bad' : 'ok') + '">' + rem + '</div><div class="s">' + remainText(t) + '</div></div>'
+        + '<div class="rpt-punch-kpi"><div class="l">Admin activity</div><div class="v">' + t.manual + '</div><div class="s">override' + (t.manual === 1 ? '' : 's') + ' · ' + nCm + ' comment' + (nCm === 1 ? '' : 's') + '</div></div></div>';
+      var band = function(sub){ return '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(pfName) + '</div><div class="rpt-engs-sub">' + esc(sub) + '</div></div></div>'; };
+      var PER = 22;
+      chunk(data.props, PER).forEach(function(g, gi){
+        var tbl = '<table class="rpt-engs-tbl rpt-punch-tbl summary"><thead><tr><th>#</th><th>Property</th><th>Engineer</th><th>Pools</th><th>Complete</th><th>Outstanding</th><th>Progress</th><th>Status</th></tr></thead><tbody>'
+          + g.map(function(r, i){ var ro = r.tot.total - r.tot.ok; return '<tr><td>' + (gi * PER + i + 1) + '</td><td class="pool">' + esc(r.prop.property_name || '') + '<small>' + esc(r.prop.country || '') + '</small></td><td>' + esc((r.engineer && r.engineer.name) || '—') + '</td><td>' + r.pools.length + '</td><td>' + r.tot.ok + ' / ' + r.tot.total + '</td><td>' + ro + (ro ? '<span class="val">' + r.tot.pending + ' awaiting · ' + r.tot.missing + ' missing</span>' : '') + '</td><td>' + rptBar(r.tot) + '</td><td>' + tag(r.status === 'none' ? 'missing' : r.status) + '</td></tr>'; }).join('')
           + '</tbody></table>';
-        var band = '<div class="rpt-engs-hd compact"><div><div class="rpt-engs-title">' + esc(pfName) + '</div><div class="rpt-engs-sub">Portfolio summary · ' + data.props.length + ' propert' + (data.props.length === 1 ? 'y' : 'ies') + '</div></div></div>';
-        pages += rptPage(pfName, 'Summary' + (gi ? ' (cont.)' : ''), today, band + '<div class="rpt-punch-body">' + (gi === 0 ? kp : '') + tbl + '</div>', pfName);
+        var isLast = (gi === Math.ceil(data.props.length / PER) - 1);
+        pages += rptPage(pfName, 'Summary' + (gi ? ' (cont.)' : ''), today, band('Portfolio punch list summary · ' + data.props.length + ' propert' + (data.props.length === 1 ? 'y' : 'ies') + ' · ' + t.pools + ' pool' + (t.pools === 1 ? '' : 's')) + '<div class="rpt-punch-body">' + (gi === 0 ? kp : '') + tbl + (isLast ? rptComments(pfComments(data), 'Portfolio comments') : '') + '</div>', pfName);
       });
-      data.props.forEach(function(r){ pages += propertyPages(r, today, pfName, r.prop.property_name || 'Property'); });
+      // Outstanding digest: every open item grouped by property, chunked so
+      // the summary report stands alone without the per-property pages.
+      var digest = [];
+      data.props.forEach(function(r){
+        var items = [];
+        r.pools.forEach(function(p){ ITEMS.forEach(function(it){ var c = p.items[it.k]; if (c.state !== 'ok') items.push('<li class="' + c.state + '"><b>' + esc(p.items.name.text || ('Pool ' + (p.index + 1))) + ' · ' + esc(it.l) + ':</b> ' + esc(c.detail || c.text) + (c.override && c.override.note ? ' — <i>' + esc(c.override.note) + '</i>' : '') + '</li>'); }); });
+        var cms = propComments(data, r.prop.id);
+        if (!items.length && !cms.length) return;
+        digest.push({ r: r, items: items, cms: cms, weight: 2 + items.length + cms.length * 2 });
+      });
+      if (digest.length){
+        var pageBlocks = [], cur = [], curW = 0, CAP = 44;
+        digest.forEach(function(d){ if (cur.length && curW + Math.min(d.weight, CAP) > CAP){ pageBlocks.push(cur); cur = []; curW = 0; } cur.push(d); curW += Math.min(d.weight, CAP); });
+        if (cur.length) pageBlocks.push(cur);
+        pageBlocks.forEach(function(blk, bi){
+          var html = blk.map(function(d){
+            var ro = d.r.tot.total - d.r.tot.ok;
+            var lis = d.items.slice(0, 30).join('') + (d.items.length > 30 ? '<li class="pending">… and ' + (d.items.length - 30) + ' more in the full report / CSV</li>' : '');
+            return '<div class="rpt-punch-dg"><div class="rpt-punch-dg-hd"><b>' + esc(d.r.prop.property_name || 'Property') + '</b> · ' + esc((d.r.engineer && d.r.engineer.name) || 'no engineer') + ' · ' + ro + ' outstanding ' + tag(d.r.status === 'none' ? 'missing' : d.r.status) + '</div>' + (d.items.length ? '<ul class="rpt-punch-list">' + lis + '</ul>' : '') + (d.cms.length ? '<div class="rpt-punch-cms compact">' + d.cms.slice(-3).map(function(cm){ return '<div class="rpt-punch-cm"><div class="m">' + esc(cm.set_by_name || 'Admin') + ' · ' + esc(dtl(cm.set_at)) + '</div><div class="b">' + esc(cm.body).replace(/\n/g, '<br>') + '</div></div>'; }).join('') + '</div>' : '') + '</div>';
+          }).join('');
+          pages += rptPage(pfName, 'Outstanding items' + (bi ? ' (cont.)' : ''), today, band('Outstanding items and comments by property') + '<div class="rpt-punch-body">' + html + '</div>', pfName);
+        });
+      }
+      if (full) data.props.forEach(function(r){ pages += propertyPages(r, today, pfName, r.prop.property_name || 'Property', propComments(data, r.prop.id)); });
     } else {
       var r0 = data.props[0]; if (!r0) return;
       fileBase = 'AquaRev_PunchList_' + (r0.prop.property_name || 'Property').replace(/[^A-Za-z0-9]+/g, '_');
-      pages = propertyPages(r0, today, r0.prop.property_name || 'Property', 'Property');
+      pages = propertyPages(r0, today, r0.prop.property_name || 'Property', 'Property', propComments(data, r0.prop.id));
     }
     var rep = document.getElementById('ar2-report');
     if (!rep){ alert('Report container missing — refresh and try again.'); return; }
     rep.innerHTML = pages;
     preview('Punch List — Preview', fileBase);
+  }
+  /* ── Comments: add / delete (admin) ────────────────────────────── */
+  function addComment(key, target, body){
+    var data = _data[key], c = client();
+    if (!data || !c) return Promise.reject(new Error('cloud not ready'));
+    var u = (window.AR2_CLOUD && AR2_CLOUD.getUser) ? AR2_CLOUD.getUser() : null;
+    var row = { body: body, set_by: (u && u.id) || null, set_by_name: (u && (u.name || u.email)) || 'Admin', set_at: new Date().toISOString() };
+    if (target.indexOf('pf:') === 0) row.portfolio_id = target.slice(3); else row.property_id = target.slice(5);
+    return c.from('punch_list_comments').insert(row).select('id,portfolio_id,property_id,body,set_by_name,set_at').single().then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      var saved = rs.data || row, cm = data.raw.comments = data.raw.comments || { portfolio: [], byProp: {} };
+      if (saved.property_id) (cm.byProp[saved.property_id] = cm.byProp[saved.property_id] || []).push(saved); else cm.portfolio.push(saved);
+    });
+  }
+  function deleteComment(key, id){
+    var data = _data[key], c = client();
+    if (!data || !c) return Promise.reject(new Error('cloud not ready'));
+    return c.from('punch_list_comments').delete().eq('id', id).then(function(rs){
+      if (rs.error) throw new Error(rs.error.message);
+      var cm = data.raw.comments; if (!cm) return;
+      cm.portfolio = cm.portfolio.filter(function(x){ return x.id !== id; });
+      Object.keys(cm.byProp).forEach(function(pid){ cm.byProp[pid] = cm.byProp[pid].filter(function(x){ return x.id !== id; }); });
+    });
   }
   // Full-viewport preview + print, same pattern as the Engineer Report preview.
   function preview(title, fileBase){
@@ -5781,7 +5879,22 @@ var AR_PUNCH = (function(){
     if (act === 'toggle-prop'){ var blk = el.closest('.ar-punch-prop'); if (blk) blk.classList.toggle('open'); return; }
     if (act === 'expand-all'){ var root = el.closest('.ar-punch'); var blks = root ? root.querySelectorAll('.ar-punch-prop') : []; var anyClosed = Array.prototype.some.call(blks, function(b){ return !b.classList.contains('open'); }); Array.prototype.forEach.call(blks, function(b){ b.classList.toggle('open', anyClosed); }); el.textContent = anyClosed ? 'Collapse all' : 'Expand all'; return; }
     if (act === 'csv'){ csv(el.getAttribute('data-scope')); return; }
-    if (act === 'pdf'){ pdf(el.getAttribute('data-scope')); return; }
+    if (act === 'pdf'){ pdf(el.getAttribute('data-scope'), 'summary'); return; }
+    if (act === 'pdf-full'){ pdf(el.getAttribute('data-scope'), 'full'); return; }
+    if (act === 'add-comment'){
+      var form = el.closest('.ar-punch-cm-form'), ta = form && form.querySelector('[data-punch-cm-input]');
+      var body = ta ? (ta.value || '').trim() : '';
+      if (!body){ if (ta) ta.focus(); return; }
+      var k1 = el.getAttribute('data-scope'); el.disabled = true; el.textContent = 'Saving…';
+      addComment(k1, el.getAttribute('data-target'), body).then(function(){ rerender(k1); }, function(err){ el.disabled = false; el.textContent = 'Add comment'; alert('Could not save the comment: ' + ((err && err.message) || String(err))); });
+      return;
+    }
+    if (act === 'del-comment'){
+      if (!confirm('Delete this comment?')) return;
+      var k2 = el.getAttribute('data-scope');
+      deleteComment(k2, el.getAttribute('data-id')).then(function(){ rerender(k2); }, function(err){ alert('Could not delete the comment: ' + ((err && err.message) || String(err))); });
+      return;
+    }
     if (act === 'close-prop'){ toggleProperty(el.getAttribute('data-prop')); return; }
     if (act === 'close-pf'){ togglePortfolio(el.getAttribute('data-pf')); return; }
   }, true);
