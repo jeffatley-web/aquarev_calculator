@@ -5452,7 +5452,9 @@ var AR_PUNCH = (function(){
     return '<span class="ar-punch-pill ' + m[0] + '">' + m[1] + '</span>';
   }
   function legend(){
-    return '<div class="ar-punch-legend"><span><i class="ar-punch-dot ok"></i>Confirmed</span><span><i class="ar-punch-dot pending"></i>Pending — entered or partial, not confirmed</span><span><i class="ar-punch-dot missing"></i>Outstanding</span><span><b style="color:#48cae4">M</b>&nbsp;Admin override</span></div>';
+    return '<div class="ar-punch-legend"><span><i class="ar-punch-dot ok"></i>Confirmed</span><span><i class="ar-punch-dot pending"></i>Pending — entered or partial, not confirmed</span><span><i class="ar-punch-dot missing"></i>Outstanding</span><span><b style="color:#48cae4">M</b>&nbsp;Admin override</span>'
+      + (isAdmin() ? '<span class="ar-punch-hint">✎ Click any cell to mark it complete or outstanding — e.g. a pump-room photo that is not sufficient.</span>' : '')
+      + '</div>';
   }
   function chip(r, p, it, scope){
     var cell = p.items[it.k], admin = isAdmin();
@@ -5596,7 +5598,7 @@ var AR_PUNCH = (function(){
       + (o ? '<div class="meta">Override set by ' + esc(o.set_by_name || 'admin') + ' · ' + esc(dtl(o.set_at)) + '</div>' : '')
       + '<div class="err"></div>';
     document.body.appendChild(pop);
-    var rect = chipEl.getBoundingClientRect(), w = 300, h = pop.offsetHeight || 220;
+    var rect = chipEl.getBoundingClientRect(), w = pop.offsetWidth || 320, h = pop.offsetHeight || 220;
     var left = Math.min(Math.max(8, rect.left), window.innerWidth - w - 8);
     var top = (rect.bottom + 8 + h > window.innerHeight) ? Math.max(8, rect.top - h - 8) : rect.bottom + 8;
     pop.style.left = left + 'px'; pop.style.top = top + 'px';
