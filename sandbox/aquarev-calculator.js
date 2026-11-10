@@ -5631,6 +5631,11 @@ var AR_PUNCH = (function(){
     for (var j = 0; j < openBtns.length; j++) openBtns[j].classList.remove('is-open');
     drawer.classList.add('open'); if (btn) btn.classList.add('is-open');
     var pfRow = ((window.AR2_PF && AR2_PF._state && AR2_PF._state.portfolios) || []).filter(function(p){ return p && p.id === portfolioId; })[0] || {};
+    if (!pfRow.name){
+      // Archive list: the card carries the name in its title attribute.
+      var card = document.querySelector('.ar-bank-card[data-row-id="' + portfolioId + '"]');
+      if (card) pfRow = { id: portfolioId, name: card.getAttribute('title') || '' };
+    }
     renderInto(drawer, { portfolioId: portfolioId, name: pfRow.name || '' });
   }
 
@@ -17680,6 +17685,10 @@ function renderBank(targetId){
           ? '<button class="ar-bank-act snapshot" data-bank-action="snapshot" data-bank-id="'+entry.id+'" data-bank-type="portfolio" data-pf-snap-portfolio="'+entry.id+'" title="Snapshot — properties, key stats and summary KPIs" aria-label="Portfolio snapshot">'
               +'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
             +'</button>'
+            // Portfolio punch list — spec deliverables across every property.
+            +'<button class="ar-bank-act punch" data-bank-action="punch" data-bank-id="'+entry.id+'" data-bank-type="portfolio" data-pf-punch-portfolio="'+entry.id+'" title="Punch list — specification deliverables outstanding across the portfolio" aria-label="Portfolio punch list">'
+              +'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>'
+            +'</button>'
             +'<button class="ar-bank-act" data-bank-action="duplicate" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Duplicate portfolio">'+I.copy+'</button>'
             +bankEngBtn
             +'<button class="ar-bank-act danger" data-bank-action="delete" data-bank-id="'+entry.id+'" data-bank-type="portfolio" title="Delete portfolio">'+I.trash+'</button>'
@@ -17727,6 +17736,7 @@ function renderBank(targetId){
         // togglePfPortfolioSnapshot() when the snapshot action is clicked.
         +(isPortfolio
             ? '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer in-archive" id="ar-pf-pf-snap-'+entry.id+'" data-pf-snap-drawer="'+entry.id+'"></div>'
+              +'<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer ar-punch-drawer in-archive" id="ar-pf-pf-punch-'+entry.id+'" data-pf-punch-drawer="'+entry.id+'"></div>'
             : '<div class="ar-pf-prop-snap-drawer ar-pf-pf-snap-drawer in-archive" id="ar-as-snap-'+entry.id+'" data-as-snap-drawer="'+entry.id+'"></div>');
       }).join('');
     };
@@ -23367,6 +23377,11 @@ function handleClick(e){
     // Portfolio snapshot drawer (Archive list) — quick view, no navigation.
     if (bAct==='snapshot' && bType==='portfolio'){
       if (typeof togglePfPortfolioSnapshot === 'function') togglePfPortfolioSnapshot(bId);
+      return;
+    }
+    // Portfolio punch list drawer (Archive list).
+    if (bAct==='punch' && bType==='portfolio'){
+      if (window.AR_PUNCH) AR_PUNCH.togglePortfolio(bId);
       return;
     }
     // Single-assessment snapshot drawer — same quick view for archive records.
