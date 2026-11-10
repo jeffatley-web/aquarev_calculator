@@ -5574,12 +5574,16 @@ var AR_PUNCH = (function(){
     var wrap = el.parentNode; wrap.innerHTML = html;
     openIds.forEach(function(id){ var n = wrap.querySelector('.ar-punch-prop[data-punch-prop="' + id + '"]'); if (n) n.classList.add('open'); });
   }
-  function toggleProperty(propertyId){
+  // anchorEl: optional row to mount under (corp engineer dashboard rows
+  // are .ar-corp-port-prop, not .ar-pf-prop-row).
+  function toggleProperty(propertyId, anchorEl){
     if (!propertyId) return;
     var drawerId = 'ar-punch-prop-' + propertyId;
     var existing = document.getElementById(drawerId);
-    var row = document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]');
-    var trigger = row ? row.querySelector('.ar-pf-prop-punch') : null;
+    var row = anchorEl
+           || document.querySelector('.ar-pf-prop-row[data-pf-property="' + propertyId + '"]')
+           || (function(){ var b = document.querySelector('.ar-corp-port-prop [data-action="corp-prop-punch"][data-property-id="' + propertyId + '"]'); return b ? b.closest('.ar-corp-port-prop') : null; })();
+    var trigger = row ? row.querySelector('.ar-pf-prop-punch, [data-action="corp-prop-punch"]') : null;
     if (existing){
       existing.classList.remove('open');
       if (trigger) trigger.classList.remove('is-open');
@@ -5594,6 +5598,24 @@ var AR_PUNCH = (function(){
     if (trigger) trigger.classList.add('is-open');
     requestAnimationFrame(function(){ drawer.classList.add('open'); });
     renderInto(drawer, { propertyId: propertyId });
+  }
+  /* ── Modal (engineer portal + corp portfolio view): same renderers,
+        read-only for non-admins, with the export buttons. ───────────── */
+  function openModal(scope){
+    closeModal();
+    var host = document.getElementById('ar2') || document.body;
+    var m = document.createElement('div');
+    m.className = 'ar-punch-modal';
+    m.innerHTML = '<div class="ar-punch-modal-panel"><div class="ar-pf-prop-snap-drawer ar-punch-drawer open" style="margin:0"></div></div>';
+    host.appendChild(m);
+    document.body.classList.add('ar-punch-modal-open');
+    m.addEventListener('click', function(e){ if (e.target === m) closeModal(); });
+    renderInto(m.querySelector('.ar-punch-drawer'), scope);
+  }
+  function closeModal(){
+    var m = document.querySelector('.ar-punch-modal');
+    if (m && m.parentNode) m.parentNode.removeChild(m);
+    document.body.classList.remove('ar-punch-modal-open');
   }
   function togglePortfolio(portfolioId){
     if (!portfolioId) return;
@@ -5895,12 +5917,15 @@ var AR_PUNCH = (function(){
       deleteComment(k2, el.getAttribute('data-id')).then(function(){ rerender(k2); }, function(err){ alert('Could not delete the comment: ' + ((err && err.message) || String(err))); });
       return;
     }
-    if (act === 'close-prop'){ toggleProperty(el.getAttribute('data-prop')); return; }
-    if (act === 'close-pf'){ togglePortfolio(el.getAttribute('data-pf')); return; }
+    if (act === 'close-prop' || act === 'close-pf'){
+      if (el.closest('.ar-punch-modal')){ closeModal(); return; }
+      if (act === 'close-prop') toggleProperty(el.getAttribute('data-prop')); else togglePortfolio(el.getAttribute('data-pf'));
+      return;
+    }
   }, true);
-  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closePop(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape'){ closePop(); if (!document.getElementById('ar2-punch-preview-toolbar')) closeModal(); } });
 
-  return { ITEMS: ITEMS, load: load, compute: computeAll, toggleProperty: toggleProperty, togglePortfolio: togglePortfolio, csv: csv, pdf: pdf, canUse: function(){ return !isCorp(); }, isAdmin: isAdmin, _data: _data };
+  return { ITEMS: ITEMS, load: load, compute: computeAll, toggleProperty: toggleProperty, togglePortfolio: togglePortfolio, openModal: openModal, closeModal: closeModal, csv: csv, pdf: pdf, canUse: function(){ return true; }, isAdmin: isAdmin, _data: _data };
 })();
 window.AR_PUNCH = AR_PUNCH;
 
@@ -12785,6 +12810,10 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
         +     '<button class="ar-corp-port-prop-act snap" data-action="corp-prop-snapshot" data-property-id="' + esc(p.id) + '" type="button" data-pf-tip="Snapshot" data-pf-tip-tone="purple">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 14h7v7H3z"/></svg>'
         +     '</button>'
+        // Punch list (view-only for corporate engineers; Jeff 2026-11-10).
+        +     '<button class="ar-corp-port-prop-act punch" data-action="corp-prop-punch" data-property-id="' + esc(p.id) + '" type="button" data-pf-tip="Punch list" data-pf-tip-tone="green">'
+        +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>'
+        +     '</button>'
         +     '<button class="ar-corp-port-prop-act prev" data-action="corp-prop-preview" data-property-id="' + esc(p.id) + '" data-property-name="' + esc(p.property_name || 'this property') + '" type="button" data-pf-tip="View Assessment" data-pf-tip-tone="green">'
         +       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
         +     '</button>'
@@ -12794,7 +12823,8 @@ function toggleCorpPortfolioPropsDrawer(portfolioId, portfolioName, triggerBtn){
         +   '</div>'
         + '</div>';
     }).join('');
-      drawer.innerHTML = '<div class="ar-corp-port-drawer-head">' + esc(portfolioName) + ' · ' + props.length + ' propert' + (props.length===1?'y':'ies') + '</div>' + rows;
+      drawer.innerHTML = '<div class="ar-corp-port-drawer-head">' + esc(portfolioName) + ' · ' + props.length + ' propert' + (props.length===1?'y':'ies')
+        + '<button type="button" class="ar-corp-port-pf-punch" data-action="corp-pf-punch" data-portfolio-id="' + esc(portfolioId) + '" data-portfolio-name="' + esc(portfolioName) + '">Portfolio punch list</button></div>' + rows;
       // Prime the engineer-assignment cache so the property eng report
       // badge can look up engineer assignments without a refetch.
       if (window.AR2_PF && AR2_PF.loadAssignmentsForPortfolio){
@@ -15767,7 +15797,10 @@ window.AR2_ENGINEER = (function(){
       +         '<div class="ar-admin-review-eyebrow">Property review</div>'
       +         '<div class="ar-admin-review-title" style="font-size:20px">' + nameDisplay + '</div>'
       +       '</div>'
-      +       '<span class="ar-admin-review-status ' + esc(asgnStatus) + '">' + esc(statusLabel) + '</span>'
+      +       '<div class="ar-eng-head-r">'
+      +         ((s.assignment && s.assignment.property_id) ? '<button type="button" class="ar-eng-btn ghost-aq ar-eng-punch-btn" data-action="ar-eng-punch" title="What this property still needs for its device specification">Punch list</button>' : '')
+      +         '<span class="ar-admin-review-status ' + esc(asgnStatus) + '">' + esc(statusLabel) + '</span>'
+      +       '</div>'
       +     '</div>'
 
       // ── Facts grid — four quiet facts; the address spans the row.
@@ -16859,6 +16892,13 @@ window.AR2_ENGINEER = (function(){
       if (cU && uU) cU.from('app_users').update({ unit_system: pref }).eq('id', uU.id).then(function(){}, function(){});
       s._volUnit = {};   // field pills fall back to the new preference
       repaint();
+      return true;
+    }
+    // Punch list (view-only): what the property still owes for its spec.
+    if (action === 'ar-eng-punch'){
+      var punchProp = s.assignment && s.assignment.property_id;
+      if (!punchProp){ alert('The punch list is available for portfolio properties only.'); return true; }
+      if (window.AR_PUNCH) AR_PUNCH.openModal({ propertyId: punchProp });
       return true;
     }
     if (action === 'ar-eng-prop-units'){
@@ -22684,6 +22724,20 @@ function handleClick(e){
     if (snapPid && typeof togglePfPropertySnapshot === 'function'){
       togglePfPropertySnapshot(snapPid, snapRow);
     }
+    return;
+  }
+  // Corp Eng — punch list (view-only) under a property row, or the whole
+  // portfolio in a modal.
+  var corpPropPunch = e.target.closest('[data-action="corp-prop-punch"]');
+  if (corpPropPunch){
+    var punchPid2 = corpPropPunch.getAttribute('data-property-id');
+    if (punchPid2 && window.AR_PUNCH) AR_PUNCH.toggleProperty(punchPid2, corpPropPunch.closest('.ar-corp-port-prop'));
+    return;
+  }
+  var corpPfPunch = e.target.closest('[data-action="corp-pf-punch"]');
+  if (corpPfPunch){
+    e.stopPropagation();
+    if (window.AR_PUNCH) AR_PUNCH.openModal({ portfolioId: corpPfPunch.getAttribute('data-portfolio-id'), name: corpPfPunch.getAttribute('data-portfolio-name') || '' });
     return;
   }
   // Corp Eng — preview a single property's PDF report (portrait + cards).
