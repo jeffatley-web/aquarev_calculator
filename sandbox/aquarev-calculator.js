@@ -13542,12 +13542,12 @@ window.AR2_SIZING = (function(){
   }
   // ── unit conversions (canonical: gallons, gpm) ──
   var VOL = {
-    gal: { label: 'gal',  toGal: function(v){ return v; },               fromGal: function(g){ return g; },               dp: 0 },
+    gal: { label: 'US gal',  toGal: function(v){ return v; },               fromGal: function(g){ return g; },               dp: 0 },
     m3:  { label: 'm³',   toGal: function(v){ return v * GAL_PER_M3; },  fromGal: function(g){ return g / GAL_PER_M3; },  dp: 1 },
     L:   { label: 'L',    toGal: function(v){ return v / L_PER_GAL; },   fromGal: function(g){ return g * L_PER_GAL; },   dp: 0 }
   };
   var FLOW = {
-    gpm: { label: 'gpm',  toGpm: function(v){ return v; },               fromGpm: function(g){ return g; },               dp: 0 },
+    gpm: { label: 'US gpm',  toGpm: function(v){ return v; },               fromGpm: function(g){ return g; },               dp: 0 },
     m3h: { label: 'm³/h', toGpm: function(v){ return v * GPM_PER_M3H; }, fromGpm: function(g){ return g / GPM_PER_M3H; }, dp: 1 },
     ls:  { label: 'L/s',  toGpm: function(v){ return v * GPM_PER_LS; },  fromGpm: function(g){ return g / GPM_PER_LS; },  dp: 2 }
   };
@@ -13587,7 +13587,7 @@ window.AR2_SIZING = (function(){
         var nx = nextDevice(d.in);
         if (!nx){ // above 6″ max → parallel 6″
           parallel = Math.ceil(design / d.max);
-          flags.push({ k: 'parallel', msg: 'Design flow ' + Math.round(design) + ' gpm exceeds the 6″ maximum of ' + d.max + ' gpm; split across ' + parallel + ' × 6″ units in parallel.' });
+          flags.push({ k: 'parallel', msg: 'Design flow ' + Math.round(design) + ' US gpm exceeds the 6″ maximum of ' + d.max + ' US gpm; split across ' + parallel + ' × 6″ units in parallel.' });
           reason = 'parallel';
           break;
         }
@@ -13595,16 +13595,16 @@ window.AR2_SIZING = (function(){
       }
       if (upsized){
         reason = 'upsized';
-        flags.push({ k: 'upsized', msg: 'The ' + startDev.in + '″ device matched to this line is not compatible with the GPM specification (' + Math.round(design) + ' gpm > ' + startDev.max + ' gpm max). Upsized to ' + d.in + '″ (' + d.min + '–' + d.max + ' gpm).' });
+        flags.push({ k: 'upsized', msg: 'The ' + startDev.in + '″ device matched to this line is not compatible with the US GPM specification (' + Math.round(design) + ' US gpm > ' + startDev.max + ' US gpm max). Upsized to ' + d.in + '″ (' + d.min + '–' + d.max + ' US gpm).' });
       }
       if (design < d.min){
         belowMin = true; reason = reason === 'matched' ? 'below_min' : reason;
-        flags.push({ k: 'below_min', msg: 'Design flow ' + Math.round(design) + ' gpm is below the ' + d.in + '″ device minimum of ' + d.min + ' gpm. Confirm the flow reading before installing.' });
+        flags.push({ k: 'below_min', msg: 'Design flow ' + Math.round(design) + ' US gpm is below the ' + d.in + '″ device minimum of ' + d.min + ' US gpm. Confirm the flow reading before installing.' });
       }
       dev = d.in;
     }
     var underCode = entered > 0 && code > 0 && entered < code * 0.98;
-    if (underCode) flags.push({ k: 'under_code', msg: 'Entered flow ' + Math.round(entered) + ' gpm is below the health-code flow of ' + Math.round(code) + ' gpm (4 h turnover). Device sized for the code flow.' });
+    if (underCode) flags.push({ k: 'under_code', msg: 'Entered flow ' + Math.round(entered) + ' US gpm is below the health-code flow of ' + Math.round(code) + ' US gpm (4 h turnover). Device sized for the code flow.' });
     var vel = velocityFps(std, o.size, design);
     var overCap = vel > V_MAX_FPS;
     if (overCap) flags.push({ k: 'velocity', msg: 'Design flow implies ' + vel.toFixed(1) + ' ft/s in this line (limit ' + V_MAX_FPS + ' ft/s). Check the pipe size or the flow reading.' });
@@ -15233,7 +15233,7 @@ window.AR2_ENGINEER = (function(){
       +     '<label class="ar-eng-units-pref" title="Your measurement preference for volumes and flows">'
       +       '<span>Units</span>'
       +       '<select data-action="ar-eng-user-units" aria-label="Measurement preference">'
-      +         '<option value="imperial"' + (userUnits() === 'imperial' ? ' selected' : '') + '>Imperial · gal · gpm</option>'
+      +         '<option value="imperial"' + (userUnits() === 'imperial' ? ' selected' : '') + '>US · US gal · US gpm</option>'
       +         '<option value="metric"' + (userUnits() === 'metric' ? ' selected' : '') + '>Metric · m³ · m³/h</option>'
       +       '</select>'
       +     '</label>'
@@ -15272,7 +15272,7 @@ window.AR2_ENGINEER = (function(){
         + '<p><b>Site pipe standard.</b> Choose <b>Imperial</b> if the return pipes are marked in inches, <b>Metric</b> if they are marked in millimetres (63, 90, 110, 160). This sets the size list on every return line in Step 3. AquaRev devices always stay in inches; on a metric site AquaRev supplies a transition adapter for each line, with the device on the receiving end.</p>'
         + '<p><b>Your contact details.</b> Name, mobile and company are printed on the verification report your rep receives. Tap a field to edit; it saves when you leave the field. Your sign-in email is managed by AquaRev.</p>'
         + '<p><b>Access</b> is auto-confirmed when you open the assignment. If something blocks you on-site (locked equipment room, missing keys), tap <b>Report blocked access</b> and add a note. Your rep gets it immediately.</p>'
-        + '<p><b>Your own units</b> (gallons and gpm, or m³ and m³/h) are set from the <b>Units</b> menu in the header. They change how you enter and read volumes and flows; they do not change the site pipe standard.</p>',
+        + '<p><b>Your own units</b> (US gallons and US gpm, or m³ and m³/h) are set from the <b>Units</b> menu in the header. They change how you enter and read volumes and flows; they do not change the site pipe standard.</p>',
       3: ''
         + '<div class="ar-eng-help-section">Step 3 — Pool profiles</div>'
         + '<p><b>Two sections.</b> <b>1 Pump Rooms</b> then <b>2 Pools</b>, each with a numbered band and a count. The small bar under the stepper (<i>1 Pump Rooms · 2 Pools 0/3 · Review</i>) stays on screen as you scroll; tap it to jump between sections or straight to Review. The Pools count shows how many pools are confirmed.</p>'
@@ -16208,7 +16208,7 @@ window.AR2_ENGINEER = (function(){
   }
   function unitPillsHtml(kind, current, attrs){
     var units = kind === 'vol' ? ['gal','m3','L'] : ['gpm','m3h','ls'];
-    var labels = { gal:'gal', m3:'m³', L:'L', gpm:'gpm', m3h:'m³/h', ls:'L/s' };
+    var labels = { gal:'US gal', m3:'m³', L:'L', gpm:'US gpm', m3h:'m³/h', ls:'L/s' };
     return '<span class="ar-eng-unit-pills" role="radiogroup">' + units.map(function(u){
       return '<button type="button" class="ar-eng-unit-pill' + (u === current ? ' on' : '') + '" ' + attrs + ' data-unit="' + u + '">' + labels[u] + '</button>';
     }).join('') + '</span>';
